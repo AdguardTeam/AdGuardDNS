@@ -12,13 +12,11 @@ GOPATH=$(shell pwd)/go_$(VERSION)
 clean:
 	rm -fv *.deb
 
-## replace bit.adguard.com with github and remove ln -s once we push adguard-dns to github
+## replace hmage/curly-system with AdguardTeam/AdguardDNS
 build: check-vars clean
 	mkdir -p $(GOPATH)
-	GOPATH=$(GOPATH) go get -v -d -insecure bit.adguard.com/dns/adguard-dns
+	GOPATH=$(GOPATH) go get -v -d github.com/hmage/curly-system
 	GOPATH=$(GOPATH) go get -v -d github.com/coredns/coredns
-	mkdir -p $(GOPATH)/src/github.com/AdguardTeam
-	ln -s $(GOPATH)/src/bit.adguard.com/dns/adguard-dns $(GOPATH)/src/github.com/AdguardTeam/AdguardDNS
 	cp plugin.cfg $(GOPATH)/src/github.com/coredns/coredns
 	cd $(GOPATH)/src/github.com/coredns/coredns; GOPATH=$(GOPATH) go generate
 	cd $(GOPATH)/src/github.com/coredns/coredns; GOPATH=$(GOPATH) go get -v -d -t .
