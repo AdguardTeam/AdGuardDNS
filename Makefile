@@ -12,10 +12,9 @@ GOPATH=$(shell pwd)/go_$(VERSION)
 clean:
 	rm -fv *.deb
 
-## replace hmage/curly-system with AdguardTeam/AdguardDNS
 build: check-vars clean
 	mkdir -p $(GOPATH)
-	GOPATH=$(GOPATH) go get -v -d github.com/hmage/curly-system
+	GOPATH=$(GOPATH) go get -v -d github.com/AdguardTeam/AdguardDNS
 	GOPATH=$(GOPATH) go get -v -d github.com/coredns/coredns
 	cp plugin.cfg $(GOPATH)/src/github.com/coredns/coredns
 	cd $(GOPATH)/src/github.com/coredns/coredns; GOPATH=$(GOPATH) go generate
