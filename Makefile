@@ -1,4 +1,4 @@
-NAME=adguard-internal-dns
+NAME=dns
 VERSION=$(version)
 MAINTAINER="AdGuard Web Team"
 USER="dns"
@@ -41,15 +41,14 @@ package: build
 		-v 1.$(VERSION) \
 		-s dir \
 		-t deb \
-		-n $(NAME) \
+		-n adguard-$(NAME)-service \
 		-m $(MAINTAINER) \
 		--vendor $(MAINTAINER) \
 		-C go_$(VERSION)/bin \
 		coredns
 
 repo: package
-	for package in *.deb ; do freight-add $$package apt/jessie/non-free ; done
-	freight-cache
+	/usr/local/bin/add_package_to_repo.sh $(NAME)_service $(VERSION) *.deb
 
 check-vars:
 ifndef version
