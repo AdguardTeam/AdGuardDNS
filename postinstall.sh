@@ -22,11 +22,6 @@ case "$1" in
             then
             echo "Filter rules could not be downloaded."
         fi
-
-        # Link logs dir (Required for request logs)
-        ln -s /var/log/<%= project %> /opt/<%= project %>/logs
-
-        chown -R <%= user %>: /opt/<%= project %>
     ;;
     *)
         echo "postinst called with unknown argument \`$1'" >&2
