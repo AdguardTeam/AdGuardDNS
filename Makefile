@@ -24,7 +24,7 @@ build: check-vars clean
 	cd $(GOPATH)/src/github.com/coredns/coredns; GOPATH=$(GOPATH) go build -x -v -ldflags="-X github.com/coredns/coredns/coremain.GitCommit=$(VERSION)" -o $(GOPATH)/bin/coredns
 
 package: build
-	fpm --prefix /opt/$(NAME) \
+	fpm --prefix /usr/local/bin \
 		--deb-user $(USER) \
 		--after-install postinstall.sh \
 		--after-remove postrm.sh \
