@@ -13,14 +13,20 @@ case "$1" in
                     --gecos "<%= project %> user" \
                     --shell /bin/bash "<%= user %>"
         fi
-        URL="https://filters.adtidy.org/android/filters/15.txt"
+
         OUTFILE="/var/lib/dnsfilter/dns.txt"
 
-        mkdir -p /var/lib/dnsfilter
-        wget -q --timeout=90 "$URL" -O "$OUTFILE"
-        if [ $? -ne 0 ]
-            then
-            echo "Filter rules could not be downloaded."
+        if [ ! -f "${OUTFILE}" ]; then
+            echo "${OUTFILE} does not exists. Downloading..."
+
+            URL="https://filters.adtidy.org/android/filters/15.txt"
+
+            mkdir -p /var/lib/dnsfilter
+            wget -q --timeout=90 "$URL" -O "$OUTFILE"
+            if [ $? -ne 0 ]
+                then
+                echo "Filter rules could not be downloaded."
+            fi
         fi
     ;;
     *)
