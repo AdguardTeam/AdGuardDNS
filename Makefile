@@ -2,6 +2,7 @@ NAME=dns
 VERSION=$(version)
 MAINTAINER="AdGuard Web Team"
 USER="dns"
+ARCHITECTURE=noarch
 SHELL := /bin/bash
 
 .PHONY: default
@@ -41,6 +42,7 @@ package: build
 		-v 1.$(VERSION) \
 		-s dir \
 		-t deb \
+		-a $(ARCHITECTURE) \
 		-n adguard-$(NAME)-service \
 		-m $(MAINTAINER) \
 		--vendor $(MAINTAINER) \
