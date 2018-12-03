@@ -285,34 +285,40 @@ func (p *plug) Collect(ch chan<- prometheus.Metric) {
 	p.doStats(ch, doMetric)
 }
 
-// lookup host, but return answer as if it was a result of origname lookup
-func lookupReplaced(host string, origname string) ([]dns.RR, error) {
+// lookup host, but return answer as if it was a result of different lookup
+// TODO: works only on A and AAAA, the go stdlib resolver can't do arbitrary types
+func lookupReplaced(host string, question dns.Question) ([]dns.RR, error) {
 	var records []dns.RR
 	var res *net.Resolver // nil resolver is default resolver
-	addrs, err := res.LookupIPAddr(context.TODO(), host)
-	if err != nil {
-		return nil, err
-	}
-	for _, addr := range addrs {
-		ip := addr.IP
-		var rr dns.RR
-		var err error
-		if ip.To4() != nil {
-			// ipv4 -> A
-			rr, err = dns.NewRR(fmt.Sprintf("%s A %s", origname, ip.String()))
-			if err != nil {
-				return nil, err // fail entire request
-				// TODO: return only successful answers?
-			}
-		} else {
-			// ipv6 -> AAAA
-			rr, err = dns.NewRR(fmt.Sprintf("%s AAAA %s", origname, ip.String()))
-			if err != nil {
-				return nil, err // fail entire request
-				// TODO: return only successful answers?
+	switch question.Qtype {
+	case dns.TypeA:
+		addrs, err := res.LookupIPAddr(context.TODO(), host)
+		if err != nil {
+			return nil, err
+		}
+		for _, addr := range addrs {
+			if addr.IP.To4() != nil {
+				rr, err := dns.NewRR(fmt.Sprintf("%s A %s", question.Name, addr.IP.String()))
+				if err != nil {
+					return nil, err // fail entire request, TODO: return partial request?
+				}
+				records = append(records, rr)
 			}
 		}
-		records = append(records, rr)
+	case dns.TypeAAAA:
+		addrs, err := res.LookupIPAddr(context.TODO(), host)
+		if err != nil {
+			return nil, err
+		}
+		for _, addr := range addrs {
+			if addr.IP.To4() == nil {
+				rr, err := dns.NewRR(fmt.Sprintf("%s AAAA %s", question.Name, addr.IP.String()))
+				if err != nil {
+					return nil, err // fail entire request, TODO: return partial request?
+				}
+				records = append(records, rr)
+			}
+		}
 	}
 	return records, nil
 }
@@ -333,7 +339,7 @@ func (p *plug) replaceHostWithValAndReply(ctx context.Context, w dns.ResponseWri
 	} else {
 		// this is a domain name, need to look it up
 		var err error
-		records, err = lookupReplaced(dns.Fqdn(val), question.Name)
+		records, err = lookupReplaced(dns.Fqdn(val), question)
 		if err != nil {
 			log.Printf("Got error %s\n", err)
 			return dns.RcodeServerFailure, fmt.Errorf("plugin/dnsfilter: %s", err)
