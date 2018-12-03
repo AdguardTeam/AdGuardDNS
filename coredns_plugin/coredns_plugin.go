@@ -62,8 +62,8 @@ type plug struct {
 }
 
 var defaultPluginSettings = plugSettings{
-	SafeBrowsingBlockHost: "safebrowsing.block.dns.adguard.com",
-	ParentalBlockHost:     "family.block.dns.adguard.com",
+	SafeBrowsingBlockHost: "standard-block.dns.adguard.com",
+	ParentalBlockHost:     "family-block.dns.adguard.com",
 	BlockedTTL:            3600, // in seconds
 	Filters:               make([]plugFilter, 0),
 }
