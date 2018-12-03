@@ -184,25 +184,6 @@ func setupPlugin(c *caddy.Controller) (*plug, error) {
 		}
 	}
 
-	log.Printf("Loading stats from querylog")
-	err := fillStatsFromQueryLog()
-	if err != nil {
-		log.Printf("Failed to load stats from querylog: %s", err)
-		return nil, err
-	}
-
-	if p.settings.QueryLogEnabled {
-		onceQueryLog.Do(func() {
-			go periodicQueryLogRotate()
-			go periodicHourlyTopRotate()
-			go statsRotator()
-		})
-	}
-
-	onceHook.Do(func() {
-		caddy.RegisterEventHook("dnsfilter-reload", hook)
-	})
-
 	return p, nil
 }
 
@@ -251,13 +232,6 @@ func (p *plug) onShutdown() error {
 }
 
 func (p *plug) onFinalShutdown() error {
-	logBufferLock.Lock()
-	err := flushToFile(logBuffer)
-	if err != nil {
-		log.Printf("failed to flush to file: %s", err)
-		return err
-	}
-	logBufferLock.Unlock()
 	return nil
 }
 
@@ -464,7 +438,6 @@ func (p *plug) serveDNSInternal(ctx context.Context, w dns.ResponseWriter, r *dn
 				}
 				return rcode, result, err
 			case dnsfilter.FilteredBlackList:
-
 				if result.Ip == nil {
 					// return NXDomain
 					rcode, err := p.writeNXdomain(ctx, w, r)
@@ -511,7 +484,6 @@ func (p *plug) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (
 	start := time.Now()
 	requests.Inc()
 	state := request.Request{W: w, Req: r}
-	ip := state.IP()
 
 	// capture the written answer
 	rrw := dnstest.NewRecorder(w)
@@ -560,14 +532,8 @@ func (p *plug) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (
 	// log
 	elapsed := time.Since(start)
 	elapsedTime.Observe(elapsed.Seconds())
-	if p.settings.QueryLogEnabled {
-		logRequest(r, rrw.Msg, result, time.Since(start), ip)
-	}
 	return rcode, err
 }
 
 // Name returns name of the plugin as seen in Corefile and plugin.cfg
 func (p *plug) Name() string { return "dnsfilter" }
-
-var onceHook sync.Once
-var onceQueryLog sync.Once
