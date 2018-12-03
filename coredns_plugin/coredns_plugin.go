@@ -120,12 +120,12 @@ func setupPlugin(c *caddy.Controller) (*plug, error) {
 				if !c.NextArg() {
 					return nil, c.ArgErr()
 				}
-				blockedTtl, err := strconv.ParseUint(c.Val(), 10, 32)
+				blockedTTL, err := strconv.ParseUint(c.Val(), 10, 32)
 				if err != nil {
 					return nil, c.ArgErr()
 				}
-				log.Printf("Blocked request TTL is %d", blockedTtl)
-				p.settings.BlockedTTL = uint32(blockedTtl)
+				log.Printf("Blocked request TTL is %d", blockedTTL)
+				p.settings.BlockedTTL = uint32(blockedTTL)
 			case "querylog":
 				log.Println("Query log is enabled")
 				p.settings.QueryLogEnabled = true
@@ -134,7 +134,7 @@ func setupPlugin(c *caddy.Controller) (*plug, error) {
 					return nil, c.ArgErr()
 				}
 
-				filterId, err := strconv.ParseInt(c.Val(), 10, 64)
+				filterID, err := strconv.ParseInt(c.Val(), 10, 64)
 				if err != nil {
 					return nil, c.ArgErr()
 				}
@@ -145,7 +145,7 @@ func setupPlugin(c *caddy.Controller) (*plug, error) {
 
 				// Initialize filter and add it to the list
 				p.settings.Filters = append(p.settings.Filters, plugFilter{
-					ID:   filterId,
+					ID:   filterID,
 					Path: filterPath,
 				})
 			}
@@ -288,7 +288,7 @@ func (p *plug) Collect(ch chan<- prometheus.Metric) {
 // lookup host, but return answer as if it was a result of origname lookup
 func lookupReplaced(host string, origname string) ([]dns.RR, error) {
 	var records []dns.RR
-	var res *net.Resolver = nil // nil resolver is default resolver
+	var res *net.Resolver // nil resolver is default resolver
 	addrs, err := res.LookupIPAddr(context.TODO(), host)
 	if err != nil {
 		return nil, err
@@ -445,14 +445,14 @@ func (p *plug) serveDNSInternal(ctx context.Context, w dns.ResponseWriter, r *dn
 						return rcode, dnsfilter.Result{}, err
 					}
 					return rcode, result, err
-				} else {
-					// This is a hosts-syntax rule
-					rcode, err := p.replaceHostWithValAndReply(ctx, w, r, host, result.Ip.String(), question)
-					if err != nil {
-						return rcode, dnsfilter.Result{}, err
-					}
-					return rcode, result, err
 				}
+
+				// This is a hosts-syntax rule
+				rcode, err := p.replaceHostWithValAndReply(ctx, w, r, host, result.Ip.String(), question)
+				if err != nil {
+					return rcode, dnsfilter.Result{}, err
+				}
+				return rcode, result, err
 			case dnsfilter.FilteredInvalid:
 				// return NXdomain
 				rcode, err := p.writeNXdomain(ctx, w, r)

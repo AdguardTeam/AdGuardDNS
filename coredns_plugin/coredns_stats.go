@@ -90,7 +90,7 @@ func (p *periodicStats) Observe(name string, when time.Time, value float64) {
 		currentValues := p.Entries[countname]
 		value := currentValues[elapsed]
 		// trace("Will change p.Entries[%s][%d] from %v to %v", countname, elapsed, value, value+1)
-		value += 1
+		value++
 		currentValues[elapsed] = value
 		p.Entries[countname] = currentValues
 	}
