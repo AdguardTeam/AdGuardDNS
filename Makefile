@@ -8,20 +8,22 @@ SHELL := /bin/bash
 .PHONY: default
 default: repo
 
-GOPATH=$(shell pwd)/go_$(VERSION)
+mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
+mkfile_dir := $(patsubst %/,%,$(dir $(mkfile_path)))
+GOPATH := $(mkfile_dir)/go_$(VERSION)
 
 clean:
 	rm -fv *.deb
 
 build: check-vars clean
-	mkdir -p $(GOPATH)
-	GOPATH=$(GOPATH) go get -v -d github.com/AdguardTeam/AdguardDNS
+	mkdir -p $(GOPATH)/src/bit.adguard.com/dns
+	if [ ! -h $(GOPATH)/src/bit.adguard.com/dns/adguard-internal-dns ]; then rm -rf $(GOPATH)/src/bit.adguard.com/dns/adguard-internal-dns && ln -fs $(mkfile_dir) $(GOPATH)/src/bit.adguard.com/dns/adguard-internal-dns; fi
 	GOPATH=$(GOPATH) go get -v -d github.com/coredns/coredns
 	cp plugin.cfg $(GOPATH)/src/github.com/coredns/coredns
 	cd $(GOPATH)/src/github.com/coredns/coredns; GOPATH=$(GOPATH) go generate
 	cd $(GOPATH)/src/github.com/coredns/coredns; GOPATH=$(GOPATH) go get -v -d -t .
 	cd $(GOPATH)/src/github.com/coredns/coredns; GOPATH=$(GOPATH) PATH=$(GOPATH)/bin:$(PATH) make
-	cd $(GOPATH)/src/github.com/coredns/coredns; GOPATH=$(GOPATH) go build -x -v -ldflags="-X github.com/coredns/coredns/coremain.GitCommit=$(VERSION)" -o $(GOPATH)/bin/coredns
+	cd $(GOPATH)/src/github.com/coredns/coredns; GOPATH=$(GOPATH) go build -x -v -ldflags="-X github.com/coredns/coredns/coremain.GitCommit=$(VERSION)" -asmflags="-trimpath=$(GOPATH)" -gcflags="-trimpath=$(GOPATH)" -o $(GOPATH)/bin/coredns
 
 package: build
 	fpm --prefix /usr/local/bin \
