@@ -17,7 +17,6 @@ import (
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/metrics"
 	"github.com/coredns/coredns/plugin/pkg/dnstest"
-	"github.com/coredns/coredns/plugin/pkg/upstream"
 	"github.com/coredns/coredns/request"
 	"github.com/mholt/caddy"
 	"github.com/miekg/dns"
@@ -57,7 +56,6 @@ type plugSettings struct {
 type plug struct {
 	d        *dnsfilter.Dnsfilter
 	Next     plugin.Handler
-	upstream upstream.Upstream
 	settings plugSettings
 
 	sync.RWMutex
@@ -205,11 +203,6 @@ func setupPlugin(c *caddy.Controller) (*plug, error) {
 		caddy.RegisterEventHook("dnsfilter-reload", hook)
 	})
 
-	p.upstream, err = upstream.New(nil)
-	if err != nil {
-		return nil, err
-	}
-
 	return p, nil
 }
 
@@ -318,6 +311,38 @@ func (p *plug) Collect(ch chan<- prometheus.Metric) {
 	p.doStats(ch, doMetric)
 }
 
+// lookup host, but return answer as if it was a result of origname lookup
+func lookupReplaced(host string, origname string) ([]dns.RR, error) {
+	var records []dns.RR
+	var res *net.Resolver = nil // nil resolver is default resolver
+	addrs, err := res.LookupIPAddr(context.TODO(), host)
+	if err != nil {
+		return nil, err
+	}
+	for _, addr := range addrs {
+		ip := addr.IP
+		var rr dns.RR
+		var err error
+		if ip.To4() != nil {
+			// ipv4 -> A
+			rr, err = dns.NewRR(fmt.Sprintf("%s A %s", origname, ip.String()))
+			if err != nil {
+				return nil, err // fail entire request
+				// TODO: return only successful answers?
+			}
+		} else {
+			// ipv6 -> AAAA
+			rr, err = dns.NewRR(fmt.Sprintf("%s AAAA %s", origname, ip.String()))
+			if err != nil {
+				return nil, err // fail entire request
+				// TODO: return only successful answers?
+			}
+		}
+		records = append(records, rr)
+	}
+	return records, nil
+}
+
 func (p *plug) replaceHostWithValAndReply(ctx context.Context, w dns.ResponseWriter, r *dns.Msg, host string, val string, question dns.Question) (int, error) {
 	// check if it's a domain name or IP address
 	addr := net.ParseIP(val)
@@ -333,20 +358,11 @@ func (p *plug) replaceHostWithValAndReply(ctx context.Context, w dns.ResponseWri
 		records = append(records, result)
 	} else {
 		// this is a domain name, need to look it up
-		req := new(dns.Msg)
-		req.SetQuestion(dns.Fqdn(val), question.Qtype)
-		req.RecursionDesired = true
-		reqstate := request.Request{W: w, Req: req, Context: ctx}
-		result, err := p.upstream.Lookup(reqstate, dns.Fqdn(val), reqstate.QType())
+		var err error
+		records, err = lookupReplaced(dns.Fqdn(val), question.Name)
 		if err != nil {
 			log.Printf("Got error %s\n", err)
 			return dns.RcodeServerFailure, fmt.Errorf("plugin/dnsfilter: %s", err)
-		}
-		if result != nil {
-			for _, answer := range result.Answer {
-				answer.Header().Name = question.Name
-			}
-			records = result.Answer
 		}
 	}
 	m := new(dns.Msg)
