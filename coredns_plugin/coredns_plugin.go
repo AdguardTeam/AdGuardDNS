@@ -107,7 +107,7 @@ func setupPlugin(c *caddy.Controller) (*plug, error) {
 
 				log.Println("Parental control is enabled")
 				if !dnsfilter.IsParentalSensitivityValid(sensitivity) {
-					return nil, dnsfilter.ErrInvalidParental
+					return nil, errors.New("dnsfilter: invalid parental sensitivity, must be either 3, 10, 13 or 17")
 				}
 				p.d.ParentalEnabled = true
 				p.d.ParentalSensitivity = sensitivity
