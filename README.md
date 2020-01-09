@@ -53,6 +53,7 @@ Here's a list of the software that could be used:
 * Android 9 supports DNS-over-TLS natively
 * [AdGuard for Android](https://adguard.com/en/adguard-android/overview.html) supports `DNSCrypt` in the stable version, and supports `DNS-over-HTTPS` in the [nightly update channel](https://adguard.com/beta.html)
 * [AdGuard for iOS Pro](https://adguard.com/en/adguard-ios-pro/overview.html) supports `DNSCrypt`
+* [AdGuard for iOS](https://adguard.com/en/adguard-ios/overview.html) (with Premium subscription) supports `DNS-over-TLS`, `DNS-over-HTTPS`, and `DNSCrypt`
 * [Intra](https://getintra.org/) adds `DNS-over-HTTPS` support to Android
 * [Mozilla Firefox](https://www.mozilla.org/firefox/) supports `DNS-over-HTTPS`
 * [AdGuard Home](https://github.com/AdguardTeam/AdguardHome) supports `DNS-over-TLS` and `DNS-over-HTTPS`
