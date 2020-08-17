@@ -1,2 +1,9 @@
-/*.deb
-/go_*
+.DS_Store
+.idea/
+bin
+AdGuardDNS
+example.crt
+example.key
+tests/parental-all-domains.txt
+tests/safebrowsing-all-domains.txt
+tests/dnsdb.bin

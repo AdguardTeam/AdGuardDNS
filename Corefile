@@ -1,0 +1,71 @@
+.:53, tls://.:853, https://.:443 {
+    tls tests/test.crt tests/test.key
+
+    ratelimit 50 10000 {
+        whitelist 127.0.0.1
+    }
+    refuseany
+
+    dnsfilter {
+        filter tests/dns.txt
+        safebrowsing tests/sb.txt
+        parental tests/parental.txt
+        safesearch
+    }
+
+    file tests/dnscheck.txt dnscheck-default.adguard.com
+
+    lrucache 50000
+
+    forward . 8.8.8.8:53 {
+        prefer_udp
+        max_fails 0
+    }
+    alternate SERVFAIL . 8.8.8.8:53 {
+        prefer_udp
+        max_fails 0
+    }
+    log
+
+    info {
+        domain adguard.com
+        type test
+        protocol auto
+        addr 176.103.130.135
+    }
+
+    health 127.0.0.1:8181
+    pprof 127.0.0.1:6053
+
+    prometheus 127.0.0.1:9153
+    dnsdb 127.0.0.1:9154 tests/dnsdb.bin
+}
+
+.:5333 {
+    ratelimit 50 {
+        whitelist 127.0.0.1
+    }
+    refuseany
+
+    dnsfilter {
+        filter tests/dns.txt
+        filter tests/sb.txt
+        safebrowsing tests/sb.txt
+        parental tests/parental.txt
+    }
+
+    lrucache 50000
+
+    forward . 8.8.8.8:53 {
+        prefer_udp
+        max_fails 0
+    }
+    alternate SERVFAIL . 8.8.8.8:53 {
+        prefer_udp
+        max_fails 0
+    }
+    log
+
+    prometheus 127.0.0.1:9153
+    dnsdb 127.0.0.1:9154 tests/dnsdb.bin
+}

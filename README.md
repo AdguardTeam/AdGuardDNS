@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-    <img src="https://cdn.adguard.com/public/Adguard/Common/adguard_dns_servers_map.png" width="800" />
+    <img src="https://cdn.adguard.com/public/Adguard/Common/adguard_dns_map.png" width="800" />
 </p>
 
 # AdGuard DNS
@@ -60,16 +60,21 @@ Here's a list of the software that could be used:
 
 ### Regular DNS
 
-`176.103.130.130` or `176.103.130.131` for "Default";
-`176.103.130.132` or `176.103.130.134` for "Family protection".
+* `176.103.130.130` or `176.103.130.131` for "Default";
+* `176.103.130.132` or `176.103.130.134` for "Family protection";
+* `176.103.130.136` or `176.103.130.137` for "Non-filtering".
 
 ### DNS-over-HTTPS
 
-Use `https://dns.adguard.com/dns-query` for "Default" and `https://dns-family.adguard.com/dns-query` for "Family protection" mode.
+* Use `https://dns.adguard.com/dns-query` for "Default";
+* Use `https://dns-family.adguard.com/dns-query` for "Family protection" mode;
+* Use `https://dns-unfiltered.adguard.com/dns-query` for "Non-filtering" mode;
 
 ### DNS-over-TLS
 
-Use `dns.adguard.com` string for "Default" or `dns-family.adguard.com` for "Family protection".
+* Use `dns.adguard.com` string for "Default";
+* Use `dns-family.adguard.com` for "Family protection";
+* Use `dns-unfiltered.adguard.com` for "Non-filtering";
 
 ### DNSCrypt
 
@@ -78,6 +83,9 @@ Use `dns.adguard.com` string for "Default" or `dns-family.adguard.com` for "Fami
 
 "Family protection":
 `sdns://AQIAAAAAAAAAFDE3Ni4xMDMuMTMwLjEzMjo1NDQzILgxXdexS27jIKRw3C7Wsao5jMnlhvhdRUXWuMm1AFq6ITIuZG5zY3J5cHQuZmFtaWx5Lm5zMS5hZGd1YXJkLmNvbQ`
+
+"Non-filtering":
+`sdns://AQcAAAAAAAAAFDE3Ni4xMDMuMTMwLjEzNjo1NDQzILXoRNa4Oj4-EmjraB--pw3jxfpo29aIFB2_LsBmstr6JTIuZG5zY3J5cHQudW5maWx0ZXJlZC5uczEuYWRndWFyZC5jb20`
 
 ## Dependencies
 

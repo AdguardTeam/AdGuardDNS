@@ -1,0 +1,194 @@
+# github.com/AdguardTeam/golibs v0.4.0
+github.com/AdguardTeam/golibs/log
+# github.com/AdguardTeam/urlfilter v0.10.0
+github.com/AdguardTeam/urlfilter
+github.com/AdguardTeam/urlfilter/filterlist
+github.com/AdguardTeam/urlfilter/filterutil
+github.com/AdguardTeam/urlfilter/rules
+# github.com/asaskevich/govalidator v0.0.0-20200108200545-475eaeb16496
+github.com/asaskevich/govalidator
+# github.com/beefsack/go-rate v0.0.0-20180408011153-efa7637bb9b6
+github.com/beefsack/go-rate
+# github.com/beorn7/perks v1.0.1
+github.com/beorn7/perks/quantile
+# github.com/bluele/gcache v0.0.0-20190518031135-bc40bd653833
+github.com/bluele/gcache
+# github.com/caddyserver/caddy v1.0.5
+github.com/caddyserver/caddy
+github.com/caddyserver/caddy/caddyfile
+github.com/caddyserver/caddy/telemetry
+# github.com/cenkalti/backoff/v4 v4.0.0
+github.com/cenkalti/backoff/v4
+# github.com/cespare/xxhash/v2 v2.1.1
+github.com/cespare/xxhash/v2
+# github.com/coredns/coredns v1.6.9
+github.com/coredns/coredns/core/dnsserver
+github.com/coredns/coredns/coremain
+github.com/coredns/coredns/pb
+github.com/coredns/coredns/plugin
+github.com/coredns/coredns/plugin/any
+github.com/coredns/coredns/plugin/bind
+github.com/coredns/coredns/plugin/cache
+github.com/coredns/coredns/plugin/cache/freq
+github.com/coredns/coredns/plugin/debug
+github.com/coredns/coredns/plugin/dnstap
+github.com/coredns/coredns/plugin/dnstap/dnstapio
+github.com/coredns/coredns/plugin/dnstap/msg
+github.com/coredns/coredns/plugin/dnstap/taprw
+github.com/coredns/coredns/plugin/dnstap/test
+github.com/coredns/coredns/plugin/errors
+github.com/coredns/coredns/plugin/etcd/msg
+github.com/coredns/coredns/plugin/file
+github.com/coredns/coredns/plugin/file/rrutil
+github.com/coredns/coredns/plugin/file/tree
+github.com/coredns/coredns/plugin/log
+github.com/coredns/coredns/plugin/metadata
+github.com/coredns/coredns/plugin/metrics
+github.com/coredns/coredns/plugin/metrics/vars
+github.com/coredns/coredns/plugin/pkg/cache
+github.com/coredns/coredns/plugin/pkg/dnstest
+github.com/coredns/coredns/plugin/pkg/dnsutil
+github.com/coredns/coredns/plugin/pkg/doh
+github.com/coredns/coredns/plugin/pkg/edns
+github.com/coredns/coredns/plugin/pkg/fuzz
+github.com/coredns/coredns/plugin/pkg/log
+github.com/coredns/coredns/plugin/pkg/nonwriter
+github.com/coredns/coredns/plugin/pkg/parse
+github.com/coredns/coredns/plugin/pkg/policy
+github.com/coredns/coredns/plugin/pkg/rcode
+github.com/coredns/coredns/plugin/pkg/replacer
+github.com/coredns/coredns/plugin/pkg/response
+github.com/coredns/coredns/plugin/pkg/reuseport
+github.com/coredns/coredns/plugin/pkg/tls
+github.com/coredns/coredns/plugin/pkg/trace
+github.com/coredns/coredns/plugin/pkg/transport
+github.com/coredns/coredns/plugin/pkg/uniq
+github.com/coredns/coredns/plugin/pkg/up
+github.com/coredns/coredns/plugin/pkg/upstream
+github.com/coredns/coredns/plugin/pprof
+github.com/coredns/coredns/plugin/test
+github.com/coredns/coredns/plugin/tls
+github.com/coredns/coredns/plugin/whoami
+github.com/coredns/coredns/request
+# github.com/davecgh/go-spew v1.1.1
+github.com/davecgh/go-spew/spew
+# github.com/dnstap/golang-dnstap v0.0.0-20170829151710-2cf77a2b5e11
+github.com/dnstap/golang-dnstap
+# github.com/farsightsec/golang-framestream v0.0.0-20181102145529-8a0cb8ba8710
+github.com/farsightsec/golang-framestream
+# github.com/flynn/go-shlex v0.0.0-20150515145356-3f9db97f8568
+github.com/flynn/go-shlex
+# github.com/golang/protobuf v1.3.5
+github.com/golang/protobuf/proto
+github.com/golang/protobuf/ptypes
+github.com/golang/protobuf/ptypes/any
+github.com/golang/protobuf/ptypes/duration
+github.com/golang/protobuf/ptypes/timestamp
+# github.com/google/uuid v1.1.1
+github.com/google/uuid
+# github.com/grpc-ecosystem/grpc-opentracing v0.0.0-20180507213350-8e809c8a8645
+github.com/grpc-ecosystem/grpc-opentracing/go/otgrpc
+# github.com/joomcode/errorx v1.0.1
+github.com/joomcode/errorx
+# github.com/matttproud/golang_protobuf_extensions v1.0.1
+github.com/matttproud/golang_protobuf_extensions/pbutil
+# github.com/miekg/dns v1.1.29
+github.com/miekg/dns
+# github.com/opentracing/opentracing-go v1.1.0
+github.com/opentracing/opentracing-go
+github.com/opentracing/opentracing-go/ext
+github.com/opentracing/opentracing-go/log
+# github.com/patrickmn/go-cache v2.1.0+incompatible
+github.com/patrickmn/go-cache
+# github.com/pkg/errors v0.9.1
+github.com/pkg/errors
+# github.com/pmezard/go-difflib v1.0.0
+github.com/pmezard/go-difflib/difflib
+# github.com/prometheus/client_golang v1.5.1
+github.com/prometheus/client_golang/prometheus
+github.com/prometheus/client_golang/prometheus/internal
+github.com/prometheus/client_golang/prometheus/promhttp
+# github.com/prometheus/client_model v0.2.0
+github.com/prometheus/client_model/go
+# github.com/prometheus/common v0.9.1
+github.com/prometheus/common/expfmt
+github.com/prometheus/common/internal/bitbucket.org/ww/goautoneg
+github.com/prometheus/common/model
+# github.com/prometheus/procfs v0.0.8
+github.com/prometheus/procfs
+github.com/prometheus/procfs/internal/fs
+github.com/prometheus/procfs/internal/util
+# github.com/stretchr/testify v1.5.1
+github.com/stretchr/testify/assert
+# go.etcd.io/bbolt v1.3.4
+go.etcd.io/bbolt
+# go.uber.org/atomic v1.6.0
+go.uber.org/atomic
+# golang.org/x/crypto v0.0.0-20200220183623-bac4c82f6975
+golang.org/x/crypto/ed25519
+golang.org/x/crypto/ed25519/internal/edwards25519
+# golang.org/x/net v0.0.0-20200324143707-d3edc9973b7e
+golang.org/x/net/bpf
+golang.org/x/net/context
+golang.org/x/net/http/httpguts
+golang.org/x/net/http2
+golang.org/x/net/http2/hpack
+golang.org/x/net/idna
+golang.org/x/net/internal/iana
+golang.org/x/net/internal/socket
+golang.org/x/net/internal/timeseries
+golang.org/x/net/ipv4
+golang.org/x/net/ipv6
+golang.org/x/net/publicsuffix
+golang.org/x/net/trace
+# golang.org/x/sys v0.0.0-20200331124033-c3d80250170d
+golang.org/x/sys/unix
+golang.org/x/sys/windows
+# golang.org/x/text v0.3.2
+golang.org/x/text/secure/bidirule
+golang.org/x/text/transform
+golang.org/x/text/unicode/bidi
+golang.org/x/text/unicode/norm
+# google.golang.org/genproto v0.0.0-20200306153348-d950eab6f860
+google.golang.org/genproto/googleapis/rpc/status
+# google.golang.org/grpc v1.28.0
+google.golang.org/grpc
+google.golang.org/grpc/attributes
+google.golang.org/grpc/backoff
+google.golang.org/grpc/balancer
+google.golang.org/grpc/balancer/base
+google.golang.org/grpc/balancer/roundrobin
+google.golang.org/grpc/binarylog/grpc_binarylog_v1
+google.golang.org/grpc/codes
+google.golang.org/grpc/connectivity
+google.golang.org/grpc/credentials
+google.golang.org/grpc/credentials/internal
+google.golang.org/grpc/encoding
+google.golang.org/grpc/encoding/proto
+google.golang.org/grpc/grpclog
+google.golang.org/grpc/internal
+google.golang.org/grpc/internal/backoff
+google.golang.org/grpc/internal/balancerload
+google.golang.org/grpc/internal/binarylog
+google.golang.org/grpc/internal/buffer
+google.golang.org/grpc/internal/channelz
+google.golang.org/grpc/internal/envconfig
+google.golang.org/grpc/internal/grpclog
+google.golang.org/grpc/internal/grpcrand
+google.golang.org/grpc/internal/grpcsync
+google.golang.org/grpc/internal/grpcutil
+google.golang.org/grpc/internal/resolver/dns
+google.golang.org/grpc/internal/resolver/passthrough
+google.golang.org/grpc/internal/syscall
+google.golang.org/grpc/internal/transport
+google.golang.org/grpc/keepalive
+google.golang.org/grpc/metadata
+google.golang.org/grpc/naming
+google.golang.org/grpc/peer
+google.golang.org/grpc/resolver
+google.golang.org/grpc/serviceconfig
+google.golang.org/grpc/stats
+google.golang.org/grpc/status
+google.golang.org/grpc/tap
+# gopkg.in/yaml.v2 v2.2.8
+gopkg.in/yaml.v2

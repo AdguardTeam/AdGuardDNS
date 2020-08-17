@@ -1,0 +1,18 @@
+$ORIGIN .
+$TTL 7200       ; 2 hours
+dnscheck-default.adguard.com IN SOA dnscheck-default.adguard.com. hostmaster.dnscheck-default.adguard.com. (
+                               2017010100 ; serial
+                               3600       ; refresh
+                               1800       ; retry
+                               864000     ; expire
+                               1800       ; minimum
+                               )
+                        NS     176.103.130.130
+                        NS     176.103.130.131
+                        NS     2a00:5a60::ad1:ff
+                        NS     2a00:5a60::ad2:ff
+$ORIGIN dnscheck-default.adguard.com.
+                        A 176.103.130.130
+                        A 176.103.130.131
+                        AAAA 2a00:5a60::ad1:ff
+                        AAAA 2a00:5a60::ad2:ff
