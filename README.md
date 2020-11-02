@@ -60,9 +60,9 @@ Here's a list of the software that could be used:
 
 ### Regular DNS
 
-* `176.103.130.130` or `176.103.130.131` for "Default";
-* `176.103.130.132` or `176.103.130.134` for "Family protection";
-* `176.103.130.136` or `176.103.130.137` for "Non-filtering".
+* `94.140.14.14` or `94.140.15.15` for "Default";
+* `94.140.14.15` or `94.140.15.16` for "Family protection";
+* `94.140.14.140` or `94.140.14.141` for "Non-filtering".
 
 ### DNS-over-HTTPS
 
