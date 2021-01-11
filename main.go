@@ -18,8 +18,6 @@ import (
 	_ "github.com/coredns/coredns/plugin/whoami"
 
 	// Our CoreDNS plugins forks
-	_ "github.com/AdguardTeam/AdGuardDNS/alternate"
-	_ "github.com/AdguardTeam/AdGuardDNS/forward"
 	_ "github.com/AdguardTeam/AdGuardDNS/health"
 
 	// Our plugins
@@ -29,6 +27,7 @@ import (
 	_ "github.com/AdguardTeam/AdGuardDNS/lrucache"
 	_ "github.com/AdguardTeam/AdGuardDNS/ratelimit"
 	_ "github.com/AdguardTeam/AdGuardDNS/refuseany"
+	_ "github.com/AdguardTeam/AdGuardDNS/upstream"
 )
 
 // Directives are registered in the order they should be
@@ -58,9 +57,8 @@ var directives = []string{
 	"file",
 	// Start: our forked CoreDNS plugins
 	"health",
-	"alternate",
-	"forward",
 	// End: our forked CoreDNS plugins
+	"upstream", // upstream - our replacement for "forward" and "alternate"
 	"whoami",
 	"on",
 }

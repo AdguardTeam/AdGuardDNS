@@ -3,10 +3,11 @@ package refuseany
 import (
 	"github.com/coredns/coredns/plugin"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 func newDNSCounter(name string, help string) prometheus.Counter {
-	return prometheus.NewCounter(prometheus.CounterOpts{
+	return promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: plugin.Namespace,
 		Subsystem: "refuseany",
 		Name:      name,

@@ -49,6 +49,8 @@ func normalizeZone(str string) (zoneAddr, error) {
 			port = transport.GRPCPort
 		case transport.HTTPS:
 			port = transport.HTTPSPort
+		case transport.QUIC:
+			port = transport.QUICPort
 		}
 	}
 

@@ -18,7 +18,6 @@ import (
 	"github.com/caddyserver/caddy"
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
-	"github.com/coredns/coredns/plugin/metrics"
 	clog "github.com/coredns/coredns/plugin/pkg/log"
 )
 
@@ -43,6 +42,8 @@ type plugSettings struct {
 
 	BlockedTTL  uint32   // in seconds, default 3600
 	FilterPaths []string // List of filter lists for blocking ad/tracker request
+
+	GeoIPPath string // Path to the GeoIP2 database
 
 	// Update - map of update info for the filter lists
 	// It includes safebrowsing and parental filter lists
@@ -76,12 +77,6 @@ func setup(c *caddy.Controller) error {
 	})
 
 	c.OnStartup(func() error {
-		metrics.MustRegister(c, requests, filtered, filteredLists, filteredSafeBrowsing,
-			filteredParental, safeSearch, errorsTotal,
-			requestsSafeBrowsingTXT, requestsParentalTXT,
-			elapsedTime, elapsedFilterTime,
-			engineTimestamp, engineSize, engineStatus,
-			statsCacheSize, statsUploadTimestamp, statsUploadStatus)
 		// Set to 1 by default
 		statsUploadStatus.Set(float64(1))
 		return nil
@@ -110,6 +105,11 @@ func setupPlugin(c *caddy.Controller) (*plug, error) {
 		return nil, err
 	}
 
+	err = initGeoIP(settings)
+	if err != nil {
+		return nil, err
+	}
+
 	clog.Infof("Initialized dnsfilter settings for server block %d", c.ServerBlockIndex)
 	return &plug{settings: settings}, nil
 }
@@ -134,6 +134,12 @@ func parseSettings(c *caddy.Controller) (plugSettings, error) {
 				if err != nil {
 					return settings, err
 				}
+			case "geoip":
+				if !c.NextArg() || len(c.Val()) == 0 {
+					clog.Info("GeoIP database is not configured")
+					return settings, c.ArgErr()
+				}
+				settings.GeoIPPath = c.Val()
 			case "blocked_ttl":
 				if !c.NextArg() {
 					return settings, c.ArgErr()

@@ -3,45 +3,46 @@ package ratelimit
 import (
 	"github.com/coredns/coredns/plugin"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 var (
-	RateLimitedCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
+	RateLimitedCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: plugin.Namespace,
 		Subsystem: "ratelimit",
 		Name:      "dropped_count",
 		Help:      "Count of requests that have been dropped because of rate limit",
 	}, []string{"server"})
 
-	BackOffCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
+	BackOffCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: plugin.Namespace,
 		Subsystem: "ratelimit",
 		Name:      "dropped_backoff_count",
 		Help:      "Count of requests that have been dropped because of the backoff period",
 	}, []string{"server"})
 
-	WhitelistedCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
+	WhitelistedCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: plugin.Namespace,
 		Subsystem: "ratelimit",
 		Name:      "whitelisted_count",
 		Help:      "Count of requests that have been whitelisted in the rate limiter",
 	}, []string{"server"})
 
-	WhitelistCountGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+	WhitelistCountGauge = promauto.NewGauge(prometheus.GaugeOpts{
 		Namespace: plugin.Namespace,
 		Subsystem: "ratelimit",
 		Name:      "whitelist_size",
 		Help:      "Size of the whitelist",
 	})
 
-	RateLimitersCountGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+	RateLimitersCountGauge = promauto.NewGauge(prometheus.GaugeOpts{
 		Namespace: plugin.Namespace,
 		Subsystem: "ratelimit",
 		Name:      "ratelimiters_total",
 		Help:      "Count of the currently active rate limiters",
 	})
 
-	RateLimitedIPAddressesCountGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+	RateLimitedIPAddressesCountGauge = promauto.NewGauge(prometheus.GaugeOpts{
 		Namespace: plugin.Namespace,
 		Subsystem: "ratelimit",
 		Name:      "ratelimited_addresses_total",

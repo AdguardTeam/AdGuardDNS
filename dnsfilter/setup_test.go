@@ -32,6 +32,11 @@ func TestSetup(t *testing.T) {
 					parental ../tests/parental.txt
 					filter ../tests/dns.txt
 				}`, false},
+		{`dnsfilter {
+					parental ../tests/parental.txt
+					filter ../tests/dns.txt
+					geoip ../tests/GeoIP2-Country-Test.mmdb
+				}`, false},
 	} {
 		c := caddy.NewTestController("dns", testcase.config)
 		c.ServerBlockKeys = []string{""}

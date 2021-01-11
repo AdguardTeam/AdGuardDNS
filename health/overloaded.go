@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promauto"
+
 	"github.com/coredns/coredns/plugin"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -39,7 +41,7 @@ func (h *health) overloaded() {
 
 var (
 	// HealthDuration is the metric used for exporting how fast we can retrieve the /health endpoint.
-	HealthDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+	HealthDuration = promauto.NewHistogram(prometheus.HistogramOpts{
 		Namespace: plugin.Namespace,
 		Subsystem: "health",
 		Name:      "request_duration_seconds",

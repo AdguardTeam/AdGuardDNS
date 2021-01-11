@@ -49,7 +49,7 @@ func (p *plug) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (
 			// check if request or response should be blocked
 			rcode2, err2 := p.filterRequest(ctx, w, r, rec.resp)
 			if rcode2 != NotFiltered {
-				filtered.Inc()
+				incFiltered(w)
 				rcode = rcode2
 				err = err2
 				rec.resp = nil // filterRequest() has already written the response
@@ -66,7 +66,7 @@ func (p *plug) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (
 	}
 
 	// increment requests counters
-	requests.Inc()
+	incRequests(w)
 	elapsedTime.Observe(time.Since(start).Seconds())
 
 	if err != nil {

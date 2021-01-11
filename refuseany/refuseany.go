@@ -19,6 +19,8 @@ func (p *plug) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (
 
 	q := r.Question[0]
 	if q.Qtype == dns.TypeANY {
+		refusedAnyTotal.Inc()
+
 		state := request.Request{W: w, Req: r}
 		rcode := dns.RcodeNotImplemented
 

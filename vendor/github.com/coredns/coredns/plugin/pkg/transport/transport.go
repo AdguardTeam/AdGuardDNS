@@ -6,6 +6,7 @@ const (
 	TLS   = "tls"
 	GRPC  = "grpc"
 	HTTPS = "https"
+	QUIC  = "quic"
 )
 
 // Port numbers for the various transports.
@@ -18,4 +19,7 @@ const (
 	GRPCPort = "443"
 	// HTTPSPort is the default port for DNS-over-HTTPS.
 	HTTPSPort = "443"
+	// QUICPort is the default port for DNS-over-QUIC
+	// https://tools.ietf.org/id/draft-huitema-quic-dnsoquic-06.html#port-number-784-for-experimentations
+	QUICPort = "784"
 )

@@ -92,12 +92,17 @@ func validate(i *info) (*info, error) {
 		return nil, errors.New("server type must be set")
 	}
 
-	if i.protocol != "auto" &&
-		i.protocol != "dns" &&
-		i.protocol != "doh" &&
-		i.protocol != "dot" &&
-		i.protocol != "dnscrypt" {
-		return nil, fmt.Errorf("invalid protocol %s", i.protocol)
+	switch i.protocol {
+	case
+		"auto",
+		"dns",
+		"dnscrypt",
+		"doh",
+		"doq",
+		"dot":
+		// Go on.
+	default:
+		return nil, fmt.Errorf("invalid protocol %q", i.protocol)
 	}
 
 	if len(i.addrs4) == 0 && len(i.addrs6) == 0 {

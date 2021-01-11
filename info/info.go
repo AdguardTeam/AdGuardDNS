@@ -1,3 +1,4 @@
+// Package info is a CoreDNS plugin for testing users' DNS settings.
 package info
 
 import (
@@ -7,11 +8,9 @@ import (
 	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/util"
-
+	"github.com/coredns/coredns/plugin"
 	clog "github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/coredns/coredns/request"
-
-	"github.com/coredns/coredns/plugin"
 	"github.com/miekg/dns"
 )
 
@@ -19,7 +18,7 @@ type info struct {
 	Next plugin.Handler
 
 	domain     string // etld domain name for the check DNS requests
-	protocol   string // protocol (can be auto, dns, doh, dot, dnscrypt)
+	protocol   string // protocol (can be auto, dns, doh, doq, dot, dnscrypt)
 	serverType string // server type (arbitrary string)
 	canary     string // canary domain
 
@@ -61,6 +60,8 @@ func (i *info) getProtocol(ctx context.Context) string {
 			return "dot"
 		} else if strings.HasPrefix(addr, "https") {
 			return "doh"
+		} else if strings.HasPrefix(addr, "quic") {
+			return "doq"
 		}
 
 		return "dns"

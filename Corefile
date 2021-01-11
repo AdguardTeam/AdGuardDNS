@@ -1,4 +1,4 @@
-.:53, tls://.:853, https://.:443 {
+.:53, tls://.:853, https://.:443, quic://.:784 {
     tls tests/test.crt tests/test.key
 
     ratelimit 50 10000 {
@@ -11,19 +11,15 @@
         safebrowsing tests/sb.txt
         parental tests/parental.txt
         safesearch
+        geoip tests/GeoIP2-Country-Test.mmdb
     }
 
     file tests/dnscheck.txt dnscheck-default.adguard.com
 
     lrucache 50000
 
-    forward . 8.8.8.8:53 {
-        prefer_udp
-        max_fails 0
-    }
-    alternate SERVFAIL . 8.8.8.8:53 {
-        prefer_udp
-        max_fails 0
+    upstream 8.8.8.8:53 {
+        fallback 1.1.1.1:53
     }
     log
 
@@ -56,13 +52,8 @@
 
     lrucache 50000
 
-    forward . 8.8.8.8:53 {
-        prefer_udp
-        max_fails 0
-    }
-    alternate SERVFAIL . 8.8.8.8:53 {
-        prefer_udp
-        max_fails 0
+    upstream 8.8.8.8:53 {
+        fallback 1.1.1.1:53
     }
     log
 

@@ -144,6 +144,13 @@ func (h *dnsContext) MakeServers() ([]caddy.Server, error) {
 				return nil, err
 			}
 			servers = append(servers, s)
+
+		case transport.QUIC:
+			s, err := NewServerQUIC(addr, group)
+			if err != nil {
+				return nil, err
+			}
+			servers = append(servers, s)
 		}
 
 	}

@@ -8,7 +8,6 @@ import (
 	"github.com/coredns/coredns/plugin"
 
 	"github.com/caddyserver/caddy"
-	"github.com/coredns/coredns/plugin/metrics"
 	clog "github.com/coredns/coredns/plugin/pkg/log"
 )
 
@@ -37,11 +36,6 @@ func setup(c *caddy.Controller) error {
 	config.AddPlugin(func(next plugin.Handler) plugin.Handler {
 		p.Next = next
 		return p
-	})
-
-	c.OnStartup(func() error {
-		metrics.MustRegister(c, dbSizeGauge, dbRotateTimestamp, bufferSizeGauge, elapsedDBSave)
-		return nil
 	})
 
 	clog.Infof("Finished initializing the dnsfilter plugin for %s", c.ServerBlockKeys[c.ServerBlockKeyIndex])

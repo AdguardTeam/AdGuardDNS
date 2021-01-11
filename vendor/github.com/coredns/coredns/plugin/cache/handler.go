@@ -10,7 +10,6 @@ import (
 	"github.com/coredns/coredns/request"
 
 	"github.com/miekg/dns"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 // ServeDNS implements the plugin.Handler interface.
@@ -128,47 +127,3 @@ func (c *Cache) exists(state request.Request) *item {
 	}
 	return nil
 }
-
-var (
-	cacheSize = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: plugin.Namespace,
-		Subsystem: "cache",
-		Name:      "size",
-		Help:      "The number of elements in the cache.",
-	}, []string{"server", "type"})
-
-	cacheHits = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: plugin.Namespace,
-		Subsystem: "cache",
-		Name:      "hits_total",
-		Help:      "The count of cache hits.",
-	}, []string{"server", "type"})
-
-	cacheMisses = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: plugin.Namespace,
-		Subsystem: "cache",
-		Name:      "misses_total",
-		Help:      "The count of cache misses.",
-	}, []string{"server"})
-
-	cachePrefetches = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: plugin.Namespace,
-		Subsystem: "cache",
-		Name:      "prefetch_total",
-		Help:      "The number of time the cache has prefetched a cached item.",
-	}, []string{"server"})
-
-	cacheDrops = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: plugin.Namespace,
-		Subsystem: "cache",
-		Name:      "drops_total",
-		Help:      "The number responses that are not cached, because the reply is malformed.",
-	}, []string{"server"})
-
-	servedStale = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: plugin.Namespace,
-		Subsystem: "cache",
-		Name:      "served_stale_total",
-		Help:      "The number of requests served from stale cache entries.",
-	}, []string{"server"})
-)

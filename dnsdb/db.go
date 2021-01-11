@@ -3,6 +3,7 @@ package dnsdb
 import (
 	"fmt"
 	"os"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -77,8 +78,9 @@ func (d *dnsDB) RotateDB() (string, error) {
 	}
 
 	// Moving the old DB to a new location before returning it
-	path := fmt.Sprintf("%s.%d", d.path, time.Now().Unix())
-	err = os.Rename(d.path, path)
+	tmpDir := os.TempDir()
+	tmpPath := path.Join(tmpDir, path.Base(fmt.Sprintf("%s.%d", d.path, time.Now().Unix())))
+	err = os.Rename(d.path, tmpPath)
 	if err != nil {
 		return "", err
 	}
@@ -91,7 +93,7 @@ func (d *dnsDB) RotateDB() (string, error) {
 
 	dbSizeGauge.Set(0)
 	dbRotateTimestamp.SetToCurrentTime()
-	return path, nil
+	return tmpPath, nil
 }
 
 // RecordMsg saves a DNS response to the buffer
