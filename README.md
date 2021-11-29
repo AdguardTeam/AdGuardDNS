@@ -26,7 +26,7 @@ AdGuard DNS is an alternative solution for trackers blocking, privacy protection
 
 If you use regular client-server protocol, you are at risk of your DNS requests being intercepted and, subsequently, eavesdropped and/or altered. For instance, in the US the Senate voted to eliminate rules that restricted ISPs from selling their users' browsing data. Moreover, DNS is often used for censorship and surveillance purposes on the government level. 
 
-All of this is possible due to the lack of encryption, and AdGuard DNS provides a solution. It supports all known DNS encryption protocols including `DNS-over-HTTPS`, `DNS-over-TLS`, and `DNSCrypt`.
+All of this is possible due to the lack of encryption, and AdGuard DNS provides a solution. It supports all known DNS encryption protocols including `DNS-over-HTTPS`, `DNS-over-TLS`, `DNS-over-QUIC`, and `DNSCrypt`.
 
 On top of that, AdGuard DNS provides "no logs" [privacy policy](https://adguard.com/en/privacy/dns.html) which means we do not record logs of your browsing activity.
 
@@ -37,7 +37,7 @@ On top of that, AdGuard DNS provides "no logs" [privacy policy](https://adguard.
 * Use the **Family protection** mode of AdGuard DNS to block access to all websites with adult content and enforce safe search in the browser, in addition to the regular perks of ad blocking and browsing security.
 
 **Can AdGuard DNS replace a traditional blocker?**
-<br/>
+
 It depends. DNS-level blocking lacks the flexibility of the traditional ad blockers. For instance, there is no cosmetic pages processing. So in general, traditional blockers provide higher quality.
 
 ## Why is AdGuard DNS free? What’s the catch?
@@ -51,41 +51,131 @@ Please note that encrypted DNS protocols aren't supported at an operating system
 Here's a list of the software that could be used:
 
 * Android 9 supports DNS-over-TLS natively
-* [AdGuard for Android](https://adguard.com/en/adguard-android/overview.html) supports `DNSCrypt` in the stable version, and supports `DNS-over-HTTPS` in the [nightly update channel](https://adguard.com/beta.html)
+* [AdGuard for Android](https://adguard.com/en/adguard-android/overview.html) supports `DNS-over-HTTPS`, `DNS-over-TLS`, `DNS-over-QUIC`, and `DNSCrypt`
 * [AdGuard for iOS Pro](https://adguard.com/en/adguard-ios-pro/overview.html) supports `DNSCrypt`
-* [Intra](https://getintra.org/) adds `DNS-over-HTTPS` support to Android
+* [AdGuard Home](https://adguard.com/en/adguard-home/overview.html) supports `DNS-over-HTTPS`, `DNS-over-TLS`, `DNS-over-QUIC`, and `DNSCrypt`
+* [Intra](https://getintra.org/) supports `DNS-over-HTTPS`
+* [Google Chrome](https://www.google.com/chrome/) supports `DNS-over-HTTPS`
 * [Mozilla Firefox](https://www.mozilla.org/firefox/) supports `DNS-over-HTTPS`
-* [AdGuard Home](https://github.com/AdguardTeam/AdguardHome) supports `DNS-over-TLS` and `DNS-over-HTTPS`
 * A lot more implementation can be [found here](https://dnscrypt.info/implementations) and [here](https://dnsprivacy.org/wiki/display/DP/DNS+Privacy+Clients)
 
-### Regular DNS
+### Our server addresses
 
-* `94.140.14.14` or `94.140.15.15` for "Default";
-* `94.140.14.15` or `94.140.15.16` for "Family protection";
-* `94.140.14.140` or `94.140.14.141` for "Non-filtering".
+<details><summary>DNS-over-HTTPS</summary>
 
-### DNS-over-HTTPS
+**Default server**
 
-* Use `https://dns.adguard.com/dns-query` for "Default";
-* Use `https://dns-family.adguard.com/dns-query` for "Family protection" mode;
-* Use `https://dns-unfiltered.adguard.com/dns-query` for "Non-filtering" mode;
+If you want to block ads and trackers.
 
-### DNS-over-TLS
+`https://dns.adguard.com/dns-query`
 
-* Use `dns.adguard.com` string for "Default";
-* Use `dns-family.adguard.com` for "Family protection";
-* Use `dns-unfiltered.adguard.com` for "Non-filtering";
+**Non-filtering server**
 
-### DNSCrypt
+If you don't want AdGuard DNS to block ads and trackers, or any other DNS requests.
 
-"Default":
-`sdns://AQIAAAAAAAAAFDE3Ni4xMDMuMTMwLjEzMDo1NDQzINErR_JS3PLCu_iZEIbq95zkSV2LFsigxDIuUso_OQhzIjIuZG5zY3J5cHQuZGVmYXVsdC5uczEuYWRndWFyZC5jb20`
+`https://dns-unfiltered.adguard.com/dns-query`
 
-"Family protection":
-`sdns://AQIAAAAAAAAAFDE3Ni4xMDMuMTMwLjEzMjo1NDQzILgxXdexS27jIKRw3C7Wsao5jMnlhvhdRUXWuMm1AFq6ITIuZG5zY3J5cHQuZmFtaWx5Lm5zMS5hZGd1YXJkLmNvbQ`
+**Family Protection server**
 
-"Non-filtering":
-`sdns://AQcAAAAAAAAAFDE3Ni4xMDMuMTMwLjEzNjo1NDQzILXoRNa4Oj4-EmjraB--pw3jxfpo29aIFB2_LsBmstr6JTIuZG5zY3J5cHQudW5maWx0ZXJlZC5uczEuYWRndWFyZC5jb20`
+If you want to block adult content, enable safe search and safe mode options wherever possible, and also block ads and trackers.
+
+`https://dns-family.adguard.com/dns-query`
+
+</details>
+
+<details><summary>DNS-over-TLS</summary>
+
+**Default server**
+
+If you want to block ads and trackers.
+
+`dns.adguard.com`
+
+**Non-filtering server**
+
+If you don't want AdGuard DNS to block ads and trackers, or any other DNS requests.
+
+`dns-unfiltered.adguard.com`
+
+**Family Protection server**
+
+If you want to block adult content, enable safe search and safe mode options wherever possible, and also block ads and trackers.
+
+`dns-family.adguard.com`
+
+</details>
+
+<details><summary>DNS-over-QUIC</summary>
+
+**Default server**
+
+If you want to block ads and trackers.
+
+`quic://dns.adguard.com`
+
+**Non-filtering server**
+
+If you don't want AdGuard DNS to block ads and trackers, or any other DNS requests.
+
+`quic://dns-unfiltered.adguard.com`
+
+**Family Protection server**
+
+If you want to block adult content, enable safe search and safe mode options wherever possible, and also block ads and trackers.
+
+`quic://dns-family.adguard.com`
+
+</details>
+
+<details><summary>DNSCrypt</summary>
+
+**Default server**
+
+If you want to block ads and trackers.
+
+`sdns://AQMAAAAAAAAAETk0LjE0MC4xNC4xNDo1NDQzINErR_JS3PLCu_iZEIbq95zkSV2LFsigxDIuUso_OQhzIjIuZG5zY3J5cHQuZGVmYXVsdC5uczEuYWRndWFyZC5jb20`
+
+**Non-filtering server**
+
+If you don't want AdGuard DNS to block ads and trackers, or any other DNS requests.
+
+`sdns://AQMAAAAAAAAAEjk0LjE0MC4xNC4xNDA6NTQ0MyC16ETWuDo-PhJo62gfvqcN48X6aNvWiBQdvy7AZrLa-iUyLmRuc2NyeXB0LnVuZmlsdGVyZWQubnMxLmFkZ3VhcmQuY29t`
+
+**Family Protection server**
+
+If you want to block adult content, enable safe search and safe mode options wherever possible, and also block ads and trackers.
+
+`sdns://AQMAAAAAAAAAETk0LjE0MC4xNC4xNTo1NDQzILgxXdexS27jIKRw3C7Wsao5jMnlhvhdRUXWuMm1AFq6ITIuZG5zY3J5cHQuZmFtaWx5Lm5zMS5hZGd1YXJkLmNvbQ`
+
+</details>
+
+<details><summary>Plain DNS</summary>
+
+**Default server**
+
+If you want to block ads and trackers.
+
+**IPv4:** `94.140.14.14` or `94.140.15.15`
+
+**IPv6:** `2a10:50c0::ad1:ff` or `2a10:50c0::ad2:ff`
+
+**Non-filtering server**
+
+If you don't want AdGuard DNS to block ads and trackers, or any other DNS requests.
+
+**IPv4:** `94.140.14.140` or `94.140.14.141`
+
+**IPv6:** `2a10:50c0::1:ff` or `2a10:50c0::2:ff`
+
+**Family Protection server**
+
+If you want to block adult content, enable safe search and safe mode options wherever possible, and also block ads and trackers.
+
+**IPv4:** `94.140.14.15` or `94.140.15.16`
+
+**IPv6:** `2a10:50c0::bad1:ff` or `2a10:50c0::bad2:ff`
+
+</details>
 
 ## Dependencies
 
