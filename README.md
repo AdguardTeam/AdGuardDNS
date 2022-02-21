@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-    <a href="https://adguard.com/">AdGuard.com</a> |
+    <a href="https://adguard-dns.com/">AdGuard-dns.com</a> |
     <a href="https://reddit.com/r/Adguard">Reddit</a> |
     <a href="https://twitter.com/AdGuard">Twitter</a>
     <br /><br />
