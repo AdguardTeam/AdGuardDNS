@@ -1,0 +1,17 @@
+# General Blocking
+||blocked.example.com^
+@@||allowed.example.com^
+#
+# Per-Client Blocking
+||blocked-client.example.com^$client=1.2.3.4
+@@||allowed-client.example.com^$client=1.2.3.4
+||blocked-device.example.com^$client="My Device"
+@@||allowed-device.example.com^$client="My Device"
+#
+# IP-level blocking.
+6.6.6.13
+@@7.7.7.42
+#
+# RRType blocking.
+||cname.exception^$dnstype=~CNAME
+||cname.blocked^$dnstype=~A

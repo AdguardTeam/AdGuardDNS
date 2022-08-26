@@ -1,0 +1,328 @@
+# See README.md for a full documentation of the configuration file, its types
+# and values.
+
+# Rate limiting configuration.  It controls how we should mitigate DNS
+# amplification attacks.
+ratelimit:
+    # Flag to refuse ANY type request.
+    refuseany: true
+    # If response is larger than this, it is counted as several responses.
+    response_size_estimate: 1KB
+    # Rate of requests per second for one subnet.
+    rps: 30
+    # The time during which to count the number of times a client has hit the
+    # rate limit for a back off.
+    #
+    # TODO(a.garipov): Rename to "backoff_period" along with others.
+    back_off_period: 10m
+    # How many times a client hits the rate limit before being held in the back
+    # off.
+    back_off_count: 1000
+    # How much a client that has hit the rate limit too often stays in the back
+    # off.
+    back_off_duration: 30m
+    # The lengths of the subnet prefixes used to calculate rate limiter bucket
+    # keys for IPv4 and IPv6 addresses correspondingly.
+    ipv4_subnet_key_len: 24
+    ipv6_subnet_key_len: 48
+
+    # Configuration for the allowlist.
+    allowlist:
+        # Lists of CIDRs or IPs ratelimit should be disabled for.
+        list:
+          - '127.0.0.1'
+          - '127.0.0.1/24'
+        # Time between two updates of allow list.
+        refresh_interval: 1h
+
+# DNS cache configuration.
+cache:
+    # The type of cache to use.  Can be 'simple' (a simple LRU cache) or 'ecs'
+    # (a ECS-aware LRU cache).  If set to 'ecs', ecs_size must be greater than
+    # zero.
+    type: 'simple'
+    # The total number of items in the cache for hostnames with no ECS support.
+    size: 10000
+    # The total number of items in the cache for hostnames with ECS support.
+    ecs_size: 10000
+
+# DNS upstream configuration.
+upstream:
+    server: '127.0.0.9:53'
+    timeout: 2s
+    fallback:
+      - 1.1.1.1:53
+      - 8.8.8.8:53
+    healthcheck:
+        enabled: true
+        interval: 2s
+        timeout: 1s
+        backoff_duration: 30s
+        domain_template: '${RANDOM}.neverssl.com'
+
+# Common DNS HTTP backend service configuration.
+backend:
+    # Timeout for all outgoing backend HTTP requests.  Set to `0s` to disable
+    # timeouts.
+    timeout: 10s
+    # How often AdGuard DNS checks the backend for data updates.
+    #
+    # TODO(a.garipov): Replace with a better update mechanism in the future.
+    refresh_interval: 15s
+    # How often AdGuard DNS performs full synchronization.
+    full_refresh_interval: 24h
+    # How often AdGuard DNS sends the billing statistics to the backend.
+    bill_stat_interval: 15s
+
+# Query logging configuration.
+query_log:
+    file:
+        # If true, enable writing JSONL logs to a file.
+        enabled: true
+
+# Common GeoIP database configuration.
+geoip:
+    # The size of the host lookup cache.
+    host_cache_size: 100000
+    # The size of the IP lookup cache.
+    ip_cache_size: 100000
+    # Interval between the GeoIP database refreshes.
+    refresh_interval: 1h
+
+# DNS checking configuration.
+check:
+    # Domains to use for DNS checking.
+    domains:
+      - dnscheck.adguard-dns.com
+      - dnscheck.adguard.com
+    # Location of this node.
+    node_location: 'ams'
+    # Name of this node.
+    node_name: 'eu-1.dns.example.com'
+    # IPs to respond with.
+    ipv4:
+      - 1.2.3.4
+      - 5.6.7.8
+    ipv6:
+      - 1234::cdee
+      - 1234::cdef
+    # For how long to keep the information about the client.
+    ttl: 30s
+
+# Web/HTTP(S) service configuration.  All non-root requests to the main service
+# not matching the static_content map are shown a 404 page.  In special
+# case of `/robots.txt` request the special response is served.
+web:
+    # Optional linked IP web server configuration.  static_content is not served
+    # on these addresses.
+    linked_ip:
+        bind:
+          - address: '127.0.0.1:9080'
+          - address: '127.0.0.1:9443'
+            certificates:
+              - certificate: './test/cert.crt'
+                key: './test/cert.key'
+    # Optional safe browsing web server configuration.  static_content is not
+    # served on these addresses.  The addresses should be the same as in the
+    # safe_browsing object.
+    safe_browsing:
+        bind:
+          - address: '127.0.0.1:9081'
+          - address: '127.0.0.1:9444'
+            certificates:
+              - certificate: './test/cert.crt'
+                key: './test/cert.key'
+        block_page: './test/block_page_sb.html'
+    # Optional adult blocking web server configuration.  static_content is not
+    # served on these addresses.  The addresses should be the same as in the
+    # adult_blocking object.
+    adult_blocking:
+        bind:
+          - address: '127.0.0.1:9082'
+          - address: '127.0.0.1:9445'
+            certificates:
+              - certificate: './test/cert.crt'
+                key: './test/cert.key'
+        block_page: './test/block_page_adult.html'
+    # Listen addresses for the web service in addition to the ones in the
+    # DNS-over-HTTPS handlers.
+    non_doh_bind:
+      - address: '127.0.0.1:9083'
+      - address: '127.0.0.1:9446'
+        certificates:
+          - certificate: './test/cert.crt'
+            key: './test/cert.key'
+    # Static content map.  Not served on the linked_ip, safe_browsing and adult_blocking
+    # servers.  Paths must not cross the ones used by the DNS-over-HTTPS server.
+    static_content:
+        '/favicon.ico':
+            content_type: 'image/x-icon'
+            content: ''
+    # If not defined, AdGuard DNS will respond with a 404 page to all such
+    # requests.
+    root_redirect_url: 'https://adguard-dns.com'
+    # Path to the 404 page HTML file.  If not set, a simple plain text 404
+    # response will be served.
+    error_404: './test/error_404.html'
+    # Same as error_404, but for the 500 status.
+    error_500: './test/error_500.html'
+    # Timeout for server operations
+    timeout: 1m
+
+# AdGuard general safe browsing filter configuration.
+safe_browsing:
+    url: 'https://raw.githubusercontent.com/ameshkov/PersonalFilters/master/safebrowsing_test.txt'
+    block_host: 'standard-block.dns.adguard.com'
+    cache_size: 1024
+    cache_ttl: 1h
+    refresh_interval: 1h
+
+# AdGuard adult content blocking filter configuration.
+adult_blocking:
+    url: 'https://raw.githubusercontent.com/ameshkov/PersonalFilters/master/adult_test.txt'
+    block_host: 'family-block.dns.adguard.com'
+    cache_size: 1024
+    cache_ttl: 1h
+    refresh_interval: 1h
+
+# Settings for rule-list-based filters.
+filters:
+    # The TTL to set for responses to requests for filtered domains.
+    response_ttl: 5m
+    # The size of the LRU cache of compiled filtering engines for profiles with
+    # custom filtering rules.
+    custom_filter_cache_size: 1024
+    # How often to update filters from the index.  See the documentation for the
+    # FILTER_INDEX_URL environment variable.
+    refresh_interval: 1h
+    # The timeout for the entire filter update operation.  Be aware that each
+    # individual refresh operation also has its own hardcoded 30s timeout.
+    refresh_timeout: 5m
+
+# Filtering groups are a set of different filtering configurations.  These
+# filtering configurations are then used by server_groups.
+filtering_groups:
+  - id: 'default'
+    parental:
+        enabled: false
+    rule_lists:
+        enabled: true
+        # IDs must be the same as those of the filtering rule lists received from
+        # the filter index.
+        ids:
+          - 'adguard_dns_filter'
+    safe_browsing:
+        enabled: true
+    block_private_relay: false
+  - id: 'family'
+    parental:
+        enabled: true
+        block_adult: true
+        general_safe_search: true
+        youtube_safe_search: true
+    rule_lists:
+        enabled: true
+        ids:
+          - 'adguard_dns_filter'
+    safe_browsing:
+        enabled: true
+    block_private_relay: false
+  - id: 'non_filtering'
+    rule_lists:
+        enabled: false
+    parental:
+        enabled: false
+    safe_browsing:
+        enabled: false
+    block_private_relay: false
+
+# Server groups and servers.
+server_groups:
+  - name: 'adguard_dns_default'
+    # This filtering_group is used for all anonymous clients.
+    filtering_group: 'default'
+    tls:
+        certificates:
+          - certificate: './test/cert.crt'
+            key: './test/cert.key'
+        session_keys:
+          - './test/tls_key_1'
+          - './test/tls_key_2'
+        device_id_wildcards:
+          - '*.dns.example.com'
+    ddr:
+        enabled: true
+        # Device ID domain name suffix to DDR record template mapping.  Keep in
+        # sync with servers and device_id_wildcards.
+        device_records:
+            '*.d.dns.example.com':
+                doh_path: '/dns-query{?dns}'
+                https_port: 443
+                quic_port: 853
+                tls_port: 853
+                ipv4_hints:
+                  - '127.0.0.1'
+                ipv6_hints:
+                  - '::1'
+        # Public domain name to DDR record template mapping.  Keep in sync with
+        # servers.
+        public_records:
+            'dns.example.com':
+                doh_path: '/dns-query{?dns}'
+                https_port: 443
+                quic_port: 853
+                tls_port: 853
+                ipv4_hints:
+                  - '127.0.0.1'
+                ipv6_hints:
+                  - '::1'
+    servers:
+      - name: 'default_dns'
+        # See README for the list of protocol values.
+        protocol: 'dns'
+        linked_ip_enabled: true
+        bind_addresses:
+          - '127.0.0.1:53'
+      - name: 'default_dot'
+        protocol: 'tls'
+        linked_ip_enabled: false
+        bind_addresses:
+          - '127.0.0.1:853'
+      - name: 'default_doh'
+        protocol: 'https'
+        linked_ip_enabled: false
+        bind_addresses:
+          - '127.0.0.1:443'
+      - name: 'default_doq'
+        protocol: 'quic'
+        linked_ip_enabled: false
+        bind_addresses:
+          - '127.0.0.1:784'
+          - '127.0.0.1:853'
+      - name: 'default_dnscrypt'
+        protocol: 'dnscrypt'
+        linked_ip_enabled: false
+        bind_addresses:
+          - '127.0.0.1:5443'
+        dnscrypt:
+            # See https://github.com/ameshkov/dnscrypt/blob/master/README.md#configure.
+            config_path: ./test/dnscrypt.yml
+      - name: 'default_dnscrypt_inline'
+        protocol: 'dnscrypt'
+        linked_ip_enabled: false
+        bind_addresses:
+          - '127.0.0.1:5444'
+        dnscrypt:
+            inline:
+                provider_name: '2.dnscrypt-cert.example.org'
+                public_key: 'F11DDBCC4817E543845FDDD4CB881849B64226F3DE397625669D87B919BC4FB0'
+                private_key: '5752095FFA56D963569951AFE70FE1690F378D13D8AD6F8054DFAA100907F8B6F11DDBCC4817E543845FDDD4CB881849B64226F3DE397625669D87B919BC4FB0'
+                resolver_secret: '9E46E79FEB3AB3D45F4EB3EA957DEAF5D9639A0179F1850AFABA7E58F87C74C4'
+                resolver_public: '9327C5E64783E19C339BD6B680A56DB85521CC6E4E0CA5DF5274E2D3CE026C6B'
+                es_version: 1
+                certificate_ttl: 8760h
+
+# Connectivity check configuration.
+connectivity_check:
+    probe_ipv4: '8.8.8.8:53'
+    probe_ipv6: '[2001:4860:4860::8888]:53'

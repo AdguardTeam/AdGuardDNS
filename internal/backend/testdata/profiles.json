@@ -1,0 +1,113 @@
+{
+  "sync_time": 1624443079309,
+  "settings": [
+    {
+      "dns_id": "37f97ee9",
+      "filtering_enabled": true,
+      "query_log_enabled": true,
+      "safe_browsing":
+      {
+        "enabled": true
+      },
+      "deleted": false,
+      "block_private_relay": true,
+      "devices": [
+        {
+          "id": "118ffe93",
+          "name": "Device 1",
+          "filtering_enabled": true
+        },
+        {
+          "id": "b9e1a762",
+          "name": "Device 2",
+          "filtering_enabled": true
+        }
+      ],
+      "rule_lists":
+      {
+        "enabled": true,
+        "ids": [
+          "1"
+        ]
+      },
+      "filtered_response_ttl": 10,
+      "custom_rules": []
+    },
+    {
+      "dns_id": "83f3ea8f",
+      "filtering_enabled": true,
+      "query_log_enabled": true,
+      "safe_browsing":
+      {
+        "enabled": true
+      },
+      "deleted": true,
+      "block_private_relay": false,
+      "devices": [
+        {
+          "id": "0d7724fa",
+          "name": "Device 1",
+          "filtering_enabled": true
+        },
+        {
+          "id": "6d2ac775",
+          "name": "Device 2",
+          "filtering_enabled": true
+        },
+        {
+          "id": "94d4c481",
+          "name": "Device 3",
+          "filtering_enabled": true
+        },
+        {
+          "id": "ada436e3",
+          "name": "Device 4",
+          "filtering_enabled": true,
+          "linked_ip": "1.2.3.4"
+        }
+      ],
+      "parental": {
+        "enabled": false,
+        "block_adult": false,
+        "general_safe_search": false,
+        "youtube_safe_search": false,
+        "blocked_services": [
+          "youtube"
+        ],
+        "schedule": {
+          "tmz": "GMT",
+          "mon": [
+            "0s",
+            "59m"
+          ],
+          "tue": [
+            "0s",
+            "59m"
+          ],
+          "wed": [
+            "0s",
+            "59m"
+          ],
+          "thu": [
+            "0s",
+            "59m"
+          ],
+          "fri": [
+            "0s",
+            "59m"
+          ]
+        }
+      },
+      "rule_lists": {
+        "enabled": true,
+        "ids": [
+          "1"
+        ]
+      },
+      "filtered_response_ttl": 3600,
+      "custom_rules": [
+        "||example.org^"
+      ]
+    }
+  ]
+}
