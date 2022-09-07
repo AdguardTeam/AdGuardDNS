@@ -14,7 +14,9 @@ import (
 // ServerGroup is a group of DNS servers all of which use the same filtering
 // settings.
 type ServerGroup struct {
-	// TLS are the TLS settings for this server group, if any.
+	// TLS are the TLS settings for this server group.  If Servers contains at
+	// least one server with a non-plain protocol (see [Protocol.IsPlain]), TLS
+	// must not be nil.
 	TLS *TLS
 
 	// DDR is the configuration for the server group's Discovery Of Designated

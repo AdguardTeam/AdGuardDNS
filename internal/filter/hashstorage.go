@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -290,27 +291,10 @@ func (hs *HashStorage) refresh(ctx context.Context, acceptStale bool) (err error
 	return hs.refr.refresh(ctx, acceptStale)
 }
 
-// splitHosts splits a text made of hostnames, empty strings, and comments and
-// returns only the strings containing hostnames.
-//
-// TODO(a.garipov): Consider additional validation to make sure that it
-// actually is a list of hosts and NOT a list of filtering rules.
-func splitHosts(text string) (hosts []string) {
-	hosts = strings.Split(text, "\n")
-	hosts = stringutil.FilterOut(hosts, func(s string) (ok bool) {
-		return len(s) == 0 || s[0] == '#'
-	})
-
-	return hosts
-}
-
-// resetHosts resets the hosts in the index.  err is always nil, as it is only
-// there for compatibility with refreshFromFileOrURL.
+// resetHosts resets the hosts in the index.
 func (hs *HashStorage) resetHosts(hostsStr string) (err error) {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
-
-	hosts := splitHosts(hostsStr)
 
 	// Delete all elements without allocating a new map to safe space and
 	// performance.
@@ -320,17 +304,31 @@ func (hs *HashStorage) resetHosts(hostsStr string) (err error) {
 		delete(hs.hashSuffixes, hp)
 	}
 
-	for _, h := range hosts {
-		sum := sha256.Sum256([]byte(h))
+	var n int
+	s := bufio.NewScanner(strings.NewReader(hostsStr))
+	for s.Scan() {
+		host := s.Text()
+		if len(host) == 0 || host[0] == '#' {
+			continue
+		}
+
+		sum := sha256.Sum256([]byte(host))
 		hp := hashPrefix{sum[0], sum[1]}
 
 		// TODO(a.garipov): Convert to array directly when proposal
 		// golang/go#46505 is implemented in Go 1.20.
 		suf := *(*hashSuffix)(sum[hashPrefixLen:])
 		hs.hashSuffixes[hp] = append(hs.hashSuffixes[hp], suf)
+
+		n++
 	}
 
-	log.Info("filter %s: reset %d hosts", hs.id(), len(hosts))
+	err = s.Err()
+	if err != nil {
+		return fmt.Errorf("scanning hosts: %w", err)
+	}
+
+	log.Info("filter %s: reset %d hosts", hs.id(), n)
 
 	return nil
 }

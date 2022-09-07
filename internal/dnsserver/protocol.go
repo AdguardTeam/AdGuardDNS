@@ -77,6 +77,11 @@ func (p Protocol) ALPN() (alpn []string) {
 	}
 }
 
+// IsPlain returns true if the protocol is a plain DNS over TCP or UDP.
+func (p Protocol) IsPlain() (ok bool) {
+	return p == ProtoDNSTCP || p == ProtoDNSUDP
+}
+
 // IsStdEncrypted returns true if the protocol is one of the standard encrypted
 // DNS protocol as defined by an RFC.
 func (p Protocol) IsStdEncrypted() (ok bool) {

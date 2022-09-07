@@ -184,9 +184,10 @@ func BenchmarkNewFile(b *testing.B) {
 	assert.NotNil(b, fileSink)
 	assert.NoError(b, errSink)
 
-	// Recent result on MBP 15
-	//   goos: darwin
-	//   goarch: amd64
-	//   cpu: Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz
-	//   BenchmarkNewFile-12    2192    532262 ns/op    180929 B/op    5980 allocs/op
+	// Recent result on MBP 15:
+	//
+	//	goos: darwin
+	//	goarch: amd64
+	//	cpu: Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz
+	//	BenchmarkNewFile-12    2192    532262 ns/op    180929 B/op    5980 allocs/op
 }

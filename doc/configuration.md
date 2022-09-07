@@ -24,6 +24,7 @@ configuration file with comments.
      *  [DDR](#server_groups-*-ddr)
      *  [Servers](#server_groups-*-servers-*)
  *  [Connectivity Check](#connectivity-check)
+ *  [Additional Metrics Info](#additional_metrics_info)
 
 [dist]: ../config.dist.yml
 [env]:  environment.md
@@ -521,6 +522,8 @@ The `filters` object has the following properties:
 
     **Example:** `5m`.
 
+[env-blocked_services]: environment.md#BLOCKED_SERVICE_INDEX_URL
+
 
 
 ##  <a href="#filtering_groups" id="filtering_groups" name="filtering_groups">Filtering Groups</a>
@@ -529,6 +532,7 @@ The items of the `filtering_groups` array have the following properties:
 
  *  <a href="#fg-*-id" id="fg-*-id" name="fg-*-id">`id`</a>:
     The unique ID of this filtering group.
+
 
     **Example:** `default`.
 
@@ -814,5 +818,30 @@ The `connectivity_check` object has the following properties:
 
     **Example:** `[2001:4860:4860::8888]:53`.
 
-[env-backend]:          environment.md#BACKEND_ENDPOINT
-[env-blocked_services]: environment.md#BLOCKED_SERVICE_INDEX_URL
+
+
+##  <a href="#additional_metrics_info" id="additional_metrics_info" name="additional_metrics_info">Additional Metrics Info</a>
+
+The `additional_metrics_info` object is a map of strings with extra information
+which is exposed by `dns_app_additional_info` metric.
+
+Map keys must match reqular expression `^[a-zA-Z_][a-zA-Z0-9_]*$`.  See
+[Prometheus documentation on valid labels][prom-label].
+
+**Property example:**
+
+```yaml
+'additional_metrics_info':
+    'info_key_1': 'info_value_1'
+    'info_key_2': 'info_value_2'
+```
+
+The Prometheus metrics key is `additional_info`.  For example:
+
+```none
+# HELP dns_app_additional_info A metric with a constant '1' value labeled by additional info provided in configuration
+# TYPE dns_app_additional_info gauge
+dns_app_additional_info{info_key_1="info_value_1",info_key_2="info_value_2"} 1
+```
+
+[prom-label]: https://pkg.go.dev/github.com/prometheus/common/model#LabelNameRE

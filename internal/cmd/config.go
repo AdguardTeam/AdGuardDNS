@@ -66,6 +66,9 @@ type configuration struct {
 	// ConnectivityCheck is the connectivity check configuration.
 	ConnectivityCheck *connCheckConfig `yaml:"connectivity_check"`
 
+	// AdditionalMetricsInfo is extra information, which is exposed by metrics.
+	AdditionalMetricsInfo additionalInfo `yaml:"additional_metrics_info"`
+
 	// FilteringGroups are the predefined filtering configurations that are used
 	// for different server groups.
 	FilteringGroups filteringGroups `yaml:"filtering_groups"`
@@ -142,6 +145,9 @@ func (c *configuration) validate() (err error) {
 	}, {
 		validate: c.ConnectivityCheck.validate,
 		name:     "connectivity_check",
+	}, {
+		validate: c.AdditionalMetricsInfo.validate,
+		name:     "additional_metrics_info",
 	}}
 
 	for _, v := range validators {

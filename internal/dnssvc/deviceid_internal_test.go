@@ -6,8 +6,11 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -203,4 +206,67 @@ func TestService_Wrap_deviceIDHTTPS(t *testing.T) {
 
 		assert.Equal(t, agd.DeviceID(want), deviceID)
 	})
+}
+
+func TestService_Wrap_deviceIDFromEDNS(t *testing.T) {
+	testCases := []struct {
+		name         string
+		opt          dns.EDNS0
+		wantDeviceID agd.DeviceID
+		wantErrMsg   string
+	}{{
+		name:         "no_device_id",
+		wantDeviceID: "",
+		wantErrMsg:   "",
+	}, {
+		name: "wrong_edns",
+		opt: &dns.EDNS0_LOCAL{
+			Code: dnsmasqCPEIDOption - 1,
+			Data: []byte("devid"),
+		},
+		wantDeviceID: "",
+		wantErrMsg:   "",
+	}, {
+		name: "no_device_id",
+		opt: &dns.EDNS0_LOCAL{
+			Code: dnsmasqCPEIDOption,
+			Data: []byte{},
+		},
+		wantDeviceID: "",
+		wantErrMsg:   `bad device id "": too short: got 0 bytes, min 1`,
+	}, {
+		name: "bad_device_id",
+		opt: &dns.EDNS0_LOCAL{
+			Code: dnsmasqCPEIDOption,
+			Data: []byte("toolongdeviceid"),
+		},
+		wantDeviceID: "",
+		wantErrMsg:   `bad device id "toolongdeviceid": too long: got 15 bytes, max 8`,
+	}, {
+		name: "device_id",
+		opt: &dns.EDNS0_LOCAL{
+			Code: dnsmasqCPEIDOption,
+			Data: []byte("devid"),
+		},
+		wantDeviceID: "devid",
+		wantErrMsg:   "",
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := dnsservertest.NewReq("example.com.", dns.TypeA, dns.ClassINET)
+			if tc.opt != nil {
+				msg.SetEdns0(dnsmsg.DefaultEDNSUDPSize, true)
+				extra := &dns.OPT{
+					Hdr:    dns.RR_Header{Name: ".", Rrtype: dns.TypeOPT},
+					Option: []dns.EDNS0{tc.opt},
+				}
+				msg.Extra = append(msg.Extra, extra)
+			}
+
+			deviceID, err := deviceIDFromEDNS(msg)
+			assert.Equal(t, tc.wantDeviceID, deviceID)
+			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)
+		})
+	}
 }

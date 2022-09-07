@@ -77,13 +77,11 @@ type ServerDNS struct {
 // type check
 var _ Server = (*ServerDNS)(nil)
 
-// NewServerDNS creates a new ServerDNS instance.
+// NewServerDNS creates a new ServerDNS instance.  conf.Proto must be either
+// [ProtoDNSTCP] or [ProtoDNSUDP].
 func NewServerDNS(conf ConfigDNS) (s *ServerDNS) {
-	switch conf.Proto {
-	case ProtoDNSTCP, ProtoDNSUDP:
-		// Go on.
-	default:
-		panic(fmt.Errorf("invalid proto %v in NewServerDNS", conf.Proto))
+	if !conf.Proto.IsPlain() {
+		panic(fmt.Errorf("invalid proto %s in NewServerDNS", conf.Proto))
 	}
 
 	return newServerDNS(conf)

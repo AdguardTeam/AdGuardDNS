@@ -215,6 +215,8 @@ exit_on_output gofumpt --extra -e -l .
 
 "$GO" vet ./... "$dnssrvmod"
 
+govulncheck ./... "$dnssrvmod"
+
 gocyclo --over 10 .
 
 ineffassign ./... "$dnssrvmod"

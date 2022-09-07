@@ -386,6 +386,9 @@ func (sc staticContent) validate() (err error) {
 
 // staticFile is a single file in a static content mapping.
 type staticFile struct {
+	// AllowOrigin is the value for the HTTP Access-Control-Allow-Origin header.
+	AllowOrigin string `yaml:"allow_origin"`
+
 	// ContentType is the value for the HTTP Content-Type header.
 	ContentType string `yaml:"content_type"`
 
@@ -397,6 +400,7 @@ type staticFile struct {
 // assumed to be valid.
 func (f *staticFile) toInternal() (file *websvc.StaticFile, err error) {
 	file = &websvc.StaticFile{
+		AllowOrigin: f.AllowOrigin,
 		ContentType: f.ContentType,
 	}
 

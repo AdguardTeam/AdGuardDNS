@@ -114,9 +114,9 @@ func BenchmarkFileSystem_Write_file(b *testing.B) {
 
 	// Most recent result, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
 	//
-	//   goos: linux
-	//   goarch: amd64
-	//   pkg: github.com/AdguardTeam/AdGuardDNS/internal/querylog
-	//   cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//   BenchmarkFileSystem_Write_file-16         244162              5000 ns/op             200 B/op       3 allocs/op
+	//	goos: linux
+	//	goarch: amd64
+	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/querylog
+	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
+	//	BenchmarkFileSystem_Write_file-16         244162              5000 ns/op             200 B/op       3 allocs/op
 }

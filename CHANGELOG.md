@@ -11,6 +11,29 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
 
 
+##  AGDNS-1032 / Build 363
+
+*  The new optional field `static_content.*.allow_origin` has been added:
+
+   ```yaml
+    static_content:
+        '/favicon.ico':
+            allow_origin: '*'
+   ```
+
+
+
+##  AGDNS-898 / Build 359
+
+*  The new optional object `additional_metrics_info` has been added:
+
+   ```yaml
+   additional_metrics_info:
+       test_key: 'test_value'
+   ```
+
+
+
 ##  AGDNS-986 / Build 346
 
  *  The new object `upstream.healthcheck` now contains all healthcheck-related

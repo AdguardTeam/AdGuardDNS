@@ -13,6 +13,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/miekg/dns"
 )
 
 // Device ID Extraction
@@ -162,4 +163,40 @@ func deviceIDFromContext(
 	}
 
 	return id, nil
+}
+
+// dnsmasqCPEIDOption is the identifier of dnsmasq EDNS0 option
+// `EDNS0_OPTION_NOMCPEID`.
+//
+// See: https://github.com/PowerDNS/dnsmasq/blob/master/src/dns-protocol.h.
+const dnsmasqCPEIDOption uint16 = 65074
+
+// deviceIDFromEDNS extracts the device ID from EDNS0 option of plain DNS
+// request.  This method works with dnsmasq option `--add-cpe-id`, which adds
+// an identifying string to DNS queries through [dnsmasqCPEIDOption] option as
+// a non-standard support of Nominum servers.
+//
+// Requests of this kind could be emulated with `+ednsopt` option of `dig`
+// utility.
+// TODO(a.garipov): Add test documentation.
+func deviceIDFromEDNS(req *dns.Msg) (id agd.DeviceID, err error) {
+	option := req.IsEdns0()
+	if option == nil {
+		return "", nil
+	}
+
+	for _, opt := range option.Option {
+		if opt.Option() != dnsmasqCPEIDOption {
+			continue
+		}
+
+		o, ok := opt.(*dns.EDNS0_LOCAL)
+		if !ok {
+			continue
+		}
+
+		return agd.NewDeviceID(string(o.Data))
+	}
+
+	return "", nil
 }

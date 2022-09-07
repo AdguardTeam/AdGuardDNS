@@ -69,3 +69,24 @@ func BoolString(cond bool) (s string) {
 
 	return "0"
 }
+
+// SetAdditionalInfo adds a gauge with extra info labels.  If info is nil,
+// SetAdditionalInfo does nothing.
+func SetAdditionalInfo(info map[string]string) {
+	if info == nil {
+		return
+	}
+
+	gauge := promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name:      "additional_info",
+			Namespace: namespace,
+			Subsystem: subsystemApplication,
+			Help: `A metric with a constant '1' value labeled by additional ` +
+				`info provided in configuration`,
+			ConstLabels: info,
+		},
+	)
+
+	gauge.Set(1)
+}

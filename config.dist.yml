@@ -156,6 +156,7 @@ web:
     # servers.  Paths must not cross the ones used by the DNS-over-HTTPS server.
     static_content:
         '/favicon.ico':
+            allow_origin: '*'
             content_type: 'image/x-icon'
             content: ''
     # If not defined, AdGuard DNS will respond with a 404 page to all such
@@ -326,3 +327,7 @@ server_groups:
 connectivity_check:
     probe_ipv4: '8.8.8.8:53'
     probe_ipv6: '[2001:4860:4860::8888]:53'
+
+# Additional information to be exposed through metrics.
+additional_metrics_info:
+    test_key: 'test_value'

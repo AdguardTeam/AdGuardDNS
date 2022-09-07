@@ -140,6 +140,9 @@ func (sc StaticContent) serveHTTP(w http.ResponseWriter, r *http.Request) (serve
 		return false
 	}
 
+	if f.AllowOrigin != "" {
+		w.Header().Set(agdhttp.HdrNameAccessControlAllowOrigin, f.ContentType)
+	}
 	w.Header().Set(agdhttp.HdrNameContentType, f.ContentType)
 	w.WriteHeader(http.StatusOK)
 
@@ -153,6 +156,9 @@ func (sc StaticContent) serveHTTP(w http.ResponseWriter, r *http.Request) (serve
 
 // StaticFile is a single file in a StaticFS.
 type StaticFile struct {
+	// AllowOrigin is the value for the HTTP Access-Control-Allow-Origin header.
+	AllowOrigin string
+
 	// ContentType is the value for the HTTP Content-Type header.
 	ContentType string
 

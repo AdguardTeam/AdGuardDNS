@@ -172,7 +172,7 @@ func (mw *initMw) newRequestInfo(
 	}
 
 	// Add the profile information, if any.
-	err = mw.addProfile(ctx, ri)
+	err = mw.addProfile(ctx, ri, req)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
@@ -245,15 +245,23 @@ func (mw *initMw) locationData(ctx context.Context, ip netip.Addr, typ string) (
 
 // addProfile adds profile and device information, if any, to the request
 // information.
-func (mw *initMw) addProfile(ctx context.Context, ri *agd.RequestInfo) (err error) {
+func (mw *initMw) addProfile(ctx context.Context, ri *agd.RequestInfo, req *dns.Msg) (err error) {
 	defer func() { err = errors.Annotate(err, "getting profile from req: %w") }()
 
 	var id agd.DeviceID
-	if tlsConf := mw.srvGrp.TLS; tlsConf != nil {
-		id, err = deviceIDFromContext(ctx, mw.srv.Protocol, tlsConf.DeviceIDWildcards)
-		if err != nil {
-			return err
-		}
+	if p := mw.srv.Protocol; p.IsStdEncrypted() {
+		// Assume that mw.srvGrp.TLS is non-nil if p.IsStdEncrypted() is true.
+		wildcards := mw.srvGrp.TLS.DeviceIDWildcards
+		id, err = deviceIDFromContext(ctx, mw.srv.Protocol, wildcards)
+	} else if p.IsPlain() {
+		id, err = deviceIDFromEDNS(req)
+	} else {
+		// No DeviceID for DNSCrypt yet.
+		return nil
+	}
+
+	if err != nil {
+		return err
 	}
 
 	optlog.Debug2("init mw: got device id %q and ip %s", id, ri.RemoteIP)
@@ -300,7 +308,7 @@ func (mw *initMw) profile(
 		optlog.Debug1("init mw: not matching by ip for server %s", mw.srv.Name)
 
 		return nil, nil, "", agd.ProfileNotFoundError{}
-	} else if p != agd.ProtoDNSUDP && p != agd.ProtoDNSTCP {
+	} else if !p.IsPlain() {
 		optlog.Debug1("init mw: not matching by ip for proto %v", p)
 
 		return nil, nil, "", agd.ProfileNotFoundError{}

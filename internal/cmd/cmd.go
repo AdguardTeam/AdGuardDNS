@@ -64,6 +64,10 @@ func Main() {
 	err = c.validate()
 	fatalOnError(err)
 
+	// Additional Metrics
+
+	metrics.SetAdditionalInfo(c.AdditionalMetricsInfo)
+
 	// GeoIP Database
 
 	// We start GeoIP initialization early in a dedicated routine cause it

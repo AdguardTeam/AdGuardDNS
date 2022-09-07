@@ -392,9 +392,10 @@ func BenchmarkStorage_NewDefaultStorage(b *testing.B) {
 	assert.NotNil(b, defaultStorageSink)
 	assert.NoError(b, errSink)
 
-	// Recent result on MBP 15
-	//   goos: darwin
-	//   goarch: amd64
-	//   cpu: Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz
-	//   BenchmarkStorage_NewDefaultStorage/success-12    3238    344513 ns/op    198096 B/op    952 allocs/op
+	// Recent result on MBP 15:
+	//
+	//	goos: darwin
+	//	goarch: amd64
+	//	cpu: Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz
+	//	BenchmarkStorage_NewDefaultStorage/success-12    3238    344513 ns/op    198096 B/op    952 allocs/op
 }
