@@ -72,6 +72,13 @@ func (c *Constructor) NewMsgSERVFAIL(req *dns.Msg) (resp *dns.Msg) {
 	return c.newMsgRCode(req, dns.RcodeServerFailure)
 }
 
+// NewMsgNODATA returns a properly initialized NODATA response.
+//
+// See https://www.rfc-editor.org/rfc/rfc2308#section-2.2.
+func (c *Constructor) NewMsgNODATA(req *dns.Msg) (resp *dns.Msg) {
+	return c.newMsgRCode(req, dns.RcodeSuccess)
+}
+
 // newMsgRCode returns a properly initialized response with the given RCode.
 func (c *Constructor) newMsgRCode(req *dns.Msg, rc RCode) (resp *dns.Msg) {
 	resp = (&dns.Msg{}).SetRcode(req, int(rc))

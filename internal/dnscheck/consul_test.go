@@ -87,7 +87,7 @@ func TestConsul_ServeHTTP(t *testing.T) {
 		"profile_id":        "some-profile-id",
 		"server_group_name": "some-server-group-name",
 		"server_name":       "some-server-name",
-		"protocol":          agd.ProtoDNSUDP.String(),
+		"protocol":          agd.ProtoDNS.String(),
 		"node_location":     "some-node-location",
 		"node_name":         "some-node-name",
 		"client_ip":         "1.2.3.4",
@@ -109,7 +109,7 @@ func TestConsul_ServeHTTP(t *testing.T) {
 	ctx := context.Background()
 	ctx = dnsserver.ContextWithServerInfo(ctx, dnsserver.ServerInfo{
 		Name:  theOnlyVal["server_name"].(string),
-		Proto: agd.ProtoDNSUDP,
+		Proto: agd.ProtoDNS,
 	})
 
 	var resp *dns.Msg

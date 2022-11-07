@@ -12,29 +12,19 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
-	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 )
 
 func TestServerDNS_StartShutdown(t *testing.T) {
-	srv, _, err := dnsservertest.RunLocalDNSServer(
-		dnsservertest.DefaultHandler(),
-		dnsserver.ProtoDNSUDP,
-	)
-	require.NoError(t, err)
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(context.Background())
-	})
-	require.NoError(t, err)
+	_, _ = dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
 }
 
 func TestServerDNS_integration_query(t *testing.T) {
 	testCases := []struct {
-		name  string
-		proto dnsserver.Protocol
-		req   *dns.Msg
+		name    string
+		network dnsserver.Network
+		req     *dns.Msg
 		// if nil, use defaultTestHandler
 		handler              dnsserver.Handler
 		expectedRecordsCount int
@@ -43,7 +33,7 @@ func TestServerDNS_integration_query(t *testing.T) {
 		expectedMsg          func(t *testing.T, m *dns.Msg)
 	}{{
 		name:                 "valid_udp_msg",
-		proto:                dnsserver.ProtoDNSUDP,
+		network:              dnsserver.NetworkUDP,
 		expectedRecordsCount: 1,
 		expectedRCode:        dns.RcodeSuccess,
 		req: &dns.Msg{
@@ -54,7 +44,7 @@ func TestServerDNS_integration_query(t *testing.T) {
 		},
 	}, {
 		name:                 "valid_tcp_msg",
-		proto:                dnsserver.ProtoDNSTCP,
+		network:              dnsserver.NetworkTCP,
 		expectedRecordsCount: 1,
 		expectedRCode:        dns.RcodeSuccess,
 		req: &dns.Msg{
@@ -67,7 +57,7 @@ func TestServerDNS_integration_query(t *testing.T) {
 		// This test checks that we remove unsupported EDNS0 options from
 		// the response.
 		name:                 "udp_edns0_supported_options",
-		proto:                dnsserver.ProtoDNSUDP,
+		network:              dnsserver.NetworkUDP,
 		expectedRecordsCount: 1,
 		expectedRCode:        dns.RcodeSuccess,
 		expectedMsg: func(t *testing.T, m *dns.Msg) {
@@ -107,7 +97,7 @@ func TestServerDNS_integration_query(t *testing.T) {
 	}, {
 		// Check that we reject invalid DNS messages (like having two questions)
 		name:                 "reject_msg",
-		proto:                dnsserver.ProtoDNSUDP,
+		network:              dnsserver.NetworkUDP,
 		expectedRecordsCount: 0,
 		expectedRCode:        dns.RcodeFormatError,
 		req: &dns.Msg{
@@ -120,7 +110,7 @@ func TestServerDNS_integration_query(t *testing.T) {
 	}, {
 		// Checks that we handle mixed case domain names
 		name:                 "udp_mixed_case",
-		proto:                dnsserver.ProtoDNSUDP,
+		network:              dnsserver.NetworkUDP,
 		expectedRecordsCount: 1,
 		expectedRCode:        dns.RcodeSuccess,
 		req: &dns.Msg{
@@ -133,7 +123,7 @@ func TestServerDNS_integration_query(t *testing.T) {
 		// Checks that we respond with NotImplemented to requests with OpcodeStatus
 		// also checks that Opcode is unchanged in the response
 		name:                 "not_implemented_msg",
-		proto:                dnsserver.ProtoDNSUDP,
+		network:              dnsserver.NetworkUDP,
 		expectedRecordsCount: 0,
 		expectedRCode:        dns.RcodeNotImplemented,
 		req: &dns.Msg{
@@ -146,7 +136,7 @@ func TestServerDNS_integration_query(t *testing.T) {
 		// Checks that we respond with SERVFAIL in case if the handler
 		// returns an error
 		name:                 "handler_failure",
-		proto:                dnsserver.ProtoDNSUDP,
+		network:              dnsserver.NetworkUDP,
 		expectedRecordsCount: 0,
 		expectedRCode:        dns.RcodeServerFailure,
 		handler: dnsserver.HandlerFunc(func(
@@ -166,7 +156,7 @@ func TestServerDNS_integration_query(t *testing.T) {
 		// Checks that Z flag is set to zero even when the query has it
 		// See https://github.com/miekg/dns/issues/975
 		name:                 "msg_with_zflag",
-		proto:                dnsserver.ProtoDNSUDP,
+		network:              dnsserver.NetworkUDP,
 		expectedRecordsCount: 1,
 		expectedRCode:        dns.RcodeSuccess,
 		req: &dns.Msg{
@@ -178,8 +168,8 @@ func TestServerDNS_integration_query(t *testing.T) {
 	}, {
 		// Checks that large responses are getting truncated when
 		// sent over UDP
-		name:  "udp_truncate_response",
-		proto: dnsserver.ProtoDNSUDP,
+		name:    "udp_truncate_response",
+		network: dnsserver.NetworkUDP,
 		// Set a handler that generates a large response
 		handler:              dnsservertest.CreateTestHandler(64),
 		expectedRecordsCount: 0,
@@ -194,8 +184,8 @@ func TestServerDNS_integration_query(t *testing.T) {
 	}, {
 		// Checks that if UDP size is large enough there would be no
 		// truncated responses
-		name:  "udp_edns0_no_truncate",
-		proto: dnsserver.ProtoDNSUDP,
+		name:    "udp_edns0_no_truncate",
+		network: dnsserver.NetworkUDP,
 		// Set a handler that generates a large response
 		handler:              dnsservertest.CreateTestHandler(64),
 		expectedRecordsCount: 64,
@@ -219,8 +209,8 @@ func TestServerDNS_integration_query(t *testing.T) {
 	}, {
 		// Checks that large responses are NOT truncated when
 		// sent over UDP
-		name:  "tcp_no_truncate_response",
-		proto: dnsserver.ProtoDNSTCP,
+		name:    "tcp_no_truncate_response",
+		network: dnsserver.NetworkTCP,
 		// Set a handler that generates a large response
 		handler: dnsservertest.CreateTestHandler(64),
 		// No truncate
@@ -241,21 +231,12 @@ func TestServerDNS_integration_query(t *testing.T) {
 			if tc.handler != nil {
 				handler = tc.handler
 			}
-			srv, addr, err := dnsservertest.RunLocalDNSServer(handler, tc.proto)
-			require.NoError(t, err)
-			require.Equal(t, tc.proto, srv.Proto())
-
-			testutil.CleanupAndRequireSuccess(t, func() (err error) {
-				return srv.Shutdown(context.Background())
-			})
+			_, addr := dnsservertest.RunDNSServer(t, handler)
 
 			// Send this test message to our server over UDP
 			c := new(dns.Client)
-			c.Net = "udp"
+			c.Net = string(tc.network)
 			c.UDPSize = 7000 // need to be set to read large responses
-			if tc.proto == dnsserver.ProtoDNSTCP {
-				c.Net = "tcp"
-			}
 
 			res, _, err := c.Exchange(tc.req, addr)
 			require.NoError(t, err)
@@ -270,19 +251,10 @@ func TestServerDNS_integration_query(t *testing.T) {
 }
 
 func TestServerDNS_integration_tcpQueriesPipelining(t *testing.T) {
-	// As per RFC 7766 we should support queries pipelining for TCP,
-	// i.e. we should be able to process incoming queries in parallel and
-	// write responses out of order.
-	srv, addr, err := dnsservertest.RunLocalDNSServer(
-		dnsservertest.DefaultHandler(),
-		dnsserver.ProtoDNSTCP,
-	)
-	require.NoError(t, err)
-	require.Equal(t, dnsserver.ProtoDNSTCP, srv.Proto())
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(context.Background())
-	})
+	// As per RFC 7766 we should support queries pipelining for TCP, that is we
+	// should be able to process incoming queries in parallel and write
+	// responses out of order.
+	_, addr := dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
 
 	// First - establish a connection
 	conn, err := net.Dial("tcp", addr)
@@ -348,17 +320,7 @@ func TestServerDNS_integration_tcpQueriesPipelining(t *testing.T) {
 }
 
 func TestServerDNS_integration_udpMsgIgnore(t *testing.T) {
-	srv, addr, err := dnsservertest.RunLocalDNSServer(
-		dnsservertest.DefaultHandler(),
-		dnsserver.ProtoDNSUDP,
-	)
-	require.NoError(t, err)
-	require.Equal(t, dnsserver.ProtoDNSUDP, srv.Proto())
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(context.Background())
-	})
-
+	_, addr := dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
 	conn, err := net.Dial("udp", addr)
 	require.Nil(t, err)
 
@@ -449,17 +411,7 @@ func TestServerDNS_integration_tcpMsgIgnore(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv, addr, err := dnsservertest.RunLocalDNSServer(
-				dnsservertest.DefaultHandler(),
-				dnsserver.ProtoDNSTCP,
-			)
-			require.NoError(t, err)
-			require.Equal(t, dnsserver.ProtoDNSTCP, srv.Proto())
-
-			testutil.CleanupAndRequireSuccess(t, func() (err error) {
-				return srv.Shutdown(context.Background())
-			})
-
+			_, addr := dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
 			conn, err := net.Dial("tcp", addr)
 			require.Nil(t, err)
 

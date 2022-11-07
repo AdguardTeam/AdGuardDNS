@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"net/netip"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 )
 
@@ -107,12 +107,12 @@ func ECSFromMsg(msg *dns.Msg) (subnet netip.Prefix, scope uint8, err error) {
 // option.  It returns an error if esn does not contain valid, RFC-compliant
 // EDNS Client Subnet information or the address family is unsupported.
 func ecsData(esn *dns.EDNS0_SUBNET) (subnet netip.Prefix, scope uint8, err error) {
-	fam := agdnet.AddrFamily(esn.Family)
-	if fam != agdnet.AddrFamilyIPv4 && fam != agdnet.AddrFamilyIPv6 {
+	fam := netutil.AddrFamily(esn.Family)
+	if fam != netutil.AddrFamilyIPv4 && fam != netutil.AddrFamilyIPv6 {
 		return netip.Prefix{}, 0, fmt.Errorf("unsupported addr family number %d", fam)
 	}
 
-	ip, err := agdnet.IPToAddr(esn.Address, fam)
+	ip, err := netutil.IPToAddr(esn.Address, fam)
 	if err != nil {
 		return netip.Prefix{}, 0, fmt.Errorf("bad ecs ip addr: %w", err)
 	}

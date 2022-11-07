@@ -41,8 +41,10 @@ func (l *LogMiddleware) Wrap(h dnsserver.Handler) (wrapped dnsserver.Handler) {
 		// [{name} {proto}://{addr}] {id} {type} {name} {size} {rcode} {rsize} {duration}
 		sb := strings.Builder{}
 
-		// Server info: [{name} {proto}://{addr}]
 		serverInfo := dnsserver.MustServerInfoFromContext(ctx)
+		requestInfo := dnsserver.MustRequestInfoFromContext(ctx)
+
+		// [{name} {proto}://{addr}]
 		sb.WriteString(
 			fmt.Sprintf("[%s %s://%s] ",
 				serverInfo.Name,
@@ -56,7 +58,6 @@ func (l *LogMiddleware) Wrap(h dnsserver.Handler) (wrapped dnsserver.Handler) {
 		if len(req.Question) > 0 {
 			hostname = req.Question[0].Name
 		}
-		reqSize, _ := dnsserver.RequestSizeFromContext(ctx)
 		var qType uint16
 		if len(req.Question) == 1 {
 			qType = req.Question[0].Qtype
@@ -70,7 +71,7 @@ func (l *LogMiddleware) Wrap(h dnsserver.Handler) (wrapped dnsserver.Handler) {
 				req.Id,
 				qTypeStr,
 				hostname,
-				reqSize,
+				requestInfo.RequestSize,
 			),
 		)
 
@@ -79,7 +80,7 @@ func (l *LogMiddleware) Wrap(h dnsserver.Handler) (wrapped dnsserver.Handler) {
 		rsize := 0
 		if recW.Resp != nil {
 			rcode = recW.Resp.Rcode
-			rsize, _ = dnsserver.ResponseSizeFromContext(ctx)
+			rsize = requestInfo.ResponseSize
 		}
 		sb.WriteString(fmt.Sprintf("%d %d ", rcode, rsize))
 

@@ -3,9 +3,9 @@ package dnsserver_test
 import (
 	"testing"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
+	"github.com/AdguardTeam/golibs/testutil"
 )
 
 func TestMain(m *testing.M) {
-	dnsservertest.DiscardLogOutput(m)
+	testutil.DiscardLogOutput(m)
 }

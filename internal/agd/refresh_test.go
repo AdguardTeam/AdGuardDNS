@@ -13,73 +13,77 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRefreshWorker(t *testing.T) {
-	// Test Constants
+// sig is a convenient alias for struct{} when it's used as a signal for
+// synchronization.
+type sig = struct{}
 
-	const (
-		testIvl                  = 5 * time.Millisecond
-		testIvlLong              = 1 * time.Hour
-		name                     = "test refresher"
-		testError   errors.Error = "test error"
-	)
+const (
+	testIvl                  = 5 * time.Millisecond
+	testIvlLong              = 1 * time.Hour
+	name                     = "test refresher"
+	testError   errors.Error = "test error"
+)
 
-	// Test Mocks
+// newTestRefresher is a helper that returns refr and linked syncCh channel.
+func newTestRefresher(t *testing.T, respErr error) (refr *agdtest.Refresher, syncCh chan sig) {
+	t.Helper()
 
 	pt := testutil.PanicT{}
-	refreshSync := make(chan agdtest.Signal, 1)
 
-	refr := &agdtest.Refresher{
+	syncCh = make(chan sig, 1)
+	refr = &agdtest.Refresher{
 		OnRefresh: func(_ context.Context) (err error) {
-			agdtest.RequireSend(pt, refreshSync, testTimeout)
+			testutil.RequireSend(pt, syncCh, sig{}, testTimeout)
 
-			return nil
+			return respErr
 		},
 	}
 
-	errRefr := &agdtest.Refresher{
-		OnRefresh: func(_ context.Context) (err error) {
-			agdtest.RequireSend(pt, refreshSync, testTimeout)
+	return refr, syncCh
+}
 
-			return testError
-		},
-	}
+// newRefrConf returns worker configuration.
+func newRefrConf(
+	t *testing.T,
+	refr agd.Refresher,
+	ivl time.Duration,
+	refrOnShutDown bool,
+	errCh chan sig,
+) (conf *agd.RefreshWorkerConfig) {
+	t.Helper()
 
-	errCh := make(chan agdtest.Signal, 1)
+	pt := testutil.PanicT{}
+
 	errColl := &agdtest.ErrorCollector{
 		OnCollect: func(_ context.Context, _ error) {
-			agdtest.RequireSend(pt, errCh, testTimeout)
+			testutil.RequireSend(pt, errCh, sig{}, testTimeout)
 		},
 	}
 
-	// Test Helpers
-
-	refrConf := func(
-		refr agd.Refresher,
-		ivl time.Duration,
-		refrOnShutDown bool,
-	) (conf *agd.RefreshWorkerConfig) {
-		return &agd.RefreshWorkerConfig{
-			Context: func() (ctx context.Context, cancel context.CancelFunc) {
-				return context.WithTimeout(context.Background(), testTimeout)
-			},
-			Refresher:           refr,
-			ErrColl:             errColl,
-			Name:                name,
-			Interval:            ivl,
-			RefreshOnShutdown:   refrOnShutDown,
-			RoutineLogsAreDebug: false,
-		}
+	return &agd.RefreshWorkerConfig{
+		Context: func() (ctx context.Context, cancel context.CancelFunc) {
+			return context.WithTimeout(context.Background(), testTimeout)
+		},
+		Refresher:           refr,
+		ErrColl:             errColl,
+		Name:                name,
+		Interval:            ivl,
+		RefreshOnShutdown:   refrOnShutDown,
+		RoutineLogsAreDebug: false,
 	}
+}
 
-	// Tests
-
+func TestRefreshWorker(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
-		w := agd.NewRefreshWorker(refrConf(refr, testIvl, false))
+		refr, syncCh := newTestRefresher(t, nil)
+		errCh := make(chan sig, 1)
+
+		w := agd.NewRefreshWorker(newRefrConf(t, refr, testIvl, false, errCh))
 
 		err := w.Start()
 		require.NoError(t, err)
 
-		agdtest.RequireReceive(pt, refreshSync, testTimeout)
+		testutil.RequireReceive(t, syncCh, testTimeout)
 		require.Empty(t, errCh)
 
 		shutdown, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -90,7 +94,10 @@ func TestRefreshWorker(t *testing.T) {
 	})
 
 	t.Run("success_on_shutdown", func(t *testing.T) {
-		w := agd.NewRefreshWorker(refrConf(refr, testIvlLong, true))
+		refr, syncCh := newTestRefresher(t, nil)
+		errCh := make(chan sig, 1)
+
+		w := agd.NewRefreshWorker(newRefrConf(t, refr, testIvlLong, true, errCh))
 
 		err := w.Start()
 		require.NoError(t, err)
@@ -101,18 +108,21 @@ func TestRefreshWorker(t *testing.T) {
 		err = w.Shutdown(shutdown)
 		require.NoError(t, err)
 
-		agdtest.RequireReceive(pt, refreshSync, testTimeout)
+		testutil.RequireReceive(t, syncCh, testTimeout)
 		require.Empty(t, errCh)
 	})
 
 	t.Run("error", func(t *testing.T) {
-		w := agd.NewRefreshWorker(refrConf(errRefr, testIvl, false))
+		errRefr, syncCh := newTestRefresher(t, testError)
+		errCh := make(chan sig, 1)
+
+		w := agd.NewRefreshWorker(newRefrConf(t, errRefr, testIvl, false, errCh))
 
 		err := w.Start()
 		require.NoError(t, err)
 
-		agdtest.RequireReceive(pt, refreshSync, testTimeout)
-		agdtest.RequireReceive(pt, errCh, testTimeout)
+		testutil.RequireReceive(t, syncCh, testTimeout)
+		testutil.RequireReceive(t, errCh, testTimeout)
 
 		shutdown, cancel := context.WithTimeout(context.Background(), testTimeout)
 		defer cancel()
@@ -122,7 +132,10 @@ func TestRefreshWorker(t *testing.T) {
 	})
 
 	t.Run("error_on_shutdown", func(t *testing.T) {
-		w := agd.NewRefreshWorker(refrConf(errRefr, testIvlLong, true))
+		errRefr, syncCh := newTestRefresher(t, testError)
+		errCh := make(chan sig, 1)
+
+		w := agd.NewRefreshWorker(newRefrConf(t, errRefr, testIvlLong, true, errCh))
 
 		err := w.Start()
 		require.NoError(t, err)
@@ -133,7 +146,7 @@ func TestRefreshWorker(t *testing.T) {
 		err = w.Shutdown(shutdown)
 		assert.ErrorIs(t, err, testError)
 
-		agdtest.RequireReceive(pt, refreshSync, testTimeout)
+		testutil.RequireReceive(t, syncCh, testTimeout)
 		require.Empty(t, errCh)
 	})
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -23,10 +24,14 @@ func TestStorage_FilterFromContext_safeSearch(t *testing.T) {
 	}
 
 	numLookupIP := 0
-	onLookupIP := func(_ context.Context, network, _ string) (ips []net.IP, err error) {
+	onLookupIP := func(
+		_ context.Context,
+		fam netutil.AddrFamily,
+		_ string,
+	) (ips []net.IP, err error) {
 		numLookupIP++
 
-		if network == "ip4" {
+		if fam == netutil.AddrFamilyIPv4 {
 			return []net.IP{safeSearchIPRespIP4}, nil
 		}
 

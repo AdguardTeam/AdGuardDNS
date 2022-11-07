@@ -17,7 +17,7 @@ import (
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
 	env "github.com/caarlos0/env/v6"
-	"github.com/getsentry/raven-go"
+	"github.com/getsentry/sentry-go"
 )
 
 // Environment Configuration
@@ -34,14 +34,15 @@ type environments struct {
 	YoutubeSafeSearchURL     *agdhttp.URL `env:"YOUTUBE_SAFE_SEARCH_URL,notEmpty"`
 	RuleStatURL              *agdhttp.URL `env:"RULESTAT_URL"`
 
-	ConfPath         string `env:"CONFIG_PATH" envDefault:"./config.yml"`
-	DNSDBPath        string `env:"DNSDB_PATH" envDefault:"./dnsdb.bolt"`
-	FilterCachePath  string `env:"FILTER_CACHE_PATH" envDefault:"./filters/"`
-	GeoIPASNPath     string `env:"GEOIP_ASN_PATH" envDefault:"./asn.mmdb"`
-	GeoIPCountryPath string `env:"GEOIP_COUNTRY_PATH" envDefault:"./country.mmdb"`
-	QueryLogPath     string `env:"QUERYLOG_PATH" envDefault:"./querylog.jsonl"`
-	SentryDSN        string `env:"SENTRY_DSN" envDefault:"stderr"`
-	SSLKeyLogFile    string `env:"SSL_KEY_LOG_FILE"`
+	ConfPath          string `env:"CONFIG_PATH" envDefault:"./config.yml"`
+	DNSDBPath         string `env:"DNSDB_PATH" envDefault:"./dnsdb.bolt"`
+	FilterCachePath   string `env:"FILTER_CACHE_PATH" envDefault:"./filters/"`
+	ProfilesCachePath string `env:"PROFILES_CACHE_PATH" envDefault:"./profilecache.json"`
+	GeoIPASNPath      string `env:"GEOIP_ASN_PATH" envDefault:"./asn.mmdb"`
+	GeoIPCountryPath  string `env:"GEOIP_COUNTRY_PATH" envDefault:"./country.mmdb"`
+	QueryLogPath      string `env:"QUERYLOG_PATH" envDefault:"./querylog.jsonl"`
+	SentryDSN         string `env:"SENTRY_DSN" envDefault:"stderr"`
+	SSLKeyLogFile     string `env:"SSL_KEY_LOG_FILE"`
 
 	ListenAddr net.IP `env:"LISTEN_ADDR" envDefault:"127.0.0.1"`
 
@@ -83,12 +84,16 @@ func (envs *environments) buildErrColl() (errColl agd.ErrorCollector, err error)
 		return errcoll.NewWriterErrorCollector(os.Stderr), nil
 	}
 
-	rc, err := raven.New(dsn)
+	cli, err := sentry.NewClient(sentry.ClientOptions{
+		Dsn:              dsn,
+		AttachStacktrace: true,
+		Release:          agd.Version(),
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	return errcoll.NewRavenErrorCollector(rc), nil
+	return errcoll.NewSentryErrorCollector(cli), nil
 }
 
 // buildDNSDB builds and returns an anonymous statistics collector and its

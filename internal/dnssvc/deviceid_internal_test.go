@@ -24,12 +24,12 @@ func TestService_Wrap_deviceID(t *testing.T) {
 		wildcards    []string
 		proto        agd.Protocol
 	}{{
-		name:         "udp",
+		name:         "dns",
 		cliSrvName:   "",
 		wantDeviceID: "",
 		wantErrMsg:   "",
 		wildcards:    nil,
-		proto:        agd.ProtoDNSUDP,
+		proto:        agd.ProtoDNS,
 	}, {
 		name:         "tls_no_device_id",
 		cliSrvName:   "dns.example.com",

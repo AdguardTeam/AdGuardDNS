@@ -254,10 +254,8 @@ func TestConstructor_NewDDR(t *testing.T) {
 	}
 
 	for _, unsupProto := range []dnsserver.Protocol{
-		dnsserver.ProtoDNSTCP,
-		dnsserver.ProtoDNSUDP,
-		dnsserver.ProtoDNSCryptTCP,
-		dnsserver.ProtoDNSCryptUDP,
+		dnsserver.ProtoDNS,
+		dnsserver.ProtoDNSCrypt,
 	} {
 		t.Run(unsupProto.String(), func(t *testing.T) {
 			assert.Panics(t, func() {

@@ -2,11 +2,11 @@ package dnsserver
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"sync"
 	"time"
 
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/miekg/dns"
 )
@@ -77,18 +77,16 @@ type ServerDNS struct {
 // type check
 var _ Server = (*ServerDNS)(nil)
 
-// NewServerDNS creates a new ServerDNS instance.  conf.Proto must be either
-// [ProtoDNSTCP] or [ProtoDNSUDP].
+// NewServerDNS creates a new ServerDNS instance.
 func NewServerDNS(conf ConfigDNS) (s *ServerDNS) {
-	if !conf.Proto.IsPlain() {
-		panic(fmt.Errorf("invalid proto %s in NewServerDNS", conf.Proto))
-	}
-
-	return newServerDNS(conf)
+	return newServerDNS(ProtoDNS, conf)
 }
 
-func newServerDNS(conf ConfigDNS) (s *ServerDNS) {
-	// Init default settings first
+// newServerDNS initializes a new ServerDNS instance with the specified proto.
+// This function is reused in ServerTLS as it is basically a plain DNS-over-TCP
+// server with a TLS layer on top of it.
+func newServerDNS(proto Protocol, conf ConfigDNS) (s *ServerDNS) {
+	// Init default settings first.
 	if conf.ReadTimeout == 0 {
 		conf.ReadTimeout = DefaultReadTimeout
 	}
@@ -108,7 +106,7 @@ func newServerDNS(conf ConfigDNS) (s *ServerDNS) {
 	}
 
 	s = &ServerDNS{
-		ServerBase: newServerBase(conf.ConfigBase),
+		ServerBase: newServerBase(proto, conf.ConfigBase),
 		conf:       conf,
 	}
 
@@ -120,8 +118,10 @@ func newServerDNS(conf ConfigDNS) (s *ServerDNS) {
 	return s
 }
 
-// Start starts all listeners and starts processing queries.
+// Start implements the dnsserver.Server interface for *ServerDNS.
 func (s *ServerDNS) Start(ctx context.Context) (err error) {
+	defer func() { err = errors.Annotate(err, "starting dns server: %w", err) }()
+
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -138,9 +138,12 @@ func (s *ServerDNS) Start(ctx context.Context) (err error) {
 		Proto: s.proto,
 	})
 
-	// Start listening to UDP on the specified addrs.
-	switch s.proto {
-	case ProtoDNSUDP:
+	if s.proto != ProtoDNS {
+		return ErrInvalidArgument
+	}
+
+	// Start listening to UDP on the specified address.
+	if s.network.CanUDP() {
 		err = s.listenUDP(ctx)
 		if err != nil {
 			return err
@@ -148,7 +151,10 @@ func (s *ServerDNS) Start(ctx context.Context) (err error) {
 
 		s.wg.Add(1)
 		go s.startServeUDP(ctx)
-	case ProtoDNSTCP:
+	}
+
+	// Start listening to TCP on the specified address.
+	if s.network.CanTCP() {
 		err = s.listenTCP(ctx)
 		if err != nil {
 			return err
@@ -156,8 +162,6 @@ func (s *ServerDNS) Start(ctx context.Context) (err error) {
 
 		s.wg.Add(1)
 		go s.startServeTCP(ctx)
-	default:
-		return ErrInvalidArgument
 	}
 
 	log.Info("[%s]: Server has been started", s.Name())
@@ -165,8 +169,10 @@ func (s *ServerDNS) Start(ctx context.Context) (err error) {
 	return nil
 }
 
-// Shutdown closes active connections and listeners (if they're not closed already).
+// Shutdown implements the dnsserver.Server interface for *ServerDNS.
 func (s *ServerDNS) Shutdown(ctx context.Context) (err error) {
+	defer func() { err = errors.Annotate(err, "shutting down dns server: %w", err) }()
+
 	err = s.shutdown()
 	if err != nil {
 		log.Info("[%s]: Failed to shutdown: %v", s.Name(), err)

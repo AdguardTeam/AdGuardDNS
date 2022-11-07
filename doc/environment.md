@@ -15,6 +15,7 @@ sensitive configuration.  All other configuration is stored in the
  *  [`DNSDB_PATH`](#DNSDB_PATH)
  *  [`FILTER_INDEX_URL`](#FILTER_INDEX_URL)
  *  [`FILTER_CACHE_PATH`](#FILTER_CACHE_PATH)
+ *  [`PROFILES_CACHE_PATH`](#PROFILES_CACHE_PATH)
  *  [`GENERAL_SAFE_SEARCH_URL`](#GENERAL_SAFE_SEARCH_URL)
  *  [`GEOIP_ASN_PATH` and `GEOIP_COUNTRY_PATH`](#GEOIP_ASN_PATH)
  *  [`LISTEN_ADDR`](#LISTEN_ADDR)
@@ -115,6 +116,17 @@ collection is disabled.
 The path to the directory with the filter lists cache.
 
 **Default:** `./filters/`.
+
+
+
+##  <a href="#PROFILES_CACHE_PATH" id="PROFILES_CACHE_PATH" name="PROFILES_CACHE_PATH">`PROFILES_CACHE_PATH`</a>
+
+The path to the profile cache file.  The profile cache is read on start and is
+later updated on every [full refresh][conf-backend-full_refresh_interval].
+
+**Default:** `./profilecache.json`.
+
+[conf-backend-full_refresh_interval]: configuration.md#backend-full_refresh_interval
 
 
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/cache"
@@ -33,7 +34,15 @@ func TestCacheMetricsListener_integration_cache(t *testing.T) {
 		req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
 		addr := &net.UDPAddr{IP: net.IP{1, 2, 3, 4}, Port: 53}
 		nrw := dnsserver.NewNonWriterResponseWriter(addr, addr)
-		err := handlerWithMiddleware.ServeDNS(context.Background(), nrw, req)
+		ctx := dnsserver.ContextWithServerInfo(context.Background(), dnsserver.ServerInfo{
+			Name:  "test_server",
+			Addr:  "127.0.0.1:0",
+			Proto: dnsserver.ProtoDNS,
+		})
+		ctx = dnsserver.ContextWithStartTime(ctx, time.Now())
+		ctx = dnsserver.ContextWithClientInfo(ctx, dnsserver.ClientInfo{})
+
+		err := handlerWithMiddleware.ServeDNS(ctx, nrw, req)
 		require.NoError(t, err)
 		dnsservertest.RequireResponse(t, req, nrw.Msg(), 1, dns.RcodeSuccess, false)
 	}

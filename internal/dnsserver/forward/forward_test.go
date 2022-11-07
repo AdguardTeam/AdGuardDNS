@@ -14,28 +14,23 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	dnsservertest.DiscardLogOutput(m)
+	testutil.DiscardLogOutput(m)
 }
 
 func TestHandler_ServeDNS(t *testing.T) {
-	srv, err := dnsservertest.RunDNSServer(dnsservertest.DefaultHandler())
-	require.NoError(t, err)
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(context.Background())
-	})
+	srv, addr := dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
 
 	// No-fallbacks handler.
 	handler := forward.NewHandler(&forward.HandlerConfig{
-		Address: netip.MustParseAddrPort(srv.Addr),
+		Address: netip.MustParseAddrPort(addr),
+		Network: forward.NetworkAny,
 	}, true)
 
 	req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
-	addr := srv.SrvTCP.LocalAddr()
-	rw := dnsserver.NewNonWriterResponseWriter(addr, addr)
+	rw := dnsserver.NewNonWriterResponseWriter(srv.LocalUDPAddr(), srv.LocalUDPAddr())
 
 	// Check the handler's ServeDNS method
-	err = handler.ServeDNS(context.Background(), rw, req)
+	err := handler.ServeDNS(context.Background(), rw, req)
 	require.NoError(t, err)
 
 	res := rw.Msg()
@@ -44,26 +39,20 @@ func TestHandler_ServeDNS(t *testing.T) {
 }
 
 func TestHandler_ServeDNS_fallbackNetError(t *testing.T) {
-	srv, err := dnsservertest.RunDNSServer(dnsservertest.DefaultHandler())
-	require.NoError(t, err)
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(context.Background())
-	})
-
+	srv, _ := dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
 	handler := forward.NewHandler(&forward.HandlerConfig{
 		Address: netip.MustParseAddrPort("127.0.0.1:0"),
+		Network: forward.NetworkAny,
 		FallbackAddresses: []netip.AddrPort{
-			netip.MustParseAddrPort(srv.Addr),
+			netip.MustParseAddrPort(srv.LocalUDPAddr().String()),
 		},
 	}, true)
 
 	req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
-	addr := srv.SrvTCP.LocalAddr()
-	rw := dnsserver.NewNonWriterResponseWriter(addr, addr)
+	rw := dnsserver.NewNonWriterResponseWriter(srv.LocalUDPAddr(), srv.LocalUDPAddr())
 
 	// Check the handler's ServeDNS method
-	err = handler.ServeDNS(context.Background(), rw, req)
+	err := handler.ServeDNS(context.Background(), rw, req)
 	require.NoError(t, err)
 
 	res := rw.Msg()

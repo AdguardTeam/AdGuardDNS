@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/miekg/dns"
 	"github.com/patrickmn/go-cache"
@@ -21,11 +23,11 @@ type safeSearch struct {
 	// resultCache contains cached results.
 	resultCache *resultCache
 
-	// rslvCache contains resolved IPs.
-	rslvCache *resolveCache
-
 	// flt is used to filter requests.
 	flt *ruleListFilter
+
+	// resolver resolves IP addresses.
+	resolver agdnet.Resolver
 
 	// errColl is used to report rare errors.
 	errColl agd.ErrorCollector
@@ -33,15 +35,11 @@ type safeSearch struct {
 
 // safeSearchConfig contains configuration for the safe search filter.
 type safeSearchConfig struct {
-	rslvCache *resolveCache
-
-	errColl agd.ErrorCollector
-
-	list *agd.FilterList
-
+	list     *agd.FilterList
+	resolver agdnet.Resolver
+	errColl  agd.ErrorCollector
 	cacheDir string
-
-	ttl time.Duration
+	ttl      time.Duration
 
 	//lint:ignore U1000 TODO(a.garipov): Currently unused.  See AGDNS-398.
 	cacheSize int
@@ -55,9 +53,9 @@ func newSafeSearch(c *safeSearchConfig) (f *safeSearch) {
 	}
 
 	return &safeSearch{
-		rslvCache:   c.rslvCache,
 		resultCache: resCache,
 		flt:         newRuleListFilter(c.list, c.cacheDir),
+		resolver:    c.resolver,
 		errColl:     c.errColl,
 	}
 }
@@ -73,8 +71,8 @@ func (f *safeSearch) filterReq(
 	req *dns.Msg,
 ) (r Result, err error) {
 	qt := ri.QType
-	network := dnsTypeToNetwork(qt)
-	if network == "" {
+	fam := netutil.AddrFamilyFromRRType(qt)
+	if fam == netutil.AddrFamilyNone {
 		return nil, nil
 	}
 
@@ -93,8 +91,11 @@ func (f *safeSearch) filterReq(
 		return r.(*ResultModified).CloneForReq(req), nil
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, defaultResolveTimeout)
+	defer cancel()
+
 	var result *dns.Msg
-	ips, err := f.rslvCache.resolve(network, repHost)
+	ips, err := f.resolver.LookupIP(ctx, fam, repHost)
 	if err != nil {
 		agd.Collectf(ctx, f.errColl, "filter %s: resolving: %w", f.flt.id(), err)
 

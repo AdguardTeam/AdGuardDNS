@@ -206,6 +206,8 @@ Examples below are for the configuration with the following changes:
  *  DoH: `443` → `8443`
  *  DoQ: `853` → `8853`
 
+You may also need to remove `probe_ipv6` if your network does not support IPv6.
+
 ```sh
 env \
     BACKEND_ENDPOINT='PUT BACKEND URL HERE' \
@@ -215,6 +217,7 @@ env \
     DNSDB_PATH='./test/cache/dnsdb.bolt' \
     FILTER_INDEX_URL='https://atropnikov.github.io/HostlistsRegistry/assets/filters.json' \
     FILTER_CACHE_PATH='./test/cache' \
+    PROFILES_CACHE_PATH='./test/profilecache.json' \
     GENERAL_SAFE_SEARCH_URL='https://adguardteam.github.io/HostlistsRegistry/assets/engines_safe_search.txt' \
     GEOIP_ASN_PATH='./test/GeoLite2-ASN-Test.mmdb' \
     GEOIP_COUNTRY_PATH='./test/GeoIP2-Country-Test.mmdb' \

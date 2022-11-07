@@ -5,21 +5,20 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// ServerMetricsListener implements the dnsserver.MetricsListener interface
+// ServerMetricsListener implements the [dnsserver.MetricsListener] interface
 // and increments prom counters.
 type ServerMetricsListener struct{}
 
 // type check
 var _ dnsserver.MetricsListener = (*ServerMetricsListener)(nil)
 
-// OnRequest implements the dnsserver.MetricsListener interface for
-// *ServerMetricsListener.
+// OnRequest implements the [dnsserver.MetricsListener] interface for
+// [*ServerMetricsListener].
 func (l *ServerMetricsListener) OnRequest(
 	ctx context.Context,
 	req, resp *dns.Msg,
@@ -37,19 +36,12 @@ func (l *ServerMetricsListener) OnRequest(
 	requestDuration.With(srvLabels).Observe(elapsed)
 
 	// Increment request size.
-	size, found := dnsserver.RequestSizeFromContext(ctx)
-	if !found {
-		log.Error("request size is not attached to the context")
-	}
-	requestSize.With(srvLabels).Observe(float64(size))
+	ri := dnsserver.MustRequestInfoFromContext(ctx)
+	requestSize.With(srvLabels).Observe(float64(ri.RequestSize))
 
 	// If resp is not nil, increment response-related metrics
 	if resp != nil {
-		size, found = dnsserver.ResponseSizeFromContext(ctx)
-		if !found {
-			log.Error("response size is not attached to the context")
-		}
-		responseSize.With(srvLabels).Observe(float64(size))
+		responseSize.With(srvLabels).Observe(float64(ri.ResponseSize))
 
 		resLabels := baseLabels(ctx)
 		resLabels["rcode"] = rCodeToString(resp.Rcode)
@@ -63,35 +55,45 @@ func (l *ServerMetricsListener) OnRequest(
 	}
 }
 
-// OnInvalidMsg implements the dnsserver.MetricsListener interface for
-// *ServerMetricsListener.
+// OnInvalidMsg implements the [dnsserver.MetricsListener] interface for
+// [*ServerMetricsListener].
 func (l *ServerMetricsListener) OnInvalidMsg(ctx context.Context) {
 	labels := baseLabels(ctx)
 	invalidMsgTotal.With(labels).Inc()
 }
 
-// OnError implements the dnsserver.MetricsListener interface for
-// *ServerMetricsListener.
+// OnError implements the [dnsserver.MetricsListener] interface for
+// [*ServerMetricsListener].
 func (l *ServerMetricsListener) OnError(ctx context.Context, _ error) {
 	labels := baseLabels(ctx)
 	errorTotal.With(labels).Inc()
 }
 
-// OnPanic implements the dnsserver.MetricsListener interface for
-// *ServerMetricsListener.
+// OnPanic implements the [dnsserver.MetricsListener] interface for
+// [*ServerMetricsListener].
 func (l *ServerMetricsListener) OnPanic(ctx context.Context, _ any) {
 	labels := baseLabels(ctx)
 	panicTotal.With(labels).Inc()
 }
 
-// This block contains prometheus metrics declarations for dnsserver.Server
+// OnQUICAddressValidation implements the [dnsserver.MetricsListener] interface
+// for [*ServerMetricsListener].
+func (l *ServerMetricsListener) OnQUICAddressValidation(hit bool) {
+	if hit {
+		quicAddrValidationCacheLookupsHits.Inc()
+	} else {
+		quicAddrValidationCacheLookupsMisses.Inc()
+	}
+}
+
+// This block contains prometheus metrics declarations for [dnsserver.Server]
 var (
 	requestTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name:      "request_total",
 		Namespace: namespace,
 		Subsystem: subsystemServer,
 		Help:      "The number of processed DNS requests.",
-	}, []string{"name", "proto", "addr", "type", "family"})
+	}, []string{"name", "proto", "network", "addr", "type", "family"})
 
 	requestDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name:      "request_duration_seconds",
@@ -147,4 +149,17 @@ var (
 		Subsystem: subsystemServer,
 		Help:      "The number of invalid DNS messages processed by the DNS server.",
 	}, []string{"name", "proto", "addr"})
+)
+
+var (
+	quicAddrValidationCacheLookups = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name:      "quic_addr_validation_lookups",
+		Namespace: namespace,
+		Subsystem: subsystemServer,
+		Help: "The number of QUIC address validation lookups." +
+			"hit=1 means that a cached item was found.",
+	}, []string{"hit"})
+
+	quicAddrValidationCacheLookupsHits   = quicAddrValidationCacheLookups.WithLabelValues("1")
+	quicAddrValidationCacheLookupsMisses = quicAddrValidationCacheLookups.WithLabelValues("0")
 )

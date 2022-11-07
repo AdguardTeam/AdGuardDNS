@@ -13,8 +13,7 @@ type ctxKey int
 const (
 	ctxKeyServerInfo ctxKey = iota
 	ctxKeyStartTime
-	ctxKeyRequestSize
-	ctxKeyResponseSize
+	ctxKeyRequestInfo
 	ctxKeyClientInfo
 )
 
@@ -76,27 +75,38 @@ func MustStartTimeFromContext(ctx context.Context) (t time.Time) {
 	return st
 }
 
-// ContextWithRequestSize attaches request's size to the specified context.
-func ContextWithRequestSize(parent context.Context, size int) (ctx context.Context) {
-	return context.WithValue(parent, ctxKeyRequestSize, size)
+// RequestInfo is a structure that contains basic request information.  It is
+// attached to every context.Context linked to processing a DNS request.
+type RequestInfo struct {
+	// RequestSize is the size of a DNS request in bytes.
+	RequestSize int
+
+	// ResponseSize is the size of a DNS response in bytes.  May be 0 if no
+	// response was sent.
+	ResponseSize int
 }
 
-// RequestSizeFromContext gets request's size from the context.
-func RequestSizeFromContext(ctx context.Context) (size int, found bool) {
-	size, found = ctx.Value(ctxKeyRequestSize).(int)
-
-	return size, found
+// ContextWithRequestInfo attaches RequestInfo to the specified context.
+func ContextWithRequestInfo(parent context.Context, ri RequestInfo) (ctx context.Context) {
+	return context.WithValue(parent, ctxKeyRequestInfo, ri)
 }
 
-// ContextWithResponseSize attaches response's size to the specified context.
-func ContextWithResponseSize(parent context.Context, size int) (ctx context.Context) {
-	return context.WithValue(parent, ctxKeyResponseSize, size)
+// RequestInfoFromContext gets RequestInfo from the specified context.
+func RequestInfoFromContext(ctx context.Context) (ri RequestInfo, found bool) {
+	ri, found = ctx.Value(ctxKeyRequestInfo).(RequestInfo)
+
+	return ri, found
 }
 
-// ResponseSizeFromContext gets response's size from the context.
-func ResponseSizeFromContext(ctx context.Context) (size int, found bool) {
-	size, found = ctx.Value(ctxKeyResponseSize).(int)
-	return size, found
+// MustRequestInfoFromContext gets RequestInfo attached to the context and
+// panics if it is not found.
+func MustRequestInfoFromContext(ctx context.Context) (ri RequestInfo) {
+	ri, found := RequestInfoFromContext(ctx)
+	if !found {
+		panic("request info not found in the context")
+	}
+
+	return ri
 }
 
 // ClientInfo is a structure that contains basic information about the client.
@@ -105,9 +115,12 @@ type ClientInfo struct {
 	// URL is the request URL.  It is set only if the protocol of the
 	// server is DoH.
 	URL *url.URL
+
 	// TLSServerName is the server name field of the client's TLS hello
 	// request.  It is set only if the protocol of the server is either DoQ
-	// or DoT.  Note, that the original SNI is transformed to lower-case.
+	// or DoT or DoH.  Note, that the original SNI is transformed to lower-case.
+	//
+	// TODO(ameshkov): use r.TLS with DoH3 (see httpContextWithClientInfo).
 	TLSServerName string
 }
 

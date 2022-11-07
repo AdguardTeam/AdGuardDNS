@@ -7,19 +7,20 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/ecscache"
+	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMain(m *testing.M) {
-	agdtest.DiscardLogOutput(m)
+	testutil.DiscardLogOutput(m)
 }
 
 // Common test domain names.
@@ -148,7 +149,7 @@ func TestMiddleware_Wrap_noECS(t *testing.T) {
 				t,
 				handler,
 				agd.CountryNone,
-				agdnet.ZeroSubnet(agdnet.AddrFamilyIPv4),
+				netutil.ZeroPrefix(netutil.AddrFamilyIPv4),
 			)
 			ctx := agd.ContextWithRequestInfo(context.Background(), &agd.RequestInfo{
 				Host:     tc.req.Question[0].Name,
@@ -190,7 +191,7 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 	subnet := netip.PrefixFrom(netip.AddrFrom4(*(*[4]byte)(ip)), prefixLen)
 	opt.Option = append(opt.Option, &dns.EDNS0_SUBNET{
 		Code:          dns.EDNS0SUBNET,
-		Family:        uint16(agdnet.AddrFamilyIPv4),
+		Family:        uint16(netutil.AddrFamilyIPv4),
 		SourceNetmask: prefixLen,
 		SourceScope:   0,
 		Address:       ip,
@@ -198,7 +199,7 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 
 	const ctry = agd.CountryAD
 	defaultCtrySubnet := netip.MustParsePrefix("1.2.0.0/16")
-	ecsExtra := dnsservertest.NewECSExtra(net.IP{1, 2, 0, 0}, uint16(agdnet.AddrFamilyIPv4), 20, 20)
+	ecsExtra := dnsservertest.NewECSExtra(net.IP{1, 2, 0, 0}, uint16(netutil.AddrFamilyIPv4), 20, 20)
 
 	testCases := []struct {
 		req        *dns.Msg
@@ -255,7 +256,7 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 			Scope:  0,
 		},
 		name:       "no_country",
-		ctrySubnet: agdnet.ZeroSubnet(agdnet.AddrFamilyIPv4),
+		ctrySubnet: netutil.ZeroPrefix(netutil.AddrFamilyIPv4),
 		wantNumReq: 1,
 		wantTTL:    defaultTTL,
 	}, {
@@ -351,10 +352,8 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 			require.NotNil(t, respOpt)
 			require.Len(t, respOpt.Option, 1)
 
-			o := respOpt.Option[0]
-			require.IsType(t, (*dns.EDNS0_SUBNET)(nil), o)
+			subnetOpt := testutil.RequireTypeAssert[*dns.EDNS0_SUBNET](t, respOpt.Option[0])
 
-			subnetOpt := o.(*dns.EDNS0_SUBNET)
 			assert.Equal(t, ip, subnetOpt.Address)
 			assert.Equal(t, uint8(prefixLen), subnetOpt.SourceNetmask)
 			assert.Equal(t, uint8(prefixLen), subnetOpt.SourceScope)
@@ -376,7 +375,7 @@ func newWithCache(
 		OnSubnetByLocation: func(
 			ctry agd.Country,
 			_ agd.ASN,
-			_ agdnet.AddrFamily,
+			_ netutil.AddrFamily,
 		) (n netip.Prefix, err error) {
 			t.Helper()
 

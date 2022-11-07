@@ -50,7 +50,7 @@ trap not_found EXIT
 go_version="$( "${GO:-go}" version )"
 readonly go_version
 
-go_min_version='go1.19'
+go_min_version='go1.19.3'
 go_version_msg="
 warning: your go version (${go_version}) is different from the recommended minimal one (${go_min_version}).
 if you have the version installed, please set the GO environment variable.
@@ -135,6 +135,8 @@ underscores() {
 			-e '_noreuseport.go'\
 			-e '_reuseport.go'\
 			-e '_test.go'\
+			-e '_unix.go'\
+			-e '_windows.go'\
 			-v\
 			| sed -e 's/./\t\0/'
 	)"

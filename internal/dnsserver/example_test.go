@@ -34,8 +34,6 @@ func ExampleNewServerDNS() {
 			Name: "test",
 			// listen address
 			Addr: "127.0.0.1:0",
-			// protocol (ProtoDNSUDP or ProtoDNSTCP)
-			Proto: dnsserver.ProtoDNSUDP,
 			// handler that will process incoming DNS queries
 			Handler: handler,
 		},
@@ -60,6 +58,7 @@ func ExampleWithMiddlewares() {
 	// Init a handler func function with middlewares.
 	forwarder := forward.NewHandler(&forward.HandlerConfig{
 		Address: netip.MustParseAddrPort("94.140.14.140:53"),
+		Network: forward.NetworkAny,
 	}, true)
 
 	middleware := querylog.NewLogMiddleware(os.Stdout)
@@ -70,7 +69,6 @@ func ExampleWithMiddlewares() {
 		ConfigBase: dnsserver.ConfigBase{
 			Name:    "test",
 			Addr:    "127.0.0.1:0",
-			Proto:   dnsserver.ProtoDNSUDP,
 			Handler: handler,
 		},
 	}

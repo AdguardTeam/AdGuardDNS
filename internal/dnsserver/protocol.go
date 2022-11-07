@@ -2,6 +2,7 @@ package dnsserver
 
 import (
 	"fmt"
+	"net"
 
 	"golang.org/x/exp/slices"
 )
@@ -18,11 +19,8 @@ const (
 	// ProtoInvalid is the invalid default value.
 	ProtoInvalid Protocol = 0
 
-	// ProtoDNSTCP is plain DNS over TCP.
-	ProtoDNSTCP Protocol = 1
-
-	// ProtoDNSUDP is plain DNS over UDP.
-	ProtoDNSUDP Protocol = 2
+	// ProtoDNS is plain DNS.
+	ProtoDNS Protocol = 8
 
 	// ProtoDoH is DNS-over-HTTPS.
 	ProtoDoH Protocol = 3
@@ -33,30 +31,23 @@ const (
 	// ProtoDoT is DNS-over-TLS.
 	ProtoDoT Protocol = 5
 
-	// ProtoDNSCryptTCP is DNSCrypt over TCP.
-	ProtoDNSCryptTCP Protocol = 6
-
-	// ProtoDNSCryptUDP is DNSCrypt over UDP.
-	ProtoDNSCryptUDP Protocol = 7
+	// ProtoDNSCrypt is DNSCrypt.
+	ProtoDNSCrypt Protocol = 9
 )
 
 // String implements the fmt.Stringer interface for Protocol.
 func (p Protocol) String() (s string) {
 	switch p {
-	case ProtoDNSTCP:
-		return "dns-tcp"
-	case ProtoDNSUDP:
-		return "dns-udp"
+	case ProtoDNS:
+		return "dns"
 	case ProtoDoH:
 		return "doh"
 	case ProtoDoQ:
 		return "doq"
 	case ProtoDoT:
 		return "dot"
-	case ProtoDNSCryptTCP:
-		return "dnscrypt-tcp"
-	case ProtoDNSCryptUDP:
-		return "dnscrypt-udp"
+	case ProtoDNSCrypt:
+		return "dnscrypt"
 	default:
 		return fmt.Sprintf("!bad_protocol_%d", p)
 	}
@@ -71,15 +62,10 @@ func (p Protocol) ALPN() (alpn []string) {
 	case ProtoDoQ:
 		return []string{nextProtoDoQ}
 	case ProtoDoH:
-		return slices.Clone(nextProtoDoH)
+		return slices.Clone(nextProtoDoH3)
 	default:
 		return nil
 	}
-}
-
-// IsPlain returns true if the protocol is a plain DNS over TCP or UDP.
-func (p Protocol) IsPlain() (ok bool) {
-	return p == ProtoDNSTCP || p == ProtoDNSUDP
 }
 
 // IsStdEncrypted returns true if the protocol is one of the standard encrypted
@@ -97,7 +83,30 @@ type Network string
 const (
 	NetworkTCP Network = "tcp"
 	NetworkUDP Network = "udp"
+	NetworkAny Network = ""
 )
+
+// CanTCP returns true if this Network supports TCP.
+func (n Network) CanTCP() (ok bool) {
+	return n == NetworkAny || n == NetworkTCP
+}
+
+// CanUDP returns true if this Network supports UDP.
+func (n Network) CanUDP() (ok bool) {
+	return n == NetworkAny || n == NetworkUDP
+}
+
+// NetworkFromAddr returns NetworkTCP or NetworkUDP depending on the address.
+func NetworkFromAddr(addr net.Addr) (network Network) {
+	switch addr.Network() {
+	case "udp":
+		return NetworkUDP
+	case "tcp":
+		return NetworkTCP
+	default:
+		panic(fmt.Sprintf("unexpected network type %s", addr.Network()))
+	}
+}
 
 const (
 	// DNSHeaderSize is the DNS query header size.

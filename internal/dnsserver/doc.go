@@ -44,8 +44,9 @@ Alternatively, you can use forward.NewHandler to create a DNS forwarding handler
 
 # Plain DNS
 
-Plain DNS server may use either TCP or UDP protocols. Here's how to create a
-simple plain DNS server:
+By default, plain DNS server will listen to both TCP and UDP unless Network
+is specified in the configuration.  Here's how to create a simple plain
+DNS server:
 
 	conf := dnsserver.ConfigDNS{
 		ConfigBase: dnsserver.ConfigBase{
@@ -53,8 +54,6 @@ simple plain DNS server:
 			Name: "test",
 			// listen address
 			Addr: "127.0.0.1:0",
-			// protocol (ProtoDNSUDP or ProtoDNSTCP)
-			Proto: dnsserver.ProtoDNSUDP,
 			// handler that will process incoming DNS queries
 			Handler: handler,
 		},
@@ -75,7 +74,6 @@ certificate and its private key.
 			ConfigBase: dnsserver.ConfigBase{
 				Name:    "test",
 				Addr:    "127.0.0.1:0",
-				Proto:   dnsserver.ProtoDoT,
 				Handler: h,
 			},
 		},
@@ -86,12 +84,14 @@ certificate and its private key.
 
 # DNS-over-HTTPS
 
-DoH server uses an [*http.Server] internally.  There are a couple of things to
-note:
+DoH server uses an [*http.Server] and/or [*http3.Server] internally. There are
+a couple of things to note:
 
- 1. tls.Config is optional. If you don't pass it, the server works simply as a
-    plain HTTP server.  This might be useful if you're running a reverse proxy
-    like nginx in front of your DoH server.
+ 1. tls.Config can be omitted, but you must set [ConfigBase.Network] to
+    NetworkTCP.  In this case the server will work simply as a plain HTTP
+    server. This might be useful if you're running a reverse proxy like Nginx
+    in front of your DoH server.  If you do specify it, the server will listen
+    to both DoH2 and DoH3 by default.
 
  2. In the constructor you can specify an optional [http.HandlerFunc] that
     processes non-DNS requests, e.g. requests to paths different from
@@ -103,7 +103,6 @@ Example:
 		ConfigBase: dnsserver.ConfigBase{
 			Name:    "test",
 			Addr:    "127.0.0.1:0",
-			Proto:   dnsserver.ProtoDoH,
 			Handler: h,
 		},
 		TLSConfig:     tlsConfig,
@@ -121,7 +120,6 @@ DoQ server uses the [quic-go module].  Just like DoH and DoT, it requires a
 		ConfigBase: dnsserver.ConfigBase{
 			Name:    "test",
 			Addr:    "127.0.0.1:0",
-			Proto:   dnsserver.ProtoDoQ,
 			Handler: h,
 		},
 		TLSConfig: tlsConfig,
@@ -139,7 +137,6 @@ documentation] about how to initialize it.
 		ConfigBase: dnsserver.ConfigBase{
 			Name:    "test",
 			Addr:    "127.0.0.1:0",
-			Proto:   dnsserver.ProtoDNSCryptUDP,
 			Handler: h,
 		},
 		DNSCryptProviderName: s.ProviderName,
@@ -147,9 +144,6 @@ documentation] about how to initialize it.
 	}
 	s := dnsserver.NewServerDNSCrypt(conf)
 	err := s.Start(context.Background())
-
-Normally, you would like to run two servers on the same address.  One would
-listen to TCP, and the other one would listen to UDP.
 
 # Middlewares
 

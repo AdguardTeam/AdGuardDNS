@@ -2,8 +2,10 @@ package agd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/netip"
+	"os"
 	"sync"
 	"time"
 
@@ -53,6 +55,9 @@ type DefaultProfileDB struct {
 	// syncTimeFull is the time of the last full synchronization.
 	syncTimeFull time.Time
 
+	// cacheFilePath is the path to profiles cache file.
+	cacheFilePath string
+
 	// fullSyncIvl is the interval between two full synchronizations with the
 	// storage
 	fullSyncIvl time.Duration
@@ -64,6 +69,7 @@ type DefaultProfileDB struct {
 func NewDefaultProfileDB(
 	ds ProfileStorage,
 	fullRefreshIvl time.Duration,
+	cacheFilePath string,
 ) (db *DefaultProfileDB, err error) {
 	db = &DefaultProfileDB{
 		mapsMu:          &sync.RWMutex{},
@@ -75,6 +81,12 @@ func NewDefaultProfileDB(
 		deviceIDToIP:    make(map[DeviceID]netip.Addr),
 		ipToDeviceID:    make(map[netip.Addr]DeviceID),
 		fullSyncIvl:     fullRefreshIvl,
+		cacheFilePath:   cacheFilePath,
+	}
+
+	err = db.loadProfileCache()
+	if err != nil {
+		log.Error("profiledb: cache: loading: %s", err)
 	}
 
 	// initialTimeout defines the maximum duration of the first attempt to load
@@ -94,7 +106,7 @@ func NewDefaultProfileDB(
 			return db, nil
 		}
 
-		return nil, fmt.Errorf("profiledb: initial refresh: %w", err)
+		return nil, fmt.Errorf("initial refresh: %w", err)
 	}
 
 	log.Info("profiledb: initial refresh succeeded")
@@ -146,9 +158,103 @@ func (db *DefaultProfileDB) Refresh(ctx context.Context) (err error) {
 	db.syncTime = resp.SyncTime
 	if isFullSync {
 		db.syncTimeFull = time.Now()
+
+		err = db.saveProfileCache(ctx)
+		if err != nil {
+			return fmt.Errorf("saving cache: %w", err)
+		}
 	}
 
 	return nil
+}
+
+// profileCache is the structure for profiles db cache.
+type profileCache struct {
+	SyncTime time.Time  `json:"sync_time"`
+	Profiles []*Profile `json:"profiles"`
+	Version  int        `json:"version"`
+}
+
+// saveStorageCache saves profiles data to cache file.
+func (db *DefaultProfileDB) saveProfileCache(ctx context.Context) (err error) {
+	var resp *PSProfilesResponse
+	resp, err = db.storage.Profiles(ctx, &PSProfilesRequest{
+		SyncTime: time.Time{},
+	})
+
+	if err != nil {
+		return err
+	}
+
+	data := &profileCache{
+		Profiles: resp.Profiles,
+		Version:  defaultProfileDBCacheVersion,
+		SyncTime: time.Now(),
+	}
+
+	cache, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("encoding json: %w", err)
+	}
+
+	err = os.WriteFile(db.cacheFilePath, cache, 0o600)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return err
+	}
+
+	log.Debug("profiledb: cache: saved %d profiles to %q", len(resp.Profiles), db.cacheFilePath)
+
+	return nil
+}
+
+// defaultProfileDBCacheVersion is the version of cached data structure.  It's
+// manually incremented on every change in [profileCache] structure.
+const defaultProfileDBCacheVersion = 1
+
+// loadProfileCache loads profiles data from cache file.
+func (db *DefaultProfileDB) loadProfileCache() (err error) {
+	data, err := db.loadStorageCache()
+	if err != nil {
+		return fmt.Errorf("loading cache: %w", err)
+	}
+
+	if data == nil {
+		return nil
+	}
+
+	if data.Version == defaultProfileDBCacheVersion {
+		profiles := data.Profiles
+		devNum := db.setProfiles(profiles)
+		log.Debug("profiledb: cache: got %d profiles with %d devices", len(profiles), devNum)
+
+		db.syncTime = data.SyncTime
+		db.syncTimeFull = data.SyncTime
+	}
+
+	return nil
+}
+
+// loadStorageCache loads data from cache file.
+func (db *DefaultProfileDB) loadStorageCache() (data *profileCache, err error) {
+	file, err := os.Open(db.cacheFilePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			// File could be deleted or not yet created, go on.
+			return nil, nil
+		}
+
+		return nil, err
+	}
+	defer func() { err = errors.WithDeferred(err, file.Close()) }()
+
+	data = &profileCache{}
+	err = json.NewDecoder(file).Decode(data)
+	if err != nil {
+		return nil, fmt.Errorf("decoding json: %w", err)
+	}
+
+	return data, nil
 }
 
 // setProfiles adds or updates the data for all profiles.

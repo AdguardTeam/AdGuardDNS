@@ -2,7 +2,6 @@ package errcoll
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net"
 	"os"
@@ -14,50 +13,53 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
-	"github.com/getsentry/raven-go"
+	"github.com/getsentry/sentry-go"
 	"golang.org/x/sys/unix"
 )
 
-// Raven API Error Collector
+// Sentry API Error Collector
 
-// RavenErrorCollector is an agd.ErrorCollector that sends errors to
-// a Raven-like HTTP API.
-type RavenErrorCollector struct {
-	raven *raven.Client
+// SentryErrorCollector is an [agd.ErrorCollector] that sends errors to a
+// Sentry-like HTTP API.
+type SentryErrorCollector struct {
+	sentry *sentry.Client
 }
 
-// NewRavenErrorCollector returns a new RavenErrorCollector.  rc must be
+// NewSentryErrorCollector returns a new SentryErrorCollector.  cli must be
 // non-nil.
-func NewRavenErrorCollector(rc *raven.Client) (c *RavenErrorCollector) {
-	return &RavenErrorCollector{
-		raven: rc,
+func NewSentryErrorCollector(cli *sentry.Client) (c *SentryErrorCollector) {
+	return &SentryErrorCollector{
+		sentry: cli,
 	}
 }
 
 // type check
-var _ agd.ErrorCollector = (*RavenErrorCollector)(nil)
+var _ agd.ErrorCollector = (*SentryErrorCollector)(nil)
 
-// Collect implements the agd.ErrorCollector interface for
-// *RavenErrorCollector.
-func (c *RavenErrorCollector) Collect(ctx context.Context, err error) {
+// Collect implements the [agd.ErrorCollector] interface for
+// *SentryErrorCollector.
+func (c *SentryErrorCollector) Collect(ctx context.Context, err error) {
 	if !isReportable(err) {
-		log.Debug("errcoll: raven: non-reportable error: %s", err)
+		log.Debug("errcoll: sentry: non-reportable error: %s", err)
 
 		return
 	}
 
+	scope := sentry.NewScope()
 	tags := tagsFromCtx(ctx)
-	tags["unwrapped_type"] = fmt.Sprintf("%T", errors.Unwrap(err))
+	scope.SetTags(tags)
 
-	_ = c.raven.CaptureError(err, tags)
+	_ = c.sentry.CaptureException(err, &sentry.EventHint{
+		Context: ctx,
+	}, scope)
 }
 
-// RavenReportableError is the interface for errors and wrapper that can tell
+// SentryReportableError is the interface for errors and wrapper that can tell
 // whether they should be reported or not.
-type RavenReportableError interface {
+type SentryReportableError interface {
 	error
 
-	IsRavenReportable() (ok bool)
+	IsSentryReportable() (ok bool)
 }
 
 // isReportable returns true if the error is worth reporting.
@@ -65,13 +67,13 @@ type RavenReportableError interface {
 // TODO(a.garipov): Make sure that we use this approach everywhere.
 func isReportable(err error) (ok bool) {
 	var (
-		ravErr  RavenReportableError
+		ravErr  SentryReportableError
 		fwdErr  *forward.Error
 		dnsWErr *dnsserver.WriteError
 	)
 
 	if errors.As(err, &ravErr) {
-		return ravErr.IsRavenReportable()
+		return ravErr.IsSentryReportable()
 	} else if errors.As(err, &fwdErr) {
 		return isReportableNetwork(fwdErr.Err)
 	} else if errors.As(err, &dnsWErr) {
@@ -151,14 +153,13 @@ func isConnectionBreak(err error) (ok bool) {
 	}
 }
 
-// ravenTags is a convenient alias for map[string]string.
-type ravenTags = map[string]string
+// sentryTags is a convenient alias for map[string]string.
+type sentryTags = map[string]string
 
-func tagsFromCtx(ctx context.Context) (tags ravenTags) {
-	tags = ravenTags{
+// tagsFromCtx returns Sentry tags based on the information from ctx.
+func tagsFromCtx(ctx context.Context) (tags sentryTags) {
+	tags = sentryTags{
 		"git_revision": agd.Revision(),
-		"position":     caller(3),
-		"version":      agd.Version(),
 	}
 
 	var reqID agd.RequestID

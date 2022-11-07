@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
@@ -31,6 +30,9 @@ func (svc *Service) recordQueryInfo(
 	reqRes filter.Result,
 	respRes filter.Result,
 ) {
+	id, text, blocked := filteringData(reqRes, respRes)
+	svc.ruleStat.Collect(ctx, id, text)
+
 	prof := ri.Profile
 	if prof == nil {
 		return
@@ -46,9 +48,6 @@ func (svc *Service) recordQueryInfo(
 	if g := ri.Location; g != nil {
 		reqCtry, reqASN = g.Country, g.ASN
 	}
-
-	id, text, blocked := filteringData(reqRes, respRes)
-	svc.ruleStat.Collect(ctx, id, text)
 
 	proto := dnsserver.MustServerInfoFromContext(ctx).Proto
 	start := dnsserver.MustStartTimeFromContext(ctx)
@@ -155,17 +154,17 @@ func (svc *Service) responseData(
 	}
 
 	var rrType dns.Type
-	var fam agdnet.AddrFamily
+	var fam netutil.AddrFamily
 	var netIP net.IP
 	dnssec = resp.AuthenticatedData
 	rcode = dnsmsg.RCode(resp.Rcode)
 	for _, rr := range resp.Answer {
 		switch v := rr.(type) {
 		case *dns.A:
-			fam = agdnet.AddrFamilyIPv4
+			fam = netutil.AddrFamilyIPv4
 			rrType, netIP = dns.Type(v.Hdr.Rrtype), v.A
 		case *dns.AAAA:
-			fam = agdnet.AddrFamilyIPv6
+			fam = netutil.AddrFamilyIPv6
 			rrType, netIP = dns.Type(v.Hdr.Rrtype), v.AAAA
 		default:
 			continue
@@ -184,7 +183,7 @@ func (svc *Service) responseData(
 			svc.reportf(ctx, "reading %s resp data: %w", rrType, err)
 		}
 
-		ip, err = agdnet.IPToAddr(netIP, fam)
+		ip, err = netutil.IPToAddr(netIP, fam)
 		if err != nil {
 			svc.reportf(ctx, "converting %s resp data: %w", rrType, err)
 		}

@@ -10,18 +10,18 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMain(m *testing.M) {
-	agdtest.DiscardLogOutput(m)
+	testutil.DiscardLogOutput(m)
 }
 
 // type check
@@ -32,35 +32,70 @@ var _ agd.Refresher = (*forward.Handler)(nil)
 // type check
 var _ dnssvc.Listener = (*testListener)(nil)
 
-// testListener is a dnssvc.Listener for tests.
+// testListener is a [dnssvc.Listener] for tests.
 type testListener struct {
-	onStart     func(ctx context.Context) (err error)
-	onShutdown  func(ctx context.Context) (err error)
-	onLocalAddr func() (addr net.Addr)
+	onStart        func(ctx context.Context) (err error)
+	onShutdown     func(ctx context.Context) (err error)
+	onName         func() (name string)
+	onProto        func() (proto dnsserver.Protocol)
+	onNetwork      func() (network dnsserver.Network)
+	onAddr         func() (addr string)
+	onLocalTCPAddr func() (addr net.Addr)
+	onLocalUDPAddr func() (addr net.Addr)
 }
 
-// Start implements the dnsserver.Server interface for *testListener.
+// Name implements the [dnsserver.Server] interface for *testListener.
+func (l *testListener) Name() (name string) {
+	return l.onName()
+}
+
+// Proto implements the [dnsserver.Server] interface for *testListener.
+func (l *testListener) Proto() (proto dnsserver.Protocol) {
+	return l.onProto()
+}
+
+// Network implements the [dnsserver.Server] interface for *testListener.
+func (l *testListener) Network() (network dnsserver.Network) {
+	return l.onNetwork()
+}
+
+// Addr implements the [dnsserver.Server] interface for *testListener.
+func (l *testListener) Addr() (addr string) {
+	return l.onAddr()
+}
+
+// Start implements the [dnsserver.Server] interface for *testListener.
 func (l *testListener) Start(ctx context.Context) (err error) {
 	return l.onStart(ctx)
 }
 
-// Shutdown implements the dnsserver.Server interface for *testListener.
+// Shutdown implements the [dnsserver.Server] interface for *testListener.
 func (l *testListener) Shutdown(ctx context.Context) (err error) {
 	return l.onShutdown(ctx)
 }
 
-// LocalAddr implements the dnsserver.Server interface for *testListener.
-func (l *testListener) LocalAddr() (addr net.Addr) {
-	return l.onLocalAddr()
+// LocalTCPAddr implements the [dnsserver.Server] interface for *testListener.
+func (l *testListener) LocalTCPAddr() (addr net.Addr) {
+	return l.onLocalTCPAddr()
+}
+
+// LocalUDPAddr implements the [dnsserver.Server] interface for *testListener.
+func (l *testListener) LocalUDPAddr() (addr net.Addr) {
+	return l.onLocalUDPAddr()
 }
 
 // newTestListener returns a *testListener all of methods of which panic with
 // a "not implemented" message.
 func newTestListener() (tl *testListener) {
 	return &testListener{
-		onStart:     func(_ context.Context) (err error) { panic("not implemented") },
-		onShutdown:  func(_ context.Context) (err error) { panic("not implemented") },
-		onLocalAddr: func() (addr net.Addr) { panic("not implemented") },
+		onName:         func() (_ string) { panic("not implemented") },
+		onProto:        func() (_ dnsserver.Protocol) { panic("not implemented") },
+		onNetwork:      func() (_ dnsserver.Network) { panic("not implemented") },
+		onAddr:         func() (_ string) { panic("not implemented") },
+		onStart:        func(_ context.Context) (err error) { panic("not implemented") },
+		onShutdown:     func(_ context.Context) (err error) { panic("not implemented") },
+		onLocalUDPAddr: func() (_ net.Addr) { panic("not implemented") },
+		onLocalTCPAddr: func() (_ net.Addr) { panic("not implemented") },
 	}
 }
 
@@ -123,7 +158,7 @@ func TestService_Start(t *testing.T) {
 
 	srv := &agd.Server{
 		Name:          "test_server",
-		Protocol:      agd.ProtoDNSUDP,
+		Protocol:      agd.ProtoDNS,
 		BindAddresses: []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:53")},
 	}
 
@@ -162,26 +197,14 @@ func TestNew(t *testing.T) {
 	srvs := []*agd.Server{{
 		DNSCrypt:      nil,
 		TLS:           nil,
-		Name:          "test_server_dns_tcp",
-		Protocol:      agd.ProtoDNSTCP,
-		BindAddresses: []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:53")},
-	}, {
-		DNSCrypt:      nil,
-		TLS:           nil,
-		Name:          "test_server_dns_udp",
-		Protocol:      agd.ProtoDNSUDP,
+		Name:          "test_server_dns",
+		Protocol:      agd.ProtoDNS,
 		BindAddresses: []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:53")},
 	}, {
 		DNSCrypt:      &agd.DNSCryptConfig{},
 		TLS:           nil,
 		Name:          "test_server_dnscrypt_tcp",
-		Protocol:      agd.ProtoDNSCryptTCP,
-		BindAddresses: []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:8853")},
-	}, {
-		DNSCrypt:      &agd.DNSCryptConfig{},
-		TLS:           nil,
-		Name:          "test_server_dnscrypt_udp",
-		Protocol:      agd.ProtoDNSCryptUDP,
+		Protocol:      agd.ProtoDNSCrypt,
 		BindAddresses: []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:8853")},
 	}, {
 		DNSCrypt:      nil,

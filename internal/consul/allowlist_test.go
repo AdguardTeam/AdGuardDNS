@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/consul"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/golibs/testutil"
@@ -18,7 +17,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	agdtest.DiscardLogOutput(m)
+	testutil.DiscardLogOutput(m)
 }
 
 // handleWithURL starts the test server with h, finishes it on cleanup, and

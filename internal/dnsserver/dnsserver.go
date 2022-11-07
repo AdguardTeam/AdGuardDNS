@@ -20,17 +20,18 @@ type Handler interface {
 	// specified ResponseWriter.
 	//
 	// It accepts context.Context argument which has some additional info
-	// attached to it. This context always contains ServerInfo which can be
+	// attached to it.  This context always contains ServerInfo which can be
 	// retrieved using ServerInfoFromContext or MustServerInfoFromContext.
 	// Also, it always contains request's start time that can be retrieved
-	// using StartTimeFromContext.
-	ServeDNS(context.Context, ResponseWriter, *dns.Msg) error
+	// using StartTimeFromContext.  Finally, it also must contain ClientInfo
+	// that can be retrieved using MustClientInfoFromContext.
+	ServeDNS(context.Context, ResponseWriter, *dns.Msg) (err error)
 }
 
 // The HandlerFunc type is an adapter to allow the use of ordinary functions
 // as DNS handlers. If f is a function with the appropriate signature,
 // HandlerFunc(f) is a Handler that calls f.
-type HandlerFunc func(context.Context, ResponseWriter, *dns.Msg) error
+type HandlerFunc func(context.Context, ResponseWriter, *dns.Msg) (err error)
 
 // ServeDNS implements the Handler interface for HandlerFunc.
 func (f HandlerFunc) ServeDNS(ctx context.Context, rw ResponseWriter, req *dns.Msg) (err error) {
@@ -50,15 +51,34 @@ var notImplementedHandlerFunc HandlerFunc = func(
 }
 
 // Server represents a DNS server.
+//
+// TODO(ameshkov): move validation to ctors (for all structs that inherit this).
+//
+// TODO(ameshkov): consider Proto()/Network()/Addr() -> single Info() func.
 type Server interface {
+	// Name returns the server name.
+	Name() (name string)
+	// Proto returns the protocol of the server.
+	Proto() (proto Protocol)
+	// Network is a network (tcp, udp or empty) this server listens to.  If it
+	// is empty, the server listens to all networks that are supposed to be
+	// used by its protocol.
+	Network() (network Network)
+	// Addr returns the address the server was configured to listen to.
+	Addr() (addr string)
 	// Start starts the server, exits immediately if it failed to start
 	// listening.  Start returns once all servers are considered up.
 	Start(ctx context.Context) (err error)
 	// Shutdown stops the server and waits for all active connections to close.
 	Shutdown(ctx context.Context) (err error)
-	// LocalAddr returns the address the server listens to at the moment.  It
-	// must be safe for concurrent use.
-	LocalAddr() (lAddr net.Addr)
+	// LocalTCPAddr returns the TCP address the server listens to at the moment
+	// or nil if it does not listen to TCP.  Depending on the server protocol
+	// it may correspond to DNS-over-TCP, DNS-over-TLS, HTTP2, DNSCrypt (TCP).
+	LocalTCPAddr() (addr net.Addr)
+	// LocalUDPAddr returns the UDP address the server listens to at the moment or
+	// nil if it does not listen to UDP.  Depending on the server protocol
+	// it may correspond to DNS-over-UDP, HTTP3, QUIC, DNSCrypt (UDP).
+	LocalUDPAddr() (addr net.Addr)
 }
 
 // A ResponseWriter interface is used by a DNS handler to construct a DNS

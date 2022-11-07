@@ -71,9 +71,9 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 		var r filter.Result
 		r, err = f.FilterRequest(ctx, req, ri)
 		require.NoError(t, err)
-		require.IsType(t, (*filter.ResultBlocked)(nil), r)
 
-		rb, _ := r.(*filter.ResultBlocked)
+		rb := testutil.RequireTypeAssert[*filter.ResultBlocked](t, r)
+
 		assert.Contains(t, rb.Rule, blockedHost)
 		assert.Equal(t, rb.List, testFilterID)
 	})
@@ -97,9 +97,9 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 		var r filter.Result
 		r, err = f.FilterRequest(ctx, req, ri)
 		require.NoError(t, err)
-		require.IsType(t, (*filter.ResultAllowed)(nil), r)
 
-		ra, _ := r.(*filter.ResultAllowed)
+		ra := testutil.RequireTypeAssert[*filter.ResultAllowed](t, r)
+
 		assert.Contains(t, ra.Rule, allowedHost)
 		assert.Equal(t, ra.List, testFilterID)
 	})
@@ -123,9 +123,9 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 		var r filter.Result
 		r, err = f.FilterRequest(ctx, req, ri)
 		require.NoError(t, err)
-		require.IsType(t, (*filter.ResultBlocked)(nil), r)
 
-		rb, _ := r.(*filter.ResultBlocked)
+		rb := testutil.RequireTypeAssert[*filter.ResultBlocked](t, r)
+
 		assert.Contains(t, rb.Rule, blockedClientHost)
 		assert.Equal(t, rb.List, testFilterID)
 	})
@@ -149,9 +149,9 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 		var r filter.Result
 		r, err = f.FilterRequest(ctx, req, ri)
 		require.NoError(t, err)
-		require.IsType(t, (*filter.ResultAllowed)(nil), r)
 
-		ra, _ := r.(*filter.ResultAllowed)
+		ra := testutil.RequireTypeAssert[*filter.ResultAllowed](t, r)
+
 		assert.Contains(t, ra.Rule, allowedClientHost)
 		assert.Equal(t, ra.List, testFilterID)
 	})
@@ -175,9 +175,9 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 		var r filter.Result
 		r, err = f.FilterRequest(ctx, req, ri)
 		require.NoError(t, err)
-		require.IsType(t, (*filter.ResultBlocked)(nil), r)
 
-		rb, _ := r.(*filter.ResultBlocked)
+		rb := testutil.RequireTypeAssert[*filter.ResultBlocked](t, r)
+
 		assert.Contains(t, rb.Rule, blockedDeviceHost)
 		assert.Equal(t, rb.List, testFilterID)
 	})
@@ -201,9 +201,9 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 		var r filter.Result
 		r, err = f.FilterRequest(ctx, req, ri)
 		require.NoError(t, err)
-		require.IsType(t, (*filter.ResultAllowed)(nil), r)
 
-		ra, _ := r.(*filter.ResultAllowed)
+		ra := testutil.RequireTypeAssert[*filter.ResultAllowed](t, r)
+
 		assert.Contains(t, ra.Rule, allowedDeviceHost)
 		assert.Equal(t, ra.List, testFilterID)
 	})
@@ -286,9 +286,9 @@ func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 		var r filter.Result
 		r, err = f.FilterResponse(ctx, resp, ri)
 		require.NoError(t, err)
-		require.IsType(t, (*filter.ResultBlocked)(nil), r)
 
-		rb, _ := r.(*filter.ResultBlocked)
+		rb := testutil.RequireTypeAssert[*filter.ResultBlocked](t, r)
+
 		assert.Contains(t, rb.Rule, blockedIP4.String())
 		assert.Equal(t, rb.List, testFilterID)
 	})
@@ -304,9 +304,9 @@ func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 		var r filter.Result
 		r, err = f.FilterResponse(ctx, resp, ri)
 		require.NoError(t, err)
-		require.IsType(t, (*filter.ResultAllowed)(nil), r)
 
-		ra, _ := r.(*filter.ResultAllowed)
+		ra := testutil.RequireTypeAssert[*filter.ResultAllowed](t, r)
+
 		assert.Contains(t, ra.Rule, allowedIP4.String())
 		assert.Equal(t, ra.List, testFilterID)
 	})
@@ -322,9 +322,9 @@ func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 		var r filter.Result
 		r, err = f.FilterResponse(ctx, resp, ri)
 		require.NoError(t, err)
-		require.IsType(t, (*filter.ResultBlocked)(nil), r)
 
-		rb, _ := r.(*filter.ResultBlocked)
+		rb := testutil.RequireTypeAssert[*filter.ResultBlocked](t, r)
+
 		assert.Contains(t, rb.Rule, blockedHost)
 		assert.Equal(t, rb.List, testFilterID)
 	})
@@ -340,9 +340,9 @@ func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 		var r filter.Result
 		r, err = f.FilterResponse(ctx, resp, ri)
 		require.NoError(t, err)
-		require.IsType(t, (*filter.ResultAllowed)(nil), r)
 
-		ra, _ := r.(*filter.ResultAllowed)
+		ra := testutil.RequireTypeAssert[*filter.ResultAllowed](t, r)
+
 		assert.Contains(t, ra.Rule, allowedHost)
 		assert.Equal(t, ra.List, testFilterID)
 	})
@@ -358,9 +358,9 @@ func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 		var r filter.Result
 		r, err = f.FilterResponse(ctx, resp, ri)
 		require.NoError(t, err)
-		require.IsType(t, (*filter.ResultBlocked)(nil), r)
 
-		rb, _ := r.(*filter.ResultBlocked)
+		rb := testutil.RequireTypeAssert[*filter.ResultBlocked](t, r)
+
 		assert.Contains(t, rb.Rule, blockedClientHost)
 		assert.Equal(t, rb.List, testFilterID)
 	})
@@ -376,9 +376,9 @@ func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 		var r filter.Result
 		r, err = f.FilterResponse(ctx, req, ri)
 		require.NoError(t, err)
-		require.IsType(t, (*filter.ResultAllowed)(nil), r)
 
-		ra, _ := r.(*filter.ResultAllowed)
+		ra := testutil.RequireTypeAssert[*filter.ResultAllowed](t, r)
+
 		assert.Contains(t, ra.Rule, allowedClientHost)
 		assert.Equal(t, ra.List, testFilterID)
 	})
@@ -409,9 +409,9 @@ func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 		var r filter.Result
 		r, err = f.FilterResponse(ctx, req, ri)
 		require.NoError(t, err)
-		require.IsType(t, (*filter.ResultBlocked)(nil), r)
 
-		rb, _ := r.(*filter.ResultBlocked)
+		rb := testutil.RequireTypeAssert[*filter.ResultBlocked](t, r)
+
 		assert.Contains(t, rb.Rule, "cname.blocked")
 		assert.Equal(t, rb.List, testFilterID)
 	})

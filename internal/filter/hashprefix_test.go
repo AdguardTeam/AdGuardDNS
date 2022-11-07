@@ -11,6 +11,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -48,7 +49,11 @@ func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
 
 	// Fake Data
 
-	onLookupIP := func(_ context.Context, network, _ string) (ips []net.IP, err error) {
+	onLookupIP := func(
+		_ context.Context,
+		_ netutil.AddrFamily,
+		_ string,
+	) (ips []net.IP, err error) {
 		return []net.IP{safeBrowsingSafeIP4}, nil
 	}
 
@@ -105,9 +110,9 @@ func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
 	var r filter.Result
 	r, err = f.FilterRequest(ctx, req, ri)
 	require.NoError(t, err)
-	require.IsType(t, (*filter.ResultModified)(nil), r)
 
-	rm, _ := r.(*filter.ResultModified)
+	rm := testutil.RequireTypeAssert[*filter.ResultModified](t, r)
+
 	assert.Equal(t, rm.Rule, agd.FilterRuleText(safeBrowsingHost))
 	assert.Equal(t, rm.List, agd.FilterListIDSafeBrowsing)
 }

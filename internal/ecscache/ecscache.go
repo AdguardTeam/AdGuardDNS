@@ -8,13 +8,13 @@ import (
 	"net/netip"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/bluele/gcache"
 	"github.com/miekg/dns"
 )
@@ -127,7 +127,7 @@ func writeCachedResponse(
 	req *dns.Msg,
 	resp *dns.Msg,
 	ecs *agd.ECS,
-	ecsFam agdnet.AddrFamily,
+	ecsFam netutil.AddrFamily,
 	hostHasECS bool,
 ) (err error) {
 	// Increment the hits metrics here, since we already know if the domain name
@@ -163,15 +163,15 @@ func writeCachedResponse(
 // ecsFamFromReq returns the address family to use for the outgoing request from
 // the request information using either the contents of the EDNS Client Subnet
 // option or the real remote IP address.
-func ecsFamFromReq(ri *agd.RequestInfo) (ecsFam agdnet.AddrFamily) {
+func ecsFamFromReq(ri *agd.RequestInfo) (ecsFam netutil.AddrFamily) {
 	if ecs := ri.ECS; ecs != nil {
 		if ecs.Subnet.Addr().Is4() {
-			return agdnet.AddrFamilyIPv4
+			return netutil.AddrFamilyIPv4
 		}
 
 		// Assume that families other than IPv4 and IPv6 have been filtered out
 		// by dnsmsg.ECSFromMsg.
-		return agdnet.AddrFamilyIPv6
+		return netutil.AddrFamilyIPv6
 	}
 
 	// Set the address family parameter to the one of the client's address as
@@ -179,10 +179,10 @@ func ecsFamFromReq(ri *agd.RequestInfo) (ecsFam agdnet.AddrFamily) {
 	//
 	// See https://datatracker.ietf.org/doc/html/rfc7871#section-7.1.1.
 	if ri.RemoteIP.Is4() {
-		return agdnet.AddrFamilyIPv4
+		return netutil.AddrFamilyIPv4
 	}
 
-	return agdnet.AddrFamilyIPv6
+	return netutil.AddrFamilyIPv6
 }
 
 // locFromReq returns the country and ASN from the request information using
@@ -211,7 +211,7 @@ func (m *Middleware) writeUpstreamResponse(
 	resp *dns.Msg,
 	ri *agd.RequestInfo,
 	locSubnet netip.Prefix,
-	ecsFam agdnet.AddrFamily,
+	ecsFam netutil.AddrFamily,
 	reqDO bool,
 ) (err error) {
 	subnet, scope, err := dnsmsg.ECSFromMsg(resp)
@@ -233,8 +233,8 @@ func (m *Middleware) writeUpstreamResponse(
 		metrics.ECSCacheLookupNoSupportMisses.Inc()
 		metrics.ECSNoSupportCacheSize.Set(float64(m.cache.Len(false)))
 
-		locSubnet = agdnet.ZeroSubnet(ecsFam)
-		ecsFam = agdnet.AddrFamilyNone
+		locSubnet = netutil.ZeroPrefix(ecsFam)
+		ecsFam = netutil.AddrFamilyNone
 	}
 
 	m.set(resp, ri.Host, locSubnet, hostHasECS, reqDO)

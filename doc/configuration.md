@@ -139,9 +139,13 @@ The `cache` object has the following properties:
 The `upstream` object has the following properties:
 
  *  <a href="#upstream-server" id="upstream-server" name="upstream-server">`server`</a>:
-    The address of the main upstream server, in the `ip:port` format.
+    The URL of the main upstream server, in the `[scheme://]ip:port` format.
 
-    **Example:** `8.8.8.8:53` or `[2001:4860:4860::8844]:53`.
+    **Examples:**
+
+    - `8.8.8.8:53`: regular DNS (over UDP with TCP fallback).
+    - `tcp://1.1.1.1:53`: regular DNS (over TCP).
+    - `udp://1.1.1.1:53`: regular DNS (over UDP).
 
  *  <a href="#upstream-timeout" id="upstream-timeout" name="upstream-timeout">`timeout`</a>:
     Timeout for all outgoing DNS requests, as a human-readable duration.
@@ -223,8 +227,9 @@ The `backend` object has the following properties:
     **Example:** `1m`.
 
  *  <a href="#backend-full_refresh_interval" id="backend-full_refresh_interval" name="backend-full_refresh_interval">`full_refresh_interval`</a>:
-    How often AdGuard DNS performs full synchronization, as a human-readable
-    duration.
+    How often AdGuard DNS performs a full profile refresh, as a human-readable
+    duration.  If [`PROFILES_CACHE_PATH`][env-profiles_cache_path] is set, the
+    profile cache is also saved after a full refresh.
 
     **Example:** `24h`.
 
@@ -233,6 +238,8 @@ The `backend` object has the following properties:
     a human-readable duration.
 
     **Example:** `1m`.
+
+[env-profiles_cache_path]: environment.md#PROFILES_CACHE_PATH
 
 
 
@@ -825,7 +832,7 @@ The `connectivity_check` object has the following properties:
 The `additional_metrics_info` object is a map of strings with extra information
 which is exposed by `dns_app_additional_info` metric.
 
-Map keys must match reqular expression `^[a-zA-Z_][a-zA-Z0-9_]*$`.  See
+Map keys must match regular expression `^[a-zA-Z_][a-zA-Z0-9_]*$`.  See
 [Prometheus documentation on valid labels][prom-label].
 
 **Property example:**

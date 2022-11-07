@@ -15,13 +15,16 @@ func requestLabels(
 	req *dns.Msg,
 	rw dnsserver.ResponseWriter,
 ) prometheus.Labels {
-	// base labels
+	// Base labels with general server information (name, addr, proto).
 	labels := baseLabels(ctx)
 
-	// DNS query type
+	// DNS query type (only use those we're interested in).
 	labels["type"] = typeToString(req)
 
-	// Address family
+	// Network type (tcp or udp).
+	labels["network"] = string(dnsserver.NetworkFromAddr(rw.LocalAddr()))
+
+	// Address family.
 	ip, _ := netutil.IPAndPortFromAddr(rw.RemoteAddr())
 	if ip == nil {
 		labels["family"] = "0"

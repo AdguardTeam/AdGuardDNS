@@ -17,7 +17,7 @@ func TestServerInfoFromContext(t *testing.T) {
 	serverInfo := dnsserver.ServerInfo{
 		Name:  "test",
 		Addr:  "127.0.0.1",
-		Proto: dnsserver.ProtoDNSUDP,
+		Proto: dnsserver.ProtoDNS,
 	}
 	ctx = dnsserver.ContextWithServerInfo(ctx, serverInfo)
 

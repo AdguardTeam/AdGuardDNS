@@ -14,14 +14,13 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMain(m *testing.M) {
-	agdtest.DiscardLogOutput(m)
+	testutil.DiscardLogOutput(m)
 }
 
 // testFilterID is the standard ID of the filter for tests.

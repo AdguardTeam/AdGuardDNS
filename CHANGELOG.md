@@ -11,26 +11,64 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
 
 
+##  AGDNS-1174 / Build 397
+
+ *  DNS Server Check now responds with NODATA message to all non-A neither non-AAAA requests.
+
+
+
+##  AGDNS-911 / Build 375
+
+ *  Added support for running a DoH3 server.  No configuration changes are
+    required to run it.  If there was a DoH server configured, it will start
+    listening for HTTP/3 connections on the same port where it listens for
+    HTTP/2.  Make sure that udp/443 is allowed in the iptables configuration on
+    the server.
+
+
+
+##  AGDNS-842 / Build 372
+
+ *  The new environment variable `PROFILES_CACHE_PATH` has been added.  Its 
+    default value is `./profilecache.json`.  Adjust the value, if necessary.
+
+
+
+##  AGDNS-891 / Build 371
+
+ *  The property `server` of `upstream` object has been changed.  Now it
+    is a URL optionally starting with `tcp://` or `udp://`, and then an address 
+    in `ip:port` format.
+
+    ```yaml
+    upstream:
+       server: 'tcp://8.8.8.8:53'
+    ```
+
+    Adjust the value, if necessary.
+
+
+
 ##  AGDNS-1032 / Build 363
 
-*  The new optional field `static_content.*.allow_origin` has been added:
+ *  The new optional field `static_content.*.allow_origin` has been added:
 
-   ```yaml
+    ```yaml
     static_content:
         '/favicon.ico':
             allow_origin: '*'
-   ```
+    ```
 
 
 
 ##  AGDNS-898 / Build 359
 
-*  The new optional object `additional_metrics_info` has been added:
+ *  The new optional object `additional_metrics_info` has been added:
 
-   ```yaml
-   additional_metrics_info:
-       test_key: 'test_value'
-   ```
+    ```yaml
+    additional_metrics_info:
+        test_key: 'test_value'
+    ```
 
 
 

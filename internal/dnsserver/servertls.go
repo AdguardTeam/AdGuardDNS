@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"net"
 
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 )
 
@@ -30,7 +31,7 @@ var _ Server = (*ServerTLS)(nil)
 
 // NewServerTLS creates a new ServerTLS instance.
 func NewServerTLS(conf ConfigTLS) (s *ServerTLS) {
-	srv := newServerDNS(conf.ConfigDNS)
+	srv := newServerDNS(ProtoDoT, conf.ConfigDNS)
 	s = &ServerTLS{
 		ServerDNS: srv,
 		conf:      conf,
@@ -39,10 +40,16 @@ func NewServerTLS(conf ConfigTLS) (s *ServerTLS) {
 	return s
 }
 
-// Start starts the TLS listener and starts processing queries.
+// Start implements the dnsserver.Server interface for *ServerTLS.
 func (s *ServerTLS) Start(ctx context.Context) (err error) {
+	defer func() { err = errors.Annotate(err, "starting dot server: %w", err) }()
+
 	s.lock.Lock()
 	defer s.lock.Unlock()
+
+	if s.conf.TLSConfig == nil {
+		return errors.Error("tls config is required")
+	}
 
 	// TODO(ameshkov): Consider only setting s.started to true once the
 	// listeners are up.
@@ -73,6 +80,13 @@ func (s *ServerTLS) Start(ctx context.Context) (err error) {
 	log.Info("[%s]: Server has been started", s.Name())
 
 	return nil
+}
+
+// Shutdown implements the dnsserver.Server interface for *ServerTLS.
+func (s *ServerTLS) Shutdown(ctx context.Context) (err error) {
+	defer func() { err = errors.Annotate(err, "shutting down dot server: %w", err) }()
+
+	return s.ServerDNS.Shutdown(ctx)
 }
 
 // startServeTCP starts the TCP listen loop and handles errors if any.

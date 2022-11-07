@@ -5,8 +5,8 @@ import (
 	"net/netip"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/oschwald/maxminddb-golang"
 )
 
@@ -73,8 +73,8 @@ func resetTopASNSubnets(r *maxminddb.Reader) (ipv4, ipv6 asnSubnets, err error) 
 		return nil, nil, fmt.Errorf("reading: %w", err)
 	}
 
-	applyTopASNSubnetHacks(ipv4, agdnet.AddrFamilyIPv4)
-	applyTopASNSubnetHacks(ipv6, agdnet.AddrFamilyIPv6)
+	applyTopASNSubnetHacks(ipv4, netutil.AddrFamilyIPv4)
+	applyTopASNSubnetHacks(ipv6, netutil.AddrFamilyIPv6)
 
 	log.Debug("geoip: got ipv4 top asn subnets %v", ipv4)
 	log.Debug("geoip: got ipv6 top asn subnets %v", ipv6)
@@ -93,7 +93,7 @@ func subnetASNData(nets *maxminddb.Networks) (asn agd.ASN, subnet netip.Prefix, 
 
 	// Assume that there are no actual IPv6-mapped IPv4 addresses in the GeoIP
 	// database.
-	subnet, err = agdnet.IPNetToPrefixNoMapped(n)
+	subnet, err = netutil.IPNetToPrefixNoMapped(n)
 	if err != nil {
 		return 0, netip.Prefix{}, fmt.Errorf("converting subnet: %w", err)
 	}
@@ -143,11 +143,11 @@ func dist(a, b int) (d int) {
 // applyTopASNSubnetHacks modifies the data in subnets based on the previous
 // experience and user reports.  It also make sure that all items in subnets
 // have the desired length for their protocol.  subnets must not be nil.  fam
-// must be either agdnet.AddrFamilyIPv4 or agdnet.AddrFamilyIPv6.
-func applyTopASNSubnetHacks(subnets asnSubnets, fam agdnet.AddrFamily) {
+// must be either [netutil.AddrFamilyIPv4] or [netutil.AddrFamilyIPv6].
+func applyTopASNSubnetHacks(subnets asnSubnets, fam netutil.AddrFamily) {
 	var desiredLength int
 	switch fam {
-	case agdnet.AddrFamilyIPv4:
+	case netutil.AddrFamilyIPv4:
 		// We've got complaints from Moscow Megafon users that they cannot use
 		// the YouTube app on Android and iOS when we use a different subnet.
 		// It appears that the IPs for domain "youtubei.googleapis.com" are
@@ -155,7 +155,7 @@ func applyTopASNSubnetHacks(subnets asnSubnets, fam agdnet.AddrFamily) {
 		// the ECS option.
 		subnets[25159] = netip.MustParsePrefix("178.176.72.0/24")
 		desiredLength = desiredIPv4SubnetLength
-	case agdnet.AddrFamilyIPv6:
+	case netutil.AddrFamilyIPv6:
 		// TODO(a.garipov): Add more if we find them.
 
 		desiredLength = desiredIPv6SubnetLength
@@ -206,8 +206,8 @@ func resetCountrySubnets(r *maxminddb.Reader) (ipv4, ipv6 countrySubnets, err er
 		return nil, nil, fmt.Errorf("reading: %w", err)
 	}
 
-	applyCountrySubnetHacks(ipv4, agdnet.AddrFamilyIPv4)
-	applyCountrySubnetHacks(ipv6, agdnet.AddrFamilyIPv6)
+	applyCountrySubnetHacks(ipv4, netutil.AddrFamilyIPv4)
+	applyCountrySubnetHacks(ipv6, netutil.AddrFamilyIPv6)
 
 	log.Debug("geoip: got ipv4 country subnets %v", ipv4)
 	log.Debug("geoip: got ipv6 country subnets %v", ipv6)
@@ -218,15 +218,15 @@ func resetCountrySubnets(r *maxminddb.Reader) (ipv4, ipv6 countrySubnets, err er
 // applyCountrySubnetHacks modifies the data in subnets based on the previous
 // experience and user reports.  It also make sure that all items in subnets
 // have the desired length for their protocol.  subnets must not be nil.  fam
-// must be either agdnet.AddrFamilyIPv4 or agdnet.AddrFamilyIPv6.
-func applyCountrySubnetHacks(subnets countrySubnets, fam agdnet.AddrFamily) {
+// must be either [netutil.AddrFamilyIPv4] or [netutil.AddrFamilyIPv6].
+func applyCountrySubnetHacks(subnets countrySubnets, fam netutil.AddrFamily) {
 	var desiredLength int
 	switch fam {
-	case agdnet.AddrFamilyIPv4:
+	case netutil.AddrFamilyIPv4:
 		// TODO(a.garipov): Add more if we find them.
 
 		desiredLength = desiredIPv4SubnetLength
-	case agdnet.AddrFamilyIPv6:
+	case netutil.AddrFamilyIPv6:
 		// TODO(a.garipov): Add more if we find them.
 
 		desiredLength = desiredIPv6SubnetLength
@@ -252,7 +252,7 @@ func subnetCountryData(nets *maxminddb.Networks) (c agd.Country, subnet netip.Pr
 
 	// Assume that there are no actual IPv6-mapped IPv4 addresses in the GeoIP
 	// database.
-	subnet, err = agdnet.IPNetToPrefixNoMapped(n)
+	subnet, err = netutil.IPNetToPrefixNoMapped(n)
 	if err != nil {
 		return agd.CountryNone, netip.Prefix{}, fmt.Errorf("converting subnet: %w", err)
 	}

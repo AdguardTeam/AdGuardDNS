@@ -3,6 +3,7 @@ package agd_test
 import (
 	"context"
 	"net/netip"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -32,7 +33,8 @@ func newDefaultProfileDB(tb testing.TB, dev *agd.Device) (db *agd.DefaultProfile
 		OnProfiles: onProfiles,
 	}
 
-	db, err := agd.NewDefaultProfileDB(ds, 1*time.Minute)
+	cacheFilePath := filepath.Join(tb.TempDir(), "profiles.json")
+	db, err := agd.NewDefaultProfileDB(ds, 1*time.Minute, cacheFilePath)
 	require.NoError(tb, err)
 
 	return db

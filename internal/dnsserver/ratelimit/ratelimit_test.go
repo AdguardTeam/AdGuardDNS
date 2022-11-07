@@ -10,13 +10,14 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMain(m *testing.M) {
-	dnsservertest.DiscardLogOutput(m)
+	testutil.DiscardLogOutput(m)
 }
 
 func TestRatelimitMiddleware(t *testing.T) {
@@ -103,7 +104,7 @@ func TestRatelimitMiddleware(t *testing.T) {
 				RefuseANY:            true,
 			})
 			rlMw, err := ratelimit.NewMiddleware(rl, []dnsserver.Protocol{
-				dnsserver.ProtoDNSUDP,
+				dnsserver.ProtoDNS,
 			})
 			require.NoError(t, err)
 
@@ -115,12 +116,17 @@ func TestRatelimitMiddleware(t *testing.T) {
 			ctx := dnsserver.ContextWithServerInfo(context.Background(), dnsserver.ServerInfo{
 				Name:  "test",
 				Addr:  "127.0.0.1",
-				Proto: dnsserver.ProtoDNSUDP,
+				Proto: dnsserver.ProtoDNS,
 			})
+			ctx = dnsserver.ContextWithStartTime(ctx, time.Now())
+			ctx = dnsserver.ContextWithClientInfo(ctx, dnsserver.ClientInfo{})
 
 			n := 0
 			for i := 0; i < tc.reqsNum; i++ {
-				nrw := dnsserver.NewNonWriterResponseWriter(nil, tc.remoteAddr)
+				nrw := dnsserver.NewNonWriterResponseWriter(
+					&net.UDPAddr{IP: []byte{1, 2, 3, 4}},
+					tc.remoteAddr,
+				)
 				err = withMw.ServeDNS(ctx, nrw, tc.req)
 				require.NoError(t, err)
 

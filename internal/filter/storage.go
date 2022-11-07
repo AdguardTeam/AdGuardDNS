@@ -11,9 +11,11 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/bluele/gcache"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -115,7 +117,7 @@ type DefaultStorageConfig struct {
 	ErrColl agd.ErrorCollector
 
 	// Resolver is used to resolve hosts in safe search.
-	Resolver agd.Resolver
+	Resolver agdnet.Resolver
 
 	// CacheDir is the path to the directory where the cached filter files are
 	// put.  The directory must exist.
@@ -136,25 +138,26 @@ type DefaultStorageConfig struct {
 
 // NewDefaultStorage returns a new filter storage.  c must not be nil.
 func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage, err error) {
-	rslvCache := newResolveCache(c.Resolver)
+	// TODO(ameshkov): Consider making configurable.
+	resolver := agdnet.NewCachingResolver(c.Resolver, 1*timeutil.Day)
 
 	safeBrowsing := newHashPrefixFilter(
 		c.SafeBrowsing,
-		rslvCache,
+		resolver,
 		c.ErrColl,
 		agd.FilterListIDSafeBrowsing,
 	)
 
 	adultBlocking := newHashPrefixFilter(
 		c.AdultBlocking,
-		rslvCache,
+		resolver,
 		c.ErrColl,
 		agd.FilterListIDAdultBlocking,
 	)
 
 	genSafeSearch := newSafeSearch(&safeSearchConfig{
-		rslvCache: rslvCache,
-		errColl:   c.ErrColl,
+		resolver: resolver,
+		errColl:  c.ErrColl,
 		list: &agd.FilterList{
 			URL:        c.GeneralSafeSearchRulesURL,
 			ID:         agd.FilterListIDGeneralSafeSearch,
@@ -165,8 +168,8 @@ func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage, err error) {
 	})
 
 	ytSafeSearch := newSafeSearch(&safeSearchConfig{
-		rslvCache: rslvCache,
-		errColl:   c.ErrColl,
+		resolver: resolver,
+		errColl:  c.ErrColl,
 		list: &agd.FilterList{
 			URL:        c.YoutubeSafeSearchRulesURL,
 			ID:         agd.FilterListIDYoutubeSafeSearch,

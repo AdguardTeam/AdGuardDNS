@@ -46,12 +46,12 @@ var (
 		Namespace: namespace,
 		Subsystem: subsystemRateLimit,
 		Help:      "The total number of rate-limited DNS queries.",
-	}, []string{"name", "proto", "addr", "type", "family"})
+	}, []string{"name", "proto", "network", "addr", "type", "family"})
 
 	allowlistedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name:      "allowlisted_total",
 		Namespace: namespace,
 		Subsystem: subsystemRateLimit,
 		Help:      "The total number of allowlisted DNS queries.",
-	}, []string{"name", "proto", "addr", "type", "family"})
+	}, []string{"name", "proto", "network", "addr", "type", "family"})
 )

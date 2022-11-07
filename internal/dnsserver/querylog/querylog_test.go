@@ -49,11 +49,13 @@ func TestLogMiddleware_Wrap(t *testing.T) {
 		dnsserver.ServerInfo{
 			Name:  "test",
 			Addr:  "0.0.0.0:53",
-			Proto: dnsserver.ProtoDNSUDP,
+			Proto: dnsserver.ProtoDNS,
 		})
 	ctx = dnsserver.ContextWithStartTime(ctx, time.Now().Add(-time.Second))
-	ctx = dnsserver.ContextWithRequestSize(ctx, req.Len())
-	ctx = dnsserver.ContextWithResponseSize(ctx, req.Len())
+	ctx = dnsserver.ContextWithRequestInfo(ctx, dnsserver.RequestInfo{
+		RequestSize:  req.Len(),
+		ResponseSize: req.Len(),
+	})
 
 	// Init response writer with test data
 	localAddr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 53}
@@ -68,7 +70,7 @@ func TestLogMiddleware_Wrap(t *testing.T) {
 	require.True(t,
 		strings.HasPrefix(
 			w.String(),
-			"[test dns-udp://0.0.0.0:53] 1 A example.org. 29 0 29",
+			"[test dns://0.0.0.0:53] 1 A example.org. 29 0 29",
 		),
 		"invalid message: %s",
 		w.String(),

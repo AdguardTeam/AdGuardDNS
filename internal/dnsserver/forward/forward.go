@@ -84,6 +84,9 @@ type HandlerConfig struct {
 	// all DNS queries.
 	Address netip.AddrPort
 
+	// Network is the network protocol for the main upstream address.
+	Network Network
+
 	// MetricsListener is the optional listener for the handler events.  Set it
 	// if you want to keep track of what the handler does and record performance
 	// metrics.  If not set, EmptyMetricsListener is used.
@@ -117,7 +120,7 @@ type HandlerConfig struct {
 // support plain DNS upstreams.  c must not be nil.
 func NewHandler(c *HandlerConfig, initialHealthcheck bool) (h *Handler) {
 	h = &Handler{
-		upstream:     NewUpstreamPlain(c.Address, NetworkAny),
+		upstream:     NewUpstreamPlain(c.Address, c.Network),
 		hcDomainTmpl: c.HealthcheckDomainTmpl,
 		timeout:      c.Timeout,
 		hcBackoff:    c.HealthcheckBackoffDuration,

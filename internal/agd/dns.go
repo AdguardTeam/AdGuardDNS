@@ -20,14 +20,12 @@ const (
 	// packages and modules may depend on the numerical values.  These numerical
 	// values are a part of the API.
 
-	ProtoInvalid     = dnsserver.ProtoInvalid
-	ProtoDNSTCP      = dnsserver.ProtoDNSTCP
-	ProtoDNSUDP      = dnsserver.ProtoDNSUDP
-	ProtoDoH         = dnsserver.ProtoDoH
-	ProtoDoQ         = dnsserver.ProtoDoQ
-	ProtoDoT         = dnsserver.ProtoDoT
-	ProtoDNSCryptTCP = dnsserver.ProtoDNSCryptTCP
-	ProtoDNSCryptUDP = dnsserver.ProtoDNSCryptUDP
+	ProtoInvalid  = dnsserver.ProtoInvalid
+	ProtoDNS      = dnsserver.ProtoDNS
+	ProtoDoH      = dnsserver.ProtoDoH
+	ProtoDoQ      = dnsserver.ProtoDoQ
+	ProtoDoT      = dnsserver.ProtoDoT
+	ProtoDNSCrypt = dnsserver.ProtoDNSCrypt
 )
 
 // Resolver is the DNS resolver interface.

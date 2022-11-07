@@ -5,14 +5,14 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 )
 
 func TestMain(m *testing.M) {
-	agdtest.DiscardLogOutput(m)
+	testutil.DiscardLogOutput(m)
 }
 
 // Helpers
@@ -32,7 +32,7 @@ func testEntry() (e *querylog.Entry) {
 		ClientCountry:   agd.CountryRU,
 		ResponseCountry: agd.CountryUS,
 		DomainFQDN:      "example.com.",
-		Protocol:        agd.ProtoDNSUDP,
+		Protocol:        agd.ProtoDNS,
 		ClientASN:       1234,
 		Elapsed:         5,
 		RequestType:     dns.TypeA,

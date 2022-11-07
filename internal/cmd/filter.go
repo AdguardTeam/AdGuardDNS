@@ -1,10 +1,10 @@
 package cmd
 
 import (
-	"net"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/timeutil"
@@ -46,7 +46,7 @@ func (c *filtersConfig) toInternal(
 		YoutubeSafeSearchRulesURL: netutil.CloneURL(&envs.YoutubeSafeSearchURL.URL),
 		Now:                       time.Now,
 		ErrColl:                   errColl,
-		Resolver:                  net.DefaultResolver,
+		Resolver:                  agdnet.DefaultResolver{},
 		CacheDir:                  envs.FilterCachePath,
 		CustomFilterCacheSize:     c.CustomFilterCacheSize,
 		// TODO(a.garipov): Consider making this configurable.

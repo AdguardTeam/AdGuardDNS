@@ -5,8 +5,8 @@ entries are designed to be concise and easily compressable.  An example of the
 log output:
 
 ```jsonl
-{"u":"ABCD","b":"prof1234","i":"dev1234","c":"RU","d":"US","n":"example.com.","l":"cdef5678","m":"||example.com^","t":1628590394000,"a":1234,"e":5,"q":1,"f":2,"s":0,"p":2,"r":0}
-{"u":"DEFG","b":"prof1234","i":"dev1234","c":"RU","d":"JP","n":"example.org.","l":"hijk9012","m":"||example.org^","t":1628590394100,"a":6789,"e":6,"q":1,"f":2,"s":0,"p":2,"r":0}
+{"u":"ABCD","b":"prof1234","i":"dev1234","c":"RU","d":"US","n":"example.com.","l":"cdef5678","m":"||example.com^","t":1628590394000,"a":1234,"e":5,"q":1,"f":2,"s":0,"p":8,"r":0}
+{"u":"DEFG","b":"prof1234","i":"dev1234","c":"RU","d":"JP","n":"example.org.","l":"hijk9012","m":"||example.org^","t":1628590394100,"a":6789,"e":6,"q":1,"f":2,"s":0,"p":8,"r":0}
 ```
 
 AdGuard DNS opens and closes the log file on each write to prevent issues with
@@ -208,22 +208,10 @@ rules to remember, which property means what.  The properties are:
             Invalid or unknown protocol.  Typically, this value is never used.
         </dd>
         <dt>
-            <code>1</code>
-        </dt>
-        <dd>
-            Plain DNS over TCP.
-        </dd>
-        <dt>
-            <code>2</code>
-        </dt>
-        <dd>
-            Plain DNS over UDP.
-        </dd>
-        <dt>
             <code>3</code>
         </dt>
         <dd>
-            DNS-over-HTTP.
+            DNS-over-HTTPS.
         </dd>
         <dt>
             <code>4</code>
@@ -238,20 +226,20 @@ rules to remember, which property means what.  The properties are:
             DNS-over-TLS.
         </dd>
         <dt>
-            <code>6</code>
+            <code>8</code>
         </dt>
         <dd>
-            DNSCrypt over TCP.
+            Plain DNS.
         </dd>
         <dt>
-            <code>7</code>
+            <code>9</code>
         </dt>
         <dd>
-            DNSCrypt over UDP.
+            DNSCrypt.
         </dd>
     </dl>
 
-    **Example:** `2`
+    **Example:** `3`
 
  *  <a href="#properties-r" id="properties-r" name="properties-r">`r`</a>:
     The response code (aka `RCODE`) sent to the client.  The short name `r`

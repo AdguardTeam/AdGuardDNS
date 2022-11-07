@@ -1,7 +1,6 @@
 package dnsserver_test
 
 import (
-	"context"
 	"crypto/tls"
 	"encoding/binary"
 	"io"
@@ -12,23 +11,13 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/golibs/log"
-	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 )
 
 func TestServerTLS_integration_queryTLS(t *testing.T) {
 	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
-	srv, addr, err := dnsservertest.RunLocalTLSServer(
-		dnsservertest.DefaultHandler(),
-		tlsConfig,
-	)
-	require.NoError(t, err)
-	require.Equal(t, dnsserver.ProtoDoT, srv.Proto())
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(context.Background())
-	})
+	addr := dnsservertest.RunTLSServer(t, dnsservertest.DefaultHandler(), tlsConfig)
 
 	// Create a test message
 	req := new(dns.Msg)
@@ -97,16 +86,8 @@ func TestServerTLS_integration_msgIgnore(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
-			srv, addr, err := dnsservertest.RunLocalTLSServer(
-				dnsservertest.DefaultHandler(),
-				tlsConfig,
-			)
-			require.NoError(t, err)
-			require.Equal(t, dnsserver.ProtoDoT, srv.Proto())
-
-			testutil.CleanupAndRequireSuccess(t, func() (err error) {
-				return srv.Shutdown(context.Background())
-			})
+			h := dnsservertest.DefaultHandler()
+			addr := dnsservertest.RunTLSServer(t, h, tlsConfig)
 
 			conn, err := tls.Dial("tcp", addr.String(), tlsConfig)
 			require.Nil(t, err)
@@ -134,12 +115,7 @@ func TestServerTLS_integration_noTruncateQuery(t *testing.T) {
 	handler := dnsservertest.CreateTestHandler(64)
 
 	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
-	srv, addr, err := dnsservertest.RunLocalTLSServer(handler, tlsConfig)
-	require.NoError(t, err)
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(context.Background())
-	})
+	addr := dnsservertest.RunTLSServer(t, handler, tlsConfig)
 
 	// Create a test message
 	req := new(dns.Msg)
@@ -167,16 +143,7 @@ func TestServerTLS_integration_queriesPipelining(t *testing.T) {
 	// i.e. we should be able to process incoming queries in parallel and
 	// write responses out of order.
 	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
-	srv, addr, err := dnsservertest.RunLocalTLSServer(
-		dnsservertest.DefaultHandler(),
-		tlsConfig,
-	)
-	require.NoError(t, err)
-	require.Equal(t, dnsserver.ProtoDoT, srv.Proto())
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(context.Background())
-	})
+	addr := dnsservertest.RunTLSServer(t, dnsservertest.DefaultHandler(), tlsConfig)
 
 	// First - establish a connection
 	conn, err := tls.Dial("tcp", addr.String(), tlsConfig)

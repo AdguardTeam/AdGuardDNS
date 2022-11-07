@@ -141,7 +141,7 @@ func (sc StaticContent) serveHTTP(w http.ResponseWriter, r *http.Request) (serve
 	}
 
 	if f.AllowOrigin != "" {
-		w.Header().Set(agdhttp.HdrNameAccessControlAllowOrigin, f.ContentType)
+		w.Header().Set(agdhttp.HdrNameAccessControlAllowOrigin, f.AllowOrigin)
 	}
 	w.Header().Set(agdhttp.HdrNameContentType, f.ContentType)
 	w.WriteHeader(http.StatusOK)

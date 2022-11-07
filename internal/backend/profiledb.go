@@ -82,9 +82,7 @@ func (s *ProfileStorage) Profiles(
 		return nil, fmt.Errorf("loading from url %s: %w", redURL, err)
 	}
 
-	updTime := s.now()
-
-	return settResp.toInternal(ctx, updTime, s.errColl), nil
+	return settResp.toInternal(ctx, s.now(), s.errColl), nil
 }
 
 // loadSettingsResponse fetches, decodes, and returns the settings response.

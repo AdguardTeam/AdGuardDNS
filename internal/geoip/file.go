@@ -9,9 +9,9 @@ import (
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/bluele/gcache"
 	"github.com/oschwald/maxminddb-golang"
 )
@@ -122,7 +122,7 @@ func ipToCacheKey(ip netip.Addr) (k any) {
 var _ Interface = (*File)(nil)
 
 // SubnetByLocation implements the Interface interface for *File.  fam must be
-// either agdnet.AddrFamilyIPv4 or agdnet.AddrFamilyIPv6.
+// either [netutil.AddrFamilyIPv4] or [netutil.AddrFamilyIPv6].
 //
 // The process of the subnet selection is as follows:
 //
@@ -142,7 +142,7 @@ var _ Interface = (*File)(nil)
 func (f *File) SubnetByLocation(
 	c agd.Country,
 	asn agd.ASN,
-	fam agdnet.AddrFamily,
+	fam netutil.AddrFamily,
 ) (n netip.Prefix, err error) {
 	// TODO(a.garipov): Thoroughly cover with tests.
 
@@ -153,10 +153,10 @@ func (f *File) SubnetByLocation(
 	defer f.mu.RUnlock()
 
 	switch fam {
-	case agdnet.AddrFamilyIPv4:
+	case netutil.AddrFamilyIPv4:
 		topASNSubnets = f.ipv4TopASNSubnets
 		ctrySubnets = f.ipv4CountrySubnets
-	case agdnet.AddrFamilyIPv6:
+	case netutil.AddrFamilyIPv6:
 		topASNSubnets = f.ipv6TopASNSubnets
 		ctrySubnets = f.ipv6CountrySubnets
 	default:
@@ -178,7 +178,7 @@ func (f *File) SubnetByLocation(
 		return n, nil
 	}
 
-	return agdnet.ZeroSubnet(fam), nil
+	return netutil.ZeroPrefix(fam), nil
 }
 
 // Data implements the Interface interface for *File.  If ip is netip.Addr{},

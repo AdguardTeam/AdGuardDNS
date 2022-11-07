@@ -42,6 +42,10 @@ with a random ID prepended to one of the [check domains][conf-check-domains]
 with a hyphen.  The random ID must have from 4 to 63 characters and only include
 the alphanumeric characters and a hyphen.
 
+<!--
+    TODO(a.garipov): Describe the check process in details.
+-->
+
 Example of the request:
 
 ```sh
@@ -67,28 +71,16 @@ The `protocol` field can have one of the following values:
 
 <dl>
     <dt>
-        <code>"dns-tcp"</code>
+        <code>"dns"</code>
     </dt>
     <dd>
-        Plain DNS over TCP.
+        Plain DNS.
     </dd>
     <dt>
-        <code>"dns-udp"</code>
+        <code>"dnscrypt"</code>
     </dt>
     <dd>
-        Plain DNS over UDP.
-    </dd>
-    <dt>
-        <code>"dnscrypt-tcp"</code>
-    </dt>
-    <dd>
-        DNSCrypt over TCP.
-    </dd>
-    <dt>
-        <code>"dnscrypt-udp"</code>
-    </dt>
-    <dd>
-        DNSCrypt over UDP.
+        DNSCrypt.
     </dd>
     <dt>
         <code>"doh"</code>

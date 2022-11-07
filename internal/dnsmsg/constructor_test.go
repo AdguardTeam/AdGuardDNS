@@ -102,6 +102,10 @@ func TestConstructor_noAnswerMethods(t *testing.T) {
 		method: mc.NewMsgSERVFAIL,
 		name:   "servfail",
 		want:   dns.RcodeServerFailure,
+	}, {
+		method: mc.NewMsgNODATA,
+		name:   "nodata",
+		want:   dns.RcodeSuccess,
 	}}
 
 	for _, tc := range testCases {

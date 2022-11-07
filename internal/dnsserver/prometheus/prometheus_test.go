@@ -3,14 +3,13 @@ package prometheus_test
 import (
 	"testing"
 
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
-
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 )
 
 func TestMain(m *testing.M) {
-	dnsservertest.DiscardLogOutput(m)
+	testutil.DiscardLogOutput(m)
 }
 
 // requireMetrics accepts a list of metrics names and checks that

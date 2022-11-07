@@ -9,12 +9,13 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/stringutil"
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,14 +54,14 @@ func TestInitMw_ServeDNS_ddr(t *testing.T) {
 			BindAddresses: []netip.AddrPort{netip.MustParseAddrPort("5.6.7.8:54321")},
 			Protocol:      agd.ProtoDoH,
 		},
-		"tcp": {
+		"dns": {
 			BindAddresses:   []netip.AddrPort{netip.MustParseAddrPort("2.4.6.8:53")},
-			Protocol:        agd.ProtoDNSTCP,
+			Protocol:        agd.ProtoDNS,
 			LinkedIPEnabled: true,
 		},
-		"tcp_nolink": {
+		"dns_nolink": {
 			BindAddresses: []netip.AddrPort{netip.MustParseAddrPort("2.4.6.8:53")},
-			Protocol:      agd.ProtoDNSTCP,
+			Protocol:      agd.ProtoDNS,
 		},
 	}
 
@@ -109,7 +110,7 @@ func TestInitMw_ServeDNS_ddr(t *testing.T) {
 			OnSubnetByLocation: func(
 				_ agd.Country,
 				_ agd.ASN,
-				_ agdnet.AddrFamily,
+				_ netutil.AddrFamily,
 			) (_ netip.Prefix, _ error) {
 				panic("not implemented")
 			},
@@ -181,7 +182,7 @@ func TestInitMw_ServeDNS_ddr(t *testing.T) {
 	}, {
 		device:     testDevice,
 		name:       "linked_ip",
-		srv:        srvs["tcp"],
+		srv:        srvs["dns"],
 		host:       ddrFQDN,
 		wantTarget: targetWithID,
 		wantNum:    len(pubSVCBTmpls),
@@ -189,7 +190,7 @@ func TestInitMw_ServeDNS_ddr(t *testing.T) {
 	}, {
 		device:     testDevice,
 		name:       "no_linked_ip",
-		srv:        srvs["tcp_nolink"],
+		srv:        srvs["dns_nolink"],
 		host:       ddrFQDN,
 		wantTarget: resolverFQDN,
 		wantNum:    len(pubSVCBTmpls),
@@ -267,9 +268,8 @@ func TestInitMw_ServeDNS_ddr(t *testing.T) {
 
 			assert.Len(t, resp.Answer, tc.wantNum)
 			for _, rr := range resp.Answer {
-				require.IsType(t, (*dns.SVCB)(nil), rr)
+				svcb := testutil.RequireTypeAssert[*dns.SVCB](t, rr)
 
-				svcb := rr.(*dns.SVCB)
 				assert.Equal(t, tc.wantTarget, svcb.Target)
 				assert.Equal(t, tc.host, svcb.Hdr.Name)
 			}
@@ -386,7 +386,7 @@ func TestInitMw_ServeDNS_privateRelay(t *testing.T) {
 				OnSubnetByLocation: func(
 					_ agd.Country,
 					_ agd.ASN,
-					_ agdnet.AddrFamily,
+					_ netutil.AddrFamily,
 				) (n netip.Prefix, err error) {
 					panic("not implemented")
 				},
@@ -410,7 +410,7 @@ func TestInitMw_ServeDNS_privateRelay(t *testing.T) {
 				},
 				srvGrp: &agd.ServerGroup{},
 				srv: &agd.Server{
-					Protocol:        agd.ProtoDNSTCP,
+					Protocol:        agd.ProtoDNS,
 					LinkedIPEnabled: true,
 				},
 				db:      db,
@@ -487,7 +487,7 @@ func BenchmarkInitMw_Wrap(b *testing.B) {
 			OnSubnetByLocation: func(
 				_ agd.Country,
 				_ agd.ASN,
-				_ agdnet.AddrFamily,
+				_ netutil.AddrFamily,
 			) (n netip.Prefix, err error) {
 				panic("not implemented")
 			},

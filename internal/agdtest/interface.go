@@ -16,14 +16,13 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 )
 
 // Interface Mocks
 //
 // Keep entities in this file in alphabetic order.
-
-// agd.ErrorCollector
 
 // type check
 var _ agd.ErrorCollector = (*ErrorCollector)(nil)
@@ -39,8 +38,6 @@ type ErrorCollector struct {
 func (c *ErrorCollector) Collect(ctx context.Context, err error) {
 	c.OnCollect(ctx, err)
 }
-
-// agd.ProfileDB
 
 // type check
 var _ agd.ProfileDB = (*ProfileDB)(nil)
@@ -73,8 +70,6 @@ func (db *ProfileDB) ProfileByIP(
 	return db.OnProfileByIP(ctx, ip)
 }
 
-// agd.ProfileStorage
-
 // type check
 var _ agd.ProfileStorage = (*ProfileStorage)(nil)
 
@@ -94,8 +89,6 @@ func (ds *ProfileStorage) Profiles(
 	return ds.OnProfiles(ctx, req)
 }
 
-// agd.Refresher
-
 // type check
 var _ agd.Refresher = (*Refresher)(nil)
 
@@ -109,28 +102,30 @@ func (r *Refresher) Refresh(ctx context.Context) (err error) {
 	return r.OnRefresh(ctx)
 }
 
-// agd.Resolver
+// Package agdnet
 
 // type check
-var _ agd.Resolver = (*Resolver)(nil)
+var _ agdnet.Resolver = (*Resolver)(nil)
 
 // Resolver is an agd.Resolver for tests.
 type Resolver struct {
-	OnLookupIP func(ctx context.Context, network, addr string) (ips []net.IP, err error)
+	OnLookupIP func(
+		ctx context.Context,
+		fam netutil.AddrFamily,
+		host string,
+	) (ips []net.IP, err error)
 }
 
 // LookupIP implements the agd.Resolver interface for *Resolver.
 func (r *Resolver) LookupIP(
 	ctx context.Context,
-	network string,
-	addr string,
+	fam netutil.AddrFamily,
+	host string,
 ) (ips []net.IP, err error) {
-	return r.OnLookupIP(ctx, network, addr)
+	return r.OnLookupIP(ctx, fam, host)
 }
 
-// Package BillStat
-
-// billstat.Recorder
+// Package billstat
 
 // type check
 var _ billstat.Recorder = (*BillStatRecorder)(nil)
@@ -159,8 +154,6 @@ func (r *BillStatRecorder) Record(
 	r.OnRecord(ctx, id, ctry, asn, start, proto)
 }
 
-// billstat.Uploader
-
 // type check
 var _ billstat.Uploader = (*BillStatUploader)(nil)
 
@@ -174,9 +167,7 @@ func (b *BillStatUploader) Upload(ctx context.Context, records billstat.Records)
 	return b.OnUpload(ctx, records)
 }
 
-// Package DNSCheck
-
-// dnscheck.Interface
+// Package dnscheck
 
 // type check
 var _ dnscheck.Interface = (*DNSCheck)(nil)
@@ -195,9 +186,7 @@ func (db *DNSCheck) Check(
 	return db.OnCheck(ctx, req, ri)
 }
 
-// Package DNSDB
-
-// dnsdb.Interface
+// Package dnsdb
 
 // type check
 var _ dnsdb.Interface = (*DNSDB)(nil)
@@ -212,9 +201,7 @@ func (db *DNSDB) Record(ctx context.Context, resp *dns.Msg, ri *agd.RequestInfo)
 	db.OnRecord(ctx, resp, ri)
 }
 
-// Package Filter
-
-// filter.Interface
+// Package filter
 
 // type check
 var _ filter.Interface = (*Filter)(nil)
@@ -257,8 +244,6 @@ func (f *Filter) Close() (err error) {
 	return f.OnClose()
 }
 
-// filter.Storage
-
 // type check
 var _ filter.Storage = (*FilterStorage)(nil)
 
@@ -281,9 +266,7 @@ func (s *FilterStorage) HasListID(id agd.FilterListID) (ok bool) {
 	return s.OnHasListID(id)
 }
 
-// Package GeoIP
-
-// geoip.Interface
+// Package geoip
 
 // type check
 var _ geoip.Interface = (*GeoIP)(nil)
@@ -293,7 +276,7 @@ type GeoIP struct {
 	OnSubnetByLocation func(
 		c agd.Country,
 		a agd.ASN,
-		fam agdnet.AddrFamily,
+		fam netutil.AddrFamily,
 	) (n netip.Prefix, err error)
 	OnData func(host string, ip netip.Addr) (l *agd.Location, err error)
 }
@@ -302,7 +285,7 @@ type GeoIP struct {
 func (g *GeoIP) SubnetByLocation(
 	c agd.Country,
 	a agd.ASN,
-	fam agdnet.AddrFamily,
+	fam netutil.AddrFamily,
 ) (n netip.Prefix, err error) {
 	return g.OnSubnetByLocation(c, a, fam)
 }
@@ -312,9 +295,7 @@ func (g *GeoIP) Data(host string, ip netip.Addr) (l *agd.Location, err error) {
 	return g.OnData(host, ip)
 }
 
-// Package Querylog
-
-// querylog.Interface
+// Package querylog
 
 // type check
 var _ querylog.Interface = (*QueryLog)(nil)
@@ -329,9 +310,7 @@ func (ql *QueryLog) Write(ctx context.Context, e *querylog.Entry) (err error) {
 	return ql.OnWrite(ctx, e)
 }
 
-// Package RuleStat
-
-// rulestat.Interface
+// Package rulestat
 
 // type check
 var _ rulestat.Interface = (*RuleStat)(nil)
@@ -346,11 +325,9 @@ func (s *RuleStat) Collect(ctx context.Context, id agd.FilterListID, text agd.Fi
 	s.OnCollect(ctx, id, text)
 }
 
-// Module DNSServer
+// Module dnsserver
 
-// Package RateLimit
-
-// ratelimit.RateLimit
+// Package ratelimit
 
 // type check
 var _ ratelimit.Interface = (*RateLimit)(nil)

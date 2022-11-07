@@ -253,7 +253,7 @@ func (mw *initMw) addProfile(ctx context.Context, ri *agd.RequestInfo, req *dns.
 		// Assume that mw.srvGrp.TLS is non-nil if p.IsStdEncrypted() is true.
 		wildcards := mw.srvGrp.TLS.DeviceIDWildcards
 		id, err = deviceIDFromContext(ctx, mw.srv.Protocol, wildcards)
-	} else if p.IsPlain() {
+	} else if p == agd.ProtoDNS {
 		id, err = deviceIDFromEDNS(req)
 	} else {
 		// No DeviceID for DNSCrypt yet.
@@ -308,7 +308,7 @@ func (mw *initMw) profile(
 		optlog.Debug1("init mw: not matching by ip for server %s", mw.srv.Name)
 
 		return nil, nil, "", agd.ProfileNotFoundError{}
-	} else if !p.IsPlain() {
+	} else if p != agd.ProtoDNS {
 		optlog.Debug1("init mw: not matching by ip for proto %v", p)
 
 		return nil, nil, "", agd.ProfileNotFoundError{}

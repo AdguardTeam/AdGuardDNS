@@ -7,17 +7,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestMain(m *testing.M) {
-	agdtest.DiscardLogOutput(m)
+	testutil.DiscardLogOutput(m)
 }
 
 // testFltRespTTL is the common filtered response TTL.
@@ -32,12 +31,12 @@ const (
 )
 
 // newECSExtraMsg is a helper constructor for ECS messages.
-func newECSExtraMsg(ip netip.Addr, ecsFam agdnet.AddrFamily, mask uint8) (msg *dns.Msg) {
+func newECSExtraMsg(ip netip.Addr, ecsFam netutil.AddrFamily, mask uint8) (msg *dns.Msg) {
 	var scope uint8
 	switch ecsFam {
-	case agdnet.AddrFamilyIPv4:
+	case netutil.AddrFamilyIPv4:
 		scope = ipv4Scope
-	case agdnet.AddrFamilyIPv6:
+	case netutil.AddrFamilyIPv6:
 		scope = ipv6Scope
 	default:
 		panic(fmt.Errorf("unsupported ecs addr fam %s", ecsFam))
@@ -108,49 +107,49 @@ func TestECSFromMsg(t *testing.T) {
 		wantErrMsg: "",
 		wantScope:  0,
 	}, {
-		msg:        newECSExtraMsg(ipv4Net.Addr(), agdnet.AddrFamilyIPv4, ipv4MaskBits),
+		msg:        newECSExtraMsg(ipv4Net.Addr(), netutil.AddrFamilyIPv4, ipv4MaskBits),
 		wantECS:    ipv4Net,
 		name:       "ecs_ipv4",
 		wantErrMsg: "",
 		wantScope:  ipv4Scope,
 	}, {
-		msg:        newECSExtraMsg(ipv4Net.Addr(), agdnet.AddrFamilyIPv4, 0),
+		msg:        newECSExtraMsg(ipv4Net.Addr(), netutil.AddrFamilyIPv4, 0),
 		wantECS:    netip.Prefix{},
 		name:       "ecs_ipv4_zero_mask_addr",
 		wantErrMsg: "bad ecs: ip 1.2.3.0 has non-zero bits beyond prefix 0",
 		wantScope:  0,
 	}, {
-		msg:        newECSExtraMsg(netip.IPv4Unspecified(), agdnet.AddrFamilyIPv4, 0),
+		msg:        newECSExtraMsg(netip.IPv4Unspecified(), netutil.AddrFamilyIPv4, 0),
 		wantECS:    netip.PrefixFrom(netip.IPv4Unspecified(), 0),
 		name:       "ecs_ipv4_zero",
 		wantErrMsg: "",
 		wantScope:  ipv4Scope,
 	}, {
-		msg:        newECSExtraMsg(ipv4Net.Addr(), agdnet.AddrFamilyIPv4, 1),
+		msg:        newECSExtraMsg(ipv4Net.Addr(), netutil.AddrFamilyIPv4, 1),
 		wantECS:    netip.Prefix{},
 		name:       "ecs_ipv4_bad_ones",
 		wantErrMsg: "bad ecs: ip 1.2.3.0 has non-zero bits beyond prefix 1",
 		wantScope:  0,
 	}, {
-		msg:        newECSExtraMsg(ipv4Net.Addr(), agdnet.AddrFamilyIPv4, math.MaxUint8),
+		msg:        newECSExtraMsg(ipv4Net.Addr(), netutil.AddrFamilyIPv4, math.MaxUint8),
 		wantECS:    netip.Prefix{},
 		name:       "ecs_ipv4_bad_too_much",
 		wantErrMsg: "bad ecs: bad src netmask 255 for addr family ipv4",
 		wantScope:  0,
 	}, {
-		msg:        newECSExtraMsg(ipv6Net.Addr(), agdnet.AddrFamilyIPv6, ipv6MaskBits),
+		msg:        newECSExtraMsg(ipv6Net.Addr(), netutil.AddrFamilyIPv6, ipv6MaskBits),
 		wantECS:    ipv6Net,
 		name:       "ecs_ipv6",
 		wantErrMsg: "",
 		wantScope:  ipv6Scope,
 	}, {
-		msg:        newECSExtraMsg(ipv6Net.Addr(), agdnet.AddrFamilyIPv6, 1),
+		msg:        newECSExtraMsg(ipv6Net.Addr(), netutil.AddrFamilyIPv6, 1),
 		wantECS:    netip.Prefix{},
 		name:       "ecs_ipv6_bad_ones",
 		wantErrMsg: "bad ecs: ip 2001:0:102:304:: has non-zero bits beyond prefix 1",
 		wantScope:  0,
 	}, {
-		msg:        newECSExtraMsg(ipv6Net.Addr(), agdnet.AddrFamilyIPv6, math.MaxUint8),
+		msg:        newECSExtraMsg(ipv6Net.Addr(), netutil.AddrFamilyIPv6, math.MaxUint8),
 		wantECS:    netip.Prefix{},
 		name:       "ecs_ipv6_bad_too_much",
 		wantErrMsg: "bad ecs: bad src netmask 255 for addr family ipv6",

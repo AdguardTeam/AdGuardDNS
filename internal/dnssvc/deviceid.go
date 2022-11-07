@@ -114,11 +114,11 @@ var _ errors.Wrapper = (*deviceIDError)(nil)
 func (err *deviceIDError) Unwrap() (unwrapped error) { return err.err }
 
 // type check
-var _ errcoll.RavenReportableError = (*deviceIDError)(nil)
+var _ errcoll.SentryReportableError = (*deviceIDError)(nil)
 
-// IsRavenReportable implements the errcoll.RavenReportableError interface for
+// IsSentryReportable implements the errcoll.SentryReportableError interface for
 // *deviceIDError.
-func (err *deviceIDError) IsRavenReportable() (ok bool) { return false }
+func (err *deviceIDError) IsSentryReportable() (ok bool) { return false }
 
 // deviceIDFromContext extracts the device from the server name of the TLS
 // client's DoH, DoT, or DoQ request, using the provided domain name wildcards,

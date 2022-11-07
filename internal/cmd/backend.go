@@ -1,11 +1,11 @@
 package cmd
 
 import (
-	"net/url"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/backend"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
 
@@ -33,15 +33,17 @@ type backendConfig struct {
 // toInternal converts c to the data storage configuration for the DNS server.
 // c is assumed to be valid.
 func (c *backendConfig) toInternal(
-	backendEndpoint *url.URL,
+	envs *environments,
 	errColl agd.ErrorCollector,
 ) (profStrg *backend.ProfileStorageConfig, billStat *backend.BillStatConfig) {
+	backendEndpoint := &envs.BackendEndpoint.URL
+
 	return &backend.ProfileStorageConfig{
-			BaseEndpoint: backendEndpoint,
+			BaseEndpoint: netutil.CloneURL(backendEndpoint),
 			Now:          time.Now,
 			ErrColl:      errColl,
 		}, &backend.BillStatConfig{
-			BaseEndpoint: backendEndpoint,
+			BaseEndpoint: netutil.CloneURL(backendEndpoint),
 		}
 }
 

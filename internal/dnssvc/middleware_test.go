@@ -9,13 +9,13 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -93,7 +93,7 @@ func TestService_Wrap_withClient(t *testing.T) {
 		OnSubnetByLocation: func(
 			_ agd.Country,
 			_ agd.ASN,
-			_ agdnet.AddrFamily,
+			_ netutil.AddrFamily,
 		) (n netip.Prefix, err error) {
 			panic("not implemented")
 		},

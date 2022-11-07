@@ -1,7 +1,6 @@
 package dnsserver_test
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -15,9 +14,9 @@ import (
 
 func TestServerDNSCrypt_integration_query(t *testing.T) {
 	testCases := []struct {
-		name  string
-		proto dnsserver.Protocol
-		req   *dns.Msg
+		name    string
+		network dnsserver.Network
+		req     *dns.Msg
 		// if nil, use DefaultTestHandler
 		handler              dnsserver.Handler
 		expectedRecordsCount int
@@ -25,7 +24,7 @@ func TestServerDNSCrypt_integration_query(t *testing.T) {
 		expectedTruncated    bool
 	}{{
 		name:                 "udp_valid_msg",
-		proto:                dnsserver.ProtoDNSCryptUDP,
+		network:              dnsserver.NetworkUDP,
 		expectedRecordsCount: 1,
 		expectedRCode:        dns.RcodeSuccess,
 		req: &dns.Msg{
@@ -36,7 +35,7 @@ func TestServerDNSCrypt_integration_query(t *testing.T) {
 		},
 	}, {
 		name:                 "tcp_valid_msg",
-		proto:                dnsserver.ProtoDNSCryptTCP,
+		network:              dnsserver.NetworkTCP,
 		expectedRecordsCount: 1,
 		expectedRCode:        dns.RcodeSuccess,
 		req: &dns.Msg{
@@ -48,8 +47,8 @@ func TestServerDNSCrypt_integration_query(t *testing.T) {
 	}, {
 		// Checks that large responses are getting truncated when
 		// sent over UDP
-		name:  "udp_truncate_response",
-		proto: dnsserver.ProtoDNSCryptUDP,
+		name:    "udp_truncate_response",
+		network: dnsserver.NetworkUDP,
 		// Set a handler that generates a large response
 		handler: dnsservertest.CreateTestHandler(64),
 		// DNSCrypt server removes all records from a truncated response
@@ -65,8 +64,8 @@ func TestServerDNSCrypt_integration_query(t *testing.T) {
 	}, {
 		// Checks that if UDP size is large enough there would be no
 		// truncated responses
-		name:  "udp_edns0_no_truncate",
-		proto: dnsserver.ProtoDNSCryptUDP,
+		name:    "udp_edns0_no_truncate",
+		network: dnsserver.NetworkUDP,
 		// Set a handler that generates a large response
 		handler:              dnsservertest.CreateTestHandler(64),
 		expectedRecordsCount: 64,
@@ -89,26 +88,15 @@ func TestServerDNSCrypt_integration_query(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			network := dnsserver.NetworkUDP
-			if tc.proto == dnsserver.ProtoDNSCryptTCP {
-				network = dnsserver.NetworkTCP
-			}
 			handler := tc.handler
 			if tc.handler == nil {
 				handler = dnsservertest.DefaultHandler()
 			}
-			s, err := dnsservertest.RunLocalDNSCryptServer(handler, network)
-			require.NoError(t, err)
-			require.Equal(t, tc.proto, s.Srv.Proto())
 
-			defer func() {
-				err = s.Srv.Shutdown(context.Background())
-				require.NoError(t, err)
-			}()
-
+			s := dnsservertest.RunDNSCryptServer(t, handler)
 			client := &dnscrypt.Client{
 				Timeout: 1 * time.Second,
-				Net:     string(network),
+				Net:     string(tc.network),
 				UDPSize: 7000, // Make sure that we can read any response
 			}
 

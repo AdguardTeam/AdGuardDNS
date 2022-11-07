@@ -2,7 +2,6 @@ package dnsserver
 
 import (
 	"context"
-	"net"
 
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
@@ -40,15 +39,22 @@ var _ Server = (*ServerDNSCrypt)(nil)
 // NewServerDNSCrypt creates a new instance of ServerDNSCrypt.
 func NewServerDNSCrypt(conf ConfigDNSCrypt) (s *ServerDNSCrypt) {
 	return &ServerDNSCrypt{
-		ServerBase: newServerBase(conf.ConfigBase),
+		ServerBase: newServerBase(ProtoDNSCrypt, conf.ConfigBase),
 		conf:       conf,
 	}
 }
 
-// Start starts the server and starts processing queries.
+// Start implements the dnsserver.Server interface for *ServerDNSCrypt.
 func (s *ServerDNSCrypt) Start(ctx context.Context) (err error) {
+	defer func() { err = errors.Annotate(err, "starting dnscrypt server: %w", err) }()
+
 	s.lock.Lock()
 	defer s.lock.Unlock()
+
+	// First, validate the protocol.
+	if s.proto != ProtoDNSCrypt {
+		return ErrInvalidArgument
+	}
 
 	if s.started {
 		return ErrServerAlreadyStarted
@@ -72,23 +78,9 @@ func (s *ServerDNSCrypt) Start(ctx context.Context) (err error) {
 		},
 	}
 
-	switch s.proto {
-	case ProtoDNSCryptUDP:
-		err = s.listenUDP(ctx)
-		if err != nil {
-			return err
-		}
-
-		go s.startServeUDP(ctx)
-	case ProtoDNSCryptTCP:
-		err = s.listenTCP(ctx)
-		if err != nil {
-			return err
-		}
-
-		go s.startServeTCP(ctx)
-	default:
-		return ErrInvalidArgument
+	err = s.startServe(ctx)
+	if err != nil {
+		return err
 	}
 
 	log.Info("[%s]: Server has been started", s.Name())
@@ -96,8 +88,10 @@ func (s *ServerDNSCrypt) Start(ctx context.Context) (err error) {
 	return nil
 }
 
-// Shutdown closes active connections and listeners (if they're not closed already).
+// Shutdown implements the dnsserver.Server interface for *ServerDNSCrypt.
 func (s *ServerDNSCrypt) Shutdown(ctx context.Context) (err error) {
+	defer func() { err = errors.Annotate(err, "shutting down dnscrypt server: %w", err) }()
+
 	log.Info("[%s]: Stopping the server", s.Name())
 	err = s.shutdown()
 	if err != nil {
@@ -110,6 +104,29 @@ func (s *ServerDNSCrypt) Shutdown(ctx context.Context) (err error) {
 	log.Info("[%s]: Finished stopping the server", s.Name())
 
 	return err
+}
+
+// startServe creates listeners and starts serving DNSCrypt.
+func (s *ServerDNSCrypt) startServe(ctx context.Context) (err error) {
+	if s.network.CanUDP() {
+		err = s.listenUDP(ctx)
+		if err != nil {
+			return err
+		}
+
+		go s.startServeUDP(ctx)
+	}
+
+	if s.network.CanTCP() {
+		err = s.listenTCP(ctx)
+		if err != nil {
+			return err
+		}
+
+		go s.startServeTCP(ctx)
+	}
+
+	return nil
 }
 
 // startServeUDP starts the UDP listener loop.
@@ -186,48 +203,9 @@ func (h *dnsCryptHandler) ServeDNS(rw dnscrypt.ResponseWriter, r *dns.Msg) (err 
 		return rw.WriteMsg(genErrorResponse(r, dns.RcodeServerFailure))
 	}
 
-	network := NetworkUDP
-	if h.srv.proto == ProtoDNSCryptTCP {
-		network = NetworkTCP
-	}
-
+	network := NetworkFromAddr(rw.LocalAddr())
 	msg := nrw.Msg()
 	normalize(network, r, msg)
 
 	return rw.WriteMsg(msg)
-}
-
-// listenUDP creates the UDP listener for the ServerDNSCrypt.addr.
-func (s *ServerDNSCrypt) listenUDP(ctx context.Context) (err error) {
-	var l net.PacketConn
-	l, err = listenUDP(ctx, s.addr)
-	if err != nil {
-		return err
-	}
-
-	u, ok := l.(*net.UDPConn)
-	if !ok {
-		return ErrInvalidArgument
-	}
-
-	if err = setUDPSocketOptions(u); err != nil {
-		return err
-	}
-
-	s.udpListener = u
-
-	return nil
-}
-
-// listenTCP creates the TCP listener for the ServerDNSCrypt.addr.
-func (s *ServerDNSCrypt) listenTCP(ctx context.Context) (err error) {
-	var l net.Listener
-	l, err = listenTCP(ctx, s.addr)
-	if err != nil {
-		return err
-	}
-
-	s.tcpListener = l
-
-	return nil
 }

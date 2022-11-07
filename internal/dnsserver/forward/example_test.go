@@ -12,11 +12,11 @@ import (
 func ExampleNewHandler() {
 	conf := dnsserver.ConfigDNS{
 		ConfigBase: dnsserver.ConfigBase{
-			Name:  "srv",
-			Addr:  "127.0.0.1:0",
-			Proto: dnsserver.ProtoDNSUDP,
+			Name: "srv",
+			Addr: "127.0.0.1:0",
 			Handler: forward.NewHandler(&forward.HandlerConfig{
 				Address: netip.MustParseAddrPort("8.8.8.8:53"),
+				Network: forward.NetworkAny,
 				FallbackAddresses: []netip.AddrPort{
 					netip.MustParseAddrPort("1.1.1.1:53"),
 				},

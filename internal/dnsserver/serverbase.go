@@ -17,18 +17,27 @@ import (
 type ConfigBase struct {
 	// Name is used for logging, and it may be used for perf counters reporting.
 	Name string
+
 	// Addr is the address the server listens to.  See go doc net.Dial for
 	// the documentation on the address format.
 	Addr string
-	// Proto is the server protocol.
-	Proto Protocol
+
+	// Network is the network this server listens to.  If empty, the server will
+	// listen to all networks that are supposed to be used by the server's
+	// protocol.  Note, that it only makes sense for [ServerDNS],
+	// [ServerDNSCrypt], and [ServerHTTPS].
+	Network Network
+
 	// Handler is a handler that processes incoming DNS messages.
 	// If not set, we'll use the default handler that returns error response
 	// to any query.
+
 	Handler Handler
 	// Metrics is the object we use for collecting performance metrics.
 	// This field is optional.
+
 	Metrics MetricsListener
+
 	// BaseContext is a function that should return the base context. If not
 	// set, we'll be using context.Background().
 	BaseContext func() (ctx context.Context)
@@ -42,6 +51,9 @@ type ServerBase struct {
 	addr string
 	// proto is the server protocol.
 	proto Protocol
+	// network is the network to listen to.  It only makes sense for the
+	// following protocols: ProtoDNS, ProtoDNSCrypt, ProtoDoH.
+	network Network
 	// handler is a handler that processes incoming DNS messages.
 	handler Handler
 	// baseContext is a function that should return the base context.
@@ -68,13 +80,17 @@ type ServerBase struct {
 	wg sync.WaitGroup
 }
 
+// type check
+var _ Server = (*ServerBase)(nil)
+
 // newServerBase creates a new instance of ServerBase and initializes
 // some of its internal properties.
-func newServerBase(conf ConfigBase) (s *ServerBase) {
+func newServerBase(proto Protocol, conf ConfigBase) (s *ServerBase) {
 	s = &ServerBase{
 		name:        conf.Name,
 		addr:        conf.Addr,
-		proto:       conf.Proto,
+		proto:       proto,
+		network:     conf.Network,
 		handler:     conf.Handler,
 		metrics:     conf.Metrics,
 		baseContext: conf.BaseContext,
@@ -95,22 +111,38 @@ func newServerBase(conf ConfigBase) (s *ServerBase) {
 	return s
 }
 
-// Name returns the server name.  It is safe for concurrent use.
+// Name implements the [dnsserver.Server] interface for *ServerBase.
 func (s *ServerBase) Name() (name string) {
 	return s.name
 }
 
-// Addr returns the address the server was configured to listen to.  It is safe
-// for concurrent use.
+// Proto implements the [dnsserver.Server] interface for *ServerBase.
+func (s *ServerBase) Proto() (proto Protocol) {
+	return s.proto
+}
+
+// Network implements the [dnsserver.Server] interface for *ServerBase.
+func (s *ServerBase) Network() (network Network) {
+	return s.network
+}
+
+// Addr implements the [dnsserver.Server] interface for *ServerBase.
 func (s *ServerBase) Addr() (addr string) {
 	return s.addr
 }
 
-// LocalAddr returns the address the server listens to at the moment.
-func (s *ServerBase) LocalAddr() (addr net.Addr) {
-	if s.udpListener != nil {
-		return s.udpListener.LocalAddr()
-	}
+// Start implements the [dnsserver.Server] interface for *ServerBase.
+func (s *ServerBase) Start(_ context.Context) (err error) {
+	panic("*ServerBase must not be used directly")
+}
+
+// Shutdown implements the [dnsserver.Server] interface for *ServerBase.
+func (s *ServerBase) Shutdown(_ context.Context) (err error) {
+	panic("*ServerBase must not be used directly")
+}
+
+// LocalTCPAddr implements the [dnsserver.Server] interface for *ServerBase.
+func (s *ServerBase) LocalTCPAddr() (addr net.Addr) {
 	if s.tcpListener != nil {
 		return s.tcpListener.Addr()
 	}
@@ -118,9 +150,13 @@ func (s *ServerBase) LocalAddr() (addr net.Addr) {
 	return nil
 }
 
-// Proto returns the protocol of the server.  It is safe for concurrent use.
-func (s *ServerBase) Proto() (proto Protocol) {
-	return s.proto
+// LocalUDPAddr implements the [dnsserver.Server] interface for *ServerBase.
+func (s *ServerBase) LocalUDPAddr() (addr net.Addr) {
+	if s.udpListener != nil {
+		return s.udpListener.LocalAddr()
+	}
+
+	return nil
 }
 
 // requestContext returns a context for one request.  It adds the start time and
@@ -162,16 +198,17 @@ func (s *ServerBase) serveDNSMsg(
 	hostname, qType := questionData(req)
 	log.Debug("[%d] processing \"%s %s\"", req.Id, qType, hostname)
 
-	ctx = ContextWithRequestSize(ctx, req.Len())
 	recW := NewRecorderResponseWriter(rw)
 	s.serveDNSMsgInternal(ctx, req, recW)
 
+	ri := RequestInfo{RequestSize: req.Len()}
 	resp := recW.Resp
 	written = resp != nil
 	if written {
-		ctx = ContextWithResponseSize(ctx, resp.Len())
+		ri.ResponseSize = resp.Len()
 	}
 
+	ctx = ContextWithRequestInfo(ctx, ri)
 	s.metrics.OnRequest(ctx, req, resp, rw)
 
 	log.Debug("[%d]: finished processing \"%s %s\"", req.Id, qType, hostname)
@@ -301,6 +338,49 @@ func (s *ServerBase) handlePanicAndRecover(ctx context.Context) {
 		)
 		s.metrics.OnPanic(ctx, v)
 	}
+}
+
+// listenUDP creates a UDP listener for the ServerBase.addr.  This function will
+// initialize and start ServerBase.udpListener or return an error.  If the TCP
+// listener is already running, its address is used instead.  The point of this
+// is to properly handle the case when port 0 is used as both listeners should
+// use the same port, and we only learn it after the first one was started.
+func (s *ServerBase) listenUDP(ctx context.Context) (err error) {
+	addr := s.addr
+	if s.tcpListener != nil {
+		addr = s.tcpListener.Addr().String()
+	}
+
+	conn, err := listenUDP(ctx, addr, true)
+	if err != nil {
+		return err
+	}
+
+	s.udpListener = conn
+
+	return nil
+}
+
+// listenTCP creates a TCP listener for the ServerBase.addr.  This function will
+// initialize and start ServerBase.tcpListener or return an error.  If the UDP
+// listener is already running, its address is used instead.  The point of this
+// is to properly handle the case when port 0 is used as both listeners should
+// use the same port, and we only learn it after the first one was started.
+func (s *ServerBase) listenTCP(ctx context.Context) (err error) {
+	addr := s.addr
+	if s.udpListener != nil {
+		addr = s.udpListener.LocalAddr().String()
+	}
+
+	var l net.Listener
+	l, err = listenTCP(ctx, addr)
+	if err != nil {
+		return err
+	}
+
+	s.tcpListener = l
+
+	return nil
 }
 
 // closeListeners stops UDP and TCP listeners.

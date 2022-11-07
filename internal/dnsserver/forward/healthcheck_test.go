@@ -9,7 +9,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
-	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,25 +40,14 @@ func TestHandler_Refresh(t *testing.T) {
 		return rw.WriteMsg(ctx, req, nrw.Msg())
 	})
 
-	upstream, err := dnsservertest.RunDNSServer(handlerFunc)
-	require.NoError(t, err)
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return upstream.Shutdown(context.Background())
-	})
-
-	fallback, err := dnsservertest.RunDNSServer(dnsservertest.DefaultHandler())
-	require.NoError(t, err)
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return fallback.Shutdown(context.Background())
-	})
-
+	upstream, _ := dnsservertest.RunDNSServer(t, handlerFunc)
+	fallback, _ := dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
 	handler := forward.NewHandler(&forward.HandlerConfig{
-		Address:               netip.MustParseAddrPort(upstream.Addr),
+		Address:               netip.MustParseAddrPort(upstream.LocalUDPAddr().String()),
+		Network:               forward.NetworkAny,
 		HealthcheckDomainTmpl: "${RANDOM}.upstream-check.example",
 		FallbackAddresses: []netip.AddrPort{
-			netip.MustParseAddrPort(fallback.Addr),
+			netip.MustParseAddrPort(fallback.LocalUDPAddr().String()),
 		},
 		// Make sure that the handler routs queries back to the main upstream
 		// immediately.
@@ -67,10 +55,9 @@ func TestHandler_Refresh(t *testing.T) {
 	}, false)
 
 	req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
-	addr := fallback.SrvTCP.LocalAddr()
-	rw := dnsserver.NewNonWriterResponseWriter(addr, addr)
+	rw := dnsserver.NewNonWriterResponseWriter(fallback.LocalUDPAddr(), fallback.LocalUDPAddr())
 
-	err = handler.ServeDNS(context.Background(), rw, req)
+	err := handler.ServeDNS(context.Background(), rw, req)
 	require.Error(t, err)
 	assert.Equal(t, uint64(1), atomic.LoadUint64(&upstreamRequestsCount))
 

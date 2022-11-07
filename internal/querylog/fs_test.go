@@ -51,11 +51,11 @@ func TestFileSystem_Write(t *testing.T) {
   "q":1,
   "f":2,
   "s":1,
-  "p":2,
+  "p":8,
   "r":0
 }`) + "\n"
 
-	assert.Equal(t, []byte(want), b)
+	assert.Equal(t, want, string(b))
 
 	t.Run("nxdomain", func(t *testing.T) {
 		e = testEntry()
@@ -83,11 +83,11 @@ func TestFileSystem_Write(t *testing.T) {
   "q":1,
   "f":1,
   "s":1,
-  "p":2,
+  "p":8,
   "r":3
 }`) + "\n"
 
-		assert.Equal(t, []byte(want), b)
+		assert.Equal(t, want, string(b))
 	})
 }
 

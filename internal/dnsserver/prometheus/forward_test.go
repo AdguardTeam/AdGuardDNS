@@ -9,7 +9,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
-	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 )
@@ -18,16 +17,12 @@ import (
 // normal unit test, we create a forward handler, emulate a query and then
 // check if prom metrics were incremented.
 func TestForwardMetricsListener_integration_request(t *testing.T) {
-	srv, err := dnsservertest.RunDNSServer(dnsservertest.DefaultHandler())
-	require.NoError(t, err)
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(context.Background())
-	})
+	srv, addr := dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
 
 	// Initialize a new forward.Handler and set the metrics listener.
 	handler := forward.NewHandler(&forward.HandlerConfig{
-		Address:         netip.MustParseAddrPort(srv.Addr),
+		Address:         netip.MustParseAddrPort(addr),
+		Network:         forward.NetworkAny,
 		MetricsListener: prometheus.NewForwardMetricsListener(0),
 	}, true)
 
@@ -35,10 +30,9 @@ func TestForwardMetricsListener_integration_request(t *testing.T) {
 	// It will then call the metrics listener and prom metrics should be
 	// incremented.
 	req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
-	addr := srv.SrvTCP.LocalAddr()
-	rw := dnsserver.NewNonWriterResponseWriter(addr, addr)
+	rw := dnsserver.NewNonWriterResponseWriter(srv.LocalUDPAddr(), srv.LocalUDPAddr())
 
-	err = handler.ServeDNS(context.Background(), rw, req)
+	err := handler.ServeDNS(context.Background(), rw, req)
 	require.NoError(t, err)
 
 	// Now make sure that prometheus metrics were incremented properly.

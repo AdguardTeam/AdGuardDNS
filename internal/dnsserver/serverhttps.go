@@ -14,8 +14,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/lucas-clemente/quic-go"
+	"github.com/lucas-clemente/quic-go/http3"
 	"github.com/miekg/dns"
 	"golang.org/x/net/http2"
 )
@@ -37,18 +40,27 @@ const (
 	httpIdleTimeout  = 120 * time.Second
 )
 
-// nextProtoDoH is a list of ALPN that we would add by default to the server
+// nextProtoDoH is a list of ALPN that we would add by default to the server's
 // *tls.Config if no NextProto is specified there.  Note, that with this order,
 // we prioritize HTTP/2 over HTTP/1.1.
 var nextProtoDoH = []string{http2.NextProtoTLS, "http/1.1"}
 
+// nextProtoDoH3 is a list of ALPN that we should add by default to the server's
+// *tls.Config if no NextProto is specified there and DoH3 is supposed to be
+// used.
+var nextProtoDoH3 = []string{"h3", http2.NextProtoTLS, "http/1.1"}
+
 // ConfigHTTPS is a struct that needs to be passed to NewServerHTTPS to
-// initialize a new ServerHTTPS instance.
+// initialize a new ServerHTTPS instance.  You can choose whether HTTP/3 is
+// enabled or not by specifying [ConfigBase.Network].  By default, the server
+// will listen to both HTTP/2 and HTTP/3, but if you set it to NetworkTCP, the
+// server will only use HTTP/2 and NetworkUDP will mean HTTP/3 only.
 type ConfigHTTPS struct {
 	ConfigBase
 
-	// TLSConfig is the TLS configuration for HTTPS.
-	// if not set, we'll run a plain HTTP server.
+	// TLSConfig is the TLS configuration for HTTPS.  If not set and
+	// [ConfigBase.Network] is set to NetworkTCP the server will listen to
+	// plain HTTP.
 	TLSConfig *tls.Config
 
 	// NonDNSHandler handles requests with the path not equal to /dns-query.
@@ -63,7 +75,16 @@ type ConfigHTTPS struct {
 type ServerHTTPS struct {
 	*ServerBase
 
+	// httpServer is an instance of an *http.Server that is responsible for
+	// handling HTTP/1.1 and HTTP/2 requests.
 	httpServer *http.Server
+
+	// h3Server is an instance of an *http.Server that is responsible for
+	// handling HTTP/3 requests.
+	h3Server *http3.Server
+
+	// quicListener is a listener that we use to serve DoH3 requests.
+	quicListener quic.EarlyListener
 
 	conf ConfigHTTPS
 }
@@ -73,21 +94,18 @@ var _ Server = (*ServerHTTPS)(nil)
 
 // NewServerHTTPS creates a new ServerHTTPS instance.
 func NewServerHTTPS(conf ConfigHTTPS) (s *ServerHTTPS) {
-	tlsConfig := conf.TLSConfig
-	if tlsConfig != nil && len(tlsConfig.NextProtos) == 0 {
-		tlsConfig.NextProtos = nextProtoDoH
-	}
-
 	s = &ServerHTTPS{
-		ServerBase: newServerBase(conf.ConfigBase),
+		ServerBase: newServerBase(ProtoDoH, conf.ConfigBase),
 		conf:       conf,
 	}
 
 	return s
 }
 
-// Start starts the ServerHTTPS.
+// Start implements the dnsserver.Server interface for *ServerHTTPS.
 func (s *ServerHTTPS) Start(ctx context.Context) (err error) {
+	defer func() { err = errors.Annotate(err, "starting doh server: %w", err) }()
+
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -104,37 +122,33 @@ func (s *ServerHTTPS) Start(ctx context.Context) (err error) {
 		Proto: s.proto,
 	})
 
-	// Start the TLS or TCP listener
-	err = s.listenTLS(ctx)
-	if err != nil {
-		return err
+	if s.proto != ProtoDoH {
+		return ErrInvalidArgument
 	}
 
-	// Prepare and run the HTTP server
-	handler := &httpHandler{
-		srv:      s,
-		listener: s.tcpListener,
+	if s.network.CanTCP() {
+		err = s.startHTTPSServer(ctx)
+		if err != nil {
+			return err
+		}
 	}
 
-	s.httpServer = &http.Server{
-		Handler:           handler,
-		ReadTimeout:       httpReadTimeout,
-		ReadHeaderTimeout: httpReadTimeout,
-		WriteTimeout:      httpWriteTimeout,
-		IdleTimeout:       httpIdleTimeout,
-		ErrorLog:          log.StdLog("dnsserver/serverhttps: "+s.name, log.DEBUG),
+	if s.network.CanUDP() {
+		err = s.startH3Server(ctx)
+		if err != nil {
+			return err
+		}
 	}
 
-	// Start the server thread
-	s.wg.Add(1)
-	go s.serveHTTPS(ctx, s.httpServer, s.tcpListener)
 	log.Info("[%s]: Server has been started", s.Name())
 
 	return nil
 }
 
-// Shutdown stops the ServerHTTPS.
+// Shutdown implements the dnsserver.Server interface for *ServerHTTPS.
 func (s *ServerHTTPS) Shutdown(ctx context.Context) (err error) {
+	defer func() { err = errors.Annotate(err, "shutting down doh server: %w", err) }()
+
 	log.Info("[%s]: Stopping the server", s.Name())
 	err = s.shutdown(ctx)
 	if err != nil {
@@ -149,6 +163,63 @@ func (s *ServerHTTPS) Shutdown(ctx context.Context) (err error) {
 	return err
 }
 
+// startHTTPSServer starts the HTTPS server that will handle HTTP/1.1 and HTTP2.
+func (s *ServerHTTPS) startHTTPSServer(ctx context.Context) (err error) {
+	// Start the TLS or TCP listener.
+	err = s.listenTLS(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Prepare and run the HTTP server.
+	handler := &httpHandler{
+		srv:       s,
+		localAddr: s.tcpListener.Addr(),
+	}
+
+	// Create an instance of the HTTP server.
+	s.httpServer = &http.Server{
+		Handler:           handler,
+		ReadTimeout:       httpReadTimeout,
+		ReadHeaderTimeout: httpReadTimeout,
+		WriteTimeout:      httpWriteTimeout,
+		IdleTimeout:       httpIdleTimeout,
+		ErrorLog:          log.StdLog("dnsserver/serverhttps: "+s.name, log.DEBUG),
+	}
+
+	// Start the server worker goroutine.
+	s.wg.Add(1)
+	go s.serveHTTPS(ctx, s.httpServer, s.tcpListener)
+
+	return nil
+}
+
+// startH3Server starts the HTTP/3 server.
+func (s *ServerHTTPS) startH3Server(ctx context.Context) (err error) {
+	// Start the QUIC listener.
+	err = s.listenQUIC(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Prepare and run the HTTP/3 server.
+	handler := &httpHandler{
+		srv:       s,
+		localAddr: s.quicListener.Addr(),
+	}
+
+	// Create an instance of the HTTP/3 server.
+	s.h3Server = &http3.Server{
+		Handler: handler,
+	}
+
+	// Start the server worker goroutine.
+	s.wg.Add(1)
+	go s.serveH3(ctx, s.h3Server, s.quicListener)
+
+	return nil
+}
+
 // shutdown marks the server as stopped and closes active listeners.
 func (s *ServerHTTPS) shutdown(ctx context.Context) (err error) {
 	s.lock.Lock()
@@ -159,19 +230,33 @@ func (s *ServerHTTPS) shutdown(ctx context.Context) (err error) {
 
 	s.started = false
 
-	// First step, close the active listener right away
+	// First step, close the active listener right away.
 	s.closeListeners()
 
-	// Second, shutdown the HTTP server
+	// Second, shutdown the HTTP server.
 	err = s.httpServer.Shutdown(ctx)
 	if err != nil {
 		log.Debug("[%s]: http server shutdown: %v", s.Name(), err)
 	}
 
+	// Finally, shutdown the HTTP/3 server.
+	if s.h3Server != nil {
+		err = s.quicListener.Close()
+		if err != nil {
+			log.Debug("[%s]: quic listener shutdown: %v", s.Name(), err)
+		}
+
+		err = s.h3Server.Close()
+		if err != nil {
+			log.Debug("[%s]: http/3 server shutdown: %v", s.Name(), err)
+		}
+	}
+
 	return nil
 }
 
-// serveHTTPS is a worker goroutine that serves HTTP.
+// serveHTTPS is launched in a worker goroutine and serves HTTP/1.1 and HTTP/2
+// requests.
 func (s *ServerHTTPS) serveHTTPS(ctx context.Context, hs *http.Server, l net.Listener) {
 	defer s.wg.Done()
 
@@ -196,15 +281,61 @@ func (s *ServerHTTPS) serveHTTPS(ctx context.Context, hs *http.Server, l net.Lis
 	}
 }
 
+// serveH3 is launched in a worker goroutine and serves HTTP/3 requests.
+func (s *ServerHTTPS) serveH3(ctx context.Context, hs *http3.Server, ql quic.EarlyListener) {
+	defer s.wg.Done()
+
+	// Do not recover from panics here since if this goroutine panics, the
+	// application won't be able to continue listening to DoH.
+	defer s.handlePanicAndExit(ctx)
+
+	u := &url.URL{
+		Scheme: "h3",
+		Host:   s.addr,
+	}
+	log.Info("[%s]: Start listening to %s", s.name, u)
+
+	err := hs.ServeListener(ql)
+	if err != nil {
+		log.Info("[%s]: Finished listening to %s due to %v", s.name, u, err)
+	}
+}
+
 // httpHandler is a helper structure that implements http.Handler
 // and holds pointers to ServerHTTPS, net.Listener.
 type httpHandler struct {
-	srv      *ServerHTTPS
-	listener net.Listener
+	srv       *ServerHTTPS
+	localAddr net.Addr
 }
 
 // type check
 var _ http.Handler = (*httpHandler)(nil)
+
+// remoteAddr gets HTTP request's remote address.
+//
+// TODO(a.garipov): Add trusted proxies and real IP extraction logic.  Perhaps
+// just copy from module dnsproxy if that one fits.  Also, perhaps make that
+// logic pluggable and put it into a new package in module golibs.
+func (h *httpHandler) remoteAddr(r *http.Request) (addr net.Addr) {
+	// Consider that the http.Request.RemoteAddr documentation is correct and
+	// that it is always a valid ip:port value.  Panic if it isn't so.
+	ipStr, port, err := netutil.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		panic(fmt.Sprintf("failed to split host:port %s: %v", r.RemoteAddr, err))
+	}
+
+	ip, err := netutil.ParseIP(ipStr)
+	if err != nil {
+		panic(fmt.Sprintf("failed to parse IP %s: %v", ipStr, err))
+	}
+
+	if NetworkFromAddr(h.localAddr) == NetworkUDP {
+		// This means that we're extracting remoteAddr from an HTTP/3 request.
+		return &net.UDPAddr{IP: ip, Port: port}
+	}
+
+	return &net.TCPAddr{IP: ip, Port: port}
+}
 
 // ServeHTTP implements the http.Handler interface for *httpHandler.  It reads
 // the DNS data from the request, resolves it, and sends a response.
@@ -250,17 +381,18 @@ func (h *httpHandler) serveDoH(ctx context.Context, w http.ResponseWriter, r *ht
 		return
 	}
 
-	rAddr := remoteAddr(r)
-	lAddr := h.listener.Addr()
+	rAddr := h.remoteAddr(r)
+	lAddr := h.localAddr
 	rw := NewNonWriterResponseWriter(lAddr, rAddr)
 
-	ci := ClientInfo{
-		URL: netutil.CloneURL(r.URL),
+	ctx, err = httpContextWithClientInfo(ctx, r)
+	if err != nil {
+		log.Debug("Failed to enrich DoH context: %v", err)
+		h.srv.metrics.OnInvalidMsg(ctx)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+
+		return
 	}
-	if r.TLS != nil {
-		ci.TLSServerName = strings.ToLower(r.TLS.ServerName)
-	}
-	ctx = ContextWithClientInfo(ctx, ci)
 
 	// Serve the query
 	written := h.srv.serveDNS(ctx, m, rw)
@@ -335,20 +467,81 @@ func (h *httpHandler) writeResponse(
 	return err
 }
 
-// listenTCP starts the TCP/TLS listener.
+// listenTCP starts the TCP/TLS listener.  Note that if there's no TLS config,
+// a plain TCP listener will be started instead.
 func (s *ServerHTTPS) listenTLS(ctx context.Context) (err error) {
-	l, err := listenTCP(ctx, s.addr)
+	err = s.listenTCP(ctx)
 	if err != nil {
 		return err
 	}
 
-	if s.conf.TLSConfig != nil {
-		l = tls.NewListener(l, s.conf.TLSConfig)
+	// Prepare the TLS configuration of the server.
+	tlsConf := s.conf.TLSConfig
+	if tlsConf == nil {
+		return nil
+	} else if len(tlsConf.NextProtos) == 0 {
+		tlsConf = tlsConf.Clone()
+		tlsConf.NextProtos = nextProtoDoH
 	}
 
-	s.tcpListener = l
+	s.tcpListener = tls.NewListener(s.tcpListener, tlsConf)
 
 	return nil
+}
+
+// listenQUIC starts a QUIC listener that will be used to serve HTTP/3 requests.
+func (s *ServerHTTPS) listenQUIC(ctx context.Context) (err error) {
+	// Prepare the TLS configuration of the server.
+	tlsConf := s.conf.TLSConfig
+	if tlsConf != nil && len(tlsConf.NextProtos) == 0 {
+		tlsConf = tlsConf.Clone()
+		tlsConf.NextProtos = nextProtoDoH3
+	}
+
+	// Do not enable OOB here as quic-go will do that on its own.
+	conn, err := listenUDP(ctx, s.addr, false)
+	if err != nil {
+		return err
+	}
+
+	qConf := newServerQUICConfig(s.metrics)
+	ql, err := quic.ListenEarly(conn, tlsConf, qConf)
+	if err != nil {
+		return err
+	}
+
+	s.udpListener = conn
+	s.quicListener = ql
+
+	return nil
+}
+
+// httpContextWithClientInfo adds client info to the context.
+func httpContextWithClientInfo(
+	parent context.Context,
+	r *http.Request,
+) (ctx context.Context, err error) {
+	ci := ClientInfo{
+		URL: netutil.CloneURL(r.URL),
+	}
+
+	// Due to the quic-go bug we should use Host instead of r.TLS:
+	// https://github.com/lucas-clemente/quic-go/issues/3596
+	//
+	// TODO(ameshkov): remove this when the bug is fixed in quic-go.
+	if r.ProtoAtLeast(3, 0) {
+		var host string
+		host, err = netutil.SplitHost(r.Host)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse Host: %w", err)
+		}
+
+		ci.TLSServerName = host
+	} else if r.TLS != nil {
+		ci.TLSServerName = strings.ToLower(r.TLS.ServerName)
+	}
+
+	return ContextWithClientInfo(parent, ci), nil
 }
 
 // httpRequestToMsg reads the DNS message from http.Request.
@@ -387,28 +580,6 @@ func httpRequestToMsgGet(req *http.Request) (b []byte, err error) {
 	}
 
 	return base64.RawURLEncoding.DecodeString(b64[0])
-}
-
-// remoteAddr gets HTTP request's remote address.
-//
-// TODO(a.garipov): Add trusted proxies and real IP extraction logic.  Perhaps
-// just copy from module dnsproxy if that one fits.  Also, perhaps make that
-// logic pluggable and put it into a new package in module golibs.
-func remoteAddr(r *http.Request) (addr *net.TCPAddr) {
-	// Consider that the http.Request.RemoteAddr documentation is correct and
-	// that it is always a valid ip:port value.  Panic if it isn't so.
-	ipStr, port, err := netutil.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		panic(err)
-	}
-
-	ip, err := netutil.ParseIP(ipStr)
-	if err != nil {
-		panic(err)
-	}
-
-	// TODO(a.garipov): Return a *net.UDPAddr when we're HTTP/3-ready.
-	return &net.TCPAddr{IP: ip, Port: port}
 }
 
 // isDoH returns true if r.URL.Path contains DNS-over-HTTP paths, and also what

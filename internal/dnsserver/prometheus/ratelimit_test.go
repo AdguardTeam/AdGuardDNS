@@ -47,8 +47,10 @@ func TestRateLimiterMetricsListener_integration_cache(t *testing.T) {
 		ctx := dnsserver.ContextWithServerInfo(context.Background(), dnsserver.ServerInfo{
 			Name:  "test",
 			Addr:  "127.0.0.1",
-			Proto: dnsserver.ProtoDNSUDP,
+			Proto: dnsserver.ProtoDNS,
 		})
+		ctx = dnsserver.ContextWithStartTime(ctx, time.Now())
+		ctx = dnsserver.ContextWithClientInfo(ctx, dnsserver.ClientInfo{})
 
 		err = handlerWithMiddleware.ServeDNS(ctx, nrw, req)
 		require.NoError(t, err)

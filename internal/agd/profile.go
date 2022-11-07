@@ -14,6 +14,8 @@ import (
 // the infrastructure, a profile is also called a “DNS server”.  We call it
 // profile, because it's less confusing.
 //
+// NOTE: Increment defaultProfileDBCacheVersion on any change of this structure.
+//
 // TODO(a.garipov): Consider making it closer to the config file and the backend
 // response by grouping parental, rule list, and safe browsing settings into
 // separate structs.

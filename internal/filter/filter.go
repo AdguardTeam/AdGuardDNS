@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/c2h5oh/datasize"
 	"github.com/miekg/dns"
 )
@@ -22,6 +21,12 @@ const maxFilterSize = 128 * int64(datasize.MB)
 //
 // TODO(a.garipov): Consider making timeouts where they are used configurable.
 const defaultTimeout = 30 * time.Second
+
+// defaultResolveTimeout is the default timeout for resolving hosts for safe
+// search and safe browsing filters.
+//
+// TODO(ameshkov): Consider making configurable.
+const defaultResolveTimeout = 1 * time.Second
 
 // Interface is the DNS request and response filter interface.
 type Interface interface {
@@ -37,23 +42,4 @@ type Interface interface {
 
 	// Close closes the filter and frees resources associated with it.
 	Close() (err error)
-}
-
-// Network constants.
-const (
-	netIP4 = "ip4"
-	netIP6 = "ip6"
-)
-
-// dnsTypeToNetwork converts a DNS RR type to a network type.  If rr is neither
-// A nor AAAA, network is an empty string.
-func dnsTypeToNetwork(qt dnsmsg.RRType) (network string) {
-	switch qt {
-	case dns.TypeA:
-		return netIP4
-	case dns.TypeAAAA:
-		return netIP6
-	default:
-		return ""
-	}
 }

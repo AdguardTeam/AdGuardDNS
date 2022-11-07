@@ -36,6 +36,12 @@ func (s *errCollMetricsListener) OnInvalidMsg(ctx context.Context) {
 	s.baseListener.OnInvalidMsg(ctx)
 }
 
+// OnQUICAddressValidation implements the dnsserver.MetricsListener interface
+// for *errCollMetricsListener.
+func (s *errCollMetricsListener) OnQUICAddressValidation(hit bool) {
+	s.baseListener.OnQUICAddressValidation(hit)
+}
+
 // OnPanic implements the dnsserver.MetricsListener interface for
 // *errCollMetricsListener.
 func (s *errCollMetricsListener) OnPanic(ctx context.Context, v any) {

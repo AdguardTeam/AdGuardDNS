@@ -9,7 +9,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
 	"github.com/AdguardTeam/golibs/log"
-	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 )
@@ -31,14 +30,8 @@ func TestUpstreamPlain_Exchange(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv, err := dnsservertest.RunDNSServer(dnsservertest.DefaultHandler())
-			require.NoError(t, err)
-
-			testutil.CleanupAndRequireSuccess(t, func() (err error) {
-				return srv.Shutdown(context.Background())
-			})
-
-			u := forward.NewUpstreamPlain(netip.MustParseAddrPort(srv.Addr), tc.network)
+			_, addr := dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
+			u := forward.NewUpstreamPlain(netip.MustParseAddrPort(addr), tc.network)
 			defer log.OnCloserError(u, log.DEBUG)
 
 			req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
@@ -68,8 +61,9 @@ func TestUpstreamPlain_Exchange_truncated(t *testing.T) {
 		}
 
 		res := nrw.Msg()
-		si := dnsserver.MustServerInfoFromContext(ctx)
-		if si.Proto == dnsserver.ProtoDNSUDP {
+		network := dnsserver.NetworkFromAddr(rw.LocalAddr())
+
+		if network == dnsserver.NetworkUDP {
 			res.Truncated = true
 			res.Answer = nil
 		}
@@ -77,19 +71,14 @@ func TestUpstreamPlain_Exchange_truncated(t *testing.T) {
 		return rw.WriteMsg(ctx, req, res)
 	})
 
-	srv, err := dnsservertest.RunDNSServer(handlerFunc)
-	require.NoError(t, err)
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(context.Background())
-	})
+	_, addr := dnsservertest.RunDNSServer(t, handlerFunc)
 
 	// Create a test message.
 	req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
 
 	// First, check that we receive truncated response over UDP.
-	addr := netip.MustParseAddrPort(srv.Addr)
-	uUDP := forward.NewUpstreamPlain(addr, forward.NetworkUDP)
+	uAddr := netip.MustParseAddrPort(addr)
+	uUDP := forward.NewUpstreamPlain(uAddr, forward.NetworkUDP)
 	defer log.OnCloserError(uUDP, log.DEBUG)
 
 	res, err := uUDP.Exchange(context.Background(), req)
@@ -97,7 +86,7 @@ func TestUpstreamPlain_Exchange_truncated(t *testing.T) {
 	dnsservertest.RequireResponse(t, req, res, 0, dns.RcodeSuccess, true)
 
 	// Second, check that nothing is truncated over TCP.
-	uTCP := forward.NewUpstreamPlain(addr, forward.NetworkTCP)
+	uTCP := forward.NewUpstreamPlain(uAddr, forward.NetworkTCP)
 	defer log.OnCloserError(uTCP, log.DEBUG)
 
 	res, err = uTCP.Exchange(context.Background(), req)
@@ -106,7 +95,7 @@ func TestUpstreamPlain_Exchange_truncated(t *testing.T) {
 
 	// Now with NetworkANY response is also not truncated since the upstream
 	// fallbacks to TCP.
-	uAny := forward.NewUpstreamPlain(addr, forward.NetworkAny)
+	uAny := forward.NewUpstreamPlain(uAddr, forward.NetworkAny)
 	defer log.OnCloserError(uAny, log.DEBUG)
 
 	res, err = uAny.Exchange(context.Background(), req)

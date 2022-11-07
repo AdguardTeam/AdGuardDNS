@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
@@ -40,18 +41,18 @@ type HashPrefixConfig struct {
 // hashPrefixFilter is a filter that matches hosts by their hashes based on
 // a hash prefix table.
 type hashPrefixFilter struct {
-	hashes    *HashStorage
-	resCache  *resultCache
-	rslvCache *resolveCache
-	errColl   agd.ErrorCollector
-	repHost   string
-	id        agd.FilterListID
+	hashes   *HashStorage
+	resCache *resultCache
+	resolver agdnet.Resolver
+	errColl  agd.ErrorCollector
+	repHost  string
+	id       agd.FilterListID
 }
 
 // newHashPrefixFilter returns a new hash prefix filter.  c must not be nil.
 func newHashPrefixFilter(
 	c *HashPrefixConfig,
-	rslvCache *resolveCache,
+	resolver agdnet.Resolver,
 	errColl agd.ErrorCollector,
 	id agd.FilterListID,
 ) (f *hashPrefixFilter) {
@@ -60,12 +61,12 @@ func newHashPrefixFilter(
 	}
 
 	return &hashPrefixFilter{
-		hashes:    c.Hashes,
-		resCache:  cache,
-		rslvCache: rslvCache,
-		errColl:   errColl,
-		repHost:   c.ReplacementHost,
-		id:        id,
+		hashes:   c.Hashes,
+		resCache: cache,
+		resolver: resolver,
+		errColl:  errColl,
+		repHost:  c.ReplacementHost,
+		id:       id,
 	}
 }
 
@@ -87,8 +88,8 @@ func (f *hashPrefixFilter) filterReq(
 		return r.(*ResultModified).CloneForReq(req), nil
 	}
 
-	network := dnsTypeToNetwork(qt)
-	if network == "" {
+	fam := netutil.AddrFamilyFromRRType(qt)
+	if fam == netutil.AddrFamilyNone {
 		return nil, nil
 	}
 
@@ -106,8 +107,11 @@ func (f *hashPrefixFilter) filterReq(
 		return nil, nil
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, defaultResolveTimeout)
+	defer cancel()
+
 	var result *dns.Msg
-	ips, err := f.rslvCache.resolve(network, f.repHost)
+	ips, err := f.resolver.LookupIP(ctx, fam, f.repHost)
 	if err != nil {
 		agd.Collectf(ctx, f.errColl, "filter %s: resolving: %w", f.id, err)
 

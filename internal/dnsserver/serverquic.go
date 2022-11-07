@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
+	"github.com/bluele/gcache"
 	"github.com/lucas-clemente/quic-go"
 	"github.com/miekg/dns"
 )
@@ -27,6 +29,20 @@ const (
 	// value in quic-go is 30, but our internal tests show that a higher
 	// value works better for clients written with ngtcp2.
 	maxQUICIdleTimeout = 5 * time.Minute
+
+	// quicAddrValidatorCacheSize is the size of the cache that we use in the QUIC
+	// address validator.  The value is chosen arbitrarily and we should consider
+	// making it configurable.
+	//
+	// TODO(ameshkov): make it configurable after we analyze stats.
+	quicAddrValidatorCacheSize = 10000
+
+	// quicAddrValidatorCacheTTL is time-to-live for cache items in the QUIC address
+	// validator.  The value is chosen arbitrarily and we should consider making it
+	// configurable.
+	//
+	// TODO(ameshkov): make it configurable after we analyze stats.
+	quicAddrValidatorCacheTTL = 30 * time.Minute
 )
 
 const (
@@ -76,18 +92,23 @@ func NewServerQUIC(conf ConfigQUIC) (s *ServerQUIC) {
 	}
 
 	s = &ServerQUIC{
-		ServerBase: newServerBase(conf.ConfigBase),
+		ServerBase: newServerBase(ProtoDoQ, conf.ConfigBase),
 		conf:       conf,
 	}
 
 	return s
 }
 
-// Start starts the ServerQUIC server, exits immediately if it failed to
-// start listening.
+// Start implements the dnsserver.Server interface for *ServerQUIC.
 func (s *ServerQUIC) Start(ctx context.Context) (err error) {
+	defer func() { err = errors.Annotate(err, "starting doq server: %w", err) }()
+
 	s.lock.Lock()
 	defer s.lock.Unlock()
+
+	if s.conf.TLSConfig == nil {
+		return errors.Error("tls config is required")
+	}
 
 	if s.started {
 		return ErrServerAlreadyStarted
@@ -120,8 +141,10 @@ func (s *ServerQUIC) Start(ctx context.Context) (err error) {
 	return nil
 }
 
-// Shutdown stops the server and waits for all active connections to close.
+// Shutdown implements the dnsserver.Server interface for *ServerQUIC.
 func (s *ServerQUIC) Shutdown(ctx context.Context) (err error) {
+	defer func() { err = errors.Annotate(err, "shutting down doq server: %w", err) }()
+
 	log.Info("[%s]: Stopping the server", s.Name())
 
 	err = s.shutdown()
@@ -164,13 +187,13 @@ func (s *ServerQUIC) startServeQUIC(ctx context.Context) {
 	defer s.handlePanicAndExit(ctx)
 	defer s.wg.Done()
 
-	log.Info("[%s]: Start listening to quic://%s", s.Name(), s.LocalAddr())
+	log.Info("[%s]: Start listening to quic://%s", s.Name(), s.LocalUDPAddr())
 	err := s.serveQUIC(ctx, s.quicListener)
 	if err != nil {
 		log.Info(
 			"[%s]: Finished listening to quic://%s due to %v",
 			s.Name(),
-			s.LocalAddr(),
+			s.LocalUDPAddr(),
 			err,
 		)
 	}
@@ -418,27 +441,24 @@ func (s *ServerQUIC) readQUICMsg(
 	return m, doqDraft, nil
 }
 
-// listenQUIC creates the UDP listener for the ServerQUIC.addr
-// and also starts the QUIC listener.
+// listenQUIC creates the UDP listener for the ServerQUIC.addr and also starts
+// the QUIC listener.
 func (s *ServerQUIC) listenQUIC(ctx context.Context) (err error) {
-	var l net.PacketConn
-	l, err = listenUDP(ctx, s.addr)
+	// Do not enable OOB here as quic-go will do that on its own.
+	conn, err := listenUDP(ctx, s.addr, false)
 	if err != nil {
 		return err
 	}
 
-	udpConn, ok := l.(*net.UDPConn)
-	if !ok {
-		return ErrInvalidArgument
-	}
+	qConf := newServerQUICConfig(s.metrics)
 
-	qConf := &quic.Config{MaxIdleTimeout: maxQUICIdleTimeout}
-	ql, err := quic.Listen(l, s.conf.TLSConfig, qConf)
+	// Do not change to quic.ListenEarly, see quicNotEarlyListener to know why.
+	ql, err := quic.Listen(conn, s.conf.TLSConfig, qConf)
 	if err != nil {
 		return err
 	}
 
-	s.udpListener = udpConn
+	s.udpListener = conn
 	s.quicListener = ql
 
 	return nil
@@ -470,16 +490,10 @@ func isExpectedQUICErr(err error) (ok bool) {
 		return true
 	}
 
-	// We have to use error string since quic-go keeps it's error structs in the
-	// internal package
-	str := err.Error()
-
 	// Expected to be returned by all streams and connection methods calls when
 	// the server is closed.  Unfortunately, this error is not exported from
 	// quic-go.
-	//
-	// TODO(ameshkov): Make a pull request to quic-go about this.
-	if strings.Contains(str, "server closed") {
+	if errors.Is(err, quic.ErrServerClosed) {
 		return true
 	}
 
@@ -570,4 +584,75 @@ func closeQUICConn(conn quic.Connection, code quic.ApplicationErrorCode) {
 	if err != nil {
 		log.Debug("failed to close the QUIC connection: %v", err)
 	}
+}
+
+// newServerQUICConfig creates *quic.Config populated with the default settings.
+// This function is supposed to be used for both DoQ and DoH3 server.
+func newServerQUICConfig(metrics MetricsListener) (conf *quic.Config) {
+	v := newQUICAddrValidator(quicAddrValidatorCacheSize, quicAddrValidatorCacheTTL, metrics)
+
+	return &quic.Config{
+		MaxIdleTimeout:           maxQUICIdleTimeout,
+		RequireAddressValidation: v.requiresValidation,
+		MaxIncomingStreams:       math.MaxUint16,
+		MaxIncomingUniStreams:    math.MaxUint16,
+	}
+}
+
+// quicAddrValidator is a helper struct that holds a small LRU cache of
+// addresses for which we do not require address validation.
+type quicAddrValidator struct {
+	cache   gcache.Cache
+	ttl     time.Duration
+	metrics MetricsListener
+}
+
+// newQUICAddrValidator initializes a new instance of *quicAddrValidator.
+func newQUICAddrValidator(
+	cacheSize int,
+	ttl time.Duration,
+	metrics MetricsListener,
+) (v *quicAddrValidator) {
+	return &quicAddrValidator{
+		cache:   gcache.New(cacheSize).LRU().Build(),
+		ttl:     ttl,
+		metrics: metrics,
+	}
+}
+
+// requiresValidation determines if a QUIC Retry packet should be sent by the
+// client. This allows the server to verify the client's address but increases
+// the latency.
+//
+// TODO(ameshkov): consider caddy-like implementation here.
+func (v *quicAddrValidator) requiresValidation(addr net.Addr) (ok bool) {
+	udpAddr, ok := addr.(*net.UDPAddr)
+	if !ok {
+		// Report this as an error as this is not the expected behavior here.
+		v.metrics.OnError(
+			context.Background(),
+			fmt.Errorf("not a udp address: %v", addr),
+		)
+
+		return false
+	}
+
+	key := udpAddr.IP.String()
+	if v.cache.Has(key) {
+		v.metrics.OnQUICAddressValidation(true)
+
+		return false
+	}
+
+	v.metrics.OnQUICAddressValidation(false)
+
+	err := v.cache.SetWithExpire(key, true, v.ttl)
+	if err != nil {
+		// Shouldn't happen, since we don't set a serialization function.
+		panic(fmt.Errorf("quic validator: setting cache item: %w", err))
+	}
+
+	// Address not found in the cache so return true to make sure the server
+	// will require address validation.
+	return true
 }

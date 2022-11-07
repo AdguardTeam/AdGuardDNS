@@ -29,7 +29,7 @@ type Middleware struct {
 	Metrics MetricsListener
 
 	// rateLimit is defines whether the query should be dropped or not.  The
-	// default implementation of it is *BackOff.
+	// default implementation of it is [*BackOff].
 	rateLimit Interface
 
 	// protos is a list of protocols this middleware applies rate-limiting logic
@@ -40,7 +40,8 @@ type Middleware struct {
 // type check
 var _ dnsserver.Middleware = (*Middleware)(nil)
 
-// NewMiddleware returns a properly initialized *Middleware.
+// NewMiddleware returns a properly initialized [*Middleware].  protos is a list
+// of [dnsserver.Protocol] the rate limit will be used for.
 func NewMiddleware(rl Interface, protos []dnsserver.Protocol) (m *Middleware, err error) {
 	return &Middleware{
 		Metrics:   &EmptyMetricsListener{},
@@ -49,7 +50,7 @@ func NewMiddleware(rl Interface, protos []dnsserver.Protocol) (m *Middleware, er
 	}, nil
 }
 
-// Wrap implements the dnsserver.Middleware interface for *Middleware.
+// Wrap implements the [dnsserver.Middleware] interface for [*Middleware].
 func (m *Middleware) Wrap(handler dnsserver.Handler) (wrapped dnsserver.Handler) {
 	f := func(ctx context.Context, rw dnsserver.ResponseWriter, req *dns.Msg) (err error) {
 		if !m.isEnabledForProto(ctx) {
@@ -101,9 +102,9 @@ func (m *Middleware) Wrap(handler dnsserver.Handler) (wrapped dnsserver.Handler)
 }
 
 // addrPortFromNetAddr returns the IP address and port from addr.  If one cannot
-// be obtained from addr, it returns netip.AddrPort{}.
+// be obtained from addr, it returns a zero value of [netip.AddrPort].
 //
-// NOTE: Keep in sync with dnssvc.ipFromNetAddr.
+// NOTE: Keep in sync with [dnssvc.ipFromNetAddr].
 //
 // TODO(a.garipov): Perhaps this normalization should be done in package
 // dnsserver.
@@ -133,6 +134,7 @@ func (m *Middleware) isEnabledForProto(ctx context.Context) (enabled bool) {
 	}
 
 	si := dnsserver.MustServerInfoFromContext(ctx)
+
 	for _, proto := range m.protos {
 		if proto == si.Proto {
 			return true

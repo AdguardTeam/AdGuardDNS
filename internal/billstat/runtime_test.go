@@ -14,6 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// sig is a convenient alias for struct{} when it's used as a signal for
+// synchronization.
+type sig = struct{}
+
 // Common constants for tests.
 const (
 	devID              = "dev1234"
@@ -62,7 +66,7 @@ func TestRuntimeRecorder_fail(t *testing.T) {
 	const testError errors.Error = "test error"
 	var emulateFail bool
 	var gotRecord *billstat.Record
-	uploadSync := make(chan agdtest.Signal)
+	uploadSync := make(chan sig)
 	onUpload := func(_ context.Context, records billstat.Records) (err error) {
 		if emulateFail {
 			pt := testutil.PanicT{}
@@ -70,11 +74,11 @@ func TestRuntimeRecorder_fail(t *testing.T) {
 			// Give the goroutine a signal that it can now record another query
 			// to emulate a situation where a query gets recorded while an
 			// upload is in progress.
-			agdtest.RequireSend(pt, uploadSync, testTimeout)
+			testutil.RequireSend(pt, uploadSync, sig{}, testTimeout)
 
 			// Wait for the other query in the goroutine to be recorded and
 			// proceed to returning an error after that.
-			agdtest.RequireReceive(pt, uploadSync, testTimeout)
+			testutil.RequireReceive(pt, uploadSync, testTimeout)
 
 			return testError
 		}
@@ -104,11 +108,11 @@ func TestRuntimeRecorder_fail(t *testing.T) {
 	go func() {
 		pt := testutil.PanicT{}
 
-		agdtest.RequireReceive(pt, uploadSync, testTimeout)
+		testutil.RequireReceive(pt, uploadSync, testTimeout)
 
 		r.Record(ctx, devID, clientCtry, clientASN, start, proto)
 
-		agdtest.RequireSend(pt, uploadSync, testTimeout)
+		testutil.RequireSend(pt, uploadSync, sig{}, testTimeout)
 	}()
 
 	err := r.Refresh(context.Background())

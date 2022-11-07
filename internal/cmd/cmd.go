@@ -192,7 +192,7 @@ func Main() {
 
 	// Profiles Database
 
-	profStrgConf, billStatConf := c.Backend.toInternal(&envs.BackendEndpoint.URL, errColl)
+	profStrgConf, billStatConf := c.Backend.toInternal(envs, errColl)
 	profStrg := backend.NewProfileStorage(profStrgConf)
 
 	// Billing Statistics
@@ -213,7 +213,11 @@ func Main() {
 	err = billStatRecUpd.Start()
 	fatalOnError(err)
 
-	profDB, err := agd.NewDefaultProfileDB(profStrg, c.Backend.FullRefreshIvl.Duration)
+	profDB, err := agd.NewDefaultProfileDB(
+		profStrg,
+		c.Backend.FullRefreshIvl.Duration,
+		envs.ProfilesCachePath,
+	)
 	fatalOnError(err)
 
 	profDBUpd := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
@@ -308,8 +312,12 @@ func Main() {
 
 	metricsListener := prometheus.NewForwardMetricsListener(len(c.Upstream.FallbackServers) + 1)
 
+	upstream, err := c.Upstream.toInternal()
+	fatalOnError(err)
+
 	handler := forward.NewHandler(&forward.HandlerConfig{
-		Address:                    c.Upstream.Server,
+		Address:                    upstream.Server,
+		Network:                    upstream.Network,
 		MetricsListener:            metricsListener,
 		HealthcheckDomainTmpl:      c.Upstream.Healthcheck.DomainTmpl,
 		FallbackAddresses:          c.Upstream.FallbackServers,
@@ -331,7 +339,7 @@ func Main() {
 		Handler:         handler,
 		QueryLog:        queryLog,
 		RuleStat:        ruleStat,
-		Upstream:        c.Upstream.toInternal(),
+		Upstream:        upstream,
 		RateLimit:       rateLimiter,
 		FilteringGroups: fltGroups,
 		ServerGroups:    srvGrps,

@@ -160,7 +160,7 @@ func (cc *Consul) Check(
 
 	qt := ri.QType
 	if qt != dns.TypeA && qt != dns.TypeAAAA {
-		return nil, nil
+		return ri.Messages.NewMsgNODATA(req), nil
 	}
 
 	var randomID string

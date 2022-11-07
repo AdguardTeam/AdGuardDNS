@@ -16,19 +16,6 @@ import (
 	"github.com/miekg/dns"
 )
 
-// listenTCP creates a TCP listener for the ServerDNS.addr.
-func (s *ServerDNS) listenTCP(ctx context.Context) (err error) {
-	var l net.Listener
-	l, err = listenTCP(ctx, s.addr)
-	if err != nil {
-		return err
-	}
-
-	s.tcpListener = l
-
-	return nil
-}
-
 // serveTCP runs the TCP serving loop.
 func (s *ServerDNS) serveTCP(ctx context.Context, l net.Listener) (err error) {
 	defer log.OnCloserError(l, log.DEBUG)
@@ -108,7 +95,7 @@ func (s *ServerDNS) serveTCPConn(ctx context.Context, conn net.Conn) {
 		reqCtx := s.requestContext()
 
 		ci := ClientInfo{}
-		if cs, ok := conn.(tlsConnecionStater); ok {
+		if cs, ok := conn.(tlsConnectionStater); ok {
 			ci.TLSServerName = strings.ToLower(cs.ConnectionState().ServerName)
 		}
 		reqCtx = ContextWithClientInfo(reqCtx, ci)
@@ -120,9 +107,9 @@ func (s *ServerDNS) serveTCPConn(ctx context.Context, conn net.Conn) {
 	}
 }
 
-// tlsConnecionStater is a common interface for connections that can return
+// tlsConnectionStater is a common interface for connections that can return
 // a TLS connection state.
-type tlsConnecionStater interface {
+type tlsConnectionStater interface {
 	ConnectionState() tls.ConnectionState
 }
 

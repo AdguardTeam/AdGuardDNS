@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/golibs/errors"
@@ -115,13 +114,13 @@ func (c *checkConfig) validate() (err error) {
 		return errors.Error("no domains")
 	}
 
-	err = validateNonNilIPs(c.IPv4, agdnet.AddrFamilyIPv4)
+	err = validateNonNilIPs(c.IPv4, netutil.AddrFamilyIPv4)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return err
 	}
 
-	err = validateNonNilIPs(c.IPv6, agdnet.AddrFamilyIPv6)
+	err = validateNonNilIPs(c.IPv6, netutil.AddrFamilyIPv6)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return err
@@ -134,7 +133,9 @@ func (c *checkConfig) validate() (err error) {
 	return nil
 }
 
-func validateNonNilIPs(ips []netip.Addr, fam agdnet.AddrFamily) (err error) {
+// validateNonNilIPs returns an error if ips is empty or had IP addresses of
+// incorrect protocol version.
+func validateNonNilIPs(ips []netip.Addr, fam netutil.AddrFamily) (err error) {
 	if len(ips) == 0 {
 		return fmt.Errorf("no %s", fam)
 	}
@@ -143,9 +144,9 @@ func validateNonNilIPs(ips []netip.Addr, fam agdnet.AddrFamily) (err error) {
 
 	var checkProto func(ip netip.Addr) (ok bool)
 	switch fam {
-	case agdnet.AddrFamilyIPv4:
+	case netutil.AddrFamilyIPv4:
 		checkProto = netip.Addr.Is4
-	case agdnet.AddrFamilyIPv6:
+	case netutil.AddrFamilyIPv6:
 		checkProto = netip.Addr.Is6
 	default:
 		panic(fmt.Errorf("agdnet: unsupported addr fam %s", fam))

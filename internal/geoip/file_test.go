@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -90,12 +90,12 @@ func TestFile_SubnetByLocation(t *testing.T) {
 	require.NoError(t, err)
 
 	// TODO(a.garipov): Actually test ASN queries once we have the data.
-	gotIPv4Subnet, err := g.SubnetByLocation(testIPv4SubnetCtry, 0, agdnet.AddrFamilyIPv4)
+	gotIPv4Subnet, err := g.SubnetByLocation(testIPv4SubnetCtry, 0, netutil.AddrFamilyIPv4)
 	require.NoError(t, err)
 
 	assert.Equal(t, testIPv4CountrySubnet, gotIPv4Subnet)
 
-	gotIPv6Subnet, err := g.SubnetByLocation(testIPv6SubnetCtry, 0, agdnet.AddrFamilyIPv6)
+	gotIPv6Subnet, err := g.SubnetByLocation(testIPv6SubnetCtry, 0, netutil.AddrFamilyIPv6)
 	require.NoError(t, err)
 
 	assert.Equal(t, testIPv6CountrySubnet, gotIPv6Subnet)

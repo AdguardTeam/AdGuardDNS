@@ -345,14 +345,7 @@ type listener struct {
 
 // listenerName returns a standard name for a listener.
 func listenerName(srvName agd.ServerName, addr netip.AddrPort, p agd.Protocol) (name string) {
-	switch p {
-	case agd.ProtoDNSTCP, agd.ProtoDNSCryptTCP:
-		return fmt.Sprintf("%s/tcp/%s", srvName, addr)
-	case agd.ProtoDNSUDP, agd.ProtoDNSCryptUDP:
-		return fmt.Sprintf("%s/udp/%s", srvName, addr)
-	default:
-		return fmt.Sprintf("%s/%s", srvName, addr)
-	}
+	return fmt.Sprintf("%s/%s/%s", srvName, p, addr)
 }
 
 // NewListener returns a new Listener.  It is the default DNS listener
@@ -378,16 +371,15 @@ func NewListener(
 	confBase := dnsserver.ConfigBase{
 		Name:        name,
 		Addr:        addrStr,
-		Proto:       s.Protocol,
 		Handler:     h,
 		BaseContext: ctxWithReqID,
 		Metrics:     metricsListener,
 	}
 
 	switch p := s.Protocol; p {
-	case agd.ProtoDNSTCP, agd.ProtoDNSUDP:
+	case agd.ProtoDNS:
 		l = dnsserver.NewServerDNS(dnsserver.ConfigDNS{ConfigBase: confBase})
-	case agd.ProtoDNSCryptTCP, agd.ProtoDNSCryptUDP:
+	case agd.ProtoDNSCrypt:
 		l = dnsserver.NewServerDNSCrypt(dnsserver.ConfigDNSCrypt{
 			ConfigBase:           confBase,
 			DNSCryptProviderName: dcConf.ProviderName,
@@ -443,8 +435,8 @@ func newServers(
 		// validate fg.
 		fg := c.FilteringGroups[srvGrp.FilteringGroup]
 
-		// Only apply rate-limiting logic to plain DNS over UDP.
-		rlProtos := []agd.Protocol{agd.ProtoDNSUDP}
+		// Only apply rate-limiting logic to plain DNS.
+		rlProtos := []agd.Protocol{agd.ProtoDNS}
 
 		var rlm *ratelimit.Middleware
 		rlm, err = ratelimit.NewMiddleware(c.RateLimit, rlProtos)

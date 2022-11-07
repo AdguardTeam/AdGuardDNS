@@ -14,27 +14,6 @@ import (
 	"golang.org/x/net/ipv6"
 )
 
-// listenUDP creates a UDP listener for the ServerDNS.addr.
-func (s *ServerDNS) listenUDP(ctx context.Context) (err error) {
-	l, err := listenUDP(ctx, s.addr)
-	if err != nil {
-		return err
-	}
-
-	u, ok := l.(*net.UDPConn)
-	if !ok {
-		return ErrInvalidArgument
-	}
-
-	if err = setUDPSocketOptions(u); err != nil {
-		return err
-	}
-
-	s.udpListener = u
-
-	return nil
-}
-
 // serveUDP runs the UDP serving loop.
 func (s *ServerDNS) serveUDP(ctx context.Context, conn *net.UDPConn) (err error) {
 	defer log.OnCloserError(conn, log.DEBUG)

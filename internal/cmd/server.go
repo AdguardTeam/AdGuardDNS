@@ -24,12 +24,7 @@ func (srvs servers) toInternal(tlsConfig *agd.TLS) (dnsSrvs []*agd.Server, err e
 			dnsSrvs = append(dnsSrvs, &agd.Server{
 				Name:            name,
 				BindAddresses:   slices.Clone(srv.BindAddresses),
-				Protocol:        agd.ProtoDNSTCP,
-				LinkedIPEnabled: srv.LinkedIPEnabled,
-			}, &agd.Server{
-				Name:            name,
-				BindAddresses:   slices.Clone(srv.BindAddresses),
-				Protocol:        agd.ProtoDNSUDP,
+				Protocol:        agd.ProtoDNS,
 				LinkedIPEnabled: srv.LinkedIPEnabled,
 			})
 		case srvProtoDNSCrypt:
@@ -43,13 +38,7 @@ func (srvs servers) toInternal(tlsConfig *agd.TLS) (dnsSrvs []*agd.Server, err e
 				DNSCrypt:        dcConf,
 				Name:            name,
 				BindAddresses:   slices.Clone(srv.BindAddresses),
-				Protocol:        agd.ProtoDNSCryptTCP,
-				LinkedIPEnabled: srv.LinkedIPEnabled,
-			}, &agd.Server{
-				DNSCrypt:        dcConf,
-				Name:            name,
-				BindAddresses:   slices.Clone(srv.BindAddresses),
-				Protocol:        agd.ProtoDNSCryptUDP,
+				Protocol:        agd.ProtoDNSCrypt,
 				LinkedIPEnabled: srv.LinkedIPEnabled,
 			})
 		default:

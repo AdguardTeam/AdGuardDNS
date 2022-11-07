@@ -12,6 +12,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -107,9 +108,9 @@ func TestWriteFilteredResp(t *testing.T) {
 			ans := written.Answer[0]
 			assert.Equal(t, tc.wantTTL, ans.Header().Ttl)
 
-			require.IsType(t, (*dns.A)(nil), ans)
+			a := testutil.RequireTypeAssert[*dns.A](t, ans)
 
-			assert.Equal(t, tc.wantIP, ans.(*dns.A).A)
+			assert.Equal(t, tc.wantIP, a.A)
 		})
 	}
 }

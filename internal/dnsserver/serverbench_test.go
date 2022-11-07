@@ -12,6 +12,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/ameshkov/dnscrypt/v2"
 	"github.com/ameshkov/dnsstamps"
@@ -20,101 +21,90 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func BenchmarkServeUDP(b *testing.B) {
-	srv, _, err := dnsservertest.RunLocalDNSServer(
-		dnsservertest.DefaultHandler(),
-		dnsserver.ProtoDNSUDP,
-	)
-	require.NoError(b, err)
+func BenchmarkServeDNS(b *testing.B) {
+	testCases := []struct {
+		name    string
+		network dnsserver.Network
+	}{{
+		name:    "udp",
+		network: dnsserver.NetworkUDP,
+	}, {
+		name:    "tcp",
+		network: dnsserver.NetworkTCP,
+	}}
 
-	testutil.CleanupAndRequireSuccess(b, func() (err error) {
-		return srv.Shutdown(context.Background())
-	})
+	for _, tc := range testCases {
+		b.Run(tc.name, func(b *testing.B) {
+			_, addr := dnsservertest.RunDNSServer(b, dnsservertest.DefaultHandler())
 
-	// Prepare a test message
-	m := new(dns.Msg)
-	m.SetQuestion("example.org.", dns.TypeA)
-	msg, _ := m.Pack()
+			// Prepare a test message.
+			m := new(dns.Msg)
+			m.SetQuestion("example.org.", dns.TypeA)
+			var msg []byte
+			msgPacket, _ := m.Pack()
+			if tc.network == dnsserver.NetworkTCP {
+				msg = make([]byte, 2+len(msgPacket))
+				binary.BigEndian.PutUint16(msg, uint16(len(msgPacket)))
+				copy(msg[2:], msgPacket)
+			} else {
+				msg, _ = m.Pack()
+			}
 
-	// Open a UDP connection (using one to avoid client-side allocations)
-	conn, err := net.DialUDP("udp", nil, srv.LocalAddr().(*net.UDPAddr))
-	require.NoError(b, err)
+			// Open connection (using one to avoid client-side allocations).
+			conn, err := net.Dial(string(tc.network), addr)
+			require.NoError(b, err)
 
-	// Prepare a buffer to read responses
-	resBuf := make([]byte, 512)
+			// Prepare a buffer to read responses.
+			resBuf := make([]byte, 512)
 
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err = conn.Write(msg)
-		require.NoError(b, err)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_, err = conn.Write(msg)
+				require.NoError(b, err)
 
-		var n int
-		n, err = conn.Read(resBuf)
-		require.NoError(b, err)
-		require.GreaterOrEqual(b, n, dnsserver.DNSHeaderSize)
+				err = readMsg(resBuf, tc.network, conn)
+				require.NoError(b, err)
+			}
+			b.StopTimer()
+		})
 	}
-	b.StopTimer()
 }
 
-func BenchmarkServeTCP(b *testing.B) {
-	srv, _, err := dnsservertest.RunLocalDNSServer(
-		dnsservertest.DefaultHandler(),
-		dnsserver.ProtoDNSTCP)
-	require.NoError(b, err)
+// readMsg is a helper function for reading DNS responses from a plain DNS
+// connection.
+func readMsg(resBuf []byte, network dnsserver.Network, conn net.Conn) (err error) {
+	defer func() { err = errors.Annotate(err, "failed to read DNS msg: %w", err) }()
 
-	testutil.CleanupAndRequireSuccess(b, func() (err error) {
-		return srv.Shutdown(context.Background())
-	})
+	var n int
 
-	// Prepare a test message
-	m := new(dns.Msg)
-	m.SetQuestion("example.org.", dns.TypeA)
-	data, _ := m.Pack()
-	msg := make([]byte, 2+len(data))
-	binary.BigEndian.PutUint16(msg, uint16(len(data)))
-	copy(msg[2:], data)
-
-	// Open a TCP connection (using one to avoid client-side allocations)
-	conn, err := net.DialTCP("tcp", nil, srv.LocalAddr().(*net.TCPAddr))
-	require.NoError(b, err)
-
-	// Prepare a buffer to read responses
-	resBuf := make([]byte, 512)
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err = conn.Write(msg)
-		require.NoError(b, err)
-
+	if network == dnsserver.NetworkTCP {
 		var length uint16
 		if err = binary.Read(conn, binary.BigEndian, &length); err != nil {
-			b.Fatalf("failed to read the DNS query response: %v", err)
+			return err
 		}
 
-		var n int
 		n, err = io.ReadFull(conn, resBuf[:length])
 		if err != nil {
-			b.Fatalf("failed to read the DNS query response: %v", err)
+			return err
 		}
-
-		require.GreaterOrEqual(b, n, dnsserver.DNSHeaderSize)
+	} else {
+		n, err = conn.Read(resBuf)
+		if err != nil {
+			return err
+		}
 	}
-	b.StopTimer()
+
+	if n < dnsserver.DNSHeaderSize {
+		return dns.ErrShortRead
+	}
+
+	return nil
 }
 
 func BenchmarkServeTLS(b *testing.B) {
 	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
-	srv, addr, err := dnsservertest.RunLocalTLSServer(
-		dnsservertest.DefaultHandler(),
-		tlsConfig,
-	)
-	require.NoError(b, err)
-
-	testutil.CleanupAndRequireSuccess(b, func() (err error) {
-		return srv.Shutdown(context.Background())
-	})
+	addr := dnsservertest.RunTLSServer(b, dnsservertest.DefaultHandler(), tlsConfig)
 
 	// Prepare a test message
 	m := new(dns.Msg)
@@ -158,103 +148,142 @@ func BenchmarkServeTLS(b *testing.B) {
 	b.StopTimer()
 }
 
-func BenchmarkServeHTTPS(b *testing.B) {
-	proto := "https"
-	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
-	srv, addr, err := dnsservertest.RunLocalHTTPSServer(
-		dnsservertest.DefaultHandler(),
-		tlsConfig,
-		nil,
-	)
-	require.NoError(b, err)
+func BenchmarkServeDoH(b *testing.B) {
+	testCases := []struct {
+		name         string
+		https        bool
+		http3Enabled bool
+	}{{
+		name:         "doh2",
+		https:        true,
+		http3Enabled: false,
+	}, {
+		name:         "doh3",
+		https:        true,
+		http3Enabled: true,
+	}, {
+		name:         "plain_http",
+		https:        true,
+		http3Enabled: true,
+	}}
 
-	testutil.CleanupAndRequireSuccess(b, func() (err error) {
-		return srv.Shutdown(context.Background())
-	})
+	for _, tc := range testCases {
+		b.Run(tc.name, func(b *testing.B) {
+			proto := "https"
+			if !tc.https {
+				proto = "http"
+			}
 
-	// Prepare a test message
-	m := new(dns.Msg)
-	m.SetQuestion("example.org.", dns.TypeA)
-	data, _ := m.Pack()
-	msg := make([]byte, 2+len(data))
-	binary.BigEndian.PutUint16(msg, uint16(len(data)))
-	copy(msg[2:], data)
+			var tlsConfig *tls.Config
+			if tc.https {
+				tlsConfig = dnsservertest.CreateServerTLSConfig("example.org")
+			}
+			srv, err := dnsservertest.RunLocalHTTPSServer(
+				dnsservertest.DefaultHandler(),
+				tlsConfig,
+				nil,
+			)
+			require.NoError(b, err)
 
-	// Prepare client
-	client, err := createDoHClient(addr, tlsConfig)
-	require.NoError(b, err)
+			testutil.CleanupAndRequireSuccess(b, func() (err error) {
+				return srv.Shutdown(context.Background())
+			})
 
-	// Prepare http.Request
-	req, err := createDoHRequest(proto, http.MethodPost, m)
-	require.NoError(b, err)
+			// Prepare a test message.
+			m := new(dns.Msg)
+			m.SetQuestion("example.org.", dns.TypeA)
+			data, _ := m.Pack()
+			msg := make([]byte, 2+len(data))
+			binary.BigEndian.PutUint16(msg, uint16(len(data)))
+			copy(msg[2:], data)
 
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		var res *http.Response
-		res, err = client.Do(req)
-		require.NoError(b, err)
+			// Prepare client.
+			addr := srv.LocalTCPAddr()
+			if tc.http3Enabled {
+				addr = srv.LocalUDPAddr()
+			}
 
-		var buf []byte
-		buf, err = io.ReadAll(res.Body)
-		_ = res.Body.Close()
-		require.NoError(b, err)
-		require.GreaterOrEqual(b, len(buf), dnsserver.DNSHeaderSize)
+			client, err := createDoHClient(addr, tlsConfig)
+			require.NoError(b, err)
+
+			// Prepare http.Request.
+			req, err := createDoHRequest(proto, http.MethodPost, m)
+			require.NoError(b, err)
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				var res *http.Response
+				res, err = client.Do(req)
+				require.NoError(b, err)
+
+				var buf []byte
+				buf, err = io.ReadAll(res.Body)
+				_ = res.Body.Close()
+				require.NoError(b, err)
+				require.GreaterOrEqual(b, len(buf), dnsserver.DNSHeaderSize)
+			}
+			b.StopTimer()
+		})
 	}
-	b.StopTimer()
 }
 
-func BenchmarkServePlainHTTP(b *testing.B) {
-	proto := "http"
-	srv, addr, err := dnsservertest.RunLocalHTTPSServer(
-		dnsservertest.DefaultHandler(),
-		nil,
-		nil,
-	)
-	require.NoError(b, err)
+func BenchmarkServeDNSCrypt(b *testing.B) {
+	testCases := []struct {
+		name    string
+		network dnsserver.Network
+	}{{
+		name:    "udp",
+		network: dnsserver.NetworkUDP,
+	}, {
+		name:    "tcp",
+		network: dnsserver.NetworkTCP,
+	}}
 
-	testutil.CleanupAndRequireSuccess(b, func() (err error) {
-		return srv.Shutdown(context.Background())
-	})
+	for _, tc := range testCases {
+		b.Run(tc.name, func(b *testing.B) {
+			// Create a test message
+			req := new(dns.Msg)
+			req.Id = dns.Id()
+			req.RecursionDesired = true
+			name := "example.org."
+			req.Question = []dns.Question{
+				{Name: name, Qtype: dns.TypeA, Qclass: dns.ClassINET},
+			}
 
-	// Prepare a test message
-	m := new(dns.Msg)
-	m.SetQuestion("example.org.", dns.TypeA)
-	data, _ := m.Pack()
-	msg := make([]byte, 2+len(data))
-	binary.BigEndian.PutUint16(msg, uint16(len(data)))
-	copy(msg[2:], data)
+			client := &dnscrypt.Client{
+				Timeout: 1 * time.Second,
+				Net:     string(tc.network),
+			}
 
-	// Prepare client
-	client, err := createDoHClient(addr, nil)
-	require.NoError(b, err)
+			s := dnsservertest.RunDNSCryptServer(b, dnsservertest.DefaultHandler())
+			stamp := dnsstamps.ServerStamp{
+				ServerAddrStr: s.ServerAddr,
+				ServerPk:      s.ResolverPk,
+				ProviderName:  s.ProviderName,
+				Proto:         dnsstamps.StampProtoTypeDNSCrypt,
+			}
 
-	// Prepare http.Request
-	req, err := createDoHRequest(proto, http.MethodPost, m)
-	require.NoError(b, err)
+			// Load server info
+			ri, err := client.DialStamp(stamp)
+			require.NoError(b, err)
+			require.NotNil(b, ri)
 
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		var res *http.Response
-		res, err = client.Do(req)
-		require.NoError(b, err)
+			// Open a single connection
+			conn, err := net.Dial(string(tc.network), stamp.ServerAddrStr)
+			require.NoError(b, err)
 
-		var buf []byte
-		buf, err = io.ReadAll(res.Body)
-		_ = res.Body.Close()
-		require.NoError(b, err)
-		require.GreaterOrEqual(b, len(buf), dnsserver.DNSHeaderSize)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				var resp *dns.Msg
+				resp, err = client.ExchangeConn(conn, req, ri)
+				require.NoError(b, err)
+				require.True(b, resp.Response)
+			}
+			b.StopTimer()
+		})
 	}
-	b.StopTimer()
-}
-
-func BenchmarkServeDNSCryptUDP(b *testing.B) {
-	benchmarkServeDNSCrypt(b, dnsserver.NetworkUDP)
-}
-
-func BenchmarkServeDNSCryptTCP(b *testing.B) {
-	benchmarkServeDNSCrypt(b, dnsserver.NetworkTCP)
 }
 
 func BenchmarkServeQUIC(b *testing.B) {
@@ -292,58 +321,6 @@ func BenchmarkServeQUIC(b *testing.B) {
 		resp, err = sendQUICMessage(sess, req, false)
 		require.NoError(b, err)
 		require.NotNil(b, resp)
-		require.True(b, resp.Response)
-	}
-	b.StopTimer()
-}
-
-func benchmarkServeDNSCrypt(b *testing.B, network dnsserver.Network) {
-	s, err := dnsservertest.RunLocalDNSCryptServer(
-		dnsservertest.DefaultHandler(),
-		network,
-	)
-	require.NoError(b, err)
-	b.Cleanup(func() {
-		err = s.Srv.Shutdown(context.Background())
-		require.NoError(b, err)
-	})
-
-	// Create a test message
-	req := new(dns.Msg)
-	req.Id = dns.Id()
-	req.RecursionDesired = true
-	name := "example.org."
-	req.Question = []dns.Question{
-		{Name: name, Qtype: dns.TypeA, Qclass: dns.ClassINET},
-	}
-
-	client := &dnscrypt.Client{
-		Timeout: 1 * time.Second,
-		Net:     string(network),
-	}
-
-	stamp := dnsstamps.ServerStamp{
-		ServerAddrStr: s.ServerAddr,
-		ServerPk:      s.ResolverPk,
-		ProviderName:  s.ProviderName,
-		Proto:         dnsstamps.StampProtoTypeDNSCrypt,
-	}
-
-	// Load server info
-	ri, err := client.DialStamp(stamp)
-	require.NoError(b, err)
-	require.NotNil(b, ri)
-
-	// Open a single connection
-	conn, err := net.Dial(string(network), stamp.ServerAddrStr)
-	require.NoError(b, err)
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		var resp *dns.Msg
-		resp, err = client.ExchangeConn(conn, req, ri)
-		require.NoError(b, err)
 		require.True(b, resp.Response)
 	}
 	b.StopTimer()

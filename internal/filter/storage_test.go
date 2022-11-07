@@ -11,6 +11,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -78,9 +79,9 @@ func TestStorage_FilterFromContext(t *testing.T) {
 		var r filter.Result
 		r, err = f.FilterRequest(ctx, req, ri)
 		require.NoError(t, err)
-		require.IsType(t, (*filter.ResultBlocked)(nil), r)
 
-		rb, _ := r.(*filter.ResultBlocked)
+		rb := testutil.RequireTypeAssert[*filter.ResultBlocked](t, r)
+
 		assert.Contains(t, rb.Rule, blockedHost)
 		assert.Equal(t, rb.List, testFilterID)
 	})
@@ -104,9 +105,9 @@ func TestStorage_FilterFromContext(t *testing.T) {
 		var r filter.Result
 		r, err = f.FilterRequest(ctx, req, ri)
 		require.NoError(t, err)
-		require.IsType(t, (*filter.ResultBlocked)(nil), r)
 
-		rb, _ := r.(*filter.ResultBlocked)
+		rb := testutil.RequireTypeAssert[*filter.ResultBlocked](t, r)
+
 		assert.Contains(t, rb.Rule, customHost)
 		assert.Equal(t, rb.List, agd.FilterListIDCustom)
 	})
@@ -141,7 +142,11 @@ func TestStorage_FilterFromContext_customAllow(t *testing.T) {
 	}
 
 	resolver := &agdtest.Resolver{
-		OnLookupIP: func(_ context.Context, network, _ string) (ips []net.IP, err error) {
+		OnLookupIP: func(
+			_ context.Context,
+			_ netutil.AddrFamily,
+			_ string,
+		) (ips []net.IP, err error) {
 			return []net.IP{safeBrowsingSafeIP4}, nil
 		},
 	}
@@ -219,9 +224,9 @@ func TestStorage_FilterFromContext_customAllow(t *testing.T) {
 
 	r, err := f.FilterRequest(ctx, req, ri)
 	require.NoError(t, err)
-	require.IsType(t, (*filter.ResultAllowed)(nil), r)
 
-	ra, _ := r.(*filter.ResultAllowed)
+	ra := testutil.RequireTypeAssert[*filter.ResultAllowed](t, r)
+
 	assert.Equal(t, ra.Rule, agd.FilterRuleText(safeBrowsingAllowRule))
 	assert.Equal(t, ra.List, agd.FilterListIDCustom)
 }
@@ -232,7 +237,11 @@ func TestStorage_FilterFromContext_schedule(t *testing.T) {
 	}
 
 	resolver := &agdtest.Resolver{
-		OnLookupIP: func(_ context.Context, network, _ string) (ips []net.IP, err error) {
+		OnLookupIP: func(
+			_ context.Context,
+			_ netutil.AddrFamily,
+			_ string,
+		) (ips []net.IP, err error) {
 			return []net.IP{safeBrowsingSafeIP4}, nil
 		},
 	}
@@ -351,9 +360,9 @@ func TestStorage_FilterFromContext_schedule(t *testing.T) {
 
 	r, err = f.FilterRequest(ctx, req, ri)
 	require.NoError(t, err)
-	require.IsType(t, (*filter.ResultModified)(nil), r)
 
-	rm, _ := r.(*filter.ResultModified)
+	rm := testutil.RequireTypeAssert[*filter.ResultModified](t, r)
+
 	assert.Equal(t, rm.Rule, agd.FilterRuleText(safeBrowsingHost))
 	assert.Equal(t, rm.List, agd.FilterListIDAdultBlocking)
 }

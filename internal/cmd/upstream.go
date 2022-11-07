@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"net/url"
+	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
@@ -18,8 +20,9 @@ type upstreamConfig struct {
 	// Healthcheck contains the upstream healthcheck configuration.
 	Healthcheck *upstreamHealthcheckConfig `yaml:"healthcheck"`
 
-	// Server is the upstream server we're using to forward DNS queries.
-	Server netip.AddrPort `yaml:"server"`
+	// Server is the upstream url of the server we're using to forward DNS
+	// queries. It starts with tcp://, udp://, or with an IP address.
+	Server string `yaml:"server"`
 
 	// FallbackServers is a list of the DNS servers we're using to fallback to
 	// when the upstream server fails to respond
@@ -30,13 +33,18 @@ type upstreamConfig struct {
 }
 
 // toInternal converts c to the data storage configuration for the DNS server.
-// c is assumed to be valid.
-func (c *upstreamConfig) toInternal() (conf *agd.Upstream) {
+func (c *upstreamConfig) toInternal() (conf *agd.Upstream, err error) {
+	net, addrPort, err := splitUpstreamURL(c.Server)
+	if err != nil {
+		return nil, err
+	}
+
 	return &agd.Upstream{
-		Server:          c.Server,
+		Server:          addrPort,
+		Network:         net,
 		FallbackServers: c.FallbackServers,
 		Timeout:         c.Timeout.Duration,
-	}
+	}, nil
 }
 
 // validate returns an error if the upstream configuration is invalid.
@@ -44,7 +52,7 @@ func (c *upstreamConfig) validate() (err error) {
 	switch {
 	case c == nil:
 		return errNilConfig
-	case c.Server == netip.AddrPort{}:
+	case c.Server == "":
 		return errors.Error("no server")
 	case len(c.FallbackServers) == 0:
 		return errors.Error("no fallback")
@@ -59,6 +67,37 @@ func (c *upstreamConfig) validate() (err error) {
 	}
 
 	return errors.Annotate(c.Healthcheck.validate(), "healthcheck: %w")
+}
+
+// splitUpstreamURL separates server url to net protocol and port address.
+func splitUpstreamURL(raw string) (upsNet forward.Network, addrPort netip.AddrPort, err error) {
+	addr := raw
+	upsNet = forward.NetworkAny
+
+	if strings.Contains(raw, "://") {
+		var u *url.URL
+		u, err = url.Parse(raw)
+		if err != nil {
+			return upsNet, addrPort, fmt.Errorf("bad server url: %q: %w", raw, err)
+		}
+
+		addr = u.Host
+		upsNet = forward.Network(u.Scheme)
+
+		switch upsNet {
+		case forward.NetworkTCP, forward.NetworkUDP:
+			// Go on.
+			break
+		default:
+			return upsNet, addrPort, fmt.Errorf("bad server protocol: %q", u.Scheme)
+		}
+	}
+
+	if addrPort, err = netip.ParseAddrPort(addr); err != nil {
+		return upsNet, addrPort, fmt.Errorf("bad server address: %q", addr)
+	}
+
+	return upsNet, addrPort, nil
 }
 
 // upstreamHealthcheckConfig is the configuration for the upstream healthcheck

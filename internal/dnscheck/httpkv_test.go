@@ -71,6 +71,8 @@ func (db *testKV) get(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// TODO(a.garipov): Consider making testutil.RequireTypeAssert accept
+	// testutil.PanicT.
 	require.IsType(pt, ([]byte)(nil), v)
 
 	val := v.([]byte)
@@ -152,7 +154,7 @@ func TestHTTPKV(t *testing.T) {
 
 	ctx := context.Background()
 	ctx = dnsserver.ContextWithServerInfo(ctx, dnsserver.ServerInfo{
-		Proto: agd.ProtoDNSUDP,
+		Proto: agd.ProtoDNS,
 	})
 
 	req := dnsservertest.CreateMessage(randomid+"-"+localDomain, dns.TypeA)
@@ -176,7 +178,7 @@ func TestHTTPKV(t *testing.T) {
 			"profile_id":        "some-profile-id",
 			"server_group_name": "some-server-group-name",
 			"server_name":       "some-server-name",
-			"protocol":          agd.ProtoDNSUDP.String(),
+			"protocol":          agd.ProtoDNS.String(),
 			"node_location":     "some-node-location",
 			"node_name":         "some-node-name",
 			"client_ip":         "1.2.3.4",

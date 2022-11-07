@@ -7,8 +7,8 @@ import (
 	"net/netip"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 )
 
@@ -78,13 +78,13 @@ func setRespAD(resp *dns.Msg, reqAD, reqDO bool) {
 }
 
 // setECS sets the EDNS Client Subnet option using data from ecs.  Both msg and
-// ecs must not be nil.  ecsFam should be either agdnet.AddrFamilyIPv4 or
-// agdnet.AddrFamilyIPv6.  ecs should contain an IP address of the same family
-// as ecsFam.
+// ecs must not be nil.  ecsFam should be either [netutil.AddrFamilyIPv4] or
+// [netutil.AddrFamilyIPv6].  ecs should contain an IP address of the same
+// family as ecsFam.
 func setECS(
 	msg *dns.Msg,
 	ecs *agd.ECS,
-	ecsFam agdnet.AddrFamily,
+	ecsFam netutil.AddrFamily,
 	isResp bool,
 ) (err error) {
 	ip, err := addrToNetIP(ecs.Subnet.Addr(), ecsFam)
@@ -129,10 +129,10 @@ func setECS(
 }
 
 // addrToNetIP returns ip as a net.IP with the correct number of bytes for fam.
-// fam must be either agdnet.AddrFamilyIPv4 or agdnet.AddrFamilyIPv6.
-func addrToNetIP(ip netip.Addr, fam agdnet.AddrFamily) (res net.IP, err error) {
+// fam must be either [netutil.AddrFamilyIPv4] or [netutil.AddrFamilyIPv6].
+func addrToNetIP(ip netip.Addr, fam netutil.AddrFamily) (res net.IP, err error) {
 	switch fam {
-	case agdnet.AddrFamilyIPv4:
+	case netutil.AddrFamilyIPv4:
 		if ip.Is6() {
 			return nil, fmt.Errorf("cannot convert %s to ipv4", ip)
 		}
@@ -142,7 +142,7 @@ func addrToNetIP(ip netip.Addr, fam agdnet.AddrFamily) (res net.IP, err error) {
 		ip4 := ip.As4()
 
 		return ip4[:], nil
-	case agdnet.AddrFamilyIPv6:
+	case netutil.AddrFamilyIPv6:
 		if ip.Is4() {
 			return nil, fmt.Errorf("bad ipv4 addr %s for ipv6 addr fam", ip)
 		}

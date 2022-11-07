@@ -2,6 +2,7 @@ package backend_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -16,6 +17,12 @@ import (
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+)
+
+// Common test constants.
+var (
+	syncTime = time.Unix(0, 1_624_443_079_309_000_000)
+	updTime  = time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 )
 
 func TestProfileStorage_Profiles(t *testing.T) {
@@ -40,7 +47,6 @@ func TestProfileStorage_Profiles(t *testing.T) {
 	u, err := url.Parse(srv.URL)
 	require.NoError(t, err)
 
-	updTime := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 	c := &backend.ProfileStorageConfig{
 		BaseEndpoint: u,
 		Now:          func() (t time.Time) { return updTime },
@@ -50,7 +56,6 @@ func TestProfileStorage_Profiles(t *testing.T) {
 	require.NotNil(t, ds)
 
 	ctx := context.Background()
-	syncTime := time.Unix(0, 1_624_443_079_309_000_000)
 	req := &agd.PSProfilesRequest{
 		SyncTime: syncTime,
 	}
@@ -61,10 +66,19 @@ func TestProfileStorage_Profiles(t *testing.T) {
 
 	// Compare against a relative URL since the URL inside an HTTP handler
 	// seems to always be relative.
-	wantURLStr := backend.PathDNSAPIV1Settings + "?sync_time=1624443079309"
+	wantURLStr := fmt.Sprintf("%s?sync_time=%d", backend.PathDNSAPIV1Settings, syncTime.UnixMilli())
 	assert.Equal(t, wantURLStr, reqURLStr)
 
-	// Keep in sync with the testdata one.
+	want := testProfileResp(t)
+	assert.Equal(t, want, resp)
+}
+
+// testProfileResp returns profile resp corresponding with testdata.
+//
+// Keep in sync with the testdata one.
+func testProfileResp(t *testing.T) *agd.PSProfilesResponse {
+	t.Helper()
+
 	wantLoc, err := time.LoadLocation("GMT")
 	require.NoError(t, err)
 
@@ -151,5 +165,5 @@ func TestProfileStorage_Profiles(t *testing.T) {
 		}},
 	}
 
-	assert.Equal(t, want, resp)
+	return want
 }

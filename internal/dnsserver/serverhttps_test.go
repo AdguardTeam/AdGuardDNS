@@ -19,6 +19,8 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/lucas-clemente/quic-go"
+	"github.com/lucas-clemente/quic-go/http3"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
@@ -26,11 +28,12 @@ import (
 
 func TestServerHTTPS_integration_serveRequests(t *testing.T) {
 	testCases := []struct {
-		name              string
-		method            string
-		tls               bool
-		json              bool
-		requestWireformat bool
+		name          string
+		method        string
+		tls           bool
+		json          bool
+		reqWireFormat bool
+		http3Enabled  bool
 	}{{
 		name:   "doh_get_wireformat",
 		method: http.MethodGet,
@@ -72,27 +75,35 @@ func TestServerHTTPS_integration_serveRequests(t *testing.T) {
 		tls:    false,
 		json:   true,
 	}, {
-		name:              "doh_get_json_wireformat",
-		method:            http.MethodGet,
-		tls:               true,
-		json:              true,
-		requestWireformat: true,
+		name:          "doh_get_json_wireformat",
+		method:        http.MethodGet,
+		tls:           true,
+		json:          true,
+		reqWireFormat: true,
 	}, {
-		name:              "doh_post_json_wireformat",
-		method:            http.MethodPost,
-		tls:               true,
-		json:              true,
-		requestWireformat: true,
+		name:          "doh_post_json_wireformat",
+		method:        http.MethodPost,
+		tls:           true,
+		json:          true,
+		reqWireFormat: true,
+	}, {
+		name:         "doh3_get_wireformat",
+		method:       http.MethodGet,
+		tls:          true,
+		json:         false,
+		http3Enabled: true,
+	}, {
+		name:         "doh3_post_wireformat",
+		method:       http.MethodPost,
+		tls:          true,
+		json:         false,
+		http3Enabled: true,
 	}}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			var tlsConfig *tls.Config
-			if tc.tls {
-				tlsConfig = dnsservertest.CreateServerTLSConfig("example.org")
-			}
-
-			srv, addr, err := dnsservertest.RunLocalHTTPSServer(
+			tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
+			srv, err := dnsservertest.RunLocalHTTPSServer(
 				dnsservertest.DefaultHandler(),
 				tlsConfig,
 				nil,
@@ -113,16 +124,12 @@ func TestServerHTTPS_integration_serveRequests(t *testing.T) {
 			}
 
 			var resp *dns.Msg
-			resp, err = sendDoHRequest(
-				addr,
-				tlsConfig,
-				tc.method,
-				tc.json,
-				tc.requestWireformat,
-				req,
-			)
-			require.NoError(t, err)
-			require.NotNil(t, resp)
+			addr := srv.LocalTCPAddr()
+			if tc.http3Enabled {
+				addr = srv.LocalUDPAddr()
+			}
+
+			resp = mustDoHReq(t, addr, tlsConfig, tc.method, tc.json, tc.reqWireFormat, req)
 			require.True(t, resp.Response)
 		})
 	}
@@ -134,7 +141,7 @@ func TestServerHTTPS_integration_nonDNSHandler(t *testing.T) {
 		_, _ = w.Write([]byte("OK"))
 	})
 
-	srv, addr, err := dnsservertest.RunLocalHTTPSServer(
+	srv, err := dnsservertest.RunLocalHTTPSServer(
 		dnsservertest.DefaultHandler(),
 		nil,
 		testHandler,
@@ -146,7 +153,7 @@ func TestServerHTTPS_integration_nonDNSHandler(t *testing.T) {
 	})
 
 	var resp *http.Response
-	resp, err = http.Get(fmt.Sprintf("http://%s/test", addr))
+	resp, err = http.Get(fmt.Sprintf("http://%s/test", srv.LocalTCPAddr()))
 	defer log.OnCloserError(resp.Body, log.DEBUG)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -307,59 +314,69 @@ func TestDNSMsgToJSONMsg(t *testing.T) {
 	}}, jsonMsg.Extra)
 }
 
-func sendDoHRequest(
+func mustDoHReq(
+	t testing.TB,
 	httpsAddr net.Addr,
 	tlsConfig *tls.Config,
 	method string,
 	json bool,
 	requestWireformat bool,
-	msg *dns.Msg,
-) (resp *dns.Msg, err error) {
-	var client *http.Client
-	client, err = createDoHClient(httpsAddr, tlsConfig)
-	if err != nil {
-		return nil, err
-	}
+	req *dns.Msg,
+) (resp *dns.Msg) {
+	t.Helper()
+
+	client, err := createDoHClient(httpsAddr, tlsConfig)
+	require.NoError(t, err)
 
 	proto := "https"
 	if tlsConfig == nil {
 		proto = "http"
 	}
 
-	var req *http.Request
+	var httpReq *http.Request
 	if json {
-		req, err = createJSONRequest(proto, method, requestWireformat, msg)
+		httpReq, err = createJSONRequest(proto, method, requestWireformat, req)
 	} else {
-		req, err = createDoHRequest(proto, method, msg)
+		httpReq, err = createDoHRequest(proto, method, req)
 	}
+	require.NoError(t, err)
 
-	if err != nil {
-		return nil, err
-	}
-
-	var httpResp *http.Response
-	httpResp, err = client.Do(req)
-	if err != nil {
-		return nil, err
-	}
+	httpResp, err := client.Do(httpReq)
+	require.NoError(t, err)
 	defer log.OnCloserError(httpResp.Body, log.DEBUG)
 
-	var body []byte
-	body, err = io.ReadAll(httpResp.Body)
-	if err != nil {
-		return nil, err
+	if tlsConfig != nil && !httpResp.ProtoAtLeast(2, 0) {
+		t.Fatal(fmt.Errorf("protocol is too old: %s", httpResp.Proto))
 	}
+
+	body, err := io.ReadAll(httpResp.Body)
+	require.NoError(t, err)
 
 	if json && !requestWireformat {
 		resp, err = unpackJSONMsg(body)
 	} else {
 		resp, err = unpackDoHMsg(body)
 	}
+	require.NoError(t, err)
+	require.NotNil(t, resp)
 
-	return resp, err
+	return resp
 }
 
-func createDoHClient(httpsAddr net.Addr, tlsConfig *tls.Config) (*http.Client, error) {
+func createDoHClient(httpsAddr net.Addr, tlsConfig *tls.Config) (client *http.Client, err error) {
+	if dnsserver.NetworkFromAddr(httpsAddr) == dnsserver.NetworkUDP {
+		return createDoH3Client(httpsAddr, tlsConfig)
+	}
+
+	return createDoH2Client(httpsAddr, tlsConfig)
+}
+
+func createDoH2Client(httpsAddr net.Addr, tlsConfig *tls.Config) (client *http.Client, err error) {
+	if tlsConfig != nil {
+		tlsConfig = tlsConfig.Clone()
+		tlsConfig.NextProtos = []string{"h2", "http/1.1"}
+	}
+
 	dialer := &net.Dialer{
 		Timeout: 5 * time.Second,
 	}
@@ -371,13 +388,37 @@ func createDoHClient(httpsAddr net.Addr, tlsConfig *tls.Config) (*http.Client, e
 		TLSClientConfig:    tlsConfig,
 		DisableCompression: true,
 		DialContext:        dialContext,
+		ForceAttemptHTTP2:  true,
 	}
 	if tlsConfig != nil {
-		err := http2.ConfigureTransport(transport)
+		err = http2.ConfigureTransport(transport)
 		if err != nil {
 			return nil, err
 		}
 	}
+	return &http.Client{
+		Transport: transport,
+		Timeout:   5 * time.Second,
+	}, nil
+}
+
+func createDoH3Client(httpsAddr net.Addr, tlsConfig *tls.Config) (client *http.Client, err error) {
+	tlsConfig = tlsConfig.Clone()
+	tlsConfig.NextProtos = []string{"h3"}
+
+	transport := &http3.RoundTripper{
+		DisableCompression: true,
+		Dial: func(
+			ctx context.Context,
+			_ string,
+			tlsCfg *tls.Config,
+			cfg *quic.Config,
+		) (c quic.EarlyConnection, e error) {
+			return quic.DialAddrEarlyContext(ctx, httpsAddr.String(), tlsCfg, cfg)
+		},
+		TLSClientConfig: tlsConfig,
+	}
+
 	return &http.Client{
 		Transport: transport,
 		Timeout:   5 * time.Second,

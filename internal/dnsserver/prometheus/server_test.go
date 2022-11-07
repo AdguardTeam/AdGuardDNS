@@ -23,29 +23,28 @@ func TestServerMetricsListener_integration_requestLifetime(t *testing.T) {
 		ConfigBase: dnsserver.ConfigBase{
 			Name:    "test",
 			Addr:    "127.0.0.1:0",
-			Proto:   dnsserver.ProtoDNSTCP,
 			Handler: dnsservertest.DefaultHandler(),
 			Metrics: &prom.ServerMetricsListener{},
 		},
 	}
 	srv := dnsserver.NewServerDNS(conf)
 
-	// Start the server
+	// Start the server.
 	err := srv.Start(context.Background())
 	require.NoError(t, err)
 
-	// Make sure the server shuts down in the end
+	// Make sure the server shuts down in the end.
 	testutil.CleanupAndRequireSuccess(t, func() (err error) {
 		return srv.Shutdown(context.Background())
 	})
 
-	// Create a test message
+	// Create a test message.
 	req := dnsservertest.CreateMessage("example.org", dns.TypeA)
 
 	c := &dns.Client{Net: "tcp"}
 
-	// Send a test DNS query
-	addr := srv.LocalAddr().String()
+	// Send a test DNS query.
+	addr := srv.LocalUDPAddr().String()
 
 	// Pass 10 requests to make the test less flaky.
 	for i := 0; i < 10; i++ {
@@ -55,7 +54,7 @@ func TestServerMetricsListener_integration_requestLifetime(t *testing.T) {
 		require.Equal(t, dns.RcodeSuccess, res.Rcode)
 	}
 
-	// Now make sure that prometheus metrics were incremented properly
+	// Now make sure that prometheus metrics were incremented properly.
 	requireMetrics(
 		t,
 		"dns_server_request_total",
