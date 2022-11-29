@@ -42,7 +42,7 @@ func Main() {
 	log.SetOutput(os.Stdout)
 
 	envs, err := readEnvs()
-	fatalOnError(err)
+	check(err)
 
 	envs.configureLogs()
 
@@ -50,19 +50,22 @@ func Main() {
 	log.Info("main: starting adguard dns")
 
 	// Error Collector
+	//
+	// TODO(a.garipov): Consider parsing SENTRY_DSN separately to set sentry up
+	// first and collect panics from the readEnvs call above as well.
 
 	errColl, err := envs.buildErrColl()
-	fatalOnError(err)
+	check(err)
 
 	defer collectPanics(errColl)
 
 	// Configuration File
 
 	c, err := readConfig(envs.ConfPath)
-	fatalOnError(err)
+	check(err)
 
 	err = c.validate()
-	fatalOnError(err)
+	check(err)
 
 	// Additional Metrics
 
@@ -92,7 +95,7 @@ func Main() {
 	// Safe Browsing Hosts
 
 	err = os.MkdirAll(envs.FilterCachePath, agd.DefaultDirPerm)
-	fatalOnError(err)
+	check(err)
 
 	safeBrowsingConf := c.SafeBrowsing.toInternal(
 		agd.FilterListIDSafeBrowsing,
@@ -100,10 +103,10 @@ func Main() {
 		errColl,
 	)
 	safeBrowsingHashes, err := filter.NewHashStorage(safeBrowsingConf)
-	fatalfOnError("safe browsing storage", err)
+	check(err)
 
 	err = safeBrowsingHashes.Start()
-	fatalfOnError("safe browsing", err)
+	check(err)
 
 	adultBlockingConf := c.AdultBlocking.toInternal(
 		agd.FilterListIDAdultBlocking,
@@ -111,10 +114,10 @@ func Main() {
 		errColl,
 	)
 	adultBlockingHashes, err := filter.NewHashStorage(adultBlockingConf)
-	fatalfOnError("adult blocking storage", err)
+	check(err)
 
 	err = adultBlockingHashes.Start()
-	fatalfOnError("adult blocking", err)
+	check(err)
 
 	// Filters And Filtering Groups
 
@@ -134,7 +137,7 @@ func Main() {
 	}
 
 	fltStrg, err := filter.NewDefaultStorage(fltStrgConf)
-	fatalOnError(err)
+	check(err)
 
 	fltStrgUpd := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
 		Context: func() (ctx context.Context, cancel context.CancelFunc) {
@@ -148,34 +151,34 @@ func Main() {
 		RoutineLogsAreDebug: false,
 	})
 	err = fltStrgUpd.Start()
-	fatalOnError(err)
+	check(err)
 
 	safeBrowsing := filter.NewSafeBrowsingServer(safeBrowsingHashes, adultBlockingHashes)
 
 	// Server Groups
 
 	fltGroups, err := c.FilteringGroups.toInternal(fltStrg)
-	fatalOnError(err)
+	check(err)
 
 	messages := &dnsmsg.Constructor{
 		FilteredResponseTTL: c.Filters.ResponseTTL.Duration,
 	}
 
 	srvGrps, err := c.ServerGroups.toInternal(messages, fltGroups)
-	fatalOnError(err)
+	check(err)
 
 	// TLS keys logging
 
 	if envs.SSLKeyLogFile != "" {
 		log.Info("IMPORTANT: TLS KEY LOGGING IS ENABLED; KEYS ARE DUMPED TO %q", envs.SSLKeyLogFile)
 		err = enableTLSKeyLogging(srvGrps, envs.SSLKeyLogFile)
-		fatalOnError(err)
+		check(err)
 	}
 
 	// TLS Session Tickets Rotation
 
 	tickRot, err := newTicketRotator(srvGrps)
-	fatalOnError(err)
+	check(err)
 
 	tickRotUpd := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
 		Context:   ctxWithDefaultTimeout,
@@ -188,7 +191,7 @@ func Main() {
 		RoutineLogsAreDebug: true,
 	})
 	err = tickRotUpd.Start()
-	fatalOnError(err)
+	check(err)
 
 	// Profiles Database
 
@@ -211,14 +214,14 @@ func Main() {
 		RoutineLogsAreDebug: true,
 	})
 	err = billStatRecUpd.Start()
-	fatalOnError(err)
+	check(err)
 
 	profDB, err := agd.NewDefaultProfileDB(
 		profStrg,
 		c.Backend.FullRefreshIvl.Duration,
 		envs.ProfilesCachePath,
 	)
-	fatalOnError(err)
+	check(err)
 
 	profDBUpd := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
 		Context: func() (ctx context.Context, cancel context.CancelFunc) {
@@ -232,7 +235,7 @@ func Main() {
 		RoutineLogsAreDebug: true,
 	})
 	err = profDBUpd.Start()
-	fatalOnError(err)
+	check(err)
 
 	// Query Log
 
@@ -241,28 +244,28 @@ func Main() {
 	// DNS Checker
 
 	dnsCk, err := dnscheck.NewConsul(c.Check.toInternal(envs, messages, errColl))
-	fatalOnError(err)
+	check(err)
 
 	// DNSDB
 
 	dnsDB, dnsDBUpd := envs.buildDNSDB(errColl)
 	err = dnsDBUpd.Start()
-	fatalOnError(err)
+	check(err)
 
 	// Filtering Rule Statistics
 
 	ruleStat, ruleStatUpd := envs.ruleStat(errColl)
 	err = ruleStatUpd.Start()
-	fatalOnError(err)
+	check(err)
 
 	// Rate Limiting
 
 	allowSubnets, err := agdnet.ParseSubnets(c.RateLimit.Allowlist.List...)
-	fatalOnError(err)
+	check(err)
 
 	allowlist := ratelimit.NewDynamicAllowlist(allowSubnets, nil)
 	allowlistRefresher, err := consul.NewAllowlistRefresher(allowlist, &envs.ConsulAllowlistURL.URL)
-	fatalOnError(err)
+	check(err)
 
 	allowlistUpd := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
 		Context:             ctxWithDefaultTimeout,
@@ -274,7 +277,7 @@ func Main() {
 		RoutineLogsAreDebug: false,
 	})
 	err = allowlistUpd.Start()
-	fatalOnError(err)
+	check(err)
 
 	rateLimiter := ratelimit.NewBackOff(c.RateLimit.toInternal(allowlist))
 
@@ -284,7 +287,7 @@ func Main() {
 	geoIPMu.Lock()
 	defer geoIPMu.Unlock()
 
-	fatalOnError(geoIPErr)
+	check(geoIPErr)
 
 	geoIPUpd := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
 		Context:             ctxWithDefaultTimeout,
@@ -296,12 +299,12 @@ func Main() {
 		RoutineLogsAreDebug: false,
 	})
 	err = geoIPUpd.Start()
-	fatalOnError(err)
+	check(err)
 
 	// Web Service
 
 	webConf, err := c.Web.toInternal(envs, dnsCk, errColl)
-	fatalOnError(err)
+	check(err)
 
 	webSvc := websvc.New(webConf)
 	// The web service is considered critical, so its Start method panics
@@ -313,7 +316,7 @@ func Main() {
 	metricsListener := prometheus.NewForwardMetricsListener(len(c.Upstream.FallbackServers) + 1)
 
 	upstream, err := c.Upstream.toInternal()
-	fatalOnError(err)
+	check(err)
 
 	handler := forward.NewHandler(&forward.HandlerConfig{
 		Address:                    upstream.Server,
@@ -349,14 +352,14 @@ func Main() {
 	}
 
 	dnsSvc, err := dnssvc.New(dnsConf)
-	fatalOnError(err)
+	check(err)
 
 	err = connectivityCheck(dnsConf, c.ConnectivityCheck)
-	fatalOnError(err)
+	check(err)
 
 	upstreamHealthcheckUpd := newUpstreamHealthcheck(handler, c.Upstream, errColl)
 	err = upstreamHealthcheckUpd.Start()
-	fatalOnError(err)
+	check(err)
 
 	// The DNS service is considered critical, so its Start method panics
 	// instead of returning an error.
@@ -428,21 +431,4 @@ const defaultTimeout = 30 * time.Second
 // timeout set to defaultTimeout.
 func ctxWithDefaultTimeout() (ctx context.Context, cancel context.CancelFunc) {
 	return context.WithTimeout(context.Background(), defaultTimeout)
-}
-
-// fatalOnError is a helper that exits the program with an error code if err is
-// not nil.  It must only be used within Main.
-func fatalOnError(err error) {
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
-// fatalfOnError is a helper that exits the program with an error code if err is
-// not nil.  It must only be used within Main.  msg must not include the ": %s"
-// or similar prefixes.
-func fatalfOnError(msg string, err error) {
-	if err != nil {
-		log.Fatalf("%s: %s", msg, err)
-	}
 }

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -167,7 +167,7 @@ func matchDeviceIDWildcards(sni string, wildcards []string) (matchedDomain strin
 		// Assume that wildcards have been validated for this prefix in the
 		// configuration parsing.
 		domain := wildcard[len("*."):]
-		if agdnet.IsImmediateSubdomain(sni, domain) {
+		if netutil.IsImmediateSubdomain(sni, domain) {
 			matchedDomain = domain
 
 			break
@@ -190,8 +190,7 @@ func matchSrvCerts(sni string, srvCerts []tls.Certificate) (match string) {
 				return sni
 			}
 
-			if strings.HasPrefix(n, "*.") &&
-				agdnet.IsImmediateSubdomain(sni, n[len("*."):]) {
+			if strings.HasPrefix(n, "*.") && netutil.IsImmediateSubdomain(sni, n[len("*."):]) {
 				return n
 			}
 		}

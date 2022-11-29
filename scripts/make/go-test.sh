@@ -1,5 +1,10 @@
 #!/bin/sh
 
+# _SCRIPT_VERSION is used to simplify checking local copies of the script.  Bump
+# this number every time a significant change is made to this script.
+_SCRIPT_VERSION='1'
+readonly _SCRIPT_VERSION
+
 verbose="${VERBOSE:-0}"
 readonly verbose
 
@@ -35,7 +40,6 @@ fi
 readonly race_flags
 
 go="${GO:-go}"
-
 count_flags='--count=1'
 shuffle_flags='--shuffle=on'
 # TODO(ameshkov): Find out, why QUIC tests are so slow, and return to 30s.

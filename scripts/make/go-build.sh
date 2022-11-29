@@ -1,10 +1,15 @@
 #!/bin/sh
 
-# AdGuard DNS Build Script
+# AdGuard DNS build script
 #
 # The commentary in this file is written with the assumption that the reader
 # only has superficial knowledge of the POSIX shell language and alike.
 # Experienced readers may find it overly verbose.
+
+# _SCRIPT_VERSION is used to simplify checking local copies of the script.  Bump
+# this number every time a significant change is made to this script.
+_SCRIPT_VERSION='1'
+readonly _SCRIPT_VERSION
 
 # The default verbosity level is 0.  Show every command that is run and every
 # package that is processed if the caller requested verbosity level greater than
@@ -42,10 +47,13 @@ readonly go
 
 # Set the build parameters unless already set.
 branch="${BRANCH:-$( git rev-parse --abbrev-ref HEAD )}"
-buildtime="${BUILD_TIME:-$( date -u +%FT%TZ%z )}"
 revision="${REVISION:-$( git rev-parse --short HEAD )}"
 version="${VERSION:-0}"
-readonly branch buildtime revision version
+readonly branch revision version
+
+# TODO(ameshkov): Consider using the more reproducible commit time.
+buildtime="${BUILD_TIME:-$( date -u +%FT%TZ%z )}"
+readonly buildtime
 
 # Compile them in.
 version_pkg='github.com/AdguardTeam/AdGuardDNS/internal/agd'
@@ -80,13 +88,14 @@ readonly o_flags
 # must be enabled.
 if [ "${RACE:-0}" -eq '0' ]
 then
-	cgo_enabled='0'
+	CGO_ENABLED='0'
 	race_flags='--race=0'
 else
-	cgo_enabled='1'
+	CGO_ENABLED='1'
 	race_flags='--race=1'
 fi
-readonly cgo_enabled race_flags
+readonly CGO_ENABLED race_flags
+export CGO_ENABLED
 
 if [ "$verbose" -gt '0' ]
 then

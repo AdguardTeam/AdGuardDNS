@@ -5,11 +5,11 @@ import (
 	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 )
 
@@ -96,7 +96,7 @@ func (mw *initMw) reqInfoSpecialHandler(
 
 	if mw.isDDRRequest(ri) {
 		return mw.handleDDR, "ddr"
-	} else if agdnet.IsSubdomain(ri.Host, resolverArpaDomain) {
+	} else if netutil.IsSubdomain(ri.Host, resolverArpaDomain) {
 		// A badly formed resolver.arpa subdomain query.
 		return mw.handleBadResolverARPA, "bad_resolver_arpa"
 	} else if shouldBlockPrivateRelay(ri) {

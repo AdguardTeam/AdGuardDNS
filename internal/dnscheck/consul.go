@@ -158,20 +158,16 @@ func (cc *Consul) Check(
 		}).Inc()
 	}()
 
-	qt := ri.QType
-	if qt != dns.TypeA && qt != dns.TypeAAAA {
-		return ri.Messages.NewMsgNODATA(req), nil
-	}
-
 	var randomID string
 	randomID, matched, err = randomIDFromDomain(ri.Host, cc.domains)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
 	} else if !matched {
+		// Not a dnscheck domain, just ignore the request.
 		return nil, nil
 	} else if randomID == "" {
-		return cc.resp(qt, req)
+		return cc.resp(ri, req)
 	}
 
 	si := dnsserver.MustServerInfoFromContext(ctx)
@@ -184,7 +180,7 @@ func (cc *Consul) Check(
 		agd.Collectf(ctx, cc.errColl, "dnscheck: consul setting: %w", err)
 	}
 
-	return cc.resp(qt, req)
+	return cc.resp(ri, req)
 }
 
 // addToCache adds inf into cache using randomID as key.  It's safe for
@@ -222,7 +218,13 @@ func (cc *Consul) newInfo(protoStr string, ri *agd.RequestInfo) (inf *info) {
 }
 
 // resp returns the corresponding response.
-func (cc *Consul) resp(qt dnsmsg.RRType, req *dns.Msg) (resp *dns.Msg, err error) {
+func (cc *Consul) resp(ri *agd.RequestInfo, req *dns.Msg) (resp *dns.Msg, err error) {
+	qt := ri.QType
+
+	if qt != dns.TypeA && qt != dns.TypeAAAA {
+		return ri.Messages.NewMsgNODATA(req), nil
+	}
+
 	if qt == dns.TypeA {
 		return cc.messages.NewIPRespMsg(req, cc.ipv4...)
 	}

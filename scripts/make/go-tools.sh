@@ -1,22 +1,27 @@
 #!/bin/sh
 
+# _SCRIPT_VERSION is used to simplify checking local copies of the script.  Bump
+# this number every time a significant change is made to this script.
+_SCRIPT_VERSION='1'
+readonly _SCRIPT_VERSION
+
 verbose="${VERBOSE:-0}"
 readonly verbose
 
 if [ "$verbose" -gt '1' ]
 then
 	set -x
-	v_flags='-v'
-	x_flags='-x'
+	v_flags='-v=1'
+	x_flags='-x=1'
 elif [ "$verbose" -gt '0' ]
 then
 	set -x
-	v_flags='-v'
-	x_flags=''
+	v_flags='-v=1'
+	x_flags='-x=0'
 else
 	set +x
-	v_flags=''
-	x_flags=''
+	v_flags='-v=0'
+	x_flags='-x=0'
 fi
 readonly v_flags x_flags
 
@@ -24,6 +29,25 @@ set -e -f -u
 
 go="${GO:-go}"
 readonly go
+
+# Remove only the actual binaries in the bin/ directory, as developers may add
+# their own scripts there.  Most commonly, a script named “go” for tools that
+# call the go binary and need a particular version.
+rm -f\
+	errcheck\
+	fieldalignment\
+	gocyclo\
+	gofumpt\
+	gosec\
+	govulncheck\
+	ineffassign\
+	looppointer\
+	misspell\
+	nilness\
+	shadow\
+	staticcheck\
+	unparam\
+	;
 
 # Reset GOARCH and GOOS to make sure we install the tools for the native
 # architecture even when we're cross-compiling the main binary, and also to
@@ -35,8 +59,8 @@ env\
 	GOWORK='off'\
 	"$go" install\
 	--modfile=./internal/tools/go.mod\
-	$v_flags\
-	$x_flags\
+	"$v_flags"\
+	"$x_flags"\
 	github.com/fzipp/gocyclo/cmd/gocyclo\
 	github.com/golangci/misspell/cmd/misspell\
 	github.com/gordonklaus/ineffassign\

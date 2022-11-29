@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
@@ -63,29 +65,20 @@ func (c *rateLimitConfig) toInternal(al ratelimit.Allowlist) (conf *ratelimit.Ba
 
 // validate returns an error if the safe rate limiting configuration is invalid.
 func (c *rateLimitConfig) validate() (err error) {
-	// TODO(a.garipov): Refactor by grouping some checks together and using
-	// generic helper functions.
-
-	switch {
-	case c == nil:
+	if c == nil {
 		return errNilConfig
-	case c.RPS <= 0:
-		return newMustBePositiveError("rps", c.RPS)
-	case c.BackOffCount <= 0:
-		return newMustBePositiveError("back_off_count", c.BackOffCount)
-	case c.BackOffDuration.Duration <= 0:
-		return newMustBePositiveError("back_off_duration", c.BackOffDuration)
-	case c.BackOffPeriod.Duration <= 0:
-		return newMustBePositiveError("back_off_period", c.BackOffPeriod)
-	case c.ResponseSizeEstimate <= 0:
-		return newMustBePositiveError("response_size_estimate", c.ResponseSizeEstimate)
-	case c.Allowlist.RefreshIvl.Duration <= 0:
-		return newMustBePositiveError("allowlist.refresh_interval", c.Allowlist.RefreshIvl)
-	case c.IPv4SubnetKeyLen <= 0:
-		return newMustBePositiveError("ipv4_subnet_key_len", c.IPv4SubnetKeyLen)
-	case c.IPv6SubnetKeyLen <= 0:
-		return newMustBePositiveError("ipv6_subnet_key_len", c.IPv6SubnetKeyLen)
-	default:
-		return nil
+	} else if c.Allowlist == nil {
+		return fmt.Errorf("allowlist: %w", errNilConfig)
 	}
+
+	return coalesceError(
+		validatePositive("rps", c.RPS),
+		validatePositive("back_off_count", c.BackOffCount),
+		validatePositive("back_off_duration", c.BackOffDuration),
+		validatePositive("back_off_period", c.BackOffPeriod),
+		validatePositive("response_size_estimate", c.ResponseSizeEstimate),
+		validatePositive("allowlist.refresh_interval", c.Allowlist.RefreshIvl),
+		validatePositive("ipv4_subnet_key_len", c.IPv4SubnetKeyLen),
+		validatePositive("ipv6_subnet_key_len", c.IPv6SubnetKeyLen),
+	)
 }

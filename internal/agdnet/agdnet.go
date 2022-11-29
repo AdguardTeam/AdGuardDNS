@@ -25,21 +25,6 @@ func IsAndroidTLSMetricDomain(fqdn string) (ok bool) {
 	return fqdnLen > sufLen && strings.EqualFold(fqdn[fqdnLen-sufLen:], androidMetricFQDNSuffix)
 }
 
-// IsSubdomain returns true if domain is a subdomain of top.
-func IsSubdomain(domain, top string) (ok bool) {
-	return len(domain) > len(top)+1 &&
-		strings.HasSuffix(domain, top) &&
-		domain[len(domain)-len(top)-1] == '.'
-}
-
-// IsImmediateSubdomain returns true if domain is an immediate subdomain of top.
-//
-// TODO(a.garipov): Move to netutil.
-func IsImmediateSubdomain(domain, top string) (ok bool) {
-	return IsSubdomain(domain, top) &&
-		strings.Count(domain, ".") == strings.Count(top, ".")+1
-}
-
 // ParseSubnets parses IP networks, including single-address ones, from strings.
 func ParseSubnets(strs ...string) (subnets []netip.Prefix, err error) {
 	subnets = make([]netip.Prefix, len(strs))

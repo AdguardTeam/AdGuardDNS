@@ -8,11 +8,11 @@ import (
 	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 )
 
@@ -36,7 +36,7 @@ func deviceIDFromClientServerName(
 		// Assume that wildcards have been validated for this prefix in the
 		// configuration parsing.
 		domain := wildcard[len("*."):]
-		matched := agdnet.IsImmediateSubdomain(cliSrvName, domain)
+		matched := netutil.IsImmediateSubdomain(cliSrvName, domain)
 		if matched {
 			matchedDomain = domain
 

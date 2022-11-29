@@ -1,8 +1,13 @@
 #!/bin/sh
 
-verbose="${VERBOSE:-0}"
+# _SCRIPT_VERSION is used to simplify checking local copies of the script.  Bump
+# this number every time a significant change is made to this script.
+_SCRIPT_VERSION='2'
+readonly _SCRIPT_VERSION
 
-# Set verbosity.
+verbose="${VERBOSE:-0}"
+readonly verbose
+
 if [ "$verbose" -gt '0' ]
 then
 	set -x
@@ -16,32 +21,13 @@ else
 	set -e
 fi
 
-# We don't need glob expansions and we want to see errors about unset variables.
 set -f -u
 
 
 
-# Deferred Helpers
-
-not_found_msg='
-looks like a binary not found error.
-make sure you have installed the linter binaries using:
-
-	$ make go-tools
-'
-readonly not_found_msg
-
-not_found() {
-	if [ "$?" -eq '127' ]
-	then
-		# Code 127 is the exit status a shell uses when a command or
-		# a file is not found, according to the Bash Hackers wiki.
-		#
-		# See https://wiki.bash-hackers.org/dict/terms/exit_status.
-		echo "$not_found_msg" 1>&2
-	fi
-}
-trap not_found EXIT
+# Source the common helpers, including exit_on_output, not_found, and
+# with_progname.
+. ./scripts/make/helper.sh
 
 
 
@@ -72,7 +58,7 @@ esac
 
 
 
-# Simple Analyzers
+# Simple analyzers
 
 # blocklist_imports is a simple check against unwanted packages.  The following
 # packages are banned:
@@ -151,50 +137,6 @@ underscores() {
 
 
 
-# Helpers
-
-# exit_on_output exits with a nonzero exit code if there is anything in the
-# command's combined output.
-exit_on_output() (
-	set +e
-
-	if [ "$VERBOSE" -lt '2' ]
-	then
-		set +x
-	fi
-
-	cmd="$1"
-	shift
-
-	output="$( "$cmd" "$@" 2>&1 )"
-	exitcode="$?"
-	if [ "$exitcode" -ne '0' ]
-	then
-		echo "'$cmd' failed with code $exitcode"
-	fi
-
-	if [ "$output" != '' ]
-	then
-		if [ "$*" != '' ]
-		then
-			echo "combined output of linter '$cmd $*':"
-		else
-			echo "combined output of linter '$cmd':"
-		fi
-
-		echo "$output"
-
-		if [ "$exitcode" -eq '0' ]
-		then
-			exitcode='1'
-		fi
-	fi
-
-	return "$exitcode"
-)
-
-
-
 # Checks
 
 
@@ -210,37 +152,35 @@ exit_on_output underscores
 
 exit_on_output gofumpt --extra -e -l .
 
-# TODO(a.garipov): golint is deprecated, and seems to cause more and more
-# issues with each release.  Find a suitable replacement.
-#
-#	golint --set_exit_status ./...
+# TODO(a.garipov): golint is deprecated, find a suitable replacement.
 
-"$GO" vet ./... "$dnssrvmod"
+with_progname "$GO" vet ./... "$dnssrvmod"
 
-govulncheck ./... "$dnssrvmod"
+with_progname govulncheck ./... "$dnssrvmod"
 
-gocyclo --over 10 .
+with_progname gocyclo --over 10 .
 
-ineffassign ./... "$dnssrvmod"
+with_progname ineffassign ./... "$dnssrvmod"
 
-unparam ./... "$dnssrvmod"
+with_progname unparam ./... "$dnssrvmod"
 
 git ls-files -- 'Makefile' '*.conf' '*.go' '*.mod' '*.sh' '*.yaml' '*.yml'\
-	| xargs misspell --error
+	| xargs misspell --error\
+	| sed -e 's/^/misspell: /'
 
-looppointer ./... "$dnssrvmod"
+with_progname looppointer ./... "$dnssrvmod"
 
-nilness ./... "$dnssrvmod"
+with_progname nilness ./... "$dnssrvmod"
 
 # Do not use fieldalignment on $dnssrvmod, because ameshkov likes to place
 # struct fields in an order that he considers more readable.
-fieldalignment ./...
+with_progname fieldalignment ./...
 
 exit_on_output shadow --strict ./... "$dnssrvmod"
 
-gosec --quiet ./... "$dnssrvmod"
+with_progname gosec --quiet ./... "$dnssrvmod"
 
-errcheck ./... "$dnssrvmod"
+with_progname errcheck ./... "$dnssrvmod"
 
 staticcheck_matrix='
 darwin: GOOS=darwin
@@ -248,4 +188,4 @@ linux:  GOOS=linux
 '
 readonly staticcheck_matrix
 
-echo "$staticcheck_matrix" | staticcheck --matrix ./... "$dnssrvmod"
+echo "$staticcheck_matrix" | with_progname staticcheck --matrix ./... "$dnssrvmod"

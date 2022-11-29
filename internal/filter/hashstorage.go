@@ -121,7 +121,7 @@ func NewHashStorage(c *HashStorageConfig) (hs *HashStorage, err error) {
 
 	err = hs.refresh(context.Background(), true)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("initializing %s: %w", c.ID, err)
 	}
 
 	return hs, nil

@@ -4,10 +4,10 @@ package ratelimit
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/netip"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 )
 
@@ -58,7 +58,7 @@ func (m *Middleware) Wrap(handler dnsserver.Handler) (wrapped dnsserver.Handler)
 		}
 
 		raddr := rw.RemoteAddr()
-		addrPort := addrPortFromNetAddr(raddr)
+		addrPort := netutil.NetAddrToAddrPort(raddr)
 		if addrPort.Port() == 0 {
 			// Probably spoofing.  Return immediately.
 			m.Metrics.OnRateLimited(ctx, req, rw)
@@ -99,31 +99,6 @@ func (m *Middleware) Wrap(handler dnsserver.Handler) (wrapped dnsserver.Handler)
 	}
 
 	return dnsserver.HandlerFunc(f)
-}
-
-// addrPortFromNetAddr returns the IP address and port from addr.  If one cannot
-// be obtained from addr, it returns a zero value of [netip.AddrPort].
-//
-// NOTE: Keep in sync with [dnssvc.ipFromNetAddr].
-//
-// TODO(a.garipov): Perhaps this normalization should be done in package
-// dnsserver.
-func addrPortFromNetAddr(addr net.Addr) (addrPort netip.AddrPort) {
-	if ap, ok := addr.(interface{ AddrPort() (a netip.AddrPort) }); ok {
-		addrPort = ap.AddrPort()
-		ip := addrPort.Addr()
-		if ip.Is4In6() {
-			// net.TCPAddr.AddrPort and net.UDPAddr.AddrPort perform a naive
-			// conversion of net.IP into netip.Addr that does not take the
-			// mapped addresses into account.  Those are more often than not
-			// actually just IPv4 addresses.
-			//
-			// See https://github.com/golang/go/issues/53607.
-			addrPort = netip.AddrPortFrom(netip.AddrFrom4(ip.As4()), addrPort.Port())
-		}
-	}
-
-	return addrPort
 }
 
 // isEnabledForProto returns true if m is configured to ratelimit the protocol

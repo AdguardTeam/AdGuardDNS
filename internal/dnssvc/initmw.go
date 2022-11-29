@@ -13,6 +13,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 )
 
@@ -158,7 +159,7 @@ func (mw *initMw) newRequestInfo(
 		QType:          qt,
 	}
 
-	ri.RemoteIP = ipFromNetAddr(raddr)
+	ri.RemoteIP = netutil.NetAddrToAddrPort(raddr).Addr()
 
 	// As an optimization, put the request ID closer to the top of the context
 	// stack.
@@ -179,30 +180,6 @@ func (mw *initMw) newRequestInfo(
 	}
 
 	return ri, nil
-}
-
-// ipFromNetAddr returns the IP address from addr.  If one cannot be obtained
-// from addr, it returns netip.Addr{}.
-//
-// NOTE: Keep in sync with dnsserver/ratelimit.addrPortFromNetAddr.
-//
-// TODO(a.garipov): Perhaps this normalization should be done in package
-// dnsserver.
-func ipFromNetAddr(addr net.Addr) (ip netip.Addr) {
-	if ap, ok := addr.(interface{ AddrPort() (a netip.AddrPort) }); ok {
-		ip = ap.AddrPort().Addr()
-		if ip.Is4In6() {
-			// net.TCPAddr.AddrPort and net.UDPAddr.AddrPort perform a naive
-			// conversion of net.IP into netip.Addr that does not take the
-			// mapped addresses into account.  Those are more often than not
-			// actually just IPv4 addresses.
-			//
-			// See https://github.com/golang/go/issues/53607.
-			ip = netip.AddrFrom4(ip.As4())
-		}
-	}
-
-	return ip
 }
 
 // addLocation adds GeoIP location information about the client's remote address
