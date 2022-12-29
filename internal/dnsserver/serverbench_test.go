@@ -74,7 +74,7 @@ func BenchmarkServeDNS(b *testing.B) {
 // readMsg is a helper function for reading DNS responses from a plain DNS
 // connection.
 func readMsg(resBuf []byte, network dnsserver.Network, conn net.Conn) (err error) {
-	defer func() { err = errors.Annotate(err, "failed to read DNS msg: %w", err) }()
+	defer func() { err = errors.Annotate(err, "failed to read DNS msg: %w") }()
 
 	var n int
 

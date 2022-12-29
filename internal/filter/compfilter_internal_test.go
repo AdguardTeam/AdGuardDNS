@@ -20,20 +20,18 @@ func TestCompFilter_FilterRequest_badrequest(t *testing.T) {
 		fltListID1 agd.FilterListID = "fl1"
 		fltListID2 agd.FilterListID = "fl2"
 
-		reqHost = "www.example.com"
-
 		blockRule = "||example.com^"
 	)
 
-	rl1, err := newRuleListFltFromStr(blockRule, fltListID1)
+	rl1, err := newRuleListFltFromStr(blockRule, fltListID1, "", 0, false)
 	require.NoError(t, err)
 
-	rl2, err := newRuleListFltFromStr("||example.com^$badfilter", fltListID2)
+	rl2, err := newRuleListFltFromStr("||example.com^$badfilter", fltListID2, "", 0, false)
 	require.NoError(t, err)
 
 	req := &dns.Msg{
 		Question: []dns.Question{{
-			Name:   dns.Fqdn(reqHost),
+			Name:   testReqFQDN,
 			Qtype:  dns.TypeA,
 			Qclass: dns.ClassINET,
 		}},
@@ -61,7 +59,7 @@ func TestCompFilter_FilterRequest_badrequest(t *testing.T) {
 		Messages: &dnsmsg.Constructor{
 			FilteredResponseTTL: 10 * time.Second,
 		},
-		Host:     reqHost,
+		Host:     testReqHost,
 		RemoteIP: testRemoteIP,
 		QType:    dns.TypeA,
 	}
@@ -95,7 +93,7 @@ func TestCompFilter_FilterRequest_hostsRules(t *testing.T) {
 
 	const rules = blockRule4 + "\n" + blockRule6
 
-	rl, err := newRuleListFltFromStr(rules, fltListID)
+	rl, err := newRuleListFltFromStr(rules, fltListID, "", 0, false)
 	require.NoError(t, err)
 
 	f := &compFilter{
@@ -171,8 +169,6 @@ func TestCompFilter_FilterRequest_dnsrewrite(t *testing.T) {
 
 		fltListIDCustom = agd.FilterListIDCustom
 
-		reqHost = "www.example.com"
-
 		blockRule             = "||example.com^"
 		dnsRewriteRuleRefused = "||example.com^$dnsrewrite=REFUSED"
 		dnsRewriteRuleCname   = "||example.com^$dnsrewrite=cname"
@@ -180,26 +176,41 @@ func TestCompFilter_FilterRequest_dnsrewrite(t *testing.T) {
 		dnsRewriteRule2       = "||example.com^$dnsrewrite=1.2.3.5"
 	)
 
-	rl1, err := newRuleListFltFromStr(blockRule, fltListID1)
+	rl1, err := newRuleListFltFromStr(blockRule, fltListID1, "", 0, false)
 	require.NoError(t, err)
 
-	rl2, err := newRuleListFltFromStr(dnsRewriteRuleRefused, fltListID2)
+	rl2, err := newRuleListFltFromStr(dnsRewriteRuleRefused, fltListID2, "", 0, false)
 	require.NoError(t, err)
 
-	rlCustomRefused, err := newRuleListFltFromStr(dnsRewriteRuleRefused, fltListIDCustom)
+	rlCustomRefused, err := newRuleListFltFromStr(
+		dnsRewriteRuleRefused,
+		fltListIDCustom,
+		string(testProfID),
+		0,
+		false,
+	)
 	require.NoError(t, err)
 
-	rlCustomCname, err := newRuleListFltFromStr(dnsRewriteRuleCname, fltListIDCustom)
+	rlCustomCname, err := newRuleListFltFromStr(
+		dnsRewriteRuleCname,
+		fltListIDCustom,
+		"prof1235",
+		0,
+		false,
+	)
 	require.NoError(t, err)
 
 	rlCustom2, err := newRuleListFltFromStr(
 		strings.Join([]string{dnsRewriteRule1, dnsRewriteRule2}, "\n"),
 		fltListIDCustom,
+		"prof1236",
+		0,
+		false,
 	)
 	require.NoError(t, err)
 
 	question := dns.Question{
-		Name:   dns.Fqdn(reqHost),
+		Name:   testReqFQDN,
 		Qtype:  dns.TypeA,
 		Qclass: dns.ClassINET,
 	}
@@ -233,7 +244,7 @@ func TestCompFilter_FilterRequest_dnsrewrite(t *testing.T) {
 		wantRes: &ResultModified{
 			Msg: dnsservertest.NewResp(dns.RcodeSuccess, req, dnsservertest.RRSection{
 				RRs: []dns.RR{
-					dnsservertest.NewCNAME(reqHost, 10, "cname"),
+					dnsservertest.NewCNAME(testReqHost, 10, "cname"),
 				},
 			}),
 			List: fltListIDCustom,
@@ -245,8 +256,8 @@ func TestCompFilter_FilterRequest_dnsrewrite(t *testing.T) {
 		wantRes: &ResultModified{
 			Msg: dnsservertest.NewResp(dns.RcodeSuccess, req, dnsservertest.RRSection{
 				RRs: []dns.RR{
-					dnsservertest.NewA(reqHost, 10, net.IP{1, 2, 3, 4}),
-					dnsservertest.NewA(reqHost, 10, net.IP{1, 2, 3, 5}),
+					dnsservertest.NewA(testReqHost, 10, net.IP{1, 2, 3, 4}),
+					dnsservertest.NewA(testReqHost, 10, net.IP{1, 2, 3, 5}),
 				},
 			}),
 			List: fltListIDCustom,
@@ -266,7 +277,7 @@ func TestCompFilter_FilterRequest_dnsrewrite(t *testing.T) {
 				Messages: &dnsmsg.Constructor{
 					FilteredResponseTTL: 10 * time.Second,
 				},
-				Host:     reqHost,
+				Host:     testReqHost,
 				RemoteIP: testRemoteIP,
 				QType:    dns.TypeA,
 			}

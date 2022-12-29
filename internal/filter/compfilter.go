@@ -213,12 +213,10 @@ func (f *compFilter) filterMsg(
 
 // mustRuleListDataByURLFilterID returns the rule list data by its synthetic
 // integer ID in the urlfilter engine.  It panics if id is not found.
-func (f *compFilter) mustRuleListDataByURLFilterID(
-	id int,
-) (fltID agd.FilterListID, svcID agd.BlockedServiceID) {
+func (f *compFilter) mustRuleListDataByURLFilterID(id int) (fltID agd.FilterListID, subID string) {
 	for _, rl := range f.ruleLists {
 		if rl.urlFilterID == id {
-			return rl.id(), rl.svcID
+			return rl.id(), rl.subID
 		}
 	}
 
@@ -259,7 +257,7 @@ func (f *compFilter) hostsRulesToResult(
 	return f.ruleDataToResult(resHostRule.FilterListID, resHostRule.RuleText, false)
 }
 
-// networkRuleToResult converts a urlfilter rule data into a filtering result.
+// ruleDataToResult converts a urlfilter rule data into a filtering result.
 func (f *compFilter) ruleDataToResult(
 	urlFilterID int,
 	ruleText string,
@@ -267,11 +265,11 @@ func (f *compFilter) ruleDataToResult(
 ) (r Result) {
 	// Use the urlFilterID crutch to find the actual IDs of the filtering rule
 	// list and blocked service.
-	fltID, svcID := f.mustRuleListDataByURLFilterID(urlFilterID)
+	fltID, subID := f.mustRuleListDataByURLFilterID(urlFilterID)
 
 	var rule agd.FilterRuleText
 	if fltID == agd.FilterListIDBlockedService {
-		rule = agd.FilterRuleText(svcID)
+		rule = agd.FilterRuleText(subID)
 	} else {
 		rule = agd.FilterRuleText(ruleText)
 	}

@@ -1,10 +1,6 @@
 package metrics
 
 import (
-	"net/netip"
-	"time"
-
-	"github.com/patrickmn/go-cache"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -99,29 +95,3 @@ var DNSSvcFilteringDuration = promauto.NewHistogram(prometheus.HistogramOpts{
 		1,
 	},
 })
-
-// usersCache is a helper structure where we keep for 1 hour the IP addresses
-// of the DNS users.
-//
-// TODO(ameshkov): Consider making configurable.
-var usersCache = cache.New(1*time.Hour, 1*time.Minute)
-
-// dnsSvcUsersCount is a gauge with the number of DNS users for the last 1 hour.
-var dnsSvcUsersCount = promauto.NewGauge(prometheus.GaugeOpts{
-	Name:      "users_last_hour_count",
-	Namespace: namespace,
-	Subsystem: subsystemDNSSvc,
-	Help:      "The number of DNS users for the last 1 hour.",
-})
-
-// DNSSvcUsersCountUpdate updates the dnsSvcUsersCount gauge with the new users
-// count number.
-func DNSSvcUsersCountUpdate(ip netip.Addr) {
-	k := ip.String()
-	_, ok := usersCache.Get(k)
-	if !ok {
-		usersCache.SetDefault(k, struct{}{})
-	}
-
-	dnsSvcUsersCount.Set(float64(usersCache.ItemCount()))
-}

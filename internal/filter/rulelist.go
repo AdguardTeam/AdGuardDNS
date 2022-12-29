@@ -11,12 +11,13 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/resultcache"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/AdguardTeam/urlfilter/filterlist"
 )
 
-// Rule List File Filter
+// Rule-list filter
 
 // ruleListFilter is a DNS request and response filter based on filter rule
 // lists.
@@ -34,15 +35,22 @@ type ruleListFilter struct {
 	// engine is the DNS filtering engine.
 	engine *urlfilter.DNSEngine
 
+	// dnsResCache contains cached results of filtering.
+	//
+	// TODO(ameshkov): Add metrics for these caches.
+	dnsResCache *resultcache.Cache[*urlfilter.DNSResult]
+
 	// ruleList is the filtering rule ruleList used by the engine.
 	//
 	// TODO(a.garipov): Consider making engines in module urlfilter closeable
 	// and remove this crutch.
 	ruleList filterlist.RuleList
 
-	// svcID is the identifier of the blocked service.  It is used in the
-	// filtering result as the rule when id is FilterListIDBlockedService.
-	svcID agd.BlockedServiceID
+	// subID is the additional identifier for custom rule lists and blocked
+	// service lists.  If id is [agd.FilterListIDBlockedService], it contains an
+	// [agd.BlockedServiceID], and if id is [agd.FilterListIDCustom], it
+	// contains an [agd.ProfileID].
+	subID string
 
 	// urlFilterID is the synthetic integer identifier for the urlfilter engine.
 	//
@@ -56,7 +64,9 @@ type ruleListFilter struct {
 // explicitly if necessary.
 func newRuleListFilter(
 	l *agd.FilterList,
-	cacheDir string,
+	fileCacheDir string,
+	cacheSize int,
+	useCache bool,
 ) (flt *ruleListFilter) {
 	flt = &ruleListFilter{
 		mu: &sync.RWMutex{},
@@ -66,11 +76,15 @@ func newRuleListFilter(
 			}),
 			url:        l.URL,
 			id:         l.ID,
-			cachePath:  filepath.Join(cacheDir, string(l.ID)),
+			cachePath:  filepath.Join(fileCacheDir, string(l.ID)),
 			typ:        "rule list",
 			refreshIvl: l.RefreshIvl,
 		},
 		urlFilterID: newURLFilterID(),
+	}
+
+	if useCache {
+		flt.dnsResCache = resultcache.New[*urlfilter.DNSResult](cacheSize)
 	}
 
 	// Do not set this in the literal above, since flt is nil there.
@@ -81,14 +95,25 @@ func newRuleListFilter(
 
 // newRuleListFltFromStr returns a new DNS request and response filter using the
 // provided rule text and ID.
-func newRuleListFltFromStr(text string, id agd.FilterListID) (flt *ruleListFilter, err error) {
+func newRuleListFltFromStr(
+	text string,
+	id agd.FilterListID,
+	subID string,
+	cacheSize int,
+	useCache bool,
+) (flt *ruleListFilter, err error) {
 	flt = &ruleListFilter{
 		mu: &sync.RWMutex{},
 		refr: &refreshableFilter{
 			id:  id,
 			typ: "rule list",
 		},
+		subID:       subID,
 		urlFilterID: newURLFilterID(),
+	}
+
+	if useCache {
+		flt.dnsResCache = resultcache.New[*urlfilter.DNSResult](cacheSize)
 	}
 
 	err = flt.resetRules(text)
@@ -113,35 +138,53 @@ func newURLFilterID() (id int) {
 }
 
 // dnsResult returns the result of applying the urlfilter DNS filtering engine.
-// underlying urlfilter DNS filtering engine.
+// If the request is not filtered, dnsResult returns nil.
 func (f *ruleListFilter) dnsResult(
 	cliIP netip.Addr,
 	cliName string,
 	host string,
 	rrType dnsmsg.RRType,
-	ans bool,
+	isAns bool,
 ) (dr *urlfilter.DNSResult) {
+	var ok bool
+	var cacheKey resultcache.Key
+
+	// Don't waste resources on computing the cache key if the cache is not
+	// enabled.
+	useCache := f.dnsResCache != nil
+	if useCache {
+		cacheKey = resultcache.DefaultKey(host, rrType, isAns)
+		dr, ok = f.dnsResCache.Get(cacheKey)
+		if ok {
+			return dr
+		}
+	}
+
 	dnsReq := &urlfilter.DNSRequest{
 		Hostname: host,
 		// TODO(a.garipov): Make this a net.IP in module urlfilter.
 		ClientIP:   cliIP.String(),
 		ClientName: cliName,
 		DNSType:    rrType,
-		Answer:     ans,
+		Answer:     isAns,
 	}
 
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
-	dr, ok := f.engine.MatchRequest(dnsReq)
+	dr, ok = f.engine.MatchRequest(dnsReq)
 	if !ok && len(dr.NetworkRules) == 0 {
-		return nil
+		dr = nil
+	}
+
+	if useCache {
+		f.dnsResCache.Set(cacheKey, dr)
 	}
 
 	return dr
 }
 
-// Close implements the io.Closer interface for *ruleListFilter.
+// Close implements the [io.Closer] interface for *ruleListFilter.
 func (f *ruleListFilter) Close() (err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -182,13 +225,14 @@ func (f *ruleListFilter) resetRules(text string) (err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	f.dnsResCache.Clear()
 	f.ruleList = strList
 	f.engine = urlfilter.NewDNSEngine(s)
 
-	if f.svcID == "" {
-		log.Info("filter %s: reset %d rules", f.id(), f.engine.RulesCount)
+	if f.subID != "" {
+		log.Info("filter %s/%s: reset %d rules", f.id(), f.subID, f.engine.RulesCount)
 	} else {
-		log.Info("filter %s/%s: reset %d rules", f.id(), f.svcID, f.engine.RulesCount)
+		log.Info("filter %s: reset %d rules", f.id(), f.engine.RulesCount)
 	}
 
 	return nil

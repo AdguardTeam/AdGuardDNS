@@ -19,6 +19,13 @@ type filtersConfig struct {
 	// engines for profiles with custom filtering rules.
 	CustomFilterCacheSize int `yaml:"custom_filter_cache_size"`
 
+	// SafeSearchCacheSize is the size of the LRU cache of safe-search results.
+	SafeSearchCacheSize int `yaml:"safe_search_cache_size"`
+
+	// RuleListCacheSize defines the size of the LRU cache of rule-list
+	// filtering results.
+	RuleListCacheSize int `yaml:"rule_list_cache_size"`
+
 	// ResponseTTL is the TTL to set for DNS responses to requests for filtered
 	// domains.
 	ResponseTTL timeutil.Duration `yaml:"response_ttl"`
@@ -31,6 +38,9 @@ type filtersConfig struct {
 	// Note that each individual refresh operation also has its own hardcoded
 	// 30s timeout.
 	RefreshTimeout timeutil.Duration `yaml:"refresh_timeout"`
+
+	// UseRuleListCache, if true, enables rule list cache.
+	UseRuleListCache bool `yaml:"use_rule_list_cache"`
 }
 
 // toInternal converts c to the filter storage configuration for the DNS server.
@@ -49,9 +59,12 @@ func (c *filtersConfig) toInternal(
 		Resolver:                  agdnet.DefaultResolver{},
 		CacheDir:                  envs.FilterCachePath,
 		CustomFilterCacheSize:     c.CustomFilterCacheSize,
+		SafeSearchCacheSize:       c.SafeSearchCacheSize,
 		// TODO(a.garipov): Consider making this configurable.
 		SafeSearchCacheTTL: 1 * time.Hour,
+		RuleListCacheSize:  c.RuleListCacheSize,
 		RefreshIvl:         c.RefreshIvl.Duration,
+		UseRuleListCache:   c.UseRuleListCache,
 	}
 }
 
@@ -60,6 +73,10 @@ func (c *filtersConfig) validate() (err error) {
 	switch {
 	case c == nil:
 		return errNilConfig
+	case c.SafeSearchCacheSize <= 0:
+		return newMustBePositiveError("safe_search_cache_size", c.SafeSearchCacheSize)
+	case c.RuleListCacheSize <= 0:
+		return newMustBePositiveError("rule_list_cache_size", c.RuleListCacheSize)
 	case c.ResponseTTL.Duration <= 0:
 		return newMustBePositiveError("response_ttl", c.ResponseTTL)
 	case c.RefreshIvl.Duration <= 0:

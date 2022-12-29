@@ -104,7 +104,7 @@ func NewServerHTTPS(conf ConfigHTTPS) (s *ServerHTTPS) {
 
 // Start implements the dnsserver.Server interface for *ServerHTTPS.
 func (s *ServerHTTPS) Start(ctx context.Context) (err error) {
-	defer func() { err = errors.Annotate(err, "starting doh server: %w", err) }()
+	defer func() { err = errors.Annotate(err, "starting doh server: %w") }()
 
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -147,7 +147,7 @@ func (s *ServerHTTPS) Start(ctx context.Context) (err error) {
 
 // Shutdown implements the dnsserver.Server interface for *ServerHTTPS.
 func (s *ServerHTTPS) Shutdown(ctx context.Context) (err error) {
-	defer func() { err = errors.Annotate(err, "shutting down doh server: %w", err) }()
+	defer func() { err = errors.Annotate(err, "shutting down doh server: %w") }()
 
 	log.Info("[%s]: Stopping the server", s.Name())
 	err = s.shutdown(ctx)
@@ -354,6 +354,8 @@ func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	log.Debug("Received a request to %s", r.URL)
 
+	// TODO(ameshkov): Consider using ants.Pool here.
+
 	isDNS, _, _ := isDoH(r)
 	if isDNS {
 		h.serveDoH(ctx, w, r)
@@ -429,7 +431,7 @@ func (h *httpHandler) writeResponse(
 	w http.ResponseWriter,
 ) (err error) {
 	// normalize the response
-	normalize(NetworkTCP, req, resp)
+	normalize(NetworkTCP, ProtoDoH, req, resp)
 
 	isDNS, _, ct := isDoH(r)
 	if !isDNS {

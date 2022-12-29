@@ -11,6 +11,15 @@ import (
 )
 
 var (
+	// TLSCertificateInfo is a gauge with the authentication algorithm of
+	// the certificate.
+	TLSCertificateInfo = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name:      "cert_info",
+		Namespace: namespace,
+		Subsystem: subsystemTLS,
+		Help:      "Authentication algorithm and other information about the certificate.",
+	}, []string{"auth_algo", "subject"})
+
 	// TLSCertificateNotAfter is a gauge with the time when the certificate
 	// expires.
 	TLSCertificateNotAfter = promauto.NewGaugeVec(prometheus.GaugeOpts{
@@ -75,14 +84,18 @@ func TLSMetricsAfterHandshake(
 ) (f func(tls.ConnectionState) error) {
 	return func(state tls.ConnectionState) error {
 		sLabel := serverNameToLabel(state.ServerName, srvName, wildcards, srvCerts)
-		TLSHandshakeTotal.With(prometheus.Labels{
-			"proto":            proto,
-			"tls_version":      tlsVersionToString(state.Version),
-			"did_resume":       BoolString(state.DidResume),
-			"cipher_suite":     tls.CipherSuiteName(state.CipherSuite),
-			"negotiated_proto": state.NegotiatedProtocol,
-			"server_name":      sLabel,
-		}).Inc()
+
+		// Stick to using WithLabelValues instead of With in order to avoid
+		// extra allocations on prometheus.Labels.  The labels order is VERY
+		// important here.
+		TLSHandshakeTotal.WithLabelValues(
+			proto,
+			tlsVersionToString(state.Version),
+			BoolString(state.DidResume),
+			tls.CipherSuiteName(state.CipherSuite),
+			state.NegotiatedProtocol,
+			sLabel,
+		).Inc()
 
 		return nil
 	}
@@ -99,11 +112,14 @@ func TLSMetricsBeforeHandshake(proto string) (f func(*tls.ClientHelloInfo) (*tls
 			}
 		}
 
-		TLSHandshakeAttemptsTotal.With(prometheus.Labels{
-			"proto":            proto,
-			"supported_protos": strings.Join(info.SupportedProtos, ","),
-			"tls_version":      tlsVersionToString(maxVersion),
-		}).Inc()
+		// Stick to using WithLabelValues instead of With in order to avoid
+		// extra allocations on prometheus.Labels.  The labels order is VERY
+		// important here.
+		TLSHandshakeAttemptsTotal.WithLabelValues(
+			proto,
+			strings.Join(info.SupportedProtos, ","),
+			tlsVersionToString(maxVersion),
+		).Inc()
 
 		return nil, nil
 	}

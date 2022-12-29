@@ -24,8 +24,8 @@ func (r *RateLimitMetricsListener) OnRateLimited(
 	req *dns.Msg,
 	rw dnsserver.ResponseWriter,
 ) {
-	reqLabels := requestLabels(ctx, req, rw)
-	droppedTotal.With(reqLabels).Inc()
+	s := dnsserver.MustServerInfoFromContext(ctx)
+	counterWithRequestLabels(s, req, rw, droppedTotal).Inc()
 }
 
 // OnAllowlisted implements the ratelimit.MetricsListener interface for
@@ -35,8 +35,8 @@ func (r *RateLimitMetricsListener) OnAllowlisted(
 	req *dns.Msg,
 	rw dnsserver.ResponseWriter,
 ) {
-	reqLabels := requestLabels(ctx, req, rw)
-	allowlistedTotal.With(reqLabels).Inc()
+	s := dnsserver.MustServerInfoFromContext(ctx)
+	counterWithRequestLabels(s, req, rw, allowlistedTotal).Inc()
 }
 
 // This block contains prometheus metrics declarations for ratelimit.Middleware

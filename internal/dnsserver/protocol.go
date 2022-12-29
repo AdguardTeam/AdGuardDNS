@@ -68,10 +68,18 @@ func (p Protocol) ALPN() (alpn []string) {
 	}
 }
 
+// HasPaddingSupport returns true if the protocol supports EDNS0 padding.  For
+// DoQ and DoH3 the padding should be added with QUIC, but as long as we can't
+// control it yet, we add DoQ protocol here.
+// TODO(d.kolyshev): Remove DoQ from this list.
+func (p Protocol) HasPaddingSupport() (ok bool) {
+	return p.IsStdEncrypted()
+}
+
 // IsStdEncrypted returns true if the protocol is one of the standard encrypted
 // DNS protocol as defined by an RFC.
 func (p Protocol) IsStdEncrypted() (ok bool) {
-	return p == ProtoDoH || p == ProtoDoT || p == ProtoDoQ
+	return p == ProtoDoT || p == ProtoDoH || p == ProtoDoQ
 }
 
 // Network is a enum with net protocols TCP and UDP.

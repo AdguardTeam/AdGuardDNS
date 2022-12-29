@@ -22,22 +22,9 @@ import (
 // into a single method.
 
 func TestStorage_FilterFromContext(t *testing.T) {
-	errColl := &agdtest.ErrorCollector{
+	c := prepareConf(t)
+	c.ErrColl = &agdtest.ErrorCollector{
 		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
-	}
-
-	fltsURL, svcsURL, ssURL, cacheDir := prepareIndex(t)
-	c := &filter.DefaultStorageConfig{
-		BlockedServiceIndexURL:    svcsURL,
-		FilterIndexURL:            fltsURL,
-		GeneralSafeSearchRulesURL: ssURL,
-		YoutubeSafeSearchRulesURL: ssURL,
-		SafeBrowsing:              &filter.HashPrefixConfig{},
-		AdultBlocking:             &filter.HashPrefixConfig{},
-		CacheDir:                  cacheDir,
-		ErrColl:                   errColl,
-		CustomFilterCacheSize:     100,
-		RefreshIvl:                testRefreshIvl,
 	}
 
 	s, err := filter.NewDefaultStorage(c)
@@ -137,20 +124,6 @@ func TestStorage_FilterFromContext(t *testing.T) {
 }
 
 func TestStorage_FilterFromContext_customAllow(t *testing.T) {
-	errColl := &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
-	}
-
-	resolver := &agdtest.Resolver{
-		OnLookupIP: func(
-			_ context.Context,
-			_ netutil.AddrFamily,
-			_ string,
-		) (ips []net.IP, err error) {
-			return []net.IP{safeBrowsingSafeIP4}, nil
-		},
-	}
-
 	// Initialize the hashes file and use it with the storage.
 	tmpFile, err := os.CreateTemp(t.TempDir(), "")
 	require.NoError(t, err)
@@ -165,25 +138,27 @@ func TestStorage_FilterFromContext_customAllow(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	fltsURL, svcsURL, ssURL, cacheDir := prepareIndex(t)
-	c := &filter.DefaultStorageConfig{
-		BlockedServiceIndexURL:    svcsURL,
-		FilterIndexURL:            fltsURL,
-		GeneralSafeSearchRulesURL: ssURL,
-		YoutubeSafeSearchRulesURL: ssURL,
-		SafeBrowsing: &filter.HashPrefixConfig{
-			Hashes:          hashes,
-			ReplacementHost: safeBrowsingSafeHost,
-			CacheTTL:        10 * time.Second,
-			CacheSize:       100,
+	c := prepareConf(t)
+
+	c.SafeBrowsing = &filter.HashPrefixConfig{
+		Hashes:          hashes,
+		ReplacementHost: safeBrowsingSafeHost,
+		CacheTTL:        10 * time.Second,
+		CacheSize:       100,
+	}
+
+	c.ErrColl = &agdtest.ErrorCollector{
+		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
+	}
+
+	c.Resolver = &agdtest.Resolver{
+		OnLookupIP: func(
+			_ context.Context,
+			_ netutil.AddrFamily,
+			_ string,
+		) (ips []net.IP, err error) {
+			return []net.IP{safeBrowsingSafeIP4}, nil
 		},
-		AdultBlocking:         &filter.HashPrefixConfig{},
-		Now:                   time.Now,
-		ErrColl:               errColl,
-		Resolver:              resolver,
-		CacheDir:              cacheDir,
-		CustomFilterCacheSize: 100,
-		RefreshIvl:            testRefreshIvl,
 	}
 
 	s, err := filter.NewDefaultStorage(c)
@@ -232,26 +207,9 @@ func TestStorage_FilterFromContext_customAllow(t *testing.T) {
 }
 
 func TestStorage_FilterFromContext_schedule(t *testing.T) {
-	errColl := &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
-	}
-
-	resolver := &agdtest.Resolver{
-		OnLookupIP: func(
-			_ context.Context,
-			_ netutil.AddrFamily,
-			_ string,
-		) (ips []net.IP, err error) {
-			return []net.IP{safeBrowsingSafeIP4}, nil
-		},
-	}
-
 	// The current time is 12:00:00, while the schedule allows disabling the
 	// parental protection from 11:00:00 until 12:59:59.
 	nowTime := time.Date(2021, 1, 1, 12, 0, 0, 0, time.UTC)
-	now := func() (t time.Time) {
-		return nowTime
-	}
 
 	// Initialize the hashes file and use it with the storage.
 	tmpFile, err := os.CreateTemp(t.TempDir(), "")
@@ -267,27 +225,32 @@ func TestStorage_FilterFromContext_schedule(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	fltsURL, svcsURL, ssURL, cacheDir := prepareIndex(t)
-	c := &filter.DefaultStorageConfig{
-		BlockedServiceIndexURL:    svcsURL,
-		FilterIndexURL:            fltsURL,
-		GeneralSafeSearchRulesURL: ssURL,
-		YoutubeSafeSearchRulesURL: ssURL,
-		SafeBrowsing:              &filter.HashPrefixConfig{},
-		// Use AdultBlocking, because SafeBrowsing is NOT affected by the
-		// schedule.
-		AdultBlocking: &filter.HashPrefixConfig{
-			Hashes:          hashes,
-			ReplacementHost: safeBrowsingSafeHost,
-			CacheTTL:        10 * time.Second,
-			CacheSize:       100,
+	c := prepareConf(t)
+
+	// Use AdultBlocking, because SafeBrowsing is NOT affected by the schedule.
+	c.AdultBlocking = &filter.HashPrefixConfig{
+		Hashes:          hashes,
+		ReplacementHost: safeBrowsingSafeHost,
+		CacheTTL:        10 * time.Second,
+		CacheSize:       100,
+	}
+
+	c.Now = func() (t time.Time) {
+		return nowTime
+	}
+
+	c.ErrColl = &agdtest.ErrorCollector{
+		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
+	}
+
+	c.Resolver = &agdtest.Resolver{
+		OnLookupIP: func(
+			_ context.Context,
+			_ netutil.AddrFamily,
+			_ string,
+		) (ips []net.IP, err error) {
+			return []net.IP{safeBrowsingSafeIP4}, nil
 		},
-		Now:                   now,
-		ErrColl:               errColl,
-		Resolver:              resolver,
-		CacheDir:              cacheDir,
-		CustomFilterCacheSize: 100,
-		RefreshIvl:            testRefreshIvl,
 	}
 
 	s, err := filter.NewDefaultStorage(c)
@@ -373,22 +336,10 @@ var (
 )
 
 func BenchmarkStorage_NewDefaultStorage(b *testing.B) {
-	errColl := &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
-	}
+	c := prepareConf(b)
 
-	fltsURL, svcsURL, ssURL, cacheDir := prepareIndex(b)
-	c := &filter.DefaultStorageConfig{
-		BlockedServiceIndexURL:    svcsURL,
-		FilterIndexURL:            fltsURL,
-		GeneralSafeSearchRulesURL: ssURL,
-		YoutubeSafeSearchRulesURL: ssURL,
-		SafeBrowsing:              &filter.HashPrefixConfig{},
-		AdultBlocking:             &filter.HashPrefixConfig{},
-		CacheDir:                  cacheDir,
-		ErrColl:                   errColl,
-		CustomFilterCacheSize:     100,
-		RefreshIvl:                testRefreshIvl,
+	c.ErrColl = &agdtest.ErrorCollector{
+		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
 	}
 
 	b.ReportAllocs()

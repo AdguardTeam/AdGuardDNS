@@ -9,6 +9,7 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/miekg/dns"
+	"github.com/panjf2000/ants/v2"
 )
 
 const (
@@ -61,16 +62,20 @@ type ServerDNS struct {
 	*ServerBase
 	conf ConfigDNS
 
-	// Internal UDP server properties
-	// --
+	// workerPool is a goroutine workerPool we use to process DNS queries.
+	// Complicated logic may require growing the goroutine's stack, and we
+	// experienced it in AdGuard DNS.  The easiest way to avoid spending extra
+	// time on this is to reuse already existing goroutines.
+	workerPool *ants.Pool
 
-	udpPool sync.Pool // pool for UDP message buffers
+	// udpPool is a pool for UDP message buffers.
+	udpPool sync.Pool
 
-	// Internal TCP server properties
-	// --
+	// tcpPool is a pool for TCP message buffers.
+	tcpPool sync.Pool
 
-	tcpPool    sync.Pool             // pool for TCP message buffers
-	tcpConns   map[net.Conn]struct{} // track active connections
+	// tcpConns is a set that is used to track active connections.
+	tcpConns   map[net.Conn]struct{}
 	tcpConnsMu sync.Mutex
 }
 
@@ -108,6 +113,7 @@ func newServerDNS(proto Protocol, conf ConfigDNS) (s *ServerDNS) {
 	s = &ServerDNS{
 		ServerBase: newServerBase(proto, conf.ConfigBase),
 		conf:       conf,
+		workerPool: newPoolNonblocking(),
 	}
 
 	// Initialize internal properties.
@@ -120,7 +126,7 @@ func newServerDNS(proto Protocol, conf ConfigDNS) (s *ServerDNS) {
 
 // Start implements the dnsserver.Server interface for *ServerDNS.
 func (s *ServerDNS) Start(ctx context.Context) (err error) {
-	defer func() { err = errors.Annotate(err, "starting dns server: %w", err) }()
+	defer func() { err = errors.Annotate(err, "starting dns server: %w") }()
 
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -171,17 +177,23 @@ func (s *ServerDNS) Start(ctx context.Context) (err error) {
 
 // Shutdown implements the dnsserver.Server interface for *ServerDNS.
 func (s *ServerDNS) Shutdown(ctx context.Context) (err error) {
-	defer func() { err = errors.Annotate(err, "shutting down dns server: %w", err) }()
+	defer func() { err = errors.Annotate(err, "shutting down dns server: %w") }()
 
 	err = s.shutdown()
 	if err != nil {
 		log.Info("[%s]: Failed to shutdown: %v", s.Name(), err)
+
 		return err
 	}
 
 	s.unblockTCPConns()
 	err = s.waitShutdown(ctx)
+
+	// Close the workerPool and releases all workers.
+	s.workerPool.Release()
+
 	log.Info("[%s]: Finished stopping the server", s.Name())
+
 	return err
 }
 
@@ -226,6 +238,7 @@ func (s *ServerDNS) shutdown() (err error) {
 
 	// Now close all listeners.
 	s.closeListeners()
+
 	return nil
 }
 
@@ -260,15 +273,17 @@ func withWriteDeadline(ctx context.Context, writeTimeout time.Duration, conn net
 
 	defer func() {
 		err := conn.SetWriteDeadline(time.Time{})
-		if err != nil {
-			// Consider deadline errors non-critical.
+		if err != nil && !errors.Is(err, net.ErrClosed) {
+			// Consider deadline errors non-critical.  Ignore net.ErrClosed as
+			// it is expected to happen when the client closes connections.
 			log.Error("removing write deadline: %s", err)
 		}
 	}()
 
 	err := conn.SetWriteDeadline(dl)
-	if err != nil {
-		// Consider deadline errors non-critical.
+	if err != nil && !errors.Is(err, net.ErrClosed) {
+		// Consider deadline errors non-critical.  Ignore net.ErrClosed as
+		// it is expected to happen when the client closes connections.
 		log.Error("setting write deadline: %s", err)
 	}
 

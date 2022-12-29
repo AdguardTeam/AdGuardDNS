@@ -131,6 +131,10 @@ func TestServerHTTPS_integration_serveRequests(t *testing.T) {
 
 			resp = mustDoHReq(t, addr, tlsConfig, tc.method, tc.json, tc.reqWireFormat, req)
 			require.True(t, resp.Response)
+
+			// EDNS0 padding is only present when request also has padding opt.
+			paddingOpt := dnsservertest.FindENDS0Option[*dns.EDNS0_PADDING](resp)
+			require.Nil(t, paddingOpt)
 		})
 	}
 }
@@ -312,6 +316,31 @@ func TestDNSMsgToJSONMsg(t *testing.T) {
 		TTL:   200,
 		Data:  "2000::",
 	}}, jsonMsg.Extra)
+}
+
+func TestServerHTTPS_integration_ENDS0Padding(t *testing.T) {
+	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
+	srv, err := dnsservertest.RunLocalHTTPSServer(
+		dnsservertest.DefaultHandler(),
+		tlsConfig,
+		nil,
+	)
+	require.NoError(t, err)
+
+	testutil.CleanupAndRequireSuccess(t, func() (err error) {
+		return srv.Shutdown(context.Background())
+	})
+
+	req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
+	req.Extra = []dns.RR{dnsservertest.NewEDNS0Padding(req.Len(), dns.DefaultMsgSize)}
+	addr := srv.LocalTCPAddr()
+
+	resp := mustDoHReq(t, addr, tlsConfig, http.MethodGet, false, false, req)
+	require.True(t, resp.Response)
+
+	paddingOpt := dnsservertest.FindENDS0Option[*dns.EDNS0_PADDING](resp)
+	require.NotNil(t, paddingOpt)
+	require.NotEmpty(t, paddingOpt.Padding)
 }
 
 func mustDoHReq(

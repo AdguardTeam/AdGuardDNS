@@ -80,7 +80,11 @@ func (b *serviceBlocker) ruleLists(ids []agd.BlockedServiceID) (rls []*ruleListF
 }
 
 // refresh loads new service data from the index URL.
-func (b *serviceBlocker) refresh(ctx context.Context) (err error) {
+func (b *serviceBlocker) refresh(
+	ctx context.Context,
+	cacheSize int,
+	useCache bool,
+) (err error) {
 	// Report the services update to prometheus.
 	promLabels := prometheus.Labels{
 		"filter": string(agd.FilterListIDBlockedService),
@@ -99,7 +103,7 @@ func (b *serviceBlocker) refresh(ctx context.Context) (err error) {
 		return err
 	}
 
-	services, err := resp.toInternal()
+	services, err := resp.toInternal(cacheSize, useCache)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return err
@@ -158,7 +162,10 @@ type svcIndexResp struct {
 }
 
 // toInternal converts the services from the index to serviceRuleLists.
-func (r *svcIndexResp) toInternal() (services serviceRuleLists, err error) {
+func (r *svcIndexResp) toInternal(
+	cacheSize int,
+	useCache bool,
+) (services serviceRuleLists, err error) {
 	l := len(r.BlockedServices)
 	if l == 0 {
 		return nil, nil
@@ -185,14 +192,18 @@ func (r *svcIndexResp) toInternal() (services serviceRuleLists, err error) {
 		text := strings.Join(svc.Rules, "\n")
 
 		var rl *ruleListFilter
-		rl, err = newRuleListFltFromStr(text, agd.FilterListIDBlockedService)
+		rl, err = newRuleListFltFromStr(
+			text,
+			agd.FilterListIDBlockedService,
+			svc.ID,
+			cacheSize,
+			useCache,
+		)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("compiling %s: %w", svc.ID, err))
 
 			continue
 		}
-
-		rl.svcID = id
 
 		services[id] = rl
 	}

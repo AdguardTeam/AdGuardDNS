@@ -40,5 +40,5 @@ func isIgnoredQuestion(q dns.Question) (ok bool) {
 	return (q.Qtype != dns.TypeA && q.Qtype != dns.TypeAAAA) ||
 		// Android metric domain must be ignored by DNSDB to avoid filling it
 		// with unnecessary garbage that we don't really need.
-		agdnet.IsAndroidTLSMetricDomain(q.Name)
+		agdnet.AndroidMetricDomainReplacement(q.Name) != ""
 }

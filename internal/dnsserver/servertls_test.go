@@ -19,7 +19,7 @@ func TestServerTLS_integration_queryTLS(t *testing.T) {
 	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
 	addr := dnsservertest.RunTLSServer(t, dnsservertest.DefaultHandler(), tlsConfig)
 
-	// Create a test message
+	// Create a test message.
 	req := new(dns.Msg)
 	req.Id = dns.Id()
 	req.RecursionDesired = true
@@ -28,16 +28,20 @@ func TestServerTLS_integration_queryTLS(t *testing.T) {
 		{Name: name, Qtype: dns.TypeA, Qclass: dns.ClassINET},
 	}
 
-	// Send this test message to our server over TCP
+	// Send this test message to our server over TCP.
 	c := new(dns.Client)
 	c.TLSConfig = tlsConfig
 	c.Net = "tcp-tls"
-	res, _, err := c.Exchange(req, addr.String())
+	resp, _, err := c.Exchange(req, addr.String())
 	require.NoError(t, err)
-	require.NotNil(t, res)
-	require.Equal(t, dns.RcodeSuccess, res.Rcode)
-	require.True(t, res.Response)
-	require.False(t, res.Truncated)
+	require.NotNil(t, resp)
+	require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+	require.True(t, resp.Response)
+	require.False(t, resp.Truncated)
+
+	// EDNS0 padding is only present when request also has padding opt.
+	paddingOpt := dnsservertest.FindENDS0Option[*dns.EDNS0_PADDING](resp)
+	require.Nil(t, paddingOpt)
 }
 
 func TestServerTLS_integration_msgIgnore(t *testing.T) {
@@ -130,12 +134,16 @@ func TestServerTLS_integration_noTruncateQuery(t *testing.T) {
 	c := new(dns.Client)
 	c.TLSConfig = tlsConfig
 	c.Net = "tcp-tls"
-	res, _, err := c.Exchange(req, addr.String())
+	resp, _, err := c.Exchange(req, addr.String())
 	require.NoError(t, err)
-	require.NotNil(t, res)
-	require.Equal(t, dns.RcodeSuccess, res.Rcode)
-	require.True(t, res.Response)
-	require.False(t, res.Truncated)
+	require.NotNil(t, resp)
+	require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+	require.True(t, resp.Response)
+	require.False(t, resp.Truncated)
+
+	// EDNS0 padding is only present when request also has padding opt.
+	paddingOpt := dnsservertest.FindENDS0Option[*dns.EDNS0_PADDING](resp)
+	require.Nil(t, paddingOpt)
 }
 
 func TestServerTLS_integration_queriesPipelining(t *testing.T) {
@@ -205,4 +213,25 @@ func TestServerTLS_integration_queriesPipelining(t *testing.T) {
 		// Remove it from the map since it was already received
 		delete(ids, res.Id)
 	}
+}
+
+func TestServerTLS_integration_ENDS0Padding(t *testing.T) {
+	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
+	addr := dnsservertest.RunTLSServer(t, dnsservertest.DefaultHandler(), tlsConfig)
+
+	req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
+	req.Extra = []dns.RR{dnsservertest.NewEDNS0Padding(req.Len(), dns.DefaultMsgSize)}
+
+	// Send test message to our server over TCP
+	c := &dns.Client{Net: "tcp-tls", TLSConfig: tlsConfig}
+	resp, _, err := c.Exchange(req, addr.String())
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+	require.True(t, resp.Response)
+	require.False(t, resp.Truncated)
+
+	paddingOpt := dnsservertest.FindENDS0Option[*dns.EDNS0_PADDING](resp)
+	require.NotNil(t, paddingOpt)
+	require.NotEmpty(t, paddingOpt.Padding)
 }

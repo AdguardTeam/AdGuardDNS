@@ -57,7 +57,7 @@ the following format:
         {
           "id": "0d7724fa",
           "name": "Device 1",
-          "filtering_enabled": true
+          "filtering_enabled": true,
           "linked_ip": "1.2.3.4"
         }
       ],
@@ -141,8 +141,8 @@ variable should define the following endpoints:
  *  `POST /ddns/{device_id}/{encrypted}/{domain}`;
  *  `POST /linkip/{device_id}/{encrypted}`.
 
-The AdGuard DNS proxy will add the `X-Forwarded-For` header with the IP address
-of the original client.
+The AdGuard DNS proxy will add the `CF-Connecting-IP` header with the IP address
+of the original client as well as set the `User-Agent` header to its own value.
 
 [env-backend]: environment.md#BACKEND_ENDPOINT
 
@@ -156,6 +156,19 @@ documentation of the [`CONSUL_ALLOWLIST_URL`][env-consul-allowlist],
 [`CONSUL_DNSCHECK_KV_URL`][env-consul-dnscheck-kv], and
 [`CONSUL_DNSCHECK_SESSION_URL`][env-consul-dnscheck-session] environment
 variables.
+
+The `CONSUL_ALLOWLIST_URL` endpoint must respond with a `200 OK` response code
+and a JSON document in the following format:
+
+```json
+[
+  {
+    "Address": "1.2.3.4"
+  }
+]
+```
+
+**TODO(a.garipov):** Add examples of other responses.
 
 [consul-io]:                   https://www.consul.io/
 [env-consul-allowlist]:        environment.md#CONSUL_ALLOWLIST_URL

@@ -68,7 +68,8 @@ func (f *customFilters) appendRuleLists(
 		stringutil.WriteToBuilder(b, string(r), "\n")
 	}
 
-	rl, err := newRuleListFltFromStr(b.String(), agd.FilterListIDCustom)
+	// Don't use cache for users' custom filters.
+	rl, err := newRuleListFltFromStr(b.String(), agd.FilterListIDCustom, string(p.ID), 0, false)
 	if err != nil {
 		// In a rare situation where the custom rules are so badly formed that
 		// we cannot even create a filtering engine, consider that there is no

@@ -1,9 +1,9 @@
 #!/bin/sh
 
-# _SCRIPT_VERSION is used to simplify checking local copies of the script.  Bump
+# This comment is used to simplify checking local copies of the script.  Bump
 # this number every time a significant change is made to this script.
-_SCRIPT_VERSION='2'
-readonly _SCRIPT_VERSION
+#
+# AdGuard-Project-Version: 3
 
 verbose="${VERBOSE:-0}"
 readonly verbose
@@ -25,8 +25,7 @@ set -f -u
 
 
 
-# Source the common helpers, including exit_on_output, not_found, and
-# with_progname.
+# Source the common helpers, including not_found and run_linter.
 . ./scripts/make/helper.sh
 
 
@@ -36,7 +35,7 @@ set -f -u
 go_version="$( "${GO:-go}" version )"
 readonly go_version
 
-go_min_version='go1.19.3'
+go_min_version='go1.19.4'
 go_version_msg="
 warning: your go version (${go_version}) is different from the recommended minimal one (${go_min_version}).
 if you have the version installed, please set the GO environment variable.
@@ -139,48 +138,47 @@ underscores() {
 
 # Checks
 
-
 # TODO(a.garipov): Remove the dnsserver stuff once it is separated.
 dnssrvmod='github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/...'
 readonly dnssrvmod
 
-exit_on_output blocklist_imports
+run_linter -e blocklist_imports
 
-exit_on_output method_const
+run_linter -e method_const
 
-exit_on_output underscores
+run_linter -e underscores
 
-exit_on_output gofumpt --extra -e -l .
+run_linter -e gofumpt --extra -e -l .
 
 # TODO(a.garipov): golint is deprecated, find a suitable replacement.
 
-with_progname "$GO" vet ./... "$dnssrvmod"
+run_linter "$GO" vet ./... "$dnssrvmod"
 
-with_progname govulncheck ./... "$dnssrvmod"
+run_linter govulncheck ./... "$dnssrvmod"
 
-with_progname gocyclo --over 10 .
+run_linter gocyclo --over 10 .
 
-with_progname ineffassign ./... "$dnssrvmod"
+run_linter ineffassign ./... "$dnssrvmod"
 
-with_progname unparam ./... "$dnssrvmod"
+run_linter unparam ./... "$dnssrvmod"
 
 git ls-files -- 'Makefile' '*.conf' '*.go' '*.mod' '*.sh' '*.yaml' '*.yml'\
 	| xargs misspell --error\
 	| sed -e 's/^/misspell: /'
 
-with_progname looppointer ./... "$dnssrvmod"
+run_linter looppointer ./... "$dnssrvmod"
 
-with_progname nilness ./... "$dnssrvmod"
+run_linter nilness ./... "$dnssrvmod"
 
 # Do not use fieldalignment on $dnssrvmod, because ameshkov likes to place
 # struct fields in an order that he considers more readable.
-with_progname fieldalignment ./...
+run_linter fieldalignment ./...
 
-exit_on_output shadow --strict ./... "$dnssrvmod"
+run_linter -e shadow --strict ./... "$dnssrvmod"
 
-with_progname gosec --quiet ./... "$dnssrvmod"
+run_linter gosec --quiet ./... "$dnssrvmod"
 
-with_progname errcheck ./... "$dnssrvmod"
+run_linter errcheck ./... "$dnssrvmod"
 
 staticcheck_matrix='
 darwin: GOOS=darwin
@@ -188,4 +186,4 @@ linux:  GOOS=linux
 '
 readonly staticcheck_matrix
 
-echo "$staticcheck_matrix" | with_progname staticcheck --matrix ./... "$dnssrvmod"
+echo "$staticcheck_matrix" | run_linter staticcheck --matrix ./... "$dnssrvmod"

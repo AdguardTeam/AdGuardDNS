@@ -47,17 +47,23 @@ type ConfigBase struct {
 type ServerBase struct {
 	// name is used for logging and it may be used for perf counters reporting.
 	name string
+
 	// addr is the address the server listens to.
 	addr string
+
 	// proto is the server protocol.
 	proto Protocol
+
 	// network is the network to listen to.  It only makes sense for the
 	// following protocols: ProtoDNS, ProtoDNSCrypt, ProtoDoH.
 	network Network
+
 	// handler is a handler that processes incoming DNS messages.
 	handler Handler
+
 	// baseContext is a function that should return the base context.
 	baseContext func() (ctx context.Context)
+
 	// metrics is the object we use for collecting performance metrics.
 	metrics MetricsListener
 
@@ -66,6 +72,7 @@ type ServerBase struct {
 
 	// will be nil for servers that don't use TCP.
 	tcpListener net.Listener
+
 	// will be nil for servers that don't use UDP.
 	udpListener *net.UDPConn
 

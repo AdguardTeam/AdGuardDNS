@@ -1,52 +1,75 @@
 package dnsserver
 
-import "github.com/miekg/dns"
+import (
+	"math/rand"
+
+	"github.com/miekg/dns"
+)
+
+// responsePaddingMaxSize is used to calculate the EDNS padding length.  We use
+// the Random-Length Padding strategy from RFC 8467 as we find it more
+// efficient, it requires less extra traffic while provides comparable entropy.
+const responsePaddingMaxSize = 128
+
+// respPadBuf is a fixed buffer to draw on for padding.
+var respPadBuf [responsePaddingMaxSize]byte
 
 // normalize adds an OPT record that the reflects the intent from request.
-// It also truncates the response if needed. The parameter network can be
-// either NetworkTCP or NetworkUDP.
-func normalize(network Network, req, resp *dns.Msg) {
-	o := req.IsEdns0()
-	if o == nil {
+// It also truncates the response and pads response if needed.
+//
+// TODO(ameshkov): Consider adding EDNS0COOKIE support.
+func normalize(network Network, proto Protocol, req, resp *dns.Msg) {
+	reqOpt := req.IsEdns0()
+	if reqOpt == nil {
 		truncate(resp, dnsSize(network, req))
 		resp.Compress = true
+
 		return
 	}
 
-	if mo := resp.IsEdns0(); mo != nil {
-		mo.Hdr.Name = "."
-		mo.Hdr.Rrtype = dns.TypeOPT
-		mo.SetVersion(0)
-		mo.SetUDPSize(o.UDPSize())
+	var respOpt *dns.OPT
+	if respOpt = resp.IsEdns0(); respOpt != nil {
+		respOpt.Hdr.Name = "."
+		respOpt.Hdr.Rrtype = dns.TypeOPT
+		respOpt.SetVersion(0)
+		respOpt.SetUDPSize(reqOpt.UDPSize())
 
 		// OPT record allows storing additional info in the TTL field:
 		// https://datatracker.ietf.org/doc/html/rfc6891#section-6.1.3
-		// We don't use it so we we should clear it.
-		mo.Hdr.Ttl &= 0xff00
+		// We don't use it so we should clear it.
+		respOpt.Hdr.Ttl &= 0xff00
 
 		// Assume if the message req has options set, they are OK and represent
 		// what an upstream can do.
-		if o.Do() {
-			mo.SetDo()
+		if reqOpt.Do() {
+			respOpt.SetDo()
 		}
-		return
+	} else {
+		// Reuse the request's OPT record options and tack it to resp.
+		respOpt = &dns.OPT{
+			Hdr: dns.RR_Header{
+				Name:   ".",
+				Rrtype: dns.TypeOPT,
+			},
+			Option: filterUnsupportedOptions(reqOpt.Option),
+		}
+		resp.Extra = append(resp.Extra, respOpt)
 	}
 
-	// Reuse the request's OPT record and tack it to m.
-	o.Hdr.Name = "."
-	o.Hdr.Rrtype = dns.TypeOPT
-	o.SetVersion(0)
-	o.Hdr.Ttl &= 0xff00 // clear flags
-	o.Option = filterUsupportedOptions(o.Option)
-
-	resp.Extra = append(resp.Extra, o)
+	// Make sure that we don't send messages larger than the protocol supports.
 	truncate(resp, dnsSize(network, req))
 
-	// Always compress the response
+	// Always compress the response.
 	resp.Compress = true
+
+	// In the case of encrypted protocols we should pad responses.
+	if proto.HasPaddingSupport() {
+		padAnswer(resp, reqOpt, respOpt)
+	}
 }
 
-// truncate truncates the response if needed.
+// truncate makes sure the response is not larger than the specified size.  If
+// it is, the Truncate flag is set to true and answer records are removed.
 func truncate(resp *dns.Msg, size int) {
 	resp.Truncate(size)
 
@@ -78,27 +101,82 @@ func dnsSize(network Network, r *dns.Msg) (n int) {
 	return int(size)
 }
 
-// filterUsupportedOptions filters out unsupported EDNS0 options.  The supported
-// options are:
+// filterUnsupportedOptions filters out unsupported EDNS0 options.  The
+// supported options are:
 //
 //   - EDNS0NSID
 //   - EDNS0EXPIRE
-//   - EDNS0TCPKEEPALIVE
-//   - EDNS0PADDING
 //
-// A server that doesn't support DNS Cookies should ignore the presence of a
-// COOKIE option and respond as if the request has no COOKIE option at all.
-//
-// See https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.
-func filterUsupportedOptions(o []dns.EDNS0) (supported []dns.EDNS0) {
+// All other options will be removed from the resulting array.
+func filterUnsupportedOptions(o []dns.EDNS0) (supported []dns.EDNS0) {
 	for _, opt := range o {
 		switch code := opt.Option(); code {
 		case dns.EDNS0NSID,
-			dns.EDNS0EXPIRE,
-			dns.EDNS0TCPKEEPALIVE,
-			dns.EDNS0PADDING:
+			dns.EDNS0EXPIRE:
 			supported = append(supported, opt)
 		}
 	}
+
 	return supported
+}
+
+// padAnswer adds padding to a DNS response before it's sent back over an
+// encrypted DNS protocol according to RFC 8467.  Unencrypted responses should
+// not be padded.  Inspired by github.com/folbricht/routedns padding.
+func padAnswer(resp *dns.Msg, reqOpt, respOpt *dns.OPT) {
+	if findOption[*dns.EDNS0_PADDING](reqOpt) == nil {
+		// According to the RFC, responders MAY (or may not) pad responses when
+		// the padding option is not included in the request.  In our case, we
+		// don't pad every response unless the client indicates that we must.
+
+		return
+	}
+
+	// If the answer has padding, grab that and truncate it before recalculating
+	// the length.
+	paddingOpt := findOption[*dns.EDNS0_PADDING](respOpt)
+	if paddingOpt != nil {
+		paddingOpt.Padding = nil
+	} else {
+		// Add the padding option if there isn't one already.
+		paddingOpt = &dns.EDNS0_PADDING{Padding: nil}
+		respOpt.Option = append(respOpt.Option, paddingOpt)
+	}
+
+	// TODO(ameshkov): Consider changing to crypto/rand, need to hold a vote.
+	// #nosec G404 -- We don't need a real random for a simple padding
+	// randomization, pseudo-random is enough.
+	padLen := rand.Intn(responsePaddingMaxSize-1) + 1
+
+	// If padding would make the packet larger than the request EDNS0 allows,
+	// we need to truncate it.
+	//
+	// TODO(ameshkov): Consider removing this check and not calling resp.Len().
+	// resp.Len() is a rather heavy function which we'd better avoid calling.
+	// However, we risk having a message larger than 64kB in this case.
+	answerLen := resp.Len()
+	if packetSize := int(reqOpt.UDPSize()); answerLen+padLen > packetSize {
+		padLen = packetSize - answerLen
+		if padLen < 0 {
+			// Still doesn't fit? Give up on padding.
+			padLen = 0
+		}
+	}
+
+	paddingOpt.Padding = respPadBuf[:padLen:padLen]
+}
+
+// findOption searches for the specified EDNS0 option in the OPT resource record
+// and returns it or nil if it's not present.
+//
+// TODO(ameshkov): Consider moving to golibs.
+func findOption[T dns.EDNS0](rr *dns.OPT) (o T) {
+	for _, opt := range rr.Option {
+		var ok bool
+		if o, ok = opt.(T); ok {
+			return o
+		}
+	}
+
+	return o
 }

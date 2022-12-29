@@ -9,20 +9,43 @@ import (
 	"strings"
 )
 
-// androidMetricFQDNSuffix is the suffix of the FQDN in DNS queries for
-// metrics that the DNS resolver of the Android operating system seems to
-// send a lot and because of that we apply special rules to these queries.
-// Check out Android code to see how it's used:
-// https://cs.android.com/search?q=ds.metric.gstatic.com
-const androidMetricFQDNSuffix = "-ds.metric.gstatic.com."
+// These are suffixes of the FQDN in DNS queries for metrics that the DNS
+// resolver of the Android operating system seems to send a lot and because of
+// that we apply special rules to these queries.  Check out Android code to see
+// how it's used: https://cs.android.com/search?q=ds.metric.gstatic.com
+const (
+	androidMetricFQDNSuffix = "-ds.metric.gstatic.com."
 
-// IsAndroidTLSMetricDomain returns true if the specified domain is the
-// Android's DNS-over-TLS metrics domain.
-func IsAndroidTLSMetricDomain(fqdn string) (ok bool) {
-	fqdnLen := len(fqdn)
-	sufLen := len(androidMetricFQDNSuffix)
+	androidMetricDoTFQDNSuffix = "-dnsotls" + androidMetricFQDNSuffix
+	androidMetricDoHFQDNSuffix = "-dnsohttps" + androidMetricFQDNSuffix
+)
 
-	return fqdnLen > sufLen && strings.EqualFold(fqdn[fqdnLen-sufLen:], androidMetricFQDNSuffix)
+// androidMetricDoTReplacementFQDN and androidMetricDoHReplacementFQDN are
+// hosts used to rewrite queries to domains ending with [androidMetricFQDNSuffix].
+// We do this in order to cache all these queries as a single record and
+// save some resources on this.
+const (
+	androidMetricDoTReplacementFQDN = "00000000-dnsotls" + androidMetricFQDNSuffix
+	androidMetricDoHReplacementFQDN = "000000-dnsohttps" + androidMetricFQDNSuffix
+)
+
+// AndroidMetricDomainReplacement returns an empty string if fqdn is not ending with
+// androidMetricFQDNSuffix.  Otherwise it returns an appropriate replacement
+// domain name.
+func AndroidMetricDomainReplacement(fqdn string) (repl string) {
+	fqdn = strings.ToLower(fqdn)
+
+	if !strings.HasSuffix(fqdn, androidMetricFQDNSuffix) {
+		return ""
+	}
+
+	if strings.HasSuffix(fqdn, androidMetricDoHFQDNSuffix) {
+		return androidMetricDoHReplacementFQDN
+	} else if strings.HasSuffix(fqdn, androidMetricDoTFQDNSuffix) {
+		return androidMetricDoTReplacementFQDN
+	}
+
+	return ""
 }
 
 // ParseSubnets parses IP networks, including single-address ones, from strings.

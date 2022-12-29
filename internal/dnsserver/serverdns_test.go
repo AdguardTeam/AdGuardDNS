@@ -3,6 +3,7 @@ package dnsserver_test
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"testing"
@@ -12,7 +13,9 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -64,7 +67,7 @@ func TestServerDNS_integration_query(t *testing.T) {
 			opt := m.IsEdns0()
 			require.NotNil(t, opt)
 			require.Len(t, opt.Option, 1)
-			require.Equal(t, uint16(dns.EDNS0TCPKEEPALIVE), opt.Option[0].Option())
+			require.Equal(t, uint16(dns.EDNS0EXPIRE), opt.Option[0].Option())
 		},
 		req: &dns.Msg{
 			MsgHdr: dns.MsgHdr{Id: dns.Id(), RecursionDesired: true},
@@ -79,10 +82,9 @@ func TestServerDNS_integration_query(t *testing.T) {
 						Class:  2000,
 					},
 					Option: []dns.EDNS0{
-						&dns.EDNS0_TCP_KEEPALIVE{
-							Code:    dns.EDNS0COOKIE,
-							Timeout: 1,
-							Length:  1,
+						&dns.EDNS0_EXPIRE{
+							Code:   dns.EDNS0EXPIRE,
+							Expire: 1,
 						},
 						// The test checks that this option will be removed
 						// from the response
@@ -223,6 +225,34 @@ func TestServerDNS_integration_query(t *testing.T) {
 				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
 			},
 		},
+	}, {
+		// Check that the server adds keep alive option when the client
+		// indicates that supports it.
+		name:                 "tcp_edns0_tcp_keep-alive",
+		network:              dnsserver.NetworkTCP,
+		expectedRecordsCount: 1,
+		expectedRCode:        dns.RcodeSuccess,
+		req: &dns.Msg{
+			MsgHdr: dns.MsgHdr{Id: dns.Id(), RecursionDesired: true},
+			Question: []dns.Question{
+				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
+			},
+			Extra: []dns.RR{
+				&dns.OPT{
+					Hdr: dns.RR_Header{
+						Name:   ".",
+						Rrtype: dns.TypeOPT,
+						Class:  2000, // Set maximum UDPSize here
+					},
+					Option: []dns.EDNS0{
+						&dns.EDNS0_TCP_KEEPALIVE{
+							Code:    dns.EDNS0TCPKEEPALIVE,
+							Timeout: 100,
+						},
+					},
+				},
+			},
+		},
 	}}
 
 	for _, tc := range testCases {
@@ -238,85 +268,104 @@ func TestServerDNS_integration_query(t *testing.T) {
 			c.Net = string(tc.network)
 			c.UDPSize = 7000 // need to be set to read large responses
 
-			res, _, err := c.Exchange(tc.req, addr)
+			resp, _, err := c.Exchange(tc.req, addr)
 			require.NoError(t, err)
-			require.NotNil(t, res)
+			require.NotNil(t, resp)
 			if tc.expectedMsg != nil {
-				tc.expectedMsg(t, res)
+				tc.expectedMsg(t, resp)
 			}
 
-			dnsservertest.RequireResponse(t, tc.req, res, tc.expectedRecordsCount, tc.expectedRCode, tc.expectedTruncated)
+			dnsservertest.RequireResponse(
+				t,
+				tc.req,
+				resp,
+				tc.expectedRecordsCount,
+				tc.expectedRCode,
+				tc.expectedTruncated,
+			)
+
+			reqKeepAliveOpt := dnsservertest.FindENDS0Option[*dns.EDNS0_TCP_KEEPALIVE](tc.req)
+			respKeepAliveOpt := dnsservertest.FindENDS0Option[*dns.EDNS0_TCP_KEEPALIVE](resp)
+			if tc.network == dnsserver.NetworkTCP && reqKeepAliveOpt != nil {
+				require.NotNil(t, respKeepAliveOpt)
+				expectedTimeout := uint16(dnsserver.DefaultTCPIdleTimeout.Milliseconds() / 100)
+				require.Equal(t, expectedTimeout, respKeepAliveOpt.Timeout)
+			} else {
+				require.Nil(t, respKeepAliveOpt)
+			}
 		})
 	}
 }
 
 func TestServerDNS_integration_tcpQueriesPipelining(t *testing.T) {
-	// As per RFC 7766 we should support queries pipelining for TCP, that is we
-	// should be able to process incoming queries in parallel and write
-	// responses out of order.
+	// As per RFC 7766 we should support queries pipelining for TCP, that is
+	// server must be able to process incoming queries in parallel and write
+	// responses possibly out of order within the same connection.
 	_, addr := dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
 
-	// First - establish a connection
+	// Establish a connection.
 	conn, err := net.Dial("tcp", addr)
-	require.Nil(t, err)
+	require.NoError(t, err)
+	testutil.CleanupAndRequireSuccess(t, conn.Close)
 
-	defer log.OnCloserError(conn, log.DEBUG)
+	// Write multiple queries and save their IDs.
+	const queriesNum = 100
 
-	// Second - write multiple queries (let's say 100) and save
-	// those queries IDs
-	count := 100
-	ids := map[uint16]bool{}
-	for i := 0; i < count; i++ {
-		req := new(dns.Msg)
-		req.Id = uint16(i)
-		req.RecursionDesired = true
-		name := "example.org."
-		req.Question = []dns.Question{
-			{Name: name, Qtype: dns.TypeA, Qclass: dns.ClassINET},
-		}
+	sentIDs := make(map[uint16]string, queriesNum)
+	for i := 0; i < queriesNum; i++ {
+		name := fmt.Sprintf("host%d.org", i)
+		req := dnsservertest.CreateMessage(name, dns.TypeA)
+		req.Id = uint16(i + 1)
 
-		// Save the ID
-		ids[req.Id] = true
+		// Pack the message.
+		var b []byte
+		b, err = req.Pack()
+		require.NoError(t, err)
 
-		// Pack the message
-		b, _ := req.Pack()
 		msg := make([]byte, 2+len(b))
 		binary.BigEndian.PutUint16(msg, uint16(len(b)))
 		copy(msg[2:], b)
 
-		// Write it to the connection
-		_, _ = conn.Write(msg)
+		// Write it to the connection.
+		var n int
+		n, err = conn.Write(msg)
+		require.NoError(t, err)
+		require.Equal(t, len(msg), n)
+
+		// Save the ID.
+		sentIDs[req.Id] = dns.Fqdn(name)
 	}
 
-	// Now read the responses and check their IDs
-	for i := 0; i < count; i++ {
-		_ = conn.SetReadDeadline(time.Now().Add(time.Millisecond * 100))
-		l := make([]byte, 2)
-		_, err = conn.Read(l)
+	// Read the responses and check their IDs.
+	receivedIDs := make(map[uint16]string, queriesNum)
+	for i := 0; i < queriesNum; i++ {
+		err = conn.SetReadDeadline(time.Now().Add(time.Second))
 		require.NoError(t, err)
 
-		packetLen := binary.BigEndian.Uint16(l)
-		buf := make([]byte, packetLen)
+		// Read the length of the message.
+		var length uint16
+		err = binary.Read(conn, binary.BigEndian, &length)
+		require.NoError(t, err)
+
+		// Read the message.
+		buf := make([]byte, length)
 		_, err = io.ReadFull(conn, buf)
 		require.NoError(t, err)
 
-		// Unpack the message
+		// Unpack the message.
 		res := &dns.Msg{}
 		err = res.Unpack(buf)
 		require.NoError(t, err)
 
-		// Check some general response properties
+		// Check some general response properties.
 		require.True(t, res.Response)
 		require.Equal(t, dns.RcodeSuccess, res.Rcode)
 
-		// Now check the response ID
-		v, ok := ids[res.Id]
-		require.True(t, v)
-		require.True(t, ok)
-
-		// Remove it from the map since it was already received
-		delete(ids, res.Id)
+		require.NotEmpty(t, res.Question)
+		receivedIDs[res.Id] = res.Question[0].Name
 	}
+
+	assert.Equal(t, sentIDs, receivedIDs)
 }
 
 func TestServerDNS_integration_udpMsgIgnore(t *testing.T) {

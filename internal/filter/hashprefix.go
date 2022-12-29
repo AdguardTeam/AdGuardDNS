@@ -8,17 +8,17 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/resultcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
-	"github.com/patrickmn/go-cache"
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/net/publicsuffix"
 )
 
-// Hash Prefix Filter
+// Hash-prefix filter
 
-// HashPrefixConfig is the hash prefix filter configuration structure.
+// HashPrefixConfig is the hash-prefix filter configuration structure.
 type HashPrefixConfig struct {
 	// Hashes are the hostname hashes for this filter.
 	Hashes *HashStorage
@@ -30,44 +30,57 @@ type HashPrefixConfig struct {
 
 	// CacheTTL is the time-to-live value used to cache the results of the
 	// filter.
+	//
+	// TODO(a.garipov): Currently unused.
 	CacheTTL time.Duration
 
 	// CacheSize is the size of the filter's result cache.
-	//
-	// TODO(a.garipov): Currently unused.
 	CacheSize int
 }
 
 // hashPrefixFilter is a filter that matches hosts by their hashes based on
-// a hash prefix table.
+// a hash-prefix table.
 type hashPrefixFilter struct {
 	hashes   *HashStorage
-	resCache *resultCache
+	resCache *resultcache.Cache[*ResultModified]
 	resolver agdnet.Resolver
 	errColl  agd.ErrorCollector
 	repHost  string
 	id       agd.FilterListID
 }
 
-// newHashPrefixFilter returns a new hash prefix filter.  c must not be nil.
+// newHashPrefixFilter returns a new hash-prefix filter.  c must not be nil.
 func newHashPrefixFilter(
 	c *HashPrefixConfig,
 	resolver agdnet.Resolver,
 	errColl agd.ErrorCollector,
 	id agd.FilterListID,
 ) (f *hashPrefixFilter) {
-	cache := &resultCache{
-		cache: cache.New(c.CacheTTL, defaultResultCacheGC),
-	}
-
-	return &hashPrefixFilter{
+	f = &hashPrefixFilter{
 		hashes:   c.Hashes,
-		resCache: cache,
+		resCache: resultcache.New[*ResultModified](c.CacheSize),
 		resolver: resolver,
 		errColl:  errColl,
 		repHost:  c.ReplacementHost,
 		id:       id,
 	}
+
+	// Patch the refresh function of the hash storage, if there is one, to make
+	// sure that we clear the result cache during every refresh.
+	//
+	// TODO(a.garipov): Create a better way to do that than this spaghetti-style
+	// patching.  Perhaps, lift the entire logic of hash-storage refresh into
+	// hashPrefixFilter.
+	if f.hashes != nil && f.hashes.refr != nil {
+		resetRules := f.hashes.refr.resetRules
+		f.hashes.refr.resetRules = func(text string) (err error) {
+			f.resCache.Clear()
+
+			return resetRules(text)
+		}
+	}
+
+	return f
 }
 
 // type check
@@ -80,12 +93,18 @@ func (f *hashPrefixFilter) filterReq(
 	ri *agd.RequestInfo,
 	req *dns.Msg,
 ) (r Result, err error) {
-	host := ri.Host
-	qt := ri.QType
-	r, ok := f.resCache.get(host, qt)
+	host, qt := ri.Host, ri.QType
+	cacheKey := resultcache.DefaultKey(host, qt, false)
+	rm, ok := f.resCache.Get(cacheKey)
 	f.updateCacheLookupsMetrics(ok)
 	if ok {
-		return r.(*ResultModified).CloneForReq(req), nil
+		if rm == nil {
+			// Return nil explicitly instead of modifying CloneForReq to return
+			// nil if the result is nil to avoid a “non-nil nil” value.
+			return nil, nil
+		}
+
+		return rm.CloneForReq(req), nil
 	}
 
 	fam := netutil.AddrFamilyFromRRType(qt)
@@ -104,6 +123,8 @@ func (f *hashPrefixFilter) filterReq(
 	}
 
 	if matched == "" {
+		f.resCache.Set(cacheKey, nil)
+
 		return nil, nil
 	}
 
@@ -123,7 +144,7 @@ func (f *hashPrefixFilter) filterReq(
 		}
 	}
 
-	rm := &ResultModified{
+	rm = &ResultModified{
 		Msg:  result,
 		List: f.id,
 		Rule: agd.FilterRuleText(matched),
@@ -133,8 +154,8 @@ func (f *hashPrefixFilter) filterReq(
 	// down the pipeline don't interfere with the cached value.
 	//
 	// See AGDNS-359.
-	f.resCache.set(host, qt, rm.Clone())
-	f.updateCacheSizeMetrics(f.resCache.cache.ItemCount())
+	f.resCache.Set(cacheKey, rm.Clone())
+	f.updateCacheSizeMetrics(f.resCache.ItemCount())
 
 	return rm, nil
 }

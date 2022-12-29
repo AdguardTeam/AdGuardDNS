@@ -1,9 +1,9 @@
 #!/bin/sh
 
-# _SCRIPT_VERSION is used to simplify checking local copies of the script.  Bump
+# This comment is used to simplify checking local copies of the script.  Bump
 # this number every time a significant change is made to this script.
-_SCRIPT_VERSION='1'
-readonly _SCRIPT_VERSION
+#
+# AdGuard-Project-Version: 2
 
 verbose="${VERBOSE:-0}"
 readonly verbose
@@ -34,19 +34,19 @@ readonly go
 # their own scripts there.  Most commonly, a script named “go” for tools that
 # call the go binary and need a particular version.
 rm -f\
-	errcheck\
-	fieldalignment\
-	gocyclo\
-	gofumpt\
-	gosec\
-	govulncheck\
-	ineffassign\
-	looppointer\
-	misspell\
-	nilness\
-	shadow\
-	staticcheck\
-	unparam\
+	bin/errcheck\
+	bin/fieldalignment\
+	bin/gocyclo\
+	bin/gofumpt\
+	bin/gosec\
+	bin/govulncheck\
+	bin/ineffassign\
+	bin/looppointer\
+	bin/misspell\
+	bin/nilness\
+	bin/shadow\
+	bin/staticcheck\
+	bin/unparam\
 	;
 
 # Reset GOARCH and GOOS to make sure we install the tools for the native

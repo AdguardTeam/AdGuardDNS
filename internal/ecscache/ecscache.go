@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
@@ -31,6 +32,9 @@ type Middleware struct {
 
 	// geoIP is used to get subnets for countries.
 	geoIP geoip.Interface
+
+	// cacheReqPool is a pool of cache requests.
+	cacheReqPool *sync.Pool
 }
 
 // MiddlewareConfig is the configuration structure for NewMiddleware.
@@ -55,6 +59,11 @@ func NewMiddleware(c *MiddlewareConfig) (m *Middleware) {
 		cache:    gcache.New(c.Size).LRU().Build(),
 		ecsCache: gcache.New(c.ECSSize).LRU().Build(),
 		geoIP:    c.GeoIP,
+		cacheReqPool: &sync.Pool{
+			New: func() (req any) {
+				return &cacheRequest{}
+			},
+		},
 	}
 }
 
@@ -62,61 +71,11 @@ func NewMiddleware(c *MiddlewareConfig) (m *Middleware) {
 var _ dnsserver.Middleware = (*Middleware)(nil)
 
 // Wrap implements the dnsserver.Middleware interface for *Middleware.
-func (m *Middleware) Wrap(handler dnsserver.Handler) (wrapped dnsserver.Handler) {
-	f := func(ctx context.Context, rw dnsserver.ResponseWriter, req *dns.Msg) (err error) {
-		defer func() { err = errors.Annotate(err, "ecs-cache: %w") }()
-
-		ri := agd.MustRequestInfoFromContext(ctx)
-
-		// Try getting a cached result using the data from the request and the
-		// subnet of the location.  If there is one, write, increment the
-		// metrics, and return.  See also writeCachedResponse.
-		ecsFam := ecsFamFromReq(ri)
-		ctry, asn := locFromReq(ri)
-		locSubnet, err := m.geoIP.SubnetByLocation(ctry, asn, ecsFam)
-		if err != nil {
-			return fmt.Errorf("getting subnet for country %s (family: %d): %w", ctry, ecsFam, err)
-		}
-
-		optlog.Debug3("ecscache: got ctry %s, asn %d, subnet %s", ctry, asn, locSubnet)
-
-		reqDO := dnsmsg.IsDO(req)
-		resp, found, hostHasECS := m.get(req, ri.Host, locSubnet, reqDO)
-		if found {
-			// Don't wrap the error, because it's informative enough as is.
-			return writeCachedResponse(ctx, rw, req, resp, ri.ECS, ecsFam, hostHasECS)
-		}
-
-		// Perform an upstream request with the ECS data for the location.  If
-		// successful, write, increment the metrics,  and return.  See also
-		// writeUpstreamResponse.
-		reqECS := &agd.ECS{
-			Subnet: locSubnet,
-			Scope:  0,
-		}
-
-		ecsReq := dnsmsg.Clone(req)
-		err = setECS(ecsReq, reqECS, ecsFam, false)
-		if err != nil {
-			return fmt.Errorf("setting ecs for upstream req: %w", err)
-		}
-
-		nrw := dnsserver.NewNonWriterResponseWriter(rw.LocalAddr(), rw.RemoteAddr())
-		err = handler.ServeDNS(ctx, nrw, ecsReq)
-		if err != nil {
-			return fmt.Errorf("requesting upstream: %w", err)
-		}
-
-		resp = nrw.Msg()
-		if resp == nil {
-			return nil
-		}
-
-		// Don't wrap the error, because it's informative enough as is.
-		return m.writeUpstreamResponse(ctx, rw, req, resp, ri, locSubnet, ecsFam, reqDO)
+func (mw *Middleware) Wrap(h dnsserver.Handler) (wrapped dnsserver.Handler) {
+	return &mwHandler{
+		mw:   mw,
+		next: h,
 	}
-
-	return dnsserver.HandlerFunc(f)
 }
 
 // writeCachedResponse writes resp to rw replacing the ECS data and incrementing
@@ -204,15 +163,14 @@ func locFromReq(ri *agd.RequestInfo) (ctry agd.Country, asn agd.ASN) {
 
 // writeUpstreamResponse processes, caches, and writes the response to rw as
 // well as updates cache metrics.
-func (m *Middleware) writeUpstreamResponse(
+func (mw *Middleware) writeUpstreamResponse(
 	ctx context.Context,
 	rw dnsserver.ResponseWriter,
 	req *dns.Msg,
 	resp *dns.Msg,
 	ri *agd.RequestInfo,
-	locSubnet netip.Prefix,
+	cr *cacheRequest,
 	ecsFam netutil.AddrFamily,
-	reqDO bool,
 ) (err error) {
 	subnet, scope, err := dnsmsg.ECSFromMsg(resp)
 	if err != nil {
@@ -221,6 +179,7 @@ func (m *Middleware) writeUpstreamResponse(
 
 	optlog.Debug2("ecscache: upstream: %s/%d", subnet, scope)
 
+	reqDO := cr.reqDO
 	rmHopToHopData(resp, ri.QType, reqDO)
 
 	metrics.ECSCacheLookupTotalMisses.Inc()
@@ -228,16 +187,16 @@ func (m *Middleware) writeUpstreamResponse(
 	hostHasECS := scope != 0 && subnet != (netip.Prefix{})
 	if hostHasECS {
 		metrics.ECSCacheLookupHasSupportMisses.Inc()
-		metrics.ECSHasSupportCacheSize.Set(float64(m.ecsCache.Len(false)))
+		metrics.ECSHasSupportCacheSize.Set(float64(mw.ecsCache.Len(false)))
 	} else {
 		metrics.ECSCacheLookupNoSupportMisses.Inc()
-		metrics.ECSNoSupportCacheSize.Set(float64(m.cache.Len(false)))
+		metrics.ECSNoSupportCacheSize.Set(float64(mw.cache.Len(false)))
 
-		locSubnet = netutil.ZeroPrefix(ecsFam)
+		cr.subnet = netutil.ZeroPrefix(ecsFam)
 		ecsFam = netutil.AddrFamilyNone
 	}
 
-	m.set(resp, ri.Host, locSubnet, hostHasECS, reqDO)
+	mw.set(resp, cr, hostHasECS)
 
 	// Set the AD bit and ECS information here, where it is safe to do so, since
 	// a clone of the otherwise filtered response has already been set to cache.
@@ -255,4 +214,78 @@ func (m *Middleware) writeUpstreamResponse(
 	}
 
 	return nil
+}
+
+// mwHandler implements the [dnsserver.Handler] interface and will be used as a
+// [dnsserver.Handler] that Middleware returns from the Wrap function call.
+type mwHandler struct {
+	mw   *Middleware
+	next dnsserver.Handler
+}
+
+// type check
+var _ dnsserver.Handler = (*mwHandler)(nil)
+
+// ServeDNS implements the [dnsserver.Handler] interface for *mwHandler.
+func (mh *mwHandler) ServeDNS(
+	ctx context.Context,
+	rw dnsserver.ResponseWriter,
+	req *dns.Msg,
+) (err error) {
+	mw := mh.mw
+	cr := mw.cacheReqPool.Get().(*cacheRequest)
+	defer func() {
+		mw.cacheReqPool.Put(cr)
+		err = errors.Annotate(err, "ecs-cache: %w")
+	}()
+
+	ri := agd.MustRequestInfoFromContext(ctx)
+	cr.host, cr.qType, cr.qClass = ri.Host, ri.QType, ri.QClass
+
+	// Try getting a cached result using the data from the request and the
+	// subnet of the location.  If there is one, write, increment the metrics,
+	// and return.  See also writeCachedResponse.
+	ecsFam := ecsFamFromReq(ri)
+	ctry, asn := locFromReq(ri)
+	cr.subnet, err = mw.geoIP.SubnetByLocation(ctry, asn, ecsFam)
+	if err != nil {
+		return fmt.Errorf("getting subnet for country %s (family: %d): %w", ctry, ecsFam, err)
+	}
+
+	optlog.Debug3("ecscache: got ctry %s, asn %d, subnet %s", ctry, asn, cr.subnet)
+
+	cr.reqDO = dnsmsg.IsDO(req)
+	resp, found, hostHasECS := mw.get(req, cr)
+	if found {
+		// Don't wrap the error, because it's informative enough as is.
+		return writeCachedResponse(ctx, rw, req, resp, ri.ECS, ecsFam, hostHasECS)
+	}
+
+	// Perform an upstream request with the ECS data for the location.  If
+	// successful, write, increment the metrics,  and return.  See also
+	// writeUpstreamResponse.
+	reqECS := &agd.ECS{
+		Subnet: cr.subnet,
+		Scope:  0,
+	}
+
+	ecsReq := dnsmsg.Clone(req)
+	err = setECS(ecsReq, reqECS, ecsFam, false)
+	if err != nil {
+		return fmt.Errorf("setting ecs for upstream req: %w", err)
+	}
+
+	nrw := dnsserver.NewNonWriterResponseWriter(rw.LocalAddr(), rw.RemoteAddr())
+	err = mh.next.ServeDNS(ctx, nrw, ecsReq)
+	if err != nil {
+		return fmt.Errorf("requesting upstream: %w", err)
+	}
+
+	resp = nrw.Msg()
+	if resp == nil {
+		return nil
+	}
+
+	// Don't wrap the error, because it's informative enough as is.
+	return mw.writeUpstreamResponse(ctx, rw, req, resp, ri, cr, ecsFam)
 }

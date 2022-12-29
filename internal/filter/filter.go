@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/c2h5oh/datasize"
 	"github.com/miekg/dns"
 )
@@ -15,7 +16,7 @@ import (
 // Common Constants, Functions, and Types
 
 // maxFilterSize is the maximum size of downloaded filters.
-const maxFilterSize = 128 * int64(datasize.MB)
+const maxFilterSize = 196 * int64(datasize.MB)
 
 // defaultTimeout is the default timeout to use when fetching filter data.
 //
@@ -43,3 +44,25 @@ type Interface interface {
 	// Close closes the filter and frees resources associated with it.
 	Close() (err error)
 }
+
+// Filtering Result Aliases
+
+// Result is a sum type of all possible filtering actions.  See the following
+// types as implementations:
+//
+//   - [*ResultAllowed]
+//   - [*ResultBlocked]
+//   - [*ResultModified]
+type Result = internal.Result
+
+// ResultAllowed means that this request or response was allowed by an allowlist
+// rule within the given filter list.
+type ResultAllowed = internal.ResultAllowed
+
+// ResultBlocked means that this request or response was blocked by a blocklist
+// rule within the given filter list.
+type ResultBlocked = internal.ResultBlocked
+
+// ResultModified means that this request or response was rewritten or modified
+// by a rewrite rule within the given filter list.
+type ResultModified = internal.ResultModified

@@ -45,28 +45,21 @@ func (f *ForwardMetricsListener) OnForwardRequest(
 	startTime time.Time,
 	err error,
 ) {
-	labels := prometheus.Labels{
-		"to": ups.String(),
-	}
+	// Here and below stick to using WithLabelValues instead of With in order
+	// to avoid extra allocations on prometheus.Labels.
 
-	forwardRequestTotal.With(labels).Inc()
+	to := ups.String()
+
+	forwardRequestTotal.WithLabelValues(to).Inc()
 	elapsed := time.Since(startTime).Seconds()
-	forwardRequestDuration.With(labels).Observe(elapsed)
+	forwardRequestDuration.WithLabelValues(to).Observe(elapsed)
 
 	if resp != nil {
-		resLabels := prometheus.Labels{
-			"to":    ups.String(),
-			"rcode": rCodeToString(resp.Rcode),
-		}
-		forwardResponseRCode.With(resLabels).Inc()
+		forwardResponseRCode.WithLabelValues(to, rCodeToString(resp.Rcode)).Inc()
 	}
 
 	if err != nil {
-		labels = prometheus.Labels{
-			"to":   ups.String(),
-			"type": errorType(err),
-		}
-		forwardErrorTotal.With(labels).Inc()
+		forwardErrorTotal.WithLabelValues(to, errorType(err)).Inc()
 	}
 }
 
@@ -75,7 +68,7 @@ func (f *ForwardMetricsListener) OnForwardRequest(
 func (f *ForwardMetricsListener) statusGaugeByUpstream(
 	ups forward.Upstream,
 	isMain bool,
-) (labels prometheus.Gauge) {
+) (g prometheus.Gauge) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 

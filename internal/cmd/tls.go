@@ -143,8 +143,13 @@ func (certs tlsConfigCerts) toInternal() (conf *tls.Config, err error) {
 			return nil, fmt.Errorf("invalid leaf, certificate at index %d: %w", i, err)
 		}
 
+		authAlgo, subj := leaf.PublicKeyAlgorithm.String(), leaf.Subject.String()
+		metrics.TLSCertificateInfo.With(prometheus.Labels{
+			"auth_algo": authAlgo,
+			"subject":   subj,
+		}).Set(1)
 		metrics.TLSCertificateNotAfter.With(prometheus.Labels{
-			"subject": leaf.Subject.String(),
+			"subject": subj,
 		}).Set(float64(leaf.NotAfter.Unix()))
 	}
 

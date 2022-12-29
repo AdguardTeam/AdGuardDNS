@@ -105,6 +105,11 @@ type RequestInfo struct {
 
 	// QType is the type of question for this request.
 	QType dnsmsg.RRType
+
+	// QClass is the class of question for this request.
+	//
+	// TODO(a.garipov): Use more.
+	QClass dnsmsg.Class
 }
 
 // ECS is the content of the EDNS Client Subnet option of a DNS message.

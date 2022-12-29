@@ -23,7 +23,7 @@ func (s *ServerDNS) serveTCP(ctx context.Context, l net.Listener) (err error) {
 	for s.isStarted() {
 		var conn net.Conn
 		conn, err = l.Accept()
-		// Check the error code and exit loop if necessary
+		// Check the error code and exit loop if necessary.
 		if err != nil {
 			if !s.isStarted() {
 				return nil
@@ -45,7 +45,16 @@ func (s *ServerDNS) serveTCP(ctx context.Context, l net.Listener) (err error) {
 
 		s.wg.Add(1)
 
-		go s.serveTCPConn(ctx, conn)
+		err = s.workerPool.Submit(func() {
+			s.serveTCPConn(ctx, conn)
+		})
+		if err != nil {
+			// Most likely the workerPool is closed, and we can exit right away.
+			// Make sure that the connection is closed just in case.
+			_ = conn.Close()
+
+			return err
+		}
 	}
 
 	return nil
@@ -100,7 +109,16 @@ func (s *ServerDNS) serveTCPConn(ctx context.Context, conn net.Conn) {
 		}
 		reqCtx = ContextWithClientInfo(reqCtx, ci)
 
-		go s.serveTCPMessage(reqCtx, &tcpWg, m, conn)
+		err = s.workerPool.Submit(func() {
+			s.serveTCPMessage(reqCtx, &tcpWg, m, conn)
+		})
+		if err != nil {
+			// No need for additional handling, the workerPool is most likely to
+			// be closed.  Log with Info as this is not expected behavior.
+			log.Info("[%s]: Failed to submit task: %v", s.Name(), err)
+
+			return
+		}
 
 		// use idle timeout for next queries
 		timeout = idleTimeout
@@ -126,6 +144,7 @@ func (s *ServerDNS) serveTCPMessage(
 	rw := &tcpResponseWriter{
 		conn:         conn,
 		writeTimeout: s.conf.WriteTimeout,
+		idleTimeout:  s.conf.TCPIdleTimeout,
 	}
 	written := s.serveDNS(ctx, m, rw)
 	s.putTCPBuffer(m)
@@ -196,6 +215,7 @@ func (s *ServerDNS) putTCPBuffer(m []byte) {
 type tcpResponseWriter struct {
 	conn         net.Conn
 	writeTimeout time.Duration
+	idleTimeout  time.Duration
 }
 
 // type check
@@ -213,7 +233,9 @@ func (r *tcpResponseWriter) RemoteAddr() (addr net.Addr) {
 
 // WriteMsg implements the ResponseWriter interface for *tcpResponseWriter.
 func (r *tcpResponseWriter) WriteMsg(ctx context.Context, req, resp *dns.Msg) (err error) {
-	normalize(NetworkTCP, req, resp)
+	si := MustServerInfoFromContext(ctx)
+	normalize(NetworkTCP, si.Proto, req, resp)
+	r.addTCPKeepAlive(req, resp)
 
 	var msg []byte
 	msg, err = packWithPrefix(resp)
@@ -233,4 +255,31 @@ func (r *tcpResponseWriter) WriteMsg(ctx context.Context, req, resp *dns.Msg) (e
 	}
 
 	return nil
+}
+
+// addTCPKeepAlive adds a ENDS0 TCP keep-alive option to the DNS response
+// as per RFC 7828.  This option specifies the desired idle connection timeout.
+func (r *tcpResponseWriter) addTCPKeepAlive(req, resp *dns.Msg) {
+	reqOpt := req.IsEdns0()
+	respOpt := resp.IsEdns0()
+
+	if reqOpt == nil ||
+		respOpt == nil ||
+		findOption[*dns.EDNS0_TCP_KEEPALIVE](reqOpt) == nil {
+		// edns-tcp-keepalive can only be added if it's explicitly indicated in
+		// the DNS request that it's supported.
+		return
+	}
+
+	keepAliveOpt := findOption[*dns.EDNS0_TCP_KEEPALIVE](respOpt)
+	if keepAliveOpt == nil {
+		keepAliveOpt = &dns.EDNS0_TCP_KEEPALIVE{
+			Code: dns.EDNS0TCPKEEPALIVE,
+		}
+		respOpt.Option = append(respOpt.Option, keepAliveOpt)
+	}
+
+	// Should be specified in units of 100 milliseconds encoded in network byte
+	// order.
+	keepAliveOpt.Timeout = uint16(r.idleTimeout.Milliseconds() / 100)
 }

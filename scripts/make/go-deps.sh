@@ -1,9 +1,9 @@
 #!/bin/sh
 
-# _SCRIPT_VERSION is used to simplify checking local copies of the script.  Bump
+# This comment is used to simplify checking local copies of the script.  Bump
 # this number every time a significant change is made to this script.
-_SCRIPT_VERSION='1'
-readonly _SCRIPT_VERSION
+#
+# AdGuard-Project-Version: 1
 
 verbose="${VERBOSE:-0}"
 readonly verbose

@@ -33,10 +33,8 @@ func BenchmarkCustomFilters_ruleCache(b *testing.B) {
 		},
 	}
 
-	const profID agd.ProfileID = "prof1234"
-
 	p := &agd.Profile{
-		ID:         profID,
+		ID:         testProfID,
 		UpdateTime: time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC),
 		CustomRules: []agd.FilterRuleText{
 			"||example.com",

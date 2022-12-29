@@ -7,8 +7,7 @@ require (
 	github.com/golangci/misspell v0.4.0
 	github.com/gordonklaus/ineffassign v0.0.0-20220928193011-d2c82e48359b
 	github.com/kisielk/errcheck v1.6.2
-	// TODO(a.garipov): Update once kyoh86/looppointer#14 is resolved.
-	github.com/kyoh86/looppointer v0.1.9
+	github.com/kyoh86/looppointer v0.2.1
 	github.com/securego/gosec/v2 v2.14.0
 	golang.org/x/tools v0.3.0
 	golang.org/x/vuln v0.0.0-20221122171214-05fb7250142c

@@ -17,6 +17,7 @@ import (
 	"github.com/bluele/gcache"
 	"github.com/lucas-clemente/quic-go"
 	"github.com/miekg/dns"
+	"github.com/panjf2000/ants/v2"
 )
 
 const (
@@ -72,6 +73,12 @@ type ServerQUIC struct {
 
 	conf ConfigQUIC
 
+	// pool is a goroutine pool we use to process DNS queries.  Complicated
+	// logic may require growing the goroutine's stack and we experienced it
+	// in AdGuard DNS.  The easiest way to avoid spending extra time on this is
+	// to reuse already existing goroutines.
+	pool *ants.Pool
+
 	// quicListener is a listener that we use to accept DoQ connections.
 	quicListener quic.Listener
 
@@ -94,6 +101,7 @@ func NewServerQUIC(conf ConfigQUIC) (s *ServerQUIC) {
 	s = &ServerQUIC{
 		ServerBase: newServerBase(ProtoDoQ, conf.ConfigBase),
 		conf:       conf,
+		pool:       newPoolNonblocking(),
 	}
 
 	return s
@@ -101,7 +109,7 @@ func NewServerQUIC(conf ConfigQUIC) (s *ServerQUIC) {
 
 // Start implements the dnsserver.Server interface for *ServerQUIC.
 func (s *ServerQUIC) Start(ctx context.Context) (err error) {
-	defer func() { err = errors.Annotate(err, "starting doq server: %w", err) }()
+	defer func() { err = errors.Annotate(err, "starting doq server: %w") }()
 
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -143,18 +151,24 @@ func (s *ServerQUIC) Start(ctx context.Context) (err error) {
 
 // Shutdown implements the dnsserver.Server interface for *ServerQUIC.
 func (s *ServerQUIC) Shutdown(ctx context.Context) (err error) {
-	defer func() { err = errors.Annotate(err, "shutting down doq server: %w", err) }()
+	defer func() { err = errors.Annotate(err, "shutting down doq server: %w") }()
 
 	log.Info("[%s]: Stopping the server", s.Name())
 
 	err = s.shutdown()
 	if err != nil {
 		log.Info("[%s]: Failed to shutdown: %v", s.Name(), err)
+
 		return err
 	}
 
 	err = s.waitShutdown(ctx)
+
+	// Close the workerPool and releases all workers.
+	s.pool.Release()
+
 	log.Info("[%s]: Finished stopping the server", s.Name())
+
 	return err
 }
 
@@ -207,7 +221,7 @@ func (s *ServerQUIC) serveQUIC(ctx context.Context, l quic.Listener) (err error)
 
 	for s.isStarted() {
 		var conn quic.Connection
-		conn, err = newQUICConn(ctx, l)
+		conn, err = acceptQUICConn(ctx, l)
 		if err != nil {
 			if !s.isStarted() {
 				return nil
@@ -224,15 +238,24 @@ func (s *ServerQUIC) serveQUIC(ctx context.Context, l quic.Listener) (err error)
 
 		connWg.Add(1)
 
-		go s.serveQUICConnAsync(ctx, conn, connWg)
+		err = s.pool.Submit(func() {
+			s.serveQUICConnAsync(ctx, conn, connWg)
+		})
+		if err != nil {
+			// Most likely the workerPool is closed, and we can exit right away.
+			// Make sure that the connection is closed just in case.
+			closeQUICConn(conn, DOQCodeNoError)
+
+			return err
+		}
 	}
 
 	return nil
 }
 
-// newQUICConn is a wrapper around quic.Listener.Accept that makes sure that the
+// acceptQUICConn is a wrapper around quic.Listener.Accept that makes sure that the
 // timeout is handled properly.
-func newQUICConn(ctx context.Context, l quic.Listener) (conn quic.Connection, err error) {
+func acceptQUICConn(ctx context.Context, l quic.Listener) (conn quic.Connection, err error) {
 	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(DefaultReadTimeout))
 	defer cancel()
 
@@ -293,7 +316,16 @@ func (s *ServerQUIC) serveQUICConn(ctx context.Context, conn quic.Connection) (e
 		}
 		reqCtx = ContextWithClientInfo(reqCtx, ci)
 
-		go s.serveQUICStreamAsync(reqCtx, stream, conn, streamWg)
+		err = s.pool.Submit(func() {
+			s.serveQUICStreamAsync(reqCtx, stream, conn, streamWg)
+		})
+		if err != nil {
+			// The workerPool is closed, we should simply exit.  Make sure that
+			// the stream is closed just in case.
+			_ = stream.Close()
+
+			return err
+		}
 	}
 
 	return nil
@@ -362,9 +394,9 @@ func (s *ServerQUIC) serveQUICStream(
 		resp = rw.Msg()
 	}
 
-	// Normalize before writing the response
-	// Note that for QUIC we can normalize as if it was tcp
-	normalize(NetworkTCP, msg, resp)
+	// Normalize before writing the response.  Note that for QUIC we can
+	// normalize as if it was tcp.
+	normalize(NetworkTCP, ProtoDoQ, msg, resp)
 
 	// Depending on the DoQ version we either write a 2-bytes prefixed message
 	// or just write the message (for old draft versions).

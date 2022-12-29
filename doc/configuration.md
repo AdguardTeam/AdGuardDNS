@@ -1,4 +1,4 @@
- #  AdGuard DNS Configuration File
+ #  AdGuard DNS configuration file
 
 Besides the [environment][env], AdGuard DNS uses a [YAML][yaml] file to store
 configuration.  See file [`config.dist.yml`][dist] for a full example of a
@@ -6,25 +6,27 @@ configuration file with comments.
 
 ##  Contents
 
- *  [Rate Limiting](#ratelimit)
+ *  [Recommended values](#recommended)
+     *  [Result cache sizes](#recommended-result_cache)
+ *  [Rate limiting](#ratelimit)
  *  [Cache](#cache)
  *  [Upstream](#upstream)
      *  [Healthcheck](#upstream-healthcheck)
  *  [Backend](#backend)
- *  [Query Log](#query_log)
- *  [GeoIP Database](#geoip)
- *  [DNS Server Check](#check)
+ *  [Query log](#query_log)
+ *  [GeoIP database](#geoip)
+ *  [DNS-server check](#check)
  *  [Web API](#web)
- *  [Safe Browsing](#safe_browsing)
- *  [Adult Content Blocking](#adult_blocking)
+ *  [Safe browsing](#safe_browsing)
+ *  [Adult-content blocking](#adult_blocking)
  *  [Filters](#filters)
- *  [Filtering Groups](#filtering_groups)
- *  [Server Groups](#server_groups)
+ *  [Filtering groups](#filtering_groups)
+ *  [Server groups](#server_groups)
      *  [TLS](#server_groups-*-tls)
      *  [DDR](#server_groups-*-ddr)
      *  [Servers](#server_groups-*-servers-*)
- *  [Connectivity Check](#connectivity-check)
- *  [Additional Metrics Info](#additional_metrics_info)
+ *  [Connectivity check](#connectivity-check)
+ *  [Additional metrics information](#additional_metrics_info)
 
 [dist]: ../config.dist.yml
 [env]:  environment.md
@@ -32,7 +34,32 @@ configuration file with comments.
 
 
 
-##  <a href="#ratelimit" id="ratelimit" name="ratelimit">Rate Limiting</a>
+##  <a href="#recommended" id="recommended" name="recommended">Recommended values</a>
+
+   ###  <a href="#recommended-result_cache" id="recommended-result_cache" name="recommended-result_cache">Result cache sizes</a>
+
+According to AdGuard DNS usage data:
+
+ *  requests for the  top **1000** most commonly requested domains account for
+    approximately **85 %** of all queries;
+ *  requests for the  top **10 000** most commonly requested domains account for
+    approximately **95 %** of all queries;
+ *  requests for the  top **50 000** most commonly requested domains account for
+    approximately **98 %** of all queries;
+ *  requests for the  top **100 000** most commonly requested domains account
+    for approximately **99 %** of all queries.
+
+But these statistics are only about domain names and do not account for
+differences in question types (`A`, `AAAA`, `HTTPS`, etc.) or whether a cached
+record is a question or an answer.
+
+So, for example, if you want to reach 95 % cache-hit rate for a cache that
+includes a question type in its cache key and also caches questions separately
+from answers, you'll need to multiply the value from the statistic by 5 or 6.
+
+
+
+##  <a href="#ratelimit" id="ratelimit" name="ratelimit">Rate limiting</a>
 
 The `ratelimit` object has the following properties:
 
@@ -87,7 +114,9 @@ The `ratelimit` object has the following properties:
 
      *  <a href="#ratelimit-allowlist-refresh_interval" id="ratelimit-allowlist-refresh_interval" name="ratelimit-allowlist-refresh_interval">`refresh_interval`</a>:
         How often AdGuard DNS refreshes the dynamic part of its allowlist from
-        the data received from the `CONSUL_URL`, as a human-readable duration.
+        the data received from the
+        [`CONSUL_ALLOWLIST_URL`][env-consul_allowlist_url], as a human-readable
+        duration.
 
         **Example:** `30s`.
 
@@ -107,6 +136,8 @@ is `5`, a client (meaning all IP addresses within the subnet defined by
 `ipv4_subnet_key_len` and `ipv6_subnet_key_len`) that made 15 requests in one
 second or 6 requests (one above `rps`) every second for 10 seconds within one
 minute, the client is blocked for `back_off_duration`.
+
+[env-consul_allowlist_url]: environment.md#CONSUL_ALLOWLIST_URL
 
 
 
@@ -243,7 +274,7 @@ The `backend` object has the following properties:
 
 
 
-##  <a href="#query_log" id="query_log" name="query_log">Query Log</a>
+##  <a href="#query_log" id="query_log" name="query_log">Query log</a>
 
 The `query_log` object has the following properties:
 
@@ -262,7 +293,7 @@ The `query_log` object has the following properties:
 
 
 
-##  <a href="#geoip" id="geoip" name="geoip">GeoIP Database</a>
+##  <a href="#geoip" id="geoip" name="geoip">GeoIP database</a>
 
 The `geoip` object has the following properties:
 
@@ -283,7 +314,7 @@ The `geoip` object has the following properties:
 
 
 
-##  <a href="#check" id="check" name="check">DNS Server Check</a>
+##  <a href="#check" id="check" name="check">DNS-server check</a>
 
 The `check` object has the following properties:
 
@@ -456,7 +487,7 @@ The optional `web` object has the following properties:
 
 
 
-##  <a href="#safe_browsing" id="safe_browsing" name="safe_browsing">Safe Browsing</a>
+##  <a href="#safe_browsing" id="safe_browsing" name="safe_browsing">Safe browsing</a>
 
 The `safe_browsing` object has the following properties:
 
@@ -490,7 +521,7 @@ The `safe_browsing` object has the following properties:
 
 
 
-##  <a href="#adult_blocking" id="adult_blocking" name="adult_blocking">Adult Content Blocking</a>
+##  <a href="#adult_blocking" id="adult_blocking" name="adult_blocking">Adult-content blocking</a>
 
 The `adult_blocking` object has the same properties as the
 [`safe_browsing`](#safe_browsing) one above.
@@ -515,6 +546,17 @@ The `filters` object has the following properties:
 
     **Example:** `1024`.
 
+ *  <a href="#filters-safe_search_cache_size" id="filters-safe_search_cache_size" name="filters-safe_search_cache_size">`safe_search_cache_size`</a>:
+    The size of the LRU cache of the safe-search filtering results.  This value
+    applies to both general and YouTube safe-search.
+
+    **Example:** `1024`.
+
+ *  <a href="#filters-rule_list_cache_size" id="filters-rule_list_cache_size" name="filters-rule_list_cache_size">`rule_list_cache_size`</a>:
+    The size of the LRU cache of the rule-list filtering results.
+
+    **Example:** `10000`.
+
  *  <a href="#filters-refresh_interval" id="filters-refresh_interval" name="filters-refresh_interval">`refresh_interval`</a>:
     How often AdGuard DNS refreshes the rule-list filters from the filter index,
     as well as the blocked services list from the [blocked list
@@ -529,11 +571,17 @@ The `filters` object has the following properties:
 
     **Example:** `5m`.
 
+ *  <a href="#filters-use_rule_list_cache" id="filters-use_rule_list_cache" name="filters-use_rule_list_cache">`use_rule_list_cache`</a>:
+    If true, use the rule-list filtering result cache.  This cache is not used
+    for users' custom rules.
+
+    **Example:** `true`.
+
 [env-blocked_services]: environment.md#BLOCKED_SERVICE_INDEX_URL
 
 
 
-##  <a href="#filtering_groups" id="filtering_groups" name="filtering_groups">Filtering Groups</a>
+##  <a href="#filtering_groups" id="filtering_groups" name="filtering_groups">Filtering groups</a>
 
 The items of the `filtering_groups` array have the following properties:
 
@@ -601,7 +649,7 @@ The items of the `filtering_groups` array have the following properties:
 
 
 
-##  <a href="#server_groups" id="server_groups" name="server_groups">Server Groups</a>
+##  <a href="#server_groups" id="server_groups" name="server_groups">Server groups</a>
 
 The items of the `server_groups` array have the following properties:
 
@@ -809,7 +857,7 @@ The items of the `servers` array have the following properties:
 
 
 
-##  <a href="#connectivity-check" id="connectivity-check" name="connectivity-check">Connectivity Check</a>
+##  <a href="#connectivity-check" id="connectivity-check" name="connectivity-check">Connectivity check</a>
 
 The `connectivity_check` object has the following properties:
 
@@ -827,7 +875,7 @@ The `connectivity_check` object has the following properties:
 
 
 
-##  <a href="#additional_metrics_info" id="additional_metrics_info" name="additional_metrics_info">Additional Metrics Info</a>
+##  <a href="#additional_metrics_info" id="additional_metrics_info" name="additional_metrics_info">Additional metrics information</a>
 
 The `additional_metrics_info` object is a map of strings with extra information
 which is exposed by `dns_app_additional_info` metric.

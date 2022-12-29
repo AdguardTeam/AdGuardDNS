@@ -9,19 +9,19 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/resultcache"
+	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/miekg/dns"
-	"github.com/patrickmn/go-cache"
 )
 
-// Safe Search
+// Safe search
 
 // safeSearch is a filter that enforces safe search.
 type safeSearch struct {
-	// resultCache contains cached results.
-	resultCache *resultCache
+	// resCache contains cached results.
+	resCache *resultcache.Cache[*ResultModified]
 
 	// flt is used to filter requests.
 	flt *ruleListFilter
@@ -39,24 +39,20 @@ type safeSearchConfig struct {
 	resolver agdnet.Resolver
 	errColl  agd.ErrorCollector
 	cacheDir string
-	ttl      time.Duration
-
 	//lint:ignore U1000 TODO(a.garipov): Currently unused.  See AGDNS-398.
+	ttl       time.Duration
 	cacheSize int
 }
 
 // newSafeSearch returns a new safe search filter.  c must not be nil.  The
 // initial refresh should be called explicitly if necessary.
 func newSafeSearch(c *safeSearchConfig) (f *safeSearch) {
-	resCache := &resultCache{
-		cache: cache.New(c.ttl, defaultResultCacheGC),
-	}
-
 	return &safeSearch{
-		resultCache: resCache,
-		flt:         newRuleListFilter(c.list, c.cacheDir),
-		resolver:    c.resolver,
-		errColl:     c.errColl,
+		resCache: resultcache.New[*ResultModified](c.cacheSize),
+		// Don't use the rule list cache, since safeSearch already has its own.
+		flt:      newRuleListFilter(c.list, c.cacheDir, 0, false),
+		resolver: c.resolver,
+		errColl:  c.errColl,
 	}
 }
 
@@ -77,18 +73,27 @@ func (f *safeSearch) filterReq(
 	}
 
 	host := ri.Host
+	cacheKey := resultcache.DefaultKey(host, qt, false)
 	repHost, ok := f.safeSearchHost(host, qt)
 	if !ok {
-		log.Debug("filter %s: host %q is not on the list", f.flt.id(), host)
+		optlog.Debug2("filter %s: host %q is not on the list", f.flt.id(), host)
+
+		f.resCache.Set(cacheKey, nil)
 
 		return nil, nil
 	}
 
-	log.Debug("filter %s: found host %q", f.flt.id(), repHost)
+	optlog.Debug2("filter %s: found host %q", f.flt.id(), repHost)
 
-	r, ok = f.resultCache.get(host, qt)
+	rm, ok := f.resCache.Get(cacheKey)
 	if ok {
-		return r.(*ResultModified).CloneForReq(req), nil
+		if rm == nil {
+			// Return nil explicitly instead of modifying CloneForReq to return
+			// nil if the result is nil to avoid a “non-nil nil” value.
+			return nil, nil
+		}
+
+		return rm.CloneForReq(req), nil
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, defaultResolveTimeout)
@@ -107,7 +112,7 @@ func (f *safeSearch) filterReq(
 		}
 	}
 
-	rm := &ResultModified{
+	rm = &ResultModified{
 		Msg:  result,
 		List: f.flt.id(),
 		Rule: agd.FilterRuleText(host),
@@ -117,19 +122,14 @@ func (f *safeSearch) filterReq(
 	// down the pipeline don't interfere with the cached value.
 	//
 	// See AGDNS-359.
-	f.resultCache.set(host, qt, rm.Clone())
+	f.resCache.Set(cacheKey, rm.Clone())
 
 	return rm, nil
 }
 
+// safeSearchHost returns the replacement host for the given host and question
+// type, if any.  qt should be either [dns.TypeA] or [dns.TypeAAAA].
 func (f *safeSearch) safeSearchHost(host string, qt dnsmsg.RRType) (ssHost string, ok bool) {
-	switch qt {
-	case dns.TypeA, dns.TypeAAAA:
-		// Go on processing the request.
-	default:
-		return "", false
-	}
-
 	dnsReq := &urlfilter.DNSRequest{
 		Hostname: host,
 		DNSType:  qt,
@@ -180,5 +180,12 @@ func (f *safeSearch) name() (n string) {
 // refresh reloads the rule list data.  If acceptStale is true, and the cache
 // file exists, the data is read from there regardless of its staleness.
 func (f *safeSearch) refresh(ctx context.Context, acceptStale bool) (err error) {
-	return f.flt.refresh(ctx, acceptStale)
+	err = f.flt.refresh(ctx, acceptStale)
+	if err != nil {
+		return err
+	}
+
+	f.resCache.Clear()
+
+	return nil
 }

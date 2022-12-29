@@ -6,10 +6,10 @@
 # only has superficial knowledge of the POSIX shell language and alike.
 # Experienced readers may find it overly verbose.
 
-# _SCRIPT_VERSION is used to simplify checking local copies of the script.  Bump
+# This comment is used to simplify checking local copies of the script.  Bump
 # this number every time a significant change is made to this script.
-_SCRIPT_VERSION='1'
-readonly _SCRIPT_VERSION
+#
+# AdGuard-Project-Version: 1
 
 # The default verbosity level is 0.  Show every command that is run and every
 # package that is processed if the caller requested verbosity level greater than

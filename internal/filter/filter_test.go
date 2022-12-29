@@ -15,6 +15,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -168,6 +169,37 @@ func prepareIndex(t testing.TB) (flts, svcs, ss *url.URL, dir string) {
 	flts, svcs, ss = u.JoinPath("filters"), u.JoinPath("services"), u.JoinPath("safesearch")
 
 	return flts, svcs, ss, dir
+}
+
+// prepareConf calls [prepareIndex] and returns a new storage config with fields
+// initialized to those from the results as well as some common test values.
+func prepareConf(t testing.TB) (c *filter.DefaultStorageConfig) {
+	fltsURL, svcsURL, ssURL, cacheDir := prepareIndex(t)
+
+	return &filter.DefaultStorageConfig{
+		BlockedServiceIndexURL:    svcsURL,
+		FilterIndexURL:            fltsURL,
+		GeneralSafeSearchRulesURL: ssURL,
+		YoutubeSafeSearchRulesURL: ssURL,
+		SafeBrowsing: &filter.HashPrefixConfig{
+			CacheTTL:  1 * time.Hour,
+			CacheSize: 100,
+		},
+		AdultBlocking: &filter.HashPrefixConfig{
+			CacheTTL:  1 * time.Hour,
+			CacheSize: 100,
+		},
+		Now:                   time.Now,
+		ErrColl:               nil,
+		Resolver:              nil,
+		CacheDir:              cacheDir,
+		CustomFilterCacheSize: 100,
+		SafeSearchCacheSize:   100,
+		SafeSearchCacheTTL:    1 * time.Hour,
+		RuleListCacheSize:     100,
+		RefreshIvl:            testRefreshIvl,
+		UseRuleListCache:      false,
+	}
 }
 
 // newReqInfo returns a new request information structure with the given data.

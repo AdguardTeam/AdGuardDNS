@@ -46,7 +46,7 @@ func NewServerDNSCrypt(conf ConfigDNSCrypt) (s *ServerDNSCrypt) {
 
 // Start implements the dnsserver.Server interface for *ServerDNSCrypt.
 func (s *ServerDNSCrypt) Start(ctx context.Context) (err error) {
-	defer func() { err = errors.Annotate(err, "starting dnscrypt server: %w", err) }()
+	defer func() { err = errors.Annotate(err, "starting dnscrypt server: %w") }()
 
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -90,7 +90,7 @@ func (s *ServerDNSCrypt) Start(ctx context.Context) (err error) {
 
 // Shutdown implements the dnsserver.Server interface for *ServerDNSCrypt.
 func (s *ServerDNSCrypt) Shutdown(ctx context.Context) (err error) {
-	defer func() { err = errors.Annotate(err, "shutting down dnscrypt server: %w", err) }()
+	defer func() { err = errors.Annotate(err, "shutting down dnscrypt server: %w") }()
 
 	log.Info("[%s]: Stopping the server", s.Name())
 	err = s.shutdown()
@@ -205,7 +205,7 @@ func (h *dnsCryptHandler) ServeDNS(rw dnscrypt.ResponseWriter, r *dns.Msg) (err 
 
 	network := NetworkFromAddr(rw.LocalAddr())
 	msg := nrw.Msg()
-	normalize(network, r, msg)
+	normalize(network, ProtoDNSCrypt, r, msg)
 
 	return rw.WriteMsg(msg)
 }

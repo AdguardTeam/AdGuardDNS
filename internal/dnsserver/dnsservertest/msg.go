@@ -196,3 +196,46 @@ func NewECSExtra(ip net.IP, fam uint16, mask, scope uint8) (extra dns.RR) {
 		}},
 	}
 }
+
+// requestPaddingBlockSize is used to pad responses over DoT and DoH according
+// to RFC 8467.
+const requestPaddingBlockSize = 128
+
+// NewEDNS0Padding constructs a new OPT RR EDNS0 Padding for the extra section
+// in queries according to RFC 8467.
+func NewEDNS0Padding(msgLen int, UDPBufferSize uint16) (extra dns.RR) {
+	padLen := requestPaddingBlockSize - msgLen%requestPaddingBlockSize
+
+	// Truncate padding to fit in UDP buffer.
+	if msgLen+padLen > int(UDPBufferSize) {
+		padLen = int(UDPBufferSize) - msgLen
+		if padLen < 0 {
+			padLen = 0
+		}
+	}
+
+	return &dns.OPT{
+		Hdr: dns.RR_Header{Name: ".", Rrtype: dns.TypeOPT, Class: UDPBufferSize},
+		Option: []dns.EDNS0{
+			&dns.EDNS0_PADDING{Padding: make([]byte, padLen)},
+		},
+	}
+}
+
+// FindENDS0Option searches for the specified EDNS0 option in the OPT resource
+// record of the msg and returns it or nil if it's not present.
+func FindENDS0Option[T dns.EDNS0](msg *dns.Msg) (o T) {
+	rr := msg.IsEdns0()
+	if rr == nil {
+		return o
+	}
+
+	for _, opt := range rr.Option {
+		var ok bool
+		if o, ok = opt.(T); ok {
+			return o
+		}
+	}
+
+	return o
+}

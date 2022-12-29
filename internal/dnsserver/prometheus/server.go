@@ -24,56 +24,48 @@ func (l *ServerMetricsListener) OnRequest(
 	req, resp *dns.Msg,
 	rw dnsserver.ResponseWriter,
 ) {
+	serverInfo := dnsserver.MustServerInfoFromContext(ctx)
 	startTime := dnsserver.MustStartTimeFromContext(ctx)
 
-	// Increment total requests
-	reqLabels := requestLabels(ctx, req, rw)
-	requestTotal.With(reqLabels).Inc()
+	// Increment total requests count metrics.
+	counterWithRequestLabels(serverInfo, req, rw, requestTotal).Inc()
 
-	// Increment request duration
-	srvLabels := baseLabels(ctx)
+	// Increment request duration histogram.
 	elapsed := time.Since(startTime).Seconds()
-	requestDuration.With(srvLabels).Observe(elapsed)
+	histogramWithServerLabels(serverInfo, requestDuration).Observe(elapsed)
 
 	// Increment request size.
 	ri := dnsserver.MustRequestInfoFromContext(ctx)
-	requestSize.With(srvLabels).Observe(float64(ri.RequestSize))
+	histogramWithServerLabels(serverInfo, requestSize).Observe(float64(ri.RequestSize))
 
-	// If resp is not nil, increment response-related metrics
+	// If resp is not nil, increment response-related metrics.
 	if resp != nil {
-		responseSize.With(srvLabels).Observe(float64(ri.ResponseSize))
-
-		resLabels := baseLabels(ctx)
-		resLabels["rcode"] = rCodeToString(resp.Rcode)
-		responseRCode.With(resLabels).Inc()
+		histogramWithServerLabels(serverInfo, responseSize).Observe(float64(ri.ResponseSize))
+		rCode := rCodeToString(resp.Rcode)
+		counterWithServerLabelsPlusRCode(serverInfo, rCode, responseRCode).Inc()
 	} else {
 		// If resp is nil, increment responseRCode with a special "rcode"
 		// label value ("DROPPED").
-		resLabels := baseLabels(ctx)
-		resLabels["rcode"] = "DROPPED"
-		responseRCode.With(resLabels).Inc()
+		counterWithServerLabelsPlusRCode(serverInfo, "DROPPED", responseRCode).Inc()
 	}
 }
 
 // OnInvalidMsg implements the [dnsserver.MetricsListener] interface for
 // [*ServerMetricsListener].
 func (l *ServerMetricsListener) OnInvalidMsg(ctx context.Context) {
-	labels := baseLabels(ctx)
-	invalidMsgTotal.With(labels).Inc()
+	counterWithServerLabels(dnsserver.MustServerInfoFromContext(ctx), invalidMsgTotal).Inc()
 }
 
 // OnError implements the [dnsserver.MetricsListener] interface for
 // [*ServerMetricsListener].
 func (l *ServerMetricsListener) OnError(ctx context.Context, _ error) {
-	labels := baseLabels(ctx)
-	errorTotal.With(labels).Inc()
+	counterWithServerLabels(dnsserver.MustServerInfoFromContext(ctx), errorTotal).Inc()
 }
 
 // OnPanic implements the [dnsserver.MetricsListener] interface for
 // [*ServerMetricsListener].
 func (l *ServerMetricsListener) OnPanic(ctx context.Context, _ any) {
-	labels := baseLabels(ctx)
-	panicTotal.With(labels).Inc()
+	counterWithServerLabels(dnsserver.MustServerInfoFromContext(ctx), panicTotal).Inc()
 }
 
 // OnQUICAddressValidation implements the [dnsserver.MetricsListener] interface

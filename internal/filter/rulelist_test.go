@@ -3,7 +3,6 @@ package filter_test
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
@@ -17,24 +16,10 @@ import (
 // TODO(a.garipov): Try to turn these into table-driven tests.
 
 func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
-	errColl := &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
-	}
+	c := prepareConf(t)
 
-	fltsURL, svcsURL, ssURL, cacheDir := prepareIndex(t)
-	c := &filter.DefaultStorageConfig{
-		BlockedServiceIndexURL:    svcsURL,
-		FilterIndexURL:            fltsURL,
-		GeneralSafeSearchRulesURL: ssURL,
-		YoutubeSafeSearchRulesURL: ssURL,
-		SafeBrowsing:              &filter.HashPrefixConfig{},
-		AdultBlocking:             &filter.HashPrefixConfig{},
-		ErrColl:                   errColl,
-		Resolver:                  nil,
-		CacheDir:                  cacheDir,
-		CustomFilterCacheSize:     100,
-		SafeSearchCacheTTL:        10 * time.Second,
-		RefreshIvl:                testRefreshIvl,
+	c.ErrColl = &agdtest.ErrorCollector{
+		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
 	}
 
 	s, err := filter.NewDefaultStorage(c)
@@ -233,24 +218,10 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 }
 
 func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
-	errColl := &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
-	}
+	c := prepareConf(t)
 
-	fltsURL, svcsURL, ssURL, cacheDir := prepareIndex(t)
-	c := &filter.DefaultStorageConfig{
-		BlockedServiceIndexURL:    svcsURL,
-		FilterIndexURL:            fltsURL,
-		GeneralSafeSearchRulesURL: ssURL,
-		YoutubeSafeSearchRulesURL: ssURL,
-		SafeBrowsing:              &filter.HashPrefixConfig{},
-		AdultBlocking:             &filter.HashPrefixConfig{},
-		ErrColl:                   errColl,
-		Resolver:                  nil,
-		CacheDir:                  cacheDir,
-		CustomFilterCacheSize:     100,
-		SafeSearchCacheTTL:        10 * time.Second,
-		RefreshIvl:                testRefreshIvl,
+	c.ErrColl = &agdtest.ErrorCollector{
+		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
 	}
 
 	s, err := filter.NewDefaultStorage(c)

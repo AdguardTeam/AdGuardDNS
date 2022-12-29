@@ -170,12 +170,10 @@ func New(c *Config) (svc *Service, err error) {
 
 		dnsHdlr := dnsserver.WithMiddlewares(
 			handler,
-			&safeBrowsingHashMw{
+			&preServiceMw{
 				messages: c.Messages,
 				filter:   c.SafeBrowsing,
-			},
-			&checkMw{
-				checker: c.DNSCheck,
+				checker:  c.DNSCheck,
 			},
 			svc,
 		)

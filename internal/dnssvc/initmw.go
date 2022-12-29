@@ -56,87 +56,12 @@ type initMw struct {
 // type check
 var _ dnsserver.Middleware = (*initMw)(nil)
 
-// Wrap implements the dnsserver.Middleware interface for *initMw.
+// Wrap implements the [dnsserver.Middleware] interface for *initMw.
 func (mw *initMw) Wrap(h dnsserver.Handler) (wrapped dnsserver.Handler) {
-	f := func(ctx context.Context, rw dnsserver.ResponseWriter, req *dns.Msg) (err error) {
-		defer func() { err = errors.Annotate(err, "init mw: %w") }()
-
-		// Save the actual value of the request AD and DO bits and set the AD
-		// bit in the request to true, so that the upstream validates the data
-		// and caches the actual value of the response AD bit.  Restore it
-		// later, depending on the request and response data.
-		reqAD := req.AuthenticatedData
-		reqDO := dnsmsg.IsDO(req)
-		req.AuthenticatedData = true
-
-		// Assume that module dnsserver has already validated that the request
-		// always has exactly one question for us.
-		q := req.Question[0]
-		fqdn := strings.ToLower(q.Name)
-		qt := q.Qtype
-		cl := q.Qclass
-
-		if specHdlr, name := mw.noReqInfoSpecialHandler(fqdn, qt, cl); specHdlr != nil {
-			optlog.Debug1("init mw: got no-req-info special handler %s", name)
-
-			// Don't wrap the error, because it's informative enough as is, and
-			// because if handled is true, the main flow terminates here.
-			return specHdlr(ctx, rw, req)
-		}
-
-		// Get the request's information, such as GeoIP data and user profiles.
-		ri, err := mw.newRequestInfo(ctx, req, rw.RemoteAddr(), fqdn, qt)
-		if err != nil {
-			var ecsErr dnsmsg.BadECSError
-			if errors.As(err, &ecsErr) {
-				// We've got a bad ECS option.  Log and respond with a FORMERR
-				// immediately.
-				optlog.Debug1("init mw: %s", err)
-
-				err = rw.WriteMsg(ctx, req, mw.messages.NewMsgFORMERR(req))
-				err = errors.Annotate(err, "writing formerr resp: %w")
-			}
-
-			// Don't wrap the error, because this is the main flow, and there is
-			// already errors.Annotate here.
-			return err
-		}
-
-		if specHdlr, name := mw.reqInfoSpecialHandler(ri, cl); specHdlr != nil {
-			optlog.Debug1("init mw: got req-info special handler %s", name)
-
-			// Don't wrap the error, because it's informative enough as is, and
-			// because if handled is true, the main flow terminates here.
-			return specHdlr(ctx, rw, req, ri)
-		}
-
-		ctx = agd.ContextWithRequestInfo(ctx, ri)
-
-		// Record the response, restore the AD bit value in both the request and
-		// the response, and write the response.
-		nwrw := makeNonWriter(rw)
-		err = h.ServeDNS(ctx, nwrw, req)
-		if err != nil {
-			// Don't wrap the error, because this is the main flow, and there is
-			// already errors.Annotate here.
-			return err
-		}
-
-		resp := nwrw.Msg()
-
-		// Following RFC 6840, set the AD bit in the response only when the
-		// response is authenticated, and the request contained either a set DO
-		// bit or a set AD bit.
-		//
-		// See https://datatracker.ietf.org/doc/html/rfc6840#section-5.8.
-		resp.AuthenticatedData = resp.AuthenticatedData && (reqAD || reqDO)
-
-		err = rw.WriteMsg(ctx, req, resp)
-
-		return errors.Annotate(err, "writing resp: %w")
+	return &initMwHandler{
+		mw:   mw,
+		next: h,
 	}
-
-	return dnsserver.HandlerFunc(f)
 }
 
 // newRequestInfo returns the new request information structure using the
@@ -147,6 +72,7 @@ func (mw *initMw) newRequestInfo(
 	raddr net.Addr,
 	fqdn string,
 	qt dnsmsg.RRType,
+	cl dnsmsg.Class,
 ) (ri *agd.RequestInfo, err error) {
 	// Put the host, server, and client IP data into the request information
 	// immediately.
@@ -157,6 +83,7 @@ func (mw *initMw) newRequestInfo(
 		Server:         mw.srv.Name,
 		Host:           strings.TrimSuffix(fqdn, "."),
 		QType:          qt,
+		QClass:         cl,
 	}
 
 	ri.RemoteIP = netutil.NetAddrToAddrPort(raddr).Addr()
@@ -294,4 +221,101 @@ func (mw *initMw) profile(
 	prof, dev, err = mw.db.ProfileByIP(ctx, ip)
 
 	return prof, dev, "linked ip", err
+}
+
+// initMwHandler implements the [dnsserver.Handler] interface and will be used
+// as a [dnsserver.Handler] that the initMw middleware returns from the Wrap
+// function call.
+type initMwHandler struct {
+	mw   *initMw
+	next dnsserver.Handler
+}
+
+// type check
+var _ dnsserver.Handler = (*initMwHandler)(nil)
+
+// ServeDNS implements the [dnsserver.Handler] interface for *initMwHandler.
+func (mh *initMwHandler) ServeDNS(
+	ctx context.Context,
+	rw dnsserver.ResponseWriter,
+	req *dns.Msg,
+) (err error) {
+	defer func() { err = errors.Annotate(err, "init mw: %w") }()
+
+	// Save the actual value of the request AD and DO bits and set the AD
+	// bit in the request to true, so that the upstream validates the data
+	// and caches the actual value of the response AD bit.  Restore it
+	// later, depending on the request and response data.
+	reqAD := req.AuthenticatedData
+	reqDO := dnsmsg.IsDO(req)
+	req.AuthenticatedData = true
+
+	// Assume that module dnsserver has already validated that the request
+	// always has exactly one question for us.
+	q := req.Question[0]
+	fqdn := strings.ToLower(q.Name)
+	qt := q.Qtype
+	cl := q.Qclass
+
+	// Copy middleware to the local variable to make the code simpler.
+	mw := mh.mw
+
+	if specHdlr, name := mw.noReqInfoSpecialHandler(fqdn, qt, cl); specHdlr != nil {
+		optlog.Debug1("init mw: got no-req-info special handler %s", name)
+
+		// Don't wrap the error, because it's informative enough as is, and
+		// because if handled is true, the main flow terminates here.
+		return specHdlr(ctx, rw, req)
+	}
+
+	// Get the request's information, such as GeoIP data and user profiles.
+	ri, err := mw.newRequestInfo(ctx, req, rw.RemoteAddr(), fqdn, qt, cl)
+	if err != nil {
+		var ecsErr dnsmsg.BadECSError
+		if errors.As(err, &ecsErr) {
+			// We've got a bad ECS option.  Log and respond with a FORMERR
+			// immediately.
+			optlog.Debug1("init mw: %s", err)
+
+			err = rw.WriteMsg(ctx, req, mw.messages.NewMsgFORMERR(req))
+			err = errors.Annotate(err, "writing formerr resp: %w")
+		}
+
+		// Don't wrap the error, because this is the main flow, and there is
+		// already errors.Annotate here.
+		return err
+	}
+
+	if specHdlr, name := mw.reqInfoSpecialHandler(ri, cl); specHdlr != nil {
+		optlog.Debug1("init mw: got req-info special handler %s", name)
+
+		// Don't wrap the error, because it's informative enough as is, and
+		// because if handled is true, the main flow terminates here.
+		return specHdlr(ctx, rw, req, ri)
+	}
+
+	ctx = agd.ContextWithRequestInfo(ctx, ri)
+
+	// Record the response, restore the AD bit value in both the request and
+	// the response, and write the response.
+	nwrw := makeNonWriter(rw)
+	err = mh.next.ServeDNS(ctx, nwrw, req)
+	if err != nil {
+		// Don't wrap the error, because this is the main flow, and there is
+		// already errors.Annotate here.
+		return err
+	}
+
+	resp := nwrw.Msg()
+
+	// Following RFC 6840, set the AD bit in the response only when the
+	// response is authenticated, and the request contained either a set DO
+	// bit or a set AD bit.
+	//
+	// See https://datatracker.ietf.org/doc/html/rfc6840#section-5.8.
+	resp.AuthenticatedData = resp.AuthenticatedData && (reqAD || reqDO)
+
+	err = rw.WriteMsg(ctx, req, resp)
+
+	return errors.Annotate(err, "writing resp: %w")
 }

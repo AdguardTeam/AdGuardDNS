@@ -48,19 +48,58 @@ func TestServerQUIC_integration_query(t *testing.T) {
 		req := dnsservertest.NewReq("example.org.", dns.TypeA, dns.ClassINET)
 		req.RecursionDesired = true
 
-		// even requests are sent as if it's an old draft client.
+		// Even requests are sent as if it's an old draft client.
 		doqDraft := i%2 == 0
 		go func() {
 			defer wg.Done()
 
-			res, qerr := sendQUICMessage(conn, req, doqDraft)
+			resp, qerr := sendQUICMessage(conn, req, doqDraft)
 			assert.NoError(t, qerr)
-			assert.NotNil(t, res)
-			assert.True(t, res.Response)
+			assert.NotNil(t, resp)
+			assert.True(t, resp.Response)
+
+			// EDNS0 padding is only present when request also has padding opt.
+			paddingOpt := dnsservertest.FindENDS0Option[*dns.EDNS0_PADDING](resp)
+			require.Nil(t, paddingOpt)
 		}()
 	}
 
 	wg.Wait()
+}
+
+func TestServerQUIC_integration_ENDS0Padding(t *testing.T) {
+	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
+	srv, addr, err := dnsservertest.RunLocalQUICServer(
+		dnsservertest.DefaultHandler(),
+		tlsConfig,
+	)
+	require.NoError(t, err)
+
+	testutil.CleanupAndRequireSuccess(t, func() (err error) {
+		return srv.Shutdown(context.Background())
+	})
+
+	// Open a QUIC connection.
+	conn, err := quic.DialAddr(addr.String(), tlsConfig, nil)
+	require.NoError(t, err)
+
+	defer func(conn quic.Connection, code quic.ApplicationErrorCode, s string) {
+		_ = conn.CloseWithError(code, s)
+	}(conn, 0, "")
+
+	req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
+	req.Extra = []dns.RR{dnsservertest.NewEDNS0Padding(req.Len(), dns.DefaultMsgSize)}
+
+	resp, qerr := sendQUICMessage(conn, req, false)
+	require.NoError(t, qerr)
+	require.NotNil(t, resp)
+	require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+	require.True(t, resp.Response)
+	require.False(t, resp.Truncated)
+
+	paddingOpt := dnsservertest.FindENDS0Option[*dns.EDNS0_PADDING](resp)
+	require.NotNil(t, paddingOpt)
+	require.NotEmpty(t, paddingOpt.Padding)
 }
 
 // sendQUICMessage sends a test QUIC message.

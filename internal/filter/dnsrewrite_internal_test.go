@@ -72,8 +72,6 @@ func Test_processDNSRewriteRules(t *testing.T) {
 }
 
 func Test_filterDNSRewrite(t *testing.T) {
-	const reqHost = "www.example.com"
-
 	cnameRule, _ := rules.NewNetworkRule("|cname^$dnsrewrite=new-cname", 1)
 	aRecordRule, _ := rules.NewNetworkRule("|a-record^$dnsrewrite=127.0.0.1", 1)
 	refusedRule, _ := rules.NewNetworkRule("|refused^$dnsrewrite=REFUSED", 1)
@@ -82,7 +80,7 @@ func Test_filterDNSRewrite(t *testing.T) {
 		FilteredResponseTTL: 10 * time.Second,
 	}
 
-	req := dnsservertest.NewReq(dns.Fqdn(reqHost), dns.TypeA, dns.ClassINET)
+	req := dnsservertest.NewReq(testReqFQDN, dns.TypeA, dns.ClassINET)
 
 	testCases := []struct {
 		dnsrr   *DNSRewriteResult
@@ -125,7 +123,7 @@ func Test_filterDNSRewrite(t *testing.T) {
 			req,
 			dnsservertest.RRSection{
 				RRs: []dns.RR{
-					dnsservertest.NewA(reqHost, 10, net.IP{127, 0, 0, 1}),
+					dnsservertest.NewA(testReqHost, 10, net.IP{127, 0, 0, 1}),
 				},
 			},
 		),

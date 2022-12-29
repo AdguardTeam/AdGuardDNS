@@ -5,10 +5,10 @@
 # This file contains common script helpers.  It should be sourced in scripts
 # right after the initial environment processing.
 
-# _HELPER_VERSION is used to simplify checking local copies of the script.  Bump
-# this number every time a significant change is made to this script.
-_HELPER_VERSION='1'
-readonly _HELPER_VERSION
+# This comment is used to simplify checking local copies of the script.  Bump
+# this number every time a remarkable change is made to this script.
+#
+# AdGuard-Project-Version: 2
 
 
 
@@ -38,17 +38,13 @@ trap not_found EXIT
 
 # Helpers
 
-# with_progname adds the program's name to its combined output.
-with_progname() {
-	with_progname_cmd="${1:?provide a command}"
-	shift
-
-	"$with_progname_cmd" "$@" 2>&1 | sed -e "s/^/${with_progname_cmd}: /"
-}
-
-# exit_on_output exits with a nonzero exit code if there is anything in the
-# command's combined output.
-exit_on_output() (
+# run_linter runs the given linter with two additions:
+#
+# 1.  If the first argument is "-e", run_linter exits with a nonzero exit code
+#     if there is anything in the command's combined output.
+#
+# 2.  In any case, run_linter adds the program's name to its combined output.
+run_linter() (
 	set +e
 
 	if [ "$VERBOSE" -lt '2' ]
@@ -56,21 +52,29 @@ exit_on_output() (
 		set +x
 	fi
 
-	cmd="$1"
+	cmd="${1:?run_linter: provide a command}"
 	shift
 
-	output="$( with_progname "$cmd" "$@" 2>&1 )"
-	exitcode="$?"
-	if [ "$exitcode" -ne '0' ]
+	exit_on_output='0'
+	if [ "$cmd" = '-e' ]
 	then
-		echo "'$cmd' failed with code $exitcode"
+		exit_on_output='1'
+		cmd="${1:?run_linter: provide a command}"
+		shift
 	fi
+
+	readonly cmd
+
+	output="$( "$cmd" "$@" )"
+	exitcode="$?"
+
+	readonly output
 
 	if [ "$output" != '' ]
 	then
-		echo "$output"
+		echo "$output" | sed -e "s/^/${cmd}: /"
 
-		if [ "$exitcode" -eq '0' ]
+		if [ "$exitcode" -eq '0' ] && [ "$exit_on_output" -eq '1' ]
 		then
 			exitcode='1'
 		fi

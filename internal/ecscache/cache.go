@@ -1,144 +1,135 @@
 package ecscache
 
 import (
+	"encoding/binary"
 	"fmt"
+	"hash/maphash"
 	"net/netip"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/bluele/gcache"
 	"github.com/miekg/dns"
 )
 
 // Cache Utilities
 
+// cacheRequest contains data necessary to get a value from the cache.  It is
+// used to optimize goroutine stack usage.
+type cacheRequest struct {
+	host   string
+	subnet netip.Prefix
+	qType  uint16
+	qClass uint16
+	reqDO  bool
+}
+
 // get retrieves a DNS message for the specified request from the cache, if
 // there is one.  If the host was found in the cache for domain names that
-// support ECS, hostHasECS is true.  req and subnet must not be nil.
-func (m *Middleware) get(
-	req *dns.Msg,
-	host string,
-	subnet netip.Prefix,
-	reqDO bool,
-) (resp *dns.Msg, found, hostHasECS bool) {
-	resp, found = m.getFromCache(req, host, subnet, false, reqDO)
-	if found {
-		return resp, true, false
+// support ECS, hostHasECS is true.  cr, cr.req, and cr.subnet must not be nil.
+func (mw *Middleware) get(req *dns.Msg, cr *cacheRequest) (resp *dns.Msg, found, hostHasECS bool) {
+	key := mw.toCacheKey(cr, false)
+	item, ok := itemFromCache(mw.cache, key, cr)
+	if ok {
+		return fromCacheItem(item, req, cr.reqDO), true, false
 	}
 
-	resp, found = m.getFromCache(req, host, subnet, true, reqDO)
-	if found {
-		return resp, true, true
+	key = mw.toCacheKey(cr, true)
+	item, ok = itemFromCache(mw.ecsCache, key, cr)
+	if ok {
+		return fromCacheItem(item, req, cr.reqDO), true, true
 	}
 
 	return nil, false, false
 }
 
-// getFromCache retrieves a DNS message for the specified request data from one
-// of the caches depending on the data.  req and subnet must not be nil.
-func (m *Middleware) getFromCache(
-	req *dns.Msg,
-	host string,
-	subnet netip.Prefix,
-	hostHasECS bool,
-	reqDO bool,
-) (resp *dns.Msg, found bool) {
-	cache := m.cache
-	if hostHasECS {
-		cache = m.ecsCache
-	}
-
-	key := toCacheKey(req, host, subnet, hostHasECS, reqDO)
-	ciVal, err := cache.Get(key)
+// itemFromCache retrieves a DNS message for the given key.  cr.host is used to
+// detect key collisions.  If there is a key collision, it returns nil and
+// false.
+func itemFromCache(cache gcache.Cache, key uint64, cr *cacheRequest) (item *cacheItem, ok bool) {
+	val, err := cache.Get(key)
 	if err != nil {
+		// Shouldn't happen, since we don't set a serialization function.
 		if !errors.Is(err, gcache.KeyNotFoundError) {
-			// Shouldn't happen, since we don't set a serialization function.
 			panic(fmt.Errorf("ecs-cache: getting cache item: %w", err))
 		}
 
 		return nil, false
 	}
 
-	item, ok := ciVal.(*cacheItem)
+	item, ok = val.(*cacheItem)
 	if !ok {
-		log.Error("ecs-cache: bad type %T of cache item for name %q", ciVal, req.Question[0].Name)
+		optlog.Error2("ecs-cache: bad type %T of cache item for host %q", val, cr.host)
 
 		return nil, false
 	}
 
-	return fromCacheItem(item, req, reqDO), true
+	// Check for cache key collisions.
+	if item.host != cr.host {
+		optlog.Error2("ecs-cache: collision: bad cache item %v for host %q", val, cr.host)
+
+		return nil, false
+	}
+
+	return item, true
 }
 
-// ecsCacheKey is the type of cache keys for responses that indicate ECS
-// support.
-type ecsCacheKey struct {
-	subnet netip.Prefix
-	cacheKey
-}
-
-// cacheKey is the type of cache keys for responses that indicate no ECS
-// support.
-type cacheKey struct {
-	name   string
-	qClass uint16
-	qType  dnsmsg.RRType
-	reqDO  bool
-}
+// hashSeed is the seed used by all hashes to create hash keys.
+var hashSeed = maphash.MakeSeed()
 
 // toCacheKey returns the appropriate cache key for msg.  msg must have one
-// question record.  subnet must not be nil.  key is either an ecsCacheKey or a
-// cacheKey depending on hostHasECS.
-func toCacheKey(
-	msg *dns.Msg,
-	host string,
-	subnet netip.Prefix,
-	hostHasECS bool,
-	reqDO bool,
-) (key any) {
-	// NOTE: return structs as opposed to pointers to make sure that the maps
-	// inside caches work.
+// question record.  subnet must not be nil.
+func (mw *Middleware) toCacheKey(cr *cacheRequest, hostHasECS bool) (key uint64) {
+	// Use maphash explicitly instead of using a key structure to reduce
+	// allocations and optimize interface conversion up the stack.
+	h := &maphash.Hash{}
+	h.SetSeed(hashSeed)
 
-	q := msg.Question[0]
-	ck := cacheKey{
-		name:   host,
-		qClass: q.Qclass,
-		qType:  q.Qtype,
-		reqDO:  reqDO,
+	_, _ = h.WriteString(cr.host)
+
+	// Save on allocations by reusing a buffer.
+	var buf [6]byte
+	binary.LittleEndian.PutUint16(buf[:2], cr.qType)
+	binary.LittleEndian.PutUint16(buf[2:4], cr.qClass)
+	if cr.reqDO {
+		buf[4] = 1
+	} else {
+		buf[4] = 0
 	}
 
-	if !hostHasECS {
-		return ck
+	if cr.subnet.Addr().Is4() {
+		buf[5] = 0
+	} else {
+		buf[5] = 1
 	}
 
-	return ecsCacheKey{
-		subnet:   subnet,
-		cacheKey: ck,
+	_, _ = h.Write(buf[:])
+
+	if hostHasECS {
+		_, _ = h.Write(cr.subnet.Addr().AsSlice())
+		_ = h.WriteByte(byte(cr.subnet.Bits()))
 	}
+
+	return h.Sum64()
 }
 
 // set saves resp to the cache if it's cacheable.  If msg cannot be cached, it
 // is ignored.
-func (m *Middleware) set(
-	resp *dns.Msg,
-	host string,
-	subnet netip.Prefix,
-	hostHasECS bool,
-	reqDO bool,
-) {
+func (mw *Middleware) set(resp *dns.Msg, cr *cacheRequest, hostHasECS bool) {
 	ttl := findLowestTTL(resp)
 	if ttl == 0 || !isCacheable(resp) {
 		return
 	}
 
-	cache := m.cache
+	cache := mw.cache
 	if hostHasECS {
-		cache = m.ecsCache
+		cache = mw.ecsCache
 	}
 
-	key := toCacheKey(resp, host, subnet, hostHasECS, reqDO)
-	item := toCacheItem(resp)
+	key := mw.toCacheKey(cr, hostHasECS)
+	item := toCacheItem(resp, cr.host)
 
 	err := cache.SetWithExpire(key, item, time.Duration(ttl)*time.Second)
 	if err != nil {
@@ -154,13 +145,18 @@ type cacheItem struct {
 
 	// msg is the cached DNS message.
 	msg *dns.Msg
+
+	// host is the cached normalized hostname for later cache key collision
+	// checks.
+	host string
 }
 
 // toCacheItem creates a cacheItem from a DNS message.
-func toCacheItem(msg *dns.Msg) (item *cacheItem) {
+func toCacheItem(msg *dns.Msg, host string) (item *cacheItem) {
 	return &cacheItem{
 		msg:  dnsmsg.Clone(msg),
 		when: time.Now(),
+		host: host,
 	}
 }
 

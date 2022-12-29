@@ -1,4 +1,4 @@
-package filter
+package internal
 
 import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"

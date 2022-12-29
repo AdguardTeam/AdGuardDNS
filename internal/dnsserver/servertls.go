@@ -42,7 +42,7 @@ func NewServerTLS(conf ConfigTLS) (s *ServerTLS) {
 
 // Start implements the dnsserver.Server interface for *ServerTLS.
 func (s *ServerTLS) Start(ctx context.Context) (err error) {
-	defer func() { err = errors.Annotate(err, "starting dot server: %w", err) }()
+	defer func() { err = errors.Annotate(err, "starting dot server: %w") }()
 
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -84,7 +84,7 @@ func (s *ServerTLS) Start(ctx context.Context) (err error) {
 
 // Shutdown implements the dnsserver.Server interface for *ServerTLS.
 func (s *ServerTLS) Shutdown(ctx context.Context) (err error) {
-	defer func() { err = errors.Annotate(err, "shutting down dot server: %w", err) }()
+	defer func() { err = errors.Annotate(err, "shutting down dot server: %w") }()
 
 	return s.ServerDNS.Shutdown(ctx)
 }

@@ -57,27 +57,19 @@ func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
 		return []net.IP{safeBrowsingSafeIP4}, nil
 	}
 
-	fltsURL, svcsURL, ssURL, cacheDir := prepareIndex(t)
-	c := &filter.DefaultStorageConfig{
-		BlockedServiceIndexURL:    svcsURL,
-		FilterIndexURL:            fltsURL,
-		GeneralSafeSearchRulesURL: ssURL,
-		YoutubeSafeSearchRulesURL: ssURL,
-		SafeBrowsing: &filter.HashPrefixConfig{
-			Hashes:          hashes,
-			ReplacementHost: safeBrowsingSafeHost,
-			CacheTTL:        10 * time.Second,
-			CacheSize:       100,
-		},
-		AdultBlocking: &filter.HashPrefixConfig{},
-		ErrColl:       errColl,
-		Resolver: &agdtest.Resolver{
-			OnLookupIP: onLookupIP,
-		},
-		CacheDir:              cacheDir,
-		CustomFilterCacheSize: 100,
-		SafeSearchCacheTTL:    10 * time.Second,
-		RefreshIvl:            testRefreshIvl,
+	c := prepareConf(t)
+
+	c.SafeBrowsing = &filter.HashPrefixConfig{
+		Hashes:          hashes,
+		ReplacementHost: safeBrowsingSafeHost,
+		CacheTTL:        10 * time.Second,
+		CacheSize:       100,
+	}
+
+	c.ErrColl = errColl
+
+	c.Resolver = &agdtest.Resolver{
+		OnLookupIP: onLookupIP,
 	}
 
 	s, err := filter.NewDefaultStorage(c)

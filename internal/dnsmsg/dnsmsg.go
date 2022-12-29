@@ -49,7 +49,9 @@ func Clone(msg *dns.Msg) (clone *dns.Msg) {
 		return nil
 	}
 
-	clone = msg.Copy()
+	// Don't just call clone.Copy to save call-stack space.
+	clone = &dns.Msg{}
+	msg.CopyTo(clone)
 
 	// Make sure that nilness of the RR slices is retained.
 	if msg.Answer == nil {

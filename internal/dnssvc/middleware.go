@@ -11,7 +11,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/miekg/dns"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 // Middlewares
@@ -20,46 +19,65 @@ import (
 
 // Wrap implements the dnsserver.Middleware interface for *Service.
 func (svc *Service) Wrap(h dnsserver.Handler) (wrapped dnsserver.Handler) {
-	f := func(ctx context.Context, rw dnsserver.ResponseWriter, req *dns.Msg) (err error) {
-		isDebug := req.Question[0].Qclass == dns.ClassCHAOS
-		if isDebug {
-			req.Question[0].Qclass = dns.ClassINET
-		}
+	return &svcHandler{
+		svc:  svc,
+		next: h,
+	}
+}
 
-		reqID, _ := agd.RequestIDFromContext(ctx)
-		raddr := rw.RemoteAddr()
-		optlog.Debug2("processing request %q from %s", reqID, raddr)
-		defer optlog.Debug2("finished processing request %q from %s", reqID, raddr)
+// svcHandler implements the [dnsserver.Handler] interface and will be used
+// as a [dnsserver.Handler] that the Service middleware returns from the Wrap
+// function call.
+type svcHandler struct {
+	svc  *Service
+	next dnsserver.Handler
+}
 
-		// Assume that the cache is always hot and that we can always send the
-		// request and filter it out along with the response later if we need
-		// it.
-		nwrw := makeNonWriter(rw)
-		err = h.ServeDNS(ctx, nwrw, req)
-		if err != nil {
-			return err
-		}
+// type check
+var _ dnsserver.Handler = (*svcHandler)(nil)
 
-		ri := agd.MustRequestInfoFromContext(ctx)
-		origResp := nwrw.Msg()
-		reqRes, respRes := svc.filterQuery(ctx, req, origResp, ri)
-
-		if isDebug {
-			return svc.writeDebugResponse(ctx, rw, req, origResp, reqRes, respRes)
-		}
-
-		resp, err := writeFilteredResp(ctx, ri, rw, req, origResp, reqRes, respRes)
-		if err != nil {
-			// Don't wrap the error, because it's informative enough as is.
-			return err
-		}
-
-		svc.recordQueryInfo(ctx, req, resp, origResp, ri, reqRes, respRes)
-
-		return nil
+// ServeDNS implements the [dnsserver.Handler] interface for *svcHandler.
+func (mh *svcHandler) ServeDNS(
+	ctx context.Context,
+	rw dnsserver.ResponseWriter,
+	req *dns.Msg,
+) (err error) {
+	isDebug := req.Question[0].Qclass == dns.ClassCHAOS
+	if isDebug {
+		req.Question[0].Qclass = dns.ClassINET
 	}
 
-	return dnsserver.HandlerFunc(f)
+	reqID, _ := agd.RequestIDFromContext(ctx)
+	raddr := rw.RemoteAddr()
+	optlog.Debug2("processing request %q from %s", reqID, raddr)
+	defer optlog.Debug2("finished processing request %q from %s", reqID, raddr)
+
+	// Assume that the cache is always hot and that we can always send the
+	// request and filter it out along with the response later if we need
+	// it.
+	nwrw := makeNonWriter(rw)
+	err = mh.next.ServeDNS(ctx, nwrw, req)
+	if err != nil {
+		return err
+	}
+
+	ri := agd.MustRequestInfoFromContext(ctx)
+	origResp := nwrw.Msg()
+	reqRes, respRes := mh.svc.filterQuery(ctx, req, origResp, ri)
+
+	if isDebug {
+		return mh.svc.writeDebugResponse(ctx, rw, req, origResp, reqRes, respRes)
+	}
+
+	resp, err := writeFilteredResp(ctx, ri, rw, req, origResp, reqRes, respRes)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return err
+	}
+
+	mh.svc.recordQueryInfo(ctx, req, resp, origResp, ri, reqRes, respRes)
+
+	return nil
 }
 
 // makeNonWriter makes rw a *dnsserver.NonWriterResponseWriter unless it already
@@ -115,20 +133,17 @@ func reportMetrics(
 		asn = strconv.FormatUint(uint64(l.ASN), 10)
 	}
 
-	metrics.DNSSvcRequestByCountryTotal.With(prometheus.Labels{
-		"country":   ctry,
-		"continent": cont,
-	}).Inc()
-	metrics.DNSSvcRequestByASNTotal.With(prometheus.Labels{
-		"country": ctry,
-		"asn":     asn,
-	}).Inc()
+	// Here and below stick to using WithLabelValues instead of With in order
+	// to avoid extra allocations on prometheus.Labels.
+
+	metrics.DNSSvcRequestByCountryTotal.WithLabelValues(cont, ctry).Inc()
+	metrics.DNSSvcRequestByASNTotal.WithLabelValues(ctry, asn).Inc()
 
 	id, _, _ := filteringData(reqRes, respRes)
-	metrics.DNSSvcRequestByFilterTotal.With(prometheus.Labels{
-		"filter":    string(id),
-		"anonymous": metrics.BoolString(ri.Profile == nil),
-	}).Inc()
+	metrics.DNSSvcRequestByFilterTotal.WithLabelValues(
+		string(id),
+		metrics.BoolString(ri.Profile == nil),
+	).Inc()
 
 	metrics.DNSSvcFilteringDuration.Observe(elapsedFiltering.Seconds())
 	metrics.DNSSvcUsersCountUpdate(ri.RemoteIP)

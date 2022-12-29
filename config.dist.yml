@@ -193,12 +193,18 @@ filters:
     # The size of the LRU cache of compiled filtering engines for profiles with
     # custom filtering rules.
     custom_filter_cache_size: 1024
+    # The size of the LRU cache of safe-search filtering results.
+    safe_search_cache_size: 1024
+    # The size of the LRU cache of rule-list filtering results.
+    rule_list_cache_size: 10000
     # How often to update filters from the index.  See the documentation for the
     # FILTER_INDEX_URL environment variable.
     refresh_interval: 1h
     # The timeout for the entire filter update operation.  Be aware that each
     # individual refresh operation also has its own hardcoded 30s timeout.
     refresh_timeout: 5m
+    # If true, use filtering rule list result cache.
+    use_rule_list_cache: true
 
 # Filtering groups are a set of different filtering configurations.  These
 # filtering configurations are then used by server_groups.
@@ -208,8 +214,8 @@ filtering_groups:
         enabled: false
     rule_lists:
         enabled: true
-        # IDs must be the same as those of the filtering rule lists received from
-        # the filter index.
+        # IDs must be the same as those of the filtering rule lists received
+        # from the filter index.
         ids:
           - 'adguard_dns_filter'
     safe_browsing:

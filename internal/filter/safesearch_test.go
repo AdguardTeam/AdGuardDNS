@@ -19,10 +19,6 @@ import (
 )
 
 func TestStorage_FilterFromContext_safeSearch(t *testing.T) {
-	errColl := &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
-	}
-
 	numLookupIP := 0
 	onLookupIP := func(
 		_ context.Context,
@@ -51,26 +47,17 @@ func TestStorage_FilterFromContext_safeSearch(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	fltsURL, svcsURL, ssURL, cacheDir := prepareIndex(t)
-	c := &filter.DefaultStorageConfig{
-		BlockedServiceIndexURL:    svcsURL,
-		FilterIndexURL:            fltsURL,
-		GeneralSafeSearchRulesURL: ssURL,
-		YoutubeSafeSearchRulesURL: ssURL,
-		SafeBrowsing: &filter.HashPrefixConfig{
-			Hashes: hashes,
-		},
-		AdultBlocking: &filter.HashPrefixConfig{
-			Hashes: hashes,
-		},
-		ErrColl: errColl,
-		Resolver: &agdtest.Resolver{
-			OnLookupIP: onLookupIP,
-		},
-		CacheDir:              cacheDir,
-		CustomFilterCacheSize: 100,
-		SafeSearchCacheTTL:    10 * time.Second,
-		RefreshIvl:            testRefreshIvl,
+	c := prepareConf(t)
+
+	c.SafeBrowsing.Hashes = hashes
+	c.AdultBlocking.Hashes = hashes
+
+	c.ErrColl = &agdtest.ErrorCollector{
+		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
+	}
+
+	c.Resolver = &agdtest.Resolver{
+		OnLookupIP: onLookupIP,
 	}
 
 	s, err := filter.NewDefaultStorage(c)

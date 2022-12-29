@@ -4,10 +4,11 @@
 # See https://pubs.opengroup.org/onlinepubs/9699919799/utilities/make.html.
 .POSIX:
 
-# _MAKEFILE_VERSION is used to simplify checking local copies of the
+# This comment is used to simplify checking local copies of the
 # Makefile.  Bump this number every time a significant change is made to
 # this Makefile.
-_MAKEFILE_VERSION = 1
+#
+# AdGuard-Project-Version: 2
 
 # Don't name these macros "GO" etc., because GNU Make apparenly makes
 # them exported environment variables with the literal value of

@@ -20,7 +20,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// Filter Storage
+// Filter storage
 
 // Storage is a storage for filters.
 type Storage interface {
@@ -83,6 +83,13 @@ type DefaultStorage struct {
 	// refreshIvl is the refresh interval for this storage.  It defines how
 	// often the filter rule lists are updated from the index.
 	refreshIvl time.Duration
+
+	// RuleListCacheSize defines the size of the LRU cache of rule-list
+	// filteirng results.
+	ruleListCacheSize int
+
+	// useRuleListCache, if true, enables rule list cache.
+	useRuleListCache bool
 }
 
 // DefaultStorageConfig contains configuration for a filter storage based on
@@ -127,13 +134,24 @@ type DefaultStorageConfig struct {
 	// profiles.
 	CustomFilterCacheSize int
 
+	// SafeSearchCacheSize is the size of the LRU cache of results of the safe
+	// search filters: the general one and the YouTube one.
+	SafeSearchCacheSize int
+
 	// SafeSearchCacheTTL is the time-to-live value used for the cache of
 	// results of the safe search filters: the general one and the YouTube one.
 	SafeSearchCacheTTL time.Duration
 
+	// RuleListCacheSize defines the size of the LRU cache of rule-list
+	// filteirng results.
+	RuleListCacheSize int
+
 	// RefreshIvl is the refresh interval for this storage.  It defines how
 	// often the filter rule lists are updated from the index.
 	RefreshIvl time.Duration
+
+	// UseRuleListCache, if true, enables rule list cache.
+	UseRuleListCache bool
 }
 
 // NewDefaultStorage returns a new filter storage.  c must not be nil.
@@ -163,8 +181,9 @@ func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage, err error) {
 			ID:         agd.FilterListIDGeneralSafeSearch,
 			RefreshIvl: c.RefreshIvl,
 		},
-		cacheDir: c.CacheDir,
-		ttl:      c.SafeSearchCacheTTL,
+		cacheDir:  c.CacheDir,
+		ttl:       c.SafeSearchCacheTTL,
+		cacheSize: c.SafeSearchCacheSize,
 	})
 
 	ytSafeSearch := newSafeSearch(&safeSearchConfig{
@@ -175,8 +194,9 @@ func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage, err error) {
 			ID:         agd.FilterListIDYoutubeSafeSearch,
 			RefreshIvl: c.RefreshIvl,
 		},
-		cacheDir: c.CacheDir,
-		ttl:      c.SafeSearchCacheTTL,
+		cacheDir:  c.CacheDir,
+		ttl:       c.SafeSearchCacheTTL,
+		cacheSize: c.SafeSearchCacheSize,
 	})
 
 	s = &DefaultStorage{
@@ -196,8 +216,10 @@ func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage, err error) {
 			cache:   gcache.New(c.CustomFilterCacheSize).LRU().Build(),
 			errColl: c.ErrColl,
 		},
-		cacheDir:   c.CacheDir,
-		refreshIvl: c.RefreshIvl,
+		cacheDir:          c.CacheDir,
+		refreshIvl:        c.RefreshIvl,
+		ruleListCacheSize: c.RuleListCacheSize,
+		useRuleListCache:  c.UseRuleListCache,
 	}
 
 	err = s.refresh(context.Background(), true)
@@ -437,7 +459,7 @@ func (s *DefaultStorage) refresh(ctx context.Context, acceptStale bool) (err err
 		// TODO(a.garipov): Cache these.
 		promLabels := prometheus.Labels{"filter": string(fl.ID)}
 
-		rl := newRuleListFilter(fl, s.cacheDir)
+		rl := newRuleListFilter(fl, s.cacheDir, s.ruleListCacheSize, s.useRuleListCache)
 		err = rl.refresh(ctx, acceptStale)
 		if err == nil {
 			ruleLists[fl.ID] = rl
@@ -462,7 +484,7 @@ func (s *DefaultStorage) refresh(ctx context.Context, acceptStale bool) (err err
 
 	log.Info("%s: got %d filter lists from index after compilation", strgLogPrefix, len(ruleLists))
 
-	err = s.services.refresh(ctx)
+	err = s.services.refresh(ctx, s.ruleListCacheSize, s.useRuleListCache)
 	if err != nil {
 		return fmt.Errorf("refreshing service blocker: %w", err)
 	}

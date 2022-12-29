@@ -11,6 +11,65 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
 
 
+##  AGDNS-1278 / Build 423
+
+ *  The object `filters` has two new properties, `rule_list_cache_size` and
+    `use_rule_list_cache`.  So replace this:
+
+    ```yaml
+    filters:
+        response_ttl: 5m
+        custom_filter_cache_size: 1024
+        safe_search_cache_size: 1024
+        refresh_interval: 1h
+        refresh_timeout: 5m
+    ```
+
+    with this:
+
+    ```yaml
+    filters:
+        response_ttl: 5m
+        custom_filter_cache_size: 1024
+        safe_search_cache_size: 1024
+        rule_list_cache_size: 10000
+        refresh_interval: 1h
+        refresh_timeout: 5m
+        use_rule_list_cache: true
+    ```
+
+    Adjust the values, if necessary.
+
+
+
+##  AGDNS-1278 / Build 422
+
+ *  The object `filters` has a new property, `safe_search_cache_size`.  So
+    replace this:
+
+    ```yaml
+    filters:
+        response_ttl: 5m
+        custom_filter_cache_size: 1024
+        refresh_interval: 1h
+        refresh_timeout: 5m
+    ```
+
+    with this:
+
+    ```yaml
+    filters:
+        response_ttl: 5m
+        custom_filter_cache_size: 1024
+        safe_search_cache_size: 1024
+        refresh_interval: 1h
+        refresh_timeout: 5m
+    ```
+
+    Adjust the values, if necessary.
+
+
+
 ##  AGDNS-1174 / Build 397
 
  *  DNS Server Check now responds with NODATA message to all non-A neither non-AAAA requests.

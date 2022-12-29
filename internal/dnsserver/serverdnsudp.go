@@ -43,7 +43,13 @@ func (s *ServerDNS) serveUDP(ctx context.Context, conn *net.UDPConn) (err error)
 		reqCtx := s.requestContext()
 		reqCtx = ContextWithClientInfo(reqCtx, ClientInfo{})
 
-		go s.serveUDPPacket(reqCtx, m, conn, sess)
+		err = s.workerPool.Submit(func() {
+			s.serveUDPPacket(reqCtx, m, conn, sess)
+		})
+		if err != nil {
+			// The workerPool is probably closed, we should exit.
+			return err
+		}
 	}
 
 	return nil
@@ -158,7 +164,7 @@ func (r *udpResponseWriter) RemoteAddr() (addr net.Addr) {
 
 // WriteMsg implements the ResponseWriter interface for *udpResponseWriter.
 func (r *udpResponseWriter) WriteMsg(ctx context.Context, req, resp *dns.Msg) (err error) {
-	normalize(NetworkUDP, req, resp)
+	normalize(NetworkUDP, ProtoDNS, req, resp)
 
 	var data []byte
 	data, err = resp.Pack()
