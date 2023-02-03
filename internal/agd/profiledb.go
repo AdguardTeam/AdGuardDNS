@@ -17,6 +17,8 @@ import (
 // Data Storage
 
 // ProfileDB is the local database of profiles and other data.
+//
+// TODO(a.garipov): move this logic to the backend package.
 type ProfileDB interface {
 	ProfileByDeviceID(ctx context.Context, id DeviceID) (p *Profile, d *Device, err error)
 	ProfileByIP(ctx context.Context, ip netip.Addr) (p *Profile, d *Device, err error)

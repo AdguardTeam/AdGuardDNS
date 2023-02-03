@@ -2,7 +2,9 @@ package dnsserver
 
 import (
 	"context"
+	"net"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/ameshkov/dnscrypt/v2"
@@ -38,6 +40,10 @@ var _ Server = (*ServerDNSCrypt)(nil)
 
 // NewServerDNSCrypt creates a new instance of ServerDNSCrypt.
 func NewServerDNSCrypt(conf ConfigDNSCrypt) (s *ServerDNSCrypt) {
+	if conf.ListenConfig == nil {
+		conf.ListenConfig = netext.DefaultListenConfig()
+	}
+
 	return &ServerDNSCrypt{
 		ServerBase: newServerBase(ProtoDNSCrypt, conf.ConfigBase),
 		conf:       conf,
@@ -140,7 +146,10 @@ func (s *ServerDNSCrypt) startServeUDP(ctx context.Context) {
 	// TODO(ameshkov): Add context to the ServeTCP and ServeUDP methods in
 	// dnscrypt/v3.  Or at least add ServeTCPContext and ServeUDPContext
 	// methods for now.
-	err := s.dnsCryptServer.ServeUDP(s.udpListener)
+	//
+	// TODO(ameshkov): Redo the dnscrypt module to make it not depend on
+	// *net.UDPConn and use net.PacketConn instead.
+	err := s.dnsCryptServer.ServeUDP(s.udpListener.(*net.UDPConn))
 	if err != nil {
 		log.Info("[%s]: Finished listening to udp://%s due to %v", s.Name(), s.Addr(), err)
 	}

@@ -195,7 +195,15 @@ func deviceIDFromEDNS(req *dns.Msg) (id agd.DeviceID, err error) {
 			continue
 		}
 
-		return agd.NewDeviceID(string(o.Data))
+		id, err = agd.NewDeviceID(string(o.Data))
+		if err != nil {
+			return "", &deviceIDError{
+				err: err,
+				typ: "edns option",
+			}
+		}
+
+		return id, nil
 	}
 
 	return "", nil

@@ -48,8 +48,9 @@ type environments struct {
 
 	ListenPort int `env:"LISTEN_PORT" envDefault:"8181"`
 
-	LogTimestamp strictBool `env:"LOG_TIMESTAMP" envDefault:"1"`
-	LogVerbose   strictBool `env:"VERBOSE" envDefault:"0"`
+	LogTimestamp    strictBool `env:"LOG_TIMESTAMP" envDefault:"1"`
+	LogVerbose      strictBool `env:"VERBOSE" envDefault:"0"`
+	ResearchMetrics strictBool `env:"RESEARCH_METRICS" envDefault:"0"`
 }
 
 // readEnvs reads the configuration.
@@ -127,12 +128,10 @@ func (envs *environments) buildDNSDB(
 // geoIP returns an GeoIP database implementation from environment.
 func (envs *environments) geoIP(
 	c *geoIPConfig,
-	errColl agd.ErrorCollector,
 ) (g *geoip.File, err error) {
 	log.Debug("using geoip files %q and %q", envs.GeoIPASNPath, envs.GeoIPCountryPath)
 
 	g, err = geoip.NewFile(&geoip.FileConfig{
-		ErrColl:       errColl,
 		ASNPath:       envs.GeoIPASNPath,
 		CountryPath:   envs.GeoIPCountryPath,
 		HostCacheSize: c.HostCacheSize,

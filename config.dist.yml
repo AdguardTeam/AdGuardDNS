@@ -8,8 +8,21 @@ ratelimit:
     refuseany: true
     # If response is larger than this, it is counted as several responses.
     response_size_estimate: 1KB
-    # Rate of requests per second for one subnet.
     rps: 30
+    # Rate limit options for IPv4 addresses.
+    ipv4:
+        # Rate of requests per second for one subnet for IPv4 addresses.
+        rps: 30
+        # The lengths of the subnet prefixes used to calculate rate limiter
+        # bucket keys for IPv4 addresses.
+        subnet_key_len: 24
+    # Rate limit options for IPv6 addresses.
+    ipv6:
+        # Rate of requests per second for one subnet for IPv6 addresses.
+        rps: 300
+        # The lengths of the subnet prefixes used to calculate rate limiter
+        # bucket keys for IPv6 addresses.
+        subnet_key_len: 48
     # The time during which to count the number of times a client has hit the
     # rate limit for a back off.
     #
@@ -21,10 +34,6 @@ ratelimit:
     # How much a client that has hit the rate limit too often stays in the back
     # off.
     back_off_duration: 30m
-    # The lengths of the subnet prefixes used to calculate rate limiter bucket
-    # keys for IPv4 and IPv6 addresses correspondingly.
-    ipv4_subnet_key_len: 24
-    ipv6_subnet_key_len: 48
 
     # Configuration for the allowlist.
     allowlist:
@@ -156,9 +165,12 @@ web:
     # servers.  Paths must not cross the ones used by the DNS-over-HTTPS server.
     static_content:
         '/favicon.ico':
-            allow_origin: '*'
-            content_type: 'image/x-icon'
             content: ''
+            headers:
+              Access-Control-Allow-Origin:
+                - '*'
+              Content-Type:
+                - 'image/x-icon'
     # If not defined, AdGuard DNS will respond with a 404 page to all such
     # requests.
     root_redirect_url: 'https://adguard-dns.com'
@@ -221,6 +233,7 @@ filtering_groups:
     safe_browsing:
         enabled: true
     block_private_relay: false
+    block_firefox_canary: true
   - id: 'family'
     parental:
         enabled: true
@@ -234,6 +247,7 @@ filtering_groups:
     safe_browsing:
         enabled: true
     block_private_relay: false
+    block_firefox_canary: true
   - id: 'non_filtering'
     rule_lists:
         enabled: false
@@ -242,6 +256,7 @@ filtering_groups:
     safe_browsing:
         enabled: false
     block_private_relay: false
+    block_firefox_canary: true
 
 # Server groups and servers.
 server_groups:

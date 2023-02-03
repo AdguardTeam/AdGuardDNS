@@ -146,6 +146,10 @@ type FilteringGroup struct {
 	// BlockPrivateRelay shows if Apple Private Relay is blocked for requests
 	// using this filtering group.
 	BlockPrivateRelay bool
+
+	// BlockFirefoxCanary shows if Firefox canary domain is blocked for
+	// requests using this filtering group.
+	BlockFirefoxCanary bool
 }
 
 // FilteringGroupID is the ID of a filter group.  It is an opaque string.

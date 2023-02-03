@@ -21,8 +21,8 @@ var _ Interface = (*compFilter)(nil)
 // compFilter is a composite filter based on several types of safe search
 // filters and rule lists.
 type compFilter struct {
-	safeBrowsing  *hashPrefixFilter
-	adultBlocking *hashPrefixFilter
+	safeBrowsing  *HashPrefix
+	adultBlocking *HashPrefix
 
 	genSafeSearch *safeSearch
 	ytSafeSearch  *safeSearch

@@ -277,7 +277,7 @@ func TestInitMw_ServeDNS_ddr(t *testing.T) {
 	}
 }
 
-func TestInitMw_ServeDNS_privateRelay(t *testing.T) {
+func TestInitMw_ServeDNS_specialDomain(t *testing.T) {
 	testCases := []struct {
 		name          string
 		host          string
@@ -287,7 +287,7 @@ func TestInitMw_ServeDNS_privateRelay(t *testing.T) {
 		profBlocked   bool
 		wantRCode     dnsmsg.RCode
 	}{{
-		name:          "blocked_by_fltgrp",
+		name:          "private_relay_blocked_by_fltgrp",
 		host:          applePrivateRelayMaskHost,
 		qtype:         dns.TypeA,
 		fltGrpBlocked: true,
@@ -295,7 +295,7 @@ func TestInitMw_ServeDNS_privateRelay(t *testing.T) {
 		profBlocked:   false,
 		wantRCode:     dns.RcodeNameError,
 	}, {
-		name:          "no_private_relay_domain",
+		name:          "no_special_domain",
 		host:          "www.example.com",
 		qtype:         dns.TypeA,
 		fltGrpBlocked: true,
@@ -311,7 +311,7 @@ func TestInitMw_ServeDNS_privateRelay(t *testing.T) {
 		profBlocked:   false,
 		wantRCode:     dns.RcodeSuccess,
 	}, {
-		name:          "blocked_by_prof",
+		name:          "private_relay_blocked_by_prof",
 		host:          applePrivateRelayMaskHost,
 		qtype:         dns.TypeA,
 		fltGrpBlocked: false,
@@ -319,7 +319,7 @@ func TestInitMw_ServeDNS_privateRelay(t *testing.T) {
 		profBlocked:   true,
 		wantRCode:     dns.RcodeNameError,
 	}, {
-		name:          "allowed_by_prof",
+		name:          "private_relay_allowed_by_prof",
 		host:          applePrivateRelayMaskHost,
 		qtype:         dns.TypeA,
 		fltGrpBlocked: true,
@@ -327,7 +327,7 @@ func TestInitMw_ServeDNS_privateRelay(t *testing.T) {
 		profBlocked:   false,
 		wantRCode:     dns.RcodeSuccess,
 	}, {
-		name:          "allowed_by_both",
+		name:          "private_relay_allowed_by_both",
 		host:          applePrivateRelayMaskHost,
 		qtype:         dns.TypeA,
 		fltGrpBlocked: false,
@@ -335,13 +335,45 @@ func TestInitMw_ServeDNS_privateRelay(t *testing.T) {
 		profBlocked:   false,
 		wantRCode:     dns.RcodeSuccess,
 	}, {
-		name:          "blocked_by_both",
+		name:          "private_relay_blocked_by_both",
 		host:          applePrivateRelayMaskHost,
 		qtype:         dns.TypeA,
 		fltGrpBlocked: true,
 		hasProf:       true,
 		profBlocked:   true,
 		wantRCode:     dns.RcodeNameError,
+	}, {
+		name:          "firefox_canary_allowed_by_prof",
+		host:          firefoxCanaryHost,
+		qtype:         dns.TypeA,
+		fltGrpBlocked: false,
+		hasProf:       true,
+		profBlocked:   false,
+		wantRCode:     dns.RcodeSuccess,
+	}, {
+		name:          "firefox_canary_allowed_by_fltgrp",
+		host:          firefoxCanaryHost,
+		qtype:         dns.TypeA,
+		fltGrpBlocked: false,
+		hasProf:       false,
+		profBlocked:   false,
+		wantRCode:     dns.RcodeSuccess,
+	}, {
+		name:          "firefox_canary_blocked_by_prof",
+		host:          firefoxCanaryHost,
+		qtype:         dns.TypeA,
+		fltGrpBlocked: false,
+		hasProf:       true,
+		profBlocked:   true,
+		wantRCode:     dns.RcodeRefused,
+	}, {
+		name:          "firefox_canary_blocked_by_fltgrp",
+		host:          firefoxCanaryHost,
+		qtype:         dns.TypeA,
+		fltGrpBlocked: true,
+		hasProf:       false,
+		profBlocked:   false,
+		wantRCode:     dns.RcodeRefused,
 	}}
 
 	for _, tc := range testCases {
@@ -368,9 +400,12 @@ func TestInitMw_ServeDNS_privateRelay(t *testing.T) {
 					return nil, nil, agd.DeviceNotFoundError{}
 				}
 
-				return &agd.Profile{
-					BlockPrivateRelay: tc.profBlocked,
-				}, &agd.Device{}, nil
+				prof := &agd.Profile{
+					BlockPrivateRelay:  tc.profBlocked,
+					BlockFirefoxCanary: tc.profBlocked,
+				}
+
+				return prof, &agd.Device{}, nil
 			}
 			db := &agdtest.ProfileDB{
 				OnProfileByDeviceID: func(
@@ -406,7 +441,8 @@ func TestInitMw_ServeDNS_privateRelay(t *testing.T) {
 					FilteredResponseTTL: 10 * time.Second,
 				},
 				fltGrp: &agd.FilteringGroup{
-					BlockPrivateRelay: tc.fltGrpBlocked,
+					BlockPrivateRelay:  tc.fltGrpBlocked,
+					BlockFirefoxCanary: tc.fltGrpBlocked,
 				},
 				srvGrp: &agd.ServerGroup{},
 				srv: &agd.Server{
@@ -436,7 +472,7 @@ func TestInitMw_ServeDNS_privateRelay(t *testing.T) {
 			resp := rw.Msg()
 			require.NotNil(t, resp)
 
-			assert.Equal(t, dnsmsg.RCode(resp.Rcode), tc.wantRCode)
+			assert.Equal(t, tc.wantRCode, dnsmsg.RCode(resp.Rcode))
 		})
 	}
 }

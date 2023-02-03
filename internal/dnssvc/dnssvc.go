@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
-	"net/url"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
@@ -79,10 +78,6 @@ type Config struct {
 	// Upstream defines the upstream server and the group of fallback servers.
 	Upstream *agd.Upstream
 
-	// RootRedirectURL is the URL to which non-DNS and non-Debug HTTP requests
-	// are redirected.
-	RootRedirectURL *url.URL
-
 	// NewListener, when set, is used instead of the package-level function
 	// NewListener when creating a DNS listener.
 	//
@@ -119,6 +114,11 @@ type Config struct {
 	// UseECSCache shows if the EDNS Client Subnet (ECS) aware cache should be
 	// used.
 	UseECSCache bool
+
+	// ResearchMetrics controls whether research metrics are enabled or not.
+	// This is a set of metrics that we may need temporary, so its collection is
+	// controlled by a separate setting.
+	ResearchMetrics bool
 }
 
 // New returns a new DNS service.
@@ -150,7 +150,6 @@ func New(c *Config) (svc *Service, err error) {
 	groups := make([]*serverGroup, len(c.ServerGroups))
 	svc = &Service{
 		messages:        c.Messages,
-		rootRedirectURL: c.RootRedirectURL,
 		billStat:        c.BillStat,
 		errColl:         c.ErrColl,
 		fltStrg:         c.FilterStorage,
@@ -158,6 +157,7 @@ func New(c *Config) (svc *Service, err error) {
 		queryLog:        c.QueryLog,
 		ruleStat:        c.RuleStat,
 		groups:          groups,
+		researchMetrics: c.ResearchMetrics,
 	}
 
 	for i, srvGrp := range c.ServerGroups {
@@ -212,7 +212,6 @@ var _ agd.Service = (*Service)(nil)
 // Service is the main DNS service of AdGuard DNS.
 type Service struct {
 	messages        *dnsmsg.Constructor
-	rootRedirectURL *url.URL
 	billStat        billstat.Recorder
 	errColl         agd.ErrorCollector
 	fltStrg         filter.Storage
@@ -220,6 +219,7 @@ type Service struct {
 	queryLog        querylog.Interface
 	ruleStat        rulestat.Interface
 	groups          []*serverGroup
+	researchMetrics bool
 }
 
 // mustStartListener starts l and panics on any error.

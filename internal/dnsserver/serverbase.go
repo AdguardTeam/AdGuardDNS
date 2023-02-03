@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/miekg/dns"
 )
@@ -31,16 +32,19 @@ type ConfigBase struct {
 	// Handler is a handler that processes incoming DNS messages.
 	// If not set, we'll use the default handler that returns error response
 	// to any query.
-
 	Handler Handler
+
 	// Metrics is the object we use for collecting performance metrics.
 	// This field is optional.
-
 	Metrics MetricsListener
 
 	// BaseContext is a function that should return the base context. If not
 	// set, we'll be using context.Background().
 	BaseContext func() (ctx context.Context)
+
+	// ListenConfig, when set, is used to set options of connections used by the
+	// DNS server.  If nil, an appropriate default ListenConfig is used.
+	ListenConfig netext.ListenConfig
 }
 
 // ServerBase implements base methods that every Server implementation uses.
@@ -67,14 +71,19 @@ type ServerBase struct {
 	// metrics is the object we use for collecting performance metrics.
 	metrics MetricsListener
 
+	// listenConfig is used to set tcpListener and udpListener.
+	listenConfig netext.ListenConfig
+
 	// Server operation
 	// --
 
-	// will be nil for servers that don't use TCP.
+	// tcpListener is used to accept new TCP connections.  It is nil for servers
+	// that don't use TCP.
 	tcpListener net.Listener
 
-	// will be nil for servers that don't use UDP.
-	udpListener *net.UDPConn
+	// udpListener is used to accept new UDP messages.  It is nil for servers
+	// that don't use UDP.
+	udpListener net.PacketConn
 
 	// Shutdown handling
 	// --
@@ -94,13 +103,14 @@ var _ Server = (*ServerBase)(nil)
 // some of its internal properties.
 func newServerBase(proto Protocol, conf ConfigBase) (s *ServerBase) {
 	s = &ServerBase{
-		name:        conf.Name,
-		addr:        conf.Addr,
-		proto:       proto,
-		network:     conf.Network,
-		handler:     conf.Handler,
-		metrics:     conf.Metrics,
-		baseContext: conf.BaseContext,
+		name:         conf.Name,
+		addr:         conf.Addr,
+		proto:        proto,
+		network:      conf.Network,
+		handler:      conf.Handler,
+		metrics:      conf.Metrics,
+		listenConfig: conf.ListenConfig,
+		baseContext:  conf.BaseContext,
 	}
 
 	if s.baseContext == nil {
@@ -347,18 +357,17 @@ func (s *ServerBase) handlePanicAndRecover(ctx context.Context) {
 	}
 }
 
-// listenUDP creates a UDP listener for the ServerBase.addr.  This function will
-// initialize and start ServerBase.udpListener or return an error.  If the TCP
-// listener is already running, its address is used instead.  The point of this
-// is to properly handle the case when port 0 is used as both listeners should
-// use the same port, and we only learn it after the first one was started.
+// listenUDP initializes and starts s.udpListener using s.addr.  If the TCP
+// listener is already running, its address is used instead to properly handle
+// the case when port 0 is used as both listeners should use the same port, and
+// we only learn it after the first one was started.
 func (s *ServerBase) listenUDP(ctx context.Context) (err error) {
 	addr := s.addr
 	if s.tcpListener != nil {
 		addr = s.tcpListener.Addr().String()
 	}
 
-	conn, err := listenUDP(ctx, addr, true)
+	conn, err := s.listenConfig.ListenPacket(ctx, "udp", addr)
 	if err != nil {
 		return err
 	}
@@ -368,19 +377,17 @@ func (s *ServerBase) listenUDP(ctx context.Context) (err error) {
 	return nil
 }
 
-// listenTCP creates a TCP listener for the ServerBase.addr.  This function will
-// initialize and start ServerBase.tcpListener or return an error.  If the UDP
-// listener is already running, its address is used instead.  The point of this
-// is to properly handle the case when port 0 is used as both listeners should
-// use the same port, and we only learn it after the first one was started.
+// listenTCP initializes and starts s.tcpListener using s.addr.  If the UDP
+// listener is already running, its address is used instead to properly handle
+// the case when port 0 is used as both listeners should use the same port, and
+// we only learn it after the first one was started.
 func (s *ServerBase) listenTCP(ctx context.Context) (err error) {
 	addr := s.addr
 	if s.udpListener != nil {
 		addr = s.udpListener.LocalAddr().String()
 	}
 
-	var l net.Listener
-	l, err = listenTCP(ctx, addr)
+	l, err := s.listenConfig.Listen(ctx, "tcp", addr)
 	if err != nil {
 		return err
 	}

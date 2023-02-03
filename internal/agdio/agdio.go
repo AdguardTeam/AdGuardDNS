@@ -7,6 +7,8 @@ package agdio
 import (
 	"fmt"
 	"io"
+
+	"github.com/AdguardTeam/golibs/mathutil"
 )
 
 // LimitError is returned when the Limit is reached.
@@ -35,9 +37,8 @@ func (lr *limitedReader) Read(p []byte) (n int, err error) {
 		}
 	}
 
-	if int64(len(p)) > lr.n {
-		p = p[0:lr.n]
-	}
+	l := mathutil.Min(int64(len(p)), lr.n)
+	p = p[:l]
 
 	n, err = lr.r.Read(p)
 	lr.n -= int64(n)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/mathutil"
 	"github.com/bluele/gcache"
 )
 
@@ -93,13 +94,9 @@ func DefaultKey(host string, qt dnsmsg.RRType, isAns bool) (k Key) {
 	// Save on allocations by reusing a buffer.
 	var buf [3]byte
 	binary.LittleEndian.PutUint16(buf[:2], qt)
-	if isAns {
-		buf[2] = 1
-	} else {
-		buf[2] = 0
-	}
+	buf[2] = mathutil.BoolToNumber[byte](isAns)
 
-	_, _ = h.Write(buf[:3])
+	_, _ = h.Write(buf[:])
 
 	return Key(h.Sum64())
 }

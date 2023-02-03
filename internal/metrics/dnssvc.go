@@ -11,7 +11,7 @@ var DNSSvcRequestByCountryTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name:      "request_per_country_total",
 	Namespace: namespace,
 	Subsystem: subsystemDNSSvc,
-	Help:      "The number of filtered DNS requests labeled by country and continent.",
+	Help:      "The number of processed DNS requests labeled by country and continent.",
 }, []string{"continent", "country"})
 
 // DNSSvcRequestByASNTotal is a counter with the total number of queries
@@ -20,13 +20,14 @@ var DNSSvcRequestByASNTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name:      "request_per_asn_total",
 	Namespace: namespace,
 	Subsystem: subsystemDNSSvc,
-	Help:      "The number of filtered DNS requests labeled by country and ASN.",
+	Help:      "The number of processed DNS requests labeled by country and ASN.",
 }, []string{"country", "asn"})
 
 // DNSSvcRequestByFilterTotal is a counter with the total number of queries
-// processed labeled by filter.  "filter" contains the ID of the filter list
-// applied.  "anonymous" is "0" if the request is from a AdGuard DNS customer,
-// otherwise it is "1".
+// processed labeled by filter.  Processed could mean that the request was
+// blocked or unblocked by a rule from that filter list.  "filter" contains
+// the ID of the filter list applied.  "anonymous" is "0" if the request is
+// from a AdGuard DNS customer, otherwise it is "1".
 var DNSSvcRequestByFilterTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name:      "request_per_filter_total",
 	Namespace: namespace,

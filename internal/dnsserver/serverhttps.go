@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
@@ -94,6 +95,12 @@ var _ Server = (*ServerHTTPS)(nil)
 
 // NewServerHTTPS creates a new ServerHTTPS instance.
 func NewServerHTTPS(conf ConfigHTTPS) (s *ServerHTTPS) {
+	if conf.ListenConfig == nil {
+		// Do not enable OOB here, because ListenPacket is only used by HTTP/3,
+		// and quic-go sets the necessary flags.
+		conf.ListenConfig = netext.DefaultListenConfig()
+	}
+
 	s = &ServerHTTPS{
 		ServerBase: newServerBase(ProtoDoH, conf.ConfigBase),
 		conf:       conf,
@@ -500,8 +507,7 @@ func (s *ServerHTTPS) listenQUIC(ctx context.Context) (err error) {
 		tlsConf.NextProtos = nextProtoDoH3
 	}
 
-	// Do not enable OOB here as quic-go will do that on its own.
-	conn, err := listenUDP(ctx, s.addr, false)
+	conn, err := s.listenConfig.ListenPacket(ctx, "udp", s.addr)
 	if err != nil {
 		return err
 	}
@@ -518,24 +524,28 @@ func (s *ServerHTTPS) listenQUIC(ctx context.Context) (err error) {
 	return nil
 }
 
-// httpContextWithClientInfo adds client info to the context.
+// httpContextWithClientInfo adds client info to the context.  ctx is never nil,
+// even when there is an error.
 func httpContextWithClientInfo(
 	parent context.Context,
 	r *http.Request,
 ) (ctx context.Context, err error) {
+	ctx = parent
+
 	ci := ClientInfo{
 		URL: netutil.CloneURL(r.URL),
 	}
 
-	// Due to the quic-go bug we should use Host instead of r.TLS:
-	// https://github.com/lucas-clemente/quic-go/issues/3596
+	// Due to the quic-go bug we should use Host instead of r.TLS.  See
+	// https://github.com/quic-go/quic-go/issues/2879 and
+	// https://github.com/lucas-clemente/quic-go/issues/3596.
 	//
-	// TODO(ameshkov): remove this when the bug is fixed in quic-go.
+	// TODO(ameshkov): Remove when quic-go is fixed, likely in v0.32.0.
 	if r.ProtoAtLeast(3, 0) {
 		var host string
 		host, err = netutil.SplitHost(r.Host)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse Host: %w", err)
+			return ctx, fmt.Errorf("failed to parse Host: %w", err)
 		}
 
 		ci.TLSServerName = host
@@ -543,7 +553,7 @@ func httpContextWithClientInfo(
 		ci.TLSServerName = strings.ToLower(r.TLS.ServerName)
 	}
 
-	return ContextWithClientInfo(parent, ci), nil
+	return ContextWithClientInfo(ctx, ci), nil
 }
 
 // httpRequestToMsg reads the DNS message from http.Request.

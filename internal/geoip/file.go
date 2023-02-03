@@ -20,9 +20,6 @@ import (
 
 // FileConfig is the file-based GeoIP configuration structure.
 type FileConfig struct {
-	// ErrColl is the error collector that is used to report errors.
-	ErrColl agd.ErrorCollector
-
 	// ASNPath is the path to the GeoIP database of ASNs.
 	ASNPath string
 
@@ -39,8 +36,6 @@ type FileConfig struct {
 
 // File is a file implementation of [geoip.Interface].
 type File struct {
-	errColl agd.ErrorCollector
-
 	// mu protects asn, country, country subnet maps, and caches against
 	// simultaneous access during a refresh.
 	mu *sync.RWMutex
@@ -77,8 +72,6 @@ type asnSubnets map[agd.ASN]netip.Prefix
 // NewFile returns a new GeoIP database that reads information from a file.
 func NewFile(c *FileConfig) (f *File, err error) {
 	f = &File{
-		errColl: c.ErrColl,
-
 		mu: &sync.RWMutex{},
 
 		asnPath:     c.ASNPath,

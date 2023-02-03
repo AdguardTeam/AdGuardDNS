@@ -1,11 +1,6 @@
 package agd
 
-import (
-	"context"
-	"net"
-
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
-)
+import "github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 
 // Common DNS Message Constants, Types, And Utilities
 
@@ -27,10 +22,3 @@ const (
 	ProtoDoT      = dnsserver.ProtoDoT
 	ProtoDNSCrypt = dnsserver.ProtoDNSCrypt
 )
-
-// Resolver is the DNS resolver interface.
-//
-// See go doc net.Resolver.
-type Resolver interface {
-	LookupIP(ctx context.Context, network, host string) (ips []net.IP, err error)
-}

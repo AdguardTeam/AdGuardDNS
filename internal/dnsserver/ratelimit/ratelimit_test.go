@@ -98,8 +98,9 @@ func TestRatelimitMiddleware(t *testing.T) {
 				Duration:             time.Minute,
 				Count:                rps,
 				ResponseSizeEstimate: 128,
-				RPS:                  rps,
+				IPv4RPS:              rps,
 				IPv4SubnetKeyLen:     24,
+				IPv6RPS:              rps,
 				IPv6SubnetKeyLen:     48,
 				RefuseANY:            true,
 			})

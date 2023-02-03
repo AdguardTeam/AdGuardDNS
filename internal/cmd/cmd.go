@@ -28,6 +28,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/timeutil"
 )
 
 // Main is the entry point of application.
@@ -89,52 +90,75 @@ func Main() {
 	go func() {
 		defer geoIPMu.Unlock()
 
-		geoIP, geoIPErr = envs.geoIP(c.GeoIP, errColl)
+		geoIP, geoIPErr = envs.geoIP(c.GeoIP)
 	}()
 
-	// Safe Browsing Hosts
+	// Safe-browsing and adult-blocking filters
+
+	// TODO(ameshkov): Consider making configurable.
+	filteringResolver := agdnet.NewCachingResolver(
+		agdnet.DefaultResolver{},
+		1*timeutil.Day,
+	)
 
 	err = os.MkdirAll(envs.FilterCachePath, agd.DefaultDirPerm)
 	check(err)
 
-	safeBrowsingConf := c.SafeBrowsing.toInternal(
+	safeBrowsingConf, err := c.SafeBrowsing.toInternal(
+		errColl,
+		filteringResolver,
 		agd.FilterListIDSafeBrowsing,
 		envs.FilterCachePath,
-		errColl,
 	)
-	safeBrowsingHashes, err := filter.NewHashStorage(safeBrowsingConf)
 	check(err)
 
-	err = safeBrowsingHashes.Start()
+	safeBrowsingFilter, err := filter.NewHashPrefix(safeBrowsingConf)
 	check(err)
 
-	adultBlockingConf := c.AdultBlocking.toInternal(
+	safeBrowsingUpd := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
+		Context:             ctxWithDefaultTimeout,
+		Refresher:           safeBrowsingFilter,
+		ErrColl:             errColl,
+		Name:                string(agd.FilterListIDSafeBrowsing),
+		Interval:            safeBrowsingConf.Staleness,
+		RefreshOnShutdown:   false,
+		RoutineLogsAreDebug: false,
+	})
+	err = safeBrowsingUpd.Start()
+	check(err)
+
+	adultBlockingConf, err := c.AdultBlocking.toInternal(
+		errColl,
+		filteringResolver,
 		agd.FilterListIDAdultBlocking,
 		envs.FilterCachePath,
-		errColl,
 	)
-	adultBlockingHashes, err := filter.NewHashStorage(adultBlockingConf)
 	check(err)
 
-	err = adultBlockingHashes.Start()
+	adultBlockingFilter, err := filter.NewHashPrefix(adultBlockingConf)
 	check(err)
 
-	// Filters And Filtering Groups
+	adultBlockingUpd := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
+		Context:             ctxWithDefaultTimeout,
+		Refresher:           adultBlockingFilter,
+		ErrColl:             errColl,
+		Name:                string(agd.FilterListIDAdultBlocking),
+		Interval:            adultBlockingConf.Staleness,
+		RefreshOnShutdown:   false,
+		RoutineLogsAreDebug: false,
+	})
+	err = adultBlockingUpd.Start()
+	check(err)
 
-	fltStrgConf := c.Filters.toInternal(errColl, envs)
-	fltStrgConf.SafeBrowsing = &filter.HashPrefixConfig{
-		Hashes:          safeBrowsingHashes,
-		ReplacementHost: c.SafeBrowsing.BlockHost,
-		CacheTTL:        c.SafeBrowsing.CacheTTL.Duration,
-		CacheSize:       c.SafeBrowsing.CacheSize,
-	}
+	// Filter storage and filtering groups
 
-	fltStrgConf.AdultBlocking = &filter.HashPrefixConfig{
-		Hashes:          adultBlockingHashes,
-		ReplacementHost: c.AdultBlocking.BlockHost,
-		CacheTTL:        c.AdultBlocking.CacheTTL.Duration,
-		CacheSize:       c.AdultBlocking.CacheSize,
-	}
+	fltStrgConf := c.Filters.toInternal(
+		errColl,
+		filteringResolver,
+		envs,
+		safeBrowsingFilter,
+		adultBlockingFilter,
+	)
 
 	fltStrg, err := filter.NewDefaultStorage(fltStrgConf)
 	check(err)
@@ -152,8 +176,6 @@ func Main() {
 	})
 	err = fltStrgUpd.Start()
 	check(err)
-
-	safeBrowsing := filter.NewSafeBrowsingServer(safeBrowsingHashes, adultBlockingHashes)
 
 	// Server Groups
 
@@ -329,8 +351,11 @@ func Main() {
 	}, c.Upstream.Healthcheck.Enabled)
 
 	dnsConf := &dnssvc.Config{
-		Messages:        messages,
-		SafeBrowsing:    safeBrowsing,
+		Messages: messages,
+		SafeBrowsing: filter.NewSafeBrowsingServer(
+			safeBrowsingConf.Hashes,
+			adultBlockingConf.Hashes,
+		),
 		BillStat:        billStatRec,
 		ProfileDB:       profDB,
 		DNSCheck:        dnsCk,
@@ -349,6 +374,7 @@ func Main() {
 		CacheSize:       c.Cache.Size,
 		ECSCacheSize:    c.Cache.ECSSize,
 		UseECSCache:     c.Cache.Type == cacheTypeECS,
+		ResearchMetrics: bool(envs.ResearchMetrics),
 	}
 
 	dnsSvc, err := dnssvc.New(dnsConf)
@@ -383,11 +409,11 @@ func Main() {
 	)
 
 	h := newSignalHandler(
-		adultBlockingHashes,
-		safeBrowsingHashes,
 		debugSvc,
 		webSvc,
 		dnsSvc,
+		safeBrowsingUpd,
+		adultBlockingUpd,
 		profDBUpd,
 		dnsDBUpd,
 		geoIPUpd,

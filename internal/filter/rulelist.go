@@ -72,13 +72,13 @@ func newRuleListFilter(
 		mu: &sync.RWMutex{},
 		refr: &refreshableFilter{
 			http: agdhttp.NewClient(&agdhttp.ClientConfig{
-				Timeout: defaultTimeout,
+				Timeout: defaultFilterRefreshTimeout,
 			}),
-			url:        l.URL,
-			id:         l.ID,
-			cachePath:  filepath.Join(fileCacheDir, string(l.ID)),
-			typ:        "rule list",
-			refreshIvl: l.RefreshIvl,
+			url:       l.URL,
+			id:        l.ID,
+			cachePath: filepath.Join(fileCacheDir, string(l.ID)),
+			typ:       "rule list",
+			staleness: l.RefreshIvl,
 		},
 		urlFilterID: newURLFilterID(),
 	}

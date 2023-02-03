@@ -11,6 +11,99 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
 
 
+##  AGDNS-916 / Build 456
+
+ *  `ratelimit` now defines rate of requests per second for IPv4 and IPv6
+    addresses separately.  So replace this:
+
+    ```yaml
+    ratelimit:
+        rps: 30
+        ipv4_subnet_key_len: 24
+        ipv6_subnet_key_len: 48
+    ```
+
+    with this:
+
+    ```yaml
+    ratelimit:
+        ipv4:
+            rps: 30
+            subnet_key_len: 24
+        ipv6:
+            rps: 300
+            subnet_key_len: 48
+    ```
+
+
+
+##  AGDNS-907 / Build 449
+
+ *  The objects within the `filtering_groups` have a new property,
+    `block_firefox_canary`.  So replace this:
+
+    ```yaml
+    filtering_groups:
+    -
+        id: default
+        # …
+    ```
+
+    with this:
+
+    ```yaml
+    filtering_groups:
+    -
+        id: default
+        # …
+        block_firefox_canary: true
+    ```
+
+    The recommended default value is `true`.
+
+
+
+##  AGDNS-1308 / Build 447
+
+ *  There is now a new env variable `RESEARCH_METRICS` that controls whether
+    collecting research metrics is enabled or not.  Also, the first research
+    metric is added: `dns_research_blocked_per_country_total`, it counts the
+    number of blocked requests per country.  Its default value is `0`, i.e.
+    research metrics collection is disabled by default.
+
+
+
+##  AGDNS-1051 / Build 443
+
+ *  There are two changes in the keys of the `static_content` map.  Firstly,
+    properties `allow_origin` and `content_type` are removed.  Secondly, a new
+    property, called `headers`, is added.  So replace this:
+
+    ```yaml
+    static_content:
+        '/favicon.ico':
+            # …
+            allow_origin: '*'
+            content_type: 'image/x-icon'
+    ```
+
+    with this:
+
+    ```yaml
+    static_content:
+        '/favicon.ico':
+            # …
+            headers:
+                'Access-Control-Allow-Origin':
+                  - '*'
+                'Content-Type':
+                  - 'image/x-icon'
+    ```
+
+    Adjust or add the values, if necessary.
+
+
+
 ##  AGDNS-1278 / Build 423
 
  *  The object `filters` has two new properties, `rule_list_cache_size` and

@@ -37,14 +37,21 @@ type BackOffConfig struct {
 	// as several responses.
 	ResponseSizeEstimate int
 
-	// RPS is the maximum number of requests per second allowed from a single
-	// subnet.  Any requests above this rate are counted as the client's
-	// back-off count.  RPS must be greater than zero.
-	RPS int
+	// IPv4RPS is the maximum number of requests per second allowed from a
+	// single subnet for IPv4 addresses.  Any requests above this rate are
+	// counted as the client's back-off count.  RPS must be greater than
+	// zero.
+	IPv4RPS int
 
 	// IPv4SubnetKeyLen is the length of the subnet prefix used to calculate
 	// rate limiter bucket keys for IPv4 addresses.  Must be greater than zero.
 	IPv4SubnetKeyLen int
+
+	// IPv6RPS is the maximum number of requests per second allowed from a
+	// single subnet for IPv6 addresses.  Any requests above this rate are
+	// counted as the client's back-off count.  RPS must be greater than
+	// zero.
+	IPv6RPS int
 
 	// IPv6SubnetKeyLen is the length of the subnet prefix used to calculate
 	// rate limiter bucket keys for IPv6 addresses.  Must be greater than zero.
@@ -62,14 +69,18 @@ type BackOffConfig struct {
 // current implementation might be too abstract.  Middlewares by themselves
 // already provide an interface that can be re-implemented by the users.
 // Perhaps, another layer of abstraction is unnecessary.
+//
+// TODO(ameshkov): Consider splitting rps and other properties by protocol
+// family.
 type BackOff struct {
 	rpsCounters      *cache.Cache
 	hitCounters      *cache.Cache
 	allowlist        Allowlist
 	count            int
-	rps              int
 	respSzEst        int
+	ipv4rps          int
 	ipv4SubnetKeyLen int
+	ipv6rps          int
 	ipv6SubnetKeyLen int
 	refuseANY        bool
 }
@@ -84,9 +95,10 @@ func NewBackOff(c *BackOffConfig) (l *BackOff) {
 		hitCounters:      cache.New(c.Duration, c.Duration),
 		allowlist:        c.Allowlist,
 		count:            c.Count,
-		rps:              c.RPS,
 		respSzEst:        c.ResponseSizeEstimate,
+		ipv4rps:          c.IPv4RPS,
 		ipv4SubnetKeyLen: c.IPv4SubnetKeyLen,
+		ipv6rps:          c.IPv6RPS,
 		ipv6SubnetKeyLen: c.IPv6SubnetKeyLen,
 		refuseANY:        c.RefuseANY,
 	}
@@ -124,7 +136,12 @@ func (l *BackOff) IsRateLimited(
 		return true, false, nil
 	}
 
-	return l.hasHitRateLimit(key), false, nil
+	rps := l.ipv4rps
+	if ip.Is6() {
+		rps = l.ipv6rps
+	}
+
+	return l.hasHitRateLimit(key, rps), false, nil
 }
 
 // validateAddr returns an error if addr is not a valid IPv4 or IPv6 address.
@@ -184,14 +201,15 @@ func (l *BackOff) incBackOff(key string) {
 	l.hitCounters.SetDefault(key, counter)
 }
 
-// hasHitRateLimit checks value for a subnet.
-func (l *BackOff) hasHitRateLimit(subnetIPStr string) (ok bool) {
-	var r *rps
+// hasHitRateLimit checks value for a subnet with rps as a maximum number
+// requests per second.
+func (l *BackOff) hasHitRateLimit(subnetIPStr string, rps int) (ok bool) {
+	var r *rpsCounter
 	rVal, ok := l.rpsCounters.Get(subnetIPStr)
 	if ok {
-		r = rVal.(*rps)
+		r = rVal.(*rpsCounter)
 	} else {
-		r = newRPS(l.rps)
+		r = newRPSCounter(rps)
 		l.rpsCounters.SetDefault(subnetIPStr, r)
 	}
 

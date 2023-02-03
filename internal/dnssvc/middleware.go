@@ -101,7 +101,7 @@ func (svc *Service) filterQuery(
 ) (reqRes, respRes filter.Result) {
 	start := time.Now()
 	defer func() {
-		reportMetrics(ri, reqRes, respRes, time.Since(start))
+		svc.reportMetrics(ri, reqRes, respRes, time.Since(start))
 	}()
 
 	f := svc.fltStrg.FilterFromContext(ctx, ri)
@@ -120,7 +120,7 @@ func (svc *Service) filterQuery(
 
 // reportMetrics extracts filtering metrics data from the context and reports it
 // to Prometheus.
-func reportMetrics(
+func (svc *Service) reportMetrics(
 	ri *agd.RequestInfo,
 	reqRes filter.Result,
 	respRes filter.Result,
@@ -139,7 +139,7 @@ func reportMetrics(
 	metrics.DNSSvcRequestByCountryTotal.WithLabelValues(cont, ctry).Inc()
 	metrics.DNSSvcRequestByASNTotal.WithLabelValues(ctry, asn).Inc()
 
-	id, _, _ := filteringData(reqRes, respRes)
+	id, _, blocked := filteringData(reqRes, respRes)
 	metrics.DNSSvcRequestByFilterTotal.WithLabelValues(
 		string(id),
 		metrics.BoolString(ri.Profile == nil),
@@ -147,6 +147,22 @@ func reportMetrics(
 
 	metrics.DNSSvcFilteringDuration.Observe(elapsedFiltering.Seconds())
 	metrics.DNSSvcUsersCountUpdate(ri.RemoteIP)
+
+	if svc.researchMetrics {
+		anonymous := ri.Profile == nil
+		filteringEnabled := ri.FilteringGroup != nil &&
+			ri.FilteringGroup.RuleListsEnabled &&
+			len(ri.FilteringGroup.RuleListIDs) > 0
+
+		metrics.ReportResearchMetrics(
+			anonymous,
+			filteringEnabled,
+			asn,
+			ctry,
+			string(id),
+			blocked,
+		)
+	}
 }
 
 // reportf is a helper method for reporting non-critical errors.

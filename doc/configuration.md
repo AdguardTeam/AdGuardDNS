@@ -85,11 +85,23 @@ The `ratelimit` object has the following properties:
 
     **Example:** `30m`.
 
- *  <a href="#ratelimit-rps" id="ratelimit-rps" name="ratelimit-rps">`rps`</a>:
-    The rate of requests per second for one subnet.  Requests above this are
-    counted in the backoff count.
+ *  <a href="#ratelimit-ipv4" id="ratelimit-ipv4" name="ratelimit-ipv4">`ipv4`</a>:
+    The ipv4 configuration object.  It has the following fields:
 
-    **Example:** `30`.
+     *  <a href="#ratelimit-ipv4-rps" id="ratelimit-ipv4-rps" name="ratelimit-ipv4-rps">`rps`</a>:
+        The rate of requests per second for one subnet.  Requests above this are
+        counted in the backoff count.
+
+        **Example:** `30`.
+
+     *  <a href="#ratelimit-ipv4-subnet_key_len" id="ratelimit-ipv4-subnet_key_len" name="ratelimit-ipv4-subnet_key_len">`ipv4-subnet_key_len`</a>:
+        The length of the subnet prefix used to calculate rate limiter bucket keys.
+
+        **Example:** `24`.
+
+ *  <a href="#ratelimit-ipv6" id="ratelimit-ipv6" name="ratelimit-ipv6">`ipv6`</a>:
+    The `ipv6` configuration object has the same properties as the `ipv4` one
+    above.
 
  *  <a href="#ratelimit-back_off_count" id="ratelimit-back_off_count" name="ratelimit-back_off_count">`back_off_count`</a>:
     Maximum number of requests a client can make above the RPS within
@@ -120,22 +132,11 @@ The `ratelimit` object has the following properties:
 
         **Example:** `30s`.
 
- *  <a href="#ratelimit-ipv4_subnet_key_len" id="ratelimit-ipv4_subnet_key_len" name="ratelimit-ipv4_subnet_key_len">`ipv4_subnet_key_len`</a>:
-    The length of the subnet prefix used to calculate rate limiter bucket keys
-    for IPv4 addresses.
-
-    **Example:** `24`.
-
- *  <a href="#ratelimit-ipv6_subnet_key_len" id="ratelimit-ipv6_subnet_key_len" name="ratelimit-ipv6_subnet_key_len">`ipv6_subnet_key_len`</a>:
-    Same as `ipv4_subnet_key_len` above but for IPv6 addresses.
-
-    **Example:** `48`.
-
-For example, if `back_off_period` is `1m`, `back_off_count` is `10`, and `rps`
-is `5`, a client (meaning all IP addresses within the subnet defined by
-`ipv4_subnet_key_len` and `ipv6_subnet_key_len`) that made 15 requests in one
-second or 6 requests (one above `rps`) every second for 10 seconds within one
-minute, the client is blocked for `back_off_duration`.
+For example, if `back_off_period` is `1m`, `back_off_count` is `10`, and
+`ipv4-rps` is `5`, a client (meaning all IP addresses within the subnet defined
+by `ipv4-subnet_key_len`) that made 15 requests in one second or 6 requests
+(one above `rps`) every second for 10 seconds within one minute, the client is
+blocked for `back_off_duration`.
 
 [env-consul_allowlist_url]: environment.md#CONSUL_ALLOWLIST_URL
 
@@ -454,13 +455,17 @@ The optional `web` object has the following properties:
     `safe_browsing` and `adult_blocking` servers.  Paths must not duplicate the
     ones used by the DNS-over-HTTPS server.
 
+    Inside of the `headers` map, the header `Content-Type` is required.
+
     **Property example:**
 
     ```yaml
-    'static_content':
+    static_content:
         '/favicon.ico':
-            'content_type': 'image/x-icon'
-            'content': 'base64content'
+            content: 'base64content'
+            headers:
+                'Content-Type':
+                  - 'image/x-icon'
     ```
 
  *  <a href="#web-root_redirect_url" id="web-root_redirect_url" name="web-root_redirect_url">`root_redirect_url`</a>:
@@ -646,6 +651,12 @@ The items of the `filtering_groups` array have the following properties:
     filtering group.
 
     **Example:** `false`.
+
+ *  <a href="#fg-*-block_firefox_canary" id="fg-*-block_firefox_canary" name="fg-*-block_firefox_canary">`block_firefox_canary`</a>:
+    If true, Firefox canary domain queries are blocked for requests using this
+    filtering group.
+
+    **Example:** `true`.
 
 
 

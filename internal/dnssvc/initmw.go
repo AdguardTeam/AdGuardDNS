@@ -260,14 +260,6 @@ func (mh *initMwHandler) ServeDNS(
 	// Copy middleware to the local variable to make the code simpler.
 	mw := mh.mw
 
-	if specHdlr, name := mw.noReqInfoSpecialHandler(fqdn, qt, cl); specHdlr != nil {
-		optlog.Debug1("init mw: got no-req-info special handler %s", name)
-
-		// Don't wrap the error, because it's informative enough as is, and
-		// because if handled is true, the main flow terminates here.
-		return specHdlr(ctx, rw, req)
-	}
-
 	// Get the request's information, such as GeoIP data and user profiles.
 	ri, err := mw.newRequestInfo(ctx, req, rw.RemoteAddr(), fqdn, qt, cl)
 	if err != nil {

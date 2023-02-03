@@ -67,13 +67,13 @@ type SentryReportableError interface {
 // TODO(a.garipov): Make sure that we use this approach everywhere.
 func isReportable(err error) (ok bool) {
 	var (
-		ravErr  SentryReportableError
-		fwdErr  *forward.Error
-		dnsWErr *dnsserver.WriteError
+		sentryRepErr SentryReportableError
+		fwdErr       *forward.Error
+		dnsWErr      *dnsserver.WriteError
 	)
 
-	if errors.As(err, &ravErr) {
-		return ravErr.IsSentryReportable()
+	if errors.As(err, &sentryRepErr) {
+		return sentryRepErr.IsSentryReportable()
 	} else if errors.As(err, &fwdErr) {
 		return isReportableNetwork(fwdErr.Err)
 	} else if errors.As(err, &dnsWErr) {

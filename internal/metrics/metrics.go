@@ -26,6 +26,8 @@ const (
 	subsystemQueryLog    = "querylog"
 	subsystemRuleStat    = "rulestat"
 	subsystemTLS         = "tls"
+	subsystemResearch    = "research"
+	subsystemWebSvc      = "websvc"
 )
 
 // SetUpGauge signals that the server has been started.

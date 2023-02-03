@@ -4,23 +4,21 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"runtime"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/miekg/dns"
-	"golang.org/x/net/ipv4"
-	"golang.org/x/net/ipv6"
 )
 
 // serveUDP runs the UDP serving loop.
-func (s *ServerDNS) serveUDP(ctx context.Context, conn *net.UDPConn) (err error) {
+func (s *ServerDNS) serveUDP(ctx context.Context, conn net.PacketConn) (err error) {
 	defer log.OnCloserError(conn, log.DEBUG)
 
 	for s.isStarted() {
 		var m []byte
-		var sess *dns.SessionUDP
+		var sess netext.PacketSession
 		m, sess, err = s.readUDPMsg(ctx, conn)
 		if err != nil {
 			// TODO(ameshkov): Consider the situation where the server is shut
@@ -59,15 +57,15 @@ func (s *ServerDNS) serveUDP(ctx context.Context, conn *net.UDPConn) (err error)
 func (s *ServerDNS) serveUDPPacket(
 	ctx context.Context,
 	m []byte,
-	conn *net.UDPConn,
-	udpSession *dns.SessionUDP,
+	conn net.PacketConn,
+	sess netext.PacketSession,
 ) {
 	defer s.wg.Done()
 	defer s.handlePanicAndRecover(ctx)
 
 	rw := &udpResponseWriter{
+		udpSession:   sess,
 		conn:         conn,
-		udpSession:   udpSession,
 		writeTimeout: s.conf.WriteTimeout,
 	}
 	s.serveDNS(ctx, m, rw)
@@ -75,15 +73,18 @@ func (s *ServerDNS) serveUDPPacket(
 }
 
 // readUDPMsg reads the next incoming DNS message.
-func (s *ServerDNS) readUDPMsg(ctx context.Context, conn *net.UDPConn) (msg []byte, sess *dns.SessionUDP, err error) {
+func (s *ServerDNS) readUDPMsg(
+	ctx context.Context,
+	conn net.PacketConn,
+) (msg []byte, sess netext.PacketSession, err error) {
 	err = conn.SetReadDeadline(time.Now().Add(s.conf.ReadTimeout))
 	if err != nil {
 		return nil, nil, err
 	}
 
 	m := s.getUDPBuffer()
-	var n int
-	n, sess, err = dns.ReadFromSessionUDP(conn, m)
+
+	n, sess, err := netext.ReadFromSession(conn, m)
 	if err != nil {
 		s.putUDPBuffer(m)
 
@@ -120,30 +121,10 @@ func (s *ServerDNS) putUDPBuffer(m []byte) {
 	s.udpPool.Put(&m)
 }
 
-// setUDPSocketOptions is a function that is necessary to be able to use
-// dns.ReadFromSessionUDP and dns.WriteToSessionUDP.
-// TODO(ameshkov): https://github.com/AdguardTeam/AdGuardHome/issues/2807
-func setUDPSocketOptions(conn *net.UDPConn) (err error) {
-	if runtime.GOOS == "windows" {
-		return nil
-	}
-
-	// We don't know if this a IPv4-only, IPv6-only or a IPv4-and-IPv6 connection.
-	// Try enabling receiving of ECN and packet info for both IP versions.
-	// We expect at least one of those syscalls to succeed.
-	err6 := ipv6.NewPacketConn(conn).SetControlMessage(ipv6.FlagDst|ipv6.FlagInterface, true)
-	err4 := ipv4.NewPacketConn(conn).SetControlMessage(ipv4.FlagDst|ipv4.FlagInterface, true)
-	if err4 != nil && err6 != nil {
-		return errors.List("error while setting NetworkUDP socket options", err4, err6)
-	}
-
-	return nil
-}
-
 // udpResponseWriter is a ResponseWriter implementation for DNS-over-UDP.
 type udpResponseWriter struct {
-	udpSession   *dns.SessionUDP
-	conn         *net.UDPConn
+	udpSession   netext.PacketSession
+	conn         net.PacketConn
 	writeTimeout time.Duration
 }
 
@@ -152,13 +133,15 @@ var _ ResponseWriter = (*udpResponseWriter)(nil)
 
 // LocalAddr implements the ResponseWriter interface for *udpResponseWriter.
 func (r *udpResponseWriter) LocalAddr() (addr net.Addr) {
-	return r.conn.LocalAddr()
+	// Don't use r.conn.LocalAddr(), since udpSession may actually contain the
+	// decoded OOB data, including the real local (dst) address.
+	return r.udpSession.LocalAddr()
 }
 
 // RemoteAddr implements the ResponseWriter interface for *udpResponseWriter.
 func (r *udpResponseWriter) RemoteAddr() (addr net.Addr) {
-	// Don't use r.conn.RemoteAddr(), since udpSession actually contains the
-	// decoded OOB data, including the remote address.
+	// Don't use r.conn.RemoteAddr(), since udpSession may actually contain the
+	// decoded OOB data, including the real remote (src) address.
 	return r.udpSession.RemoteAddr()
 }
 
@@ -173,7 +156,7 @@ func (r *udpResponseWriter) WriteMsg(ctx context.Context, req, resp *dns.Msg) (e
 	}
 
 	withWriteDeadline(ctx, r.writeTimeout, r.conn, func() {
-		_, err = dns.WriteToSessionUDP(r.conn, data, r.udpSession)
+		_, err = netext.WriteToSession(r.conn, data, r.udpSession)
 	})
 
 	if err != nil {

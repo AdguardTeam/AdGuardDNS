@@ -32,57 +32,23 @@ const (
 	// Resolvers for querying the resolver with unknown or absent name.
 	ddrDomain = ddrLabel + "." + resolverArpaDomain
 
-	// firefoxCanaryFQDN is the fully-qualified canary domain that Firefox uses
-	// to check if it should use its own DNS-over-HTTPS settings.
+	// firefoxCanaryHost is the hostname that Firefox uses to check if it
+	// should use its own DNS-over-HTTPS settings.
 	//
 	// See https://support.mozilla.org/en-US/kb/configuring-networks-disable-dns-over-https.
-	firefoxCanaryFQDN = "use-application-dns.net."
-
-	// applePrivateRelayMaskHost and applePrivateRelayMaskH2Host are the
-	// hostnames that Apple devices use to check if Apple Private Relay can be
-	// enabled.  Returning NXDOMAIN to queries for these domain names blocks
-	// Apple Private Relay.
-	//
-	// See https://developer.apple.com/support/prepare-your-network-for-icloud-private-relay.
-	applePrivateRelayMaskHost   = "mask.icloud.com"
-	applePrivateRelayMaskH2Host = "mask-h2.icloud.com"
+	firefoxCanaryHost = "use-application-dns.net"
 )
 
-// noReqInfoSpecialHandler returns a handler that can handle a special-domain
-// query based only on its question type, class, and target, as well as the
-// handler's name for debugging.
-func (mw *initMw) noReqInfoSpecialHandler(
-	fqdn string,
-	qt dnsmsg.RRType,
-	cl dnsmsg.Class,
-) (f dnsserver.HandlerFunc, name string) {
-	if cl != dns.ClassINET {
-		return nil, ""
-	}
-
-	if (qt == dns.TypeA || qt == dns.TypeAAAA) && fqdn == firefoxCanaryFQDN {
-		return mw.handleFirefoxCanary, "firefox"
-	}
-
-	return nil, ""
-}
-
-// Firefox Canary
-
-// handleFirefoxCanary checks if the request is for the fully-qualified domain
-// name that Firefox uses to check DoH settings and writes a response if needed.
-func (mw *initMw) handleFirefoxCanary(
-	ctx context.Context,
-	rw dnsserver.ResponseWriter,
-	req *dns.Msg,
-) (err error) {
-	metrics.DNSSvcFirefoxRequestsTotal.Inc()
-
-	resp := mw.messages.NewMsgREFUSED(req)
-	err = rw.WriteMsg(ctx, req, resp)
-
-	return errors.Annotate(err, "writing firefox canary resp: %w")
-}
+// Hostnames that Apple devices use to check if Apple Private Relay can be
+// enabled.  Returning NXDOMAIN to queries for these domain names blocks Apple
+// Private Relay.
+//
+// See https://developer.apple.com/support/prepare-your-network-for-icloud-private-relay.
+const (
+	applePrivateRelayMaskHost       = "mask.icloud.com"
+	applePrivateRelayMaskH2Host     = "mask-h2.icloud.com"
+	applePrivateRelayMaskCanaryHost = "mask-canary.icloud.com"
+)
 
 // reqInfoSpecialHandler returns a handler that can handle a special-domain
 // query based on the request info, as well as the handler's name for debugging.
@@ -99,11 +65,9 @@ func (mw *initMw) reqInfoSpecialHandler(
 	} else if netutil.IsSubdomain(ri.Host, resolverArpaDomain) {
 		// A badly formed resolver.arpa subdomain query.
 		return mw.handleBadResolverARPA, "bad_resolver_arpa"
-	} else if shouldBlockPrivateRelay(ri) {
-		return mw.handlePrivateRelay, "apple_private_relay"
 	}
 
-	return nil, ""
+	return mw.specialDomainHandler(ri)
 }
 
 // reqInfoHandlerFunc is an alias for handler functions that additionally accept
@@ -222,24 +186,46 @@ func (mw *initMw) handleBadResolverARPA(
 	return errors.Annotate(err, "writing nodata resp for %q: %w", ri.Host)
 }
 
+// specialDomainHandler returns a handler that can handle a special-domain
+// query for Apple Private Relay or Firefox canary domain based on the request
+// or profile information, as well as the handler's name for debugging.
+func (mw *initMw) specialDomainHandler(
+	ri *agd.RequestInfo,
+) (f reqInfoHandlerFunc, name string) {
+	qt := ri.QType
+	if qt != dns.TypeA && qt != dns.TypeAAAA {
+		return nil, ""
+	}
+
+	host := ri.Host
+	prof := ri.Profile
+
+	switch host {
+	case
+		applePrivateRelayMaskHost,
+		applePrivateRelayMaskH2Host,
+		applePrivateRelayMaskCanaryHost:
+		if shouldBlockPrivateRelay(ri, prof) {
+			return mw.handlePrivateRelay, "apple_private_relay"
+		}
+	case firefoxCanaryHost:
+		if shouldBlockFirefoxCanary(ri, prof) {
+			return mw.handleFirefoxCanary, "firefox"
+		}
+	default:
+		// Go on.
+	}
+
+	return nil, ""
+}
+
 // Apple Private Relay
 
 // shouldBlockPrivateRelay returns true if the query is for an Apple Private
-// Relay check domain and the request information indicates that Apple Private
-// Relay should be blocked.
-func shouldBlockPrivateRelay(ri *agd.RequestInfo) (ok bool) {
-	qt := ri.QType
-	host := ri.Host
-
-	return (qt == dns.TypeA || qt == dns.TypeAAAA) &&
-		(host == applePrivateRelayMaskHost || host == applePrivateRelayMaskH2Host) &&
-		reqInfoShouldBlockPrivateRelay(ri)
-}
-
-// reqInfoShouldBlockPrivateRelay returns true if Apple Private Relay queries
-// should be blocked based on the request information.
-func reqInfoShouldBlockPrivateRelay(ri *agd.RequestInfo) (ok bool) {
-	if prof := ri.Profile; prof != nil {
+// Relay check domain and the request information or profile indicates that
+// Apple Private Relay should be blocked.
+func shouldBlockPrivateRelay(ri *agd.RequestInfo, prof *agd.Profile) (ok bool) {
+	if prof != nil {
 		return prof.BlockPrivateRelay
 	}
 
@@ -259,4 +245,33 @@ func (mw *initMw) handlePrivateRelay(
 	err = rw.WriteMsg(ctx, req, ri.Messages.NewMsgNXDOMAIN(req))
 
 	return errors.Annotate(err, "writing private relay resp: %w")
+}
+
+// Firefox canary domain
+
+// shouldBlockFirefoxCanary returns true if the query is for a Firefox canary
+// domain and the request information or profile indicates that Firefox canary
+// domain should be blocked.
+func shouldBlockFirefoxCanary(ri *agd.RequestInfo, prof *agd.Profile) (ok bool) {
+	if prof != nil {
+		return prof.BlockFirefoxCanary
+	}
+
+	return ri.FilteringGroup.BlockFirefoxCanary
+}
+
+// handleFirefoxCanary checks if the request is for the fully-qualified domain
+// name that Firefox uses to check DoH settings and writes a response if needed.
+func (mw *initMw) handleFirefoxCanary(
+	ctx context.Context,
+	rw dnsserver.ResponseWriter,
+	req *dns.Msg,
+	ri *agd.RequestInfo,
+) (err error) {
+	metrics.DNSSvcFirefoxRequestsTotal.Inc()
+
+	resp := mw.messages.NewMsgREFUSED(req)
+	err = rw.WriteMsg(ctx, req, resp)
+
+	return errors.Annotate(err, "writing firefox canary resp: %w")
 }

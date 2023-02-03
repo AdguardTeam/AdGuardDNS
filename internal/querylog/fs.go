@@ -13,6 +13,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/mathutil"
 )
 
 // FileSystemConfig is the configuration of the file system query log.
@@ -71,11 +72,6 @@ func (l *FileSystem) Write(_ context.Context, e *Entry) (err error) {
 		metrics.QueryLogItemsCount.Inc()
 	}()
 
-	var dnssec uint8 = 0
-	if e.DNSSEC {
-		dnssec = 1
-	}
-
 	entBuf := l.bufferPool.Get().(*entryBuffer)
 	defer l.bufferPool.Put(entBuf)
 	entBuf.buf.Reset()
@@ -94,7 +90,7 @@ func (l *FileSystem) Write(_ context.Context, e *Entry) (err error) {
 		ClientASN:       e.ClientASN,
 		Elapsed:         e.Elapsed,
 		RequestType:     e.RequestType,
-		DNSSEC:          dnssec,
+		DNSSEC:          mathutil.BoolToNumber[uint8](e.DNSSEC),
 		Protocol:        e.Protocol,
 		ResultCode:      c,
 		ResponseCode:    e.ResponseCode,

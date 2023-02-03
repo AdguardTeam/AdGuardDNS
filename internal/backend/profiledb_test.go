@@ -131,6 +131,7 @@ func testProfileResp(t *testing.T) *agd.PSProfilesResponse {
 			QueryLogEnabled:     true,
 			Deleted:             false,
 			BlockPrivateRelay:   true,
+			BlockFirefoxCanary:  true,
 		}, {
 			Parental:   wantParental,
 			ID:         "83f3ea8f",
@@ -162,6 +163,7 @@ func testProfileResp(t *testing.T) *agd.PSProfilesResponse {
 			QueryLogEnabled:     true,
 			Deleted:             true,
 			BlockPrivateRelay:   false,
+			BlockFirefoxCanary:  false,
 		}},
 	}
 

@@ -117,7 +117,9 @@ underscores() {
 		git ls-files '*_*.go'\
 			| grep -F\
 			-e '_generate.go'\
+			-e '_linux.go'\
 			-e '_noreuseport.go'\
+			-e '_others.go'\
 			-e '_reuseport.go'\
 			-e '_test.go'\
 			-e '_unix.go'\

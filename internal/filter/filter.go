@@ -18,10 +18,11 @@ import (
 // maxFilterSize is the maximum size of downloaded filters.
 const maxFilterSize = 196 * int64(datasize.MB)
 
-// defaultTimeout is the default timeout to use when fetching filter data.
+// defaultFilterRefreshTimeout is the default timeout to use when fetching
+// filter lists data.
 //
 // TODO(a.garipov): Consider making timeouts where they are used configurable.
-const defaultTimeout = 30 * time.Second
+const defaultFilterRefreshTimeout = 180 * time.Second
 
 // defaultResolveTimeout is the default timeout for resolving hosts for safe
 // search and safe browsing filters.

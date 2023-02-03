@@ -3,14 +3,9 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"gopkg.in/yaml.v2"
 )
@@ -206,74 +201,6 @@ func (c *geoIPConfig) validate() (err error) {
 		return newMustBePositiveError("host_cache_size", c.HostCacheSize)
 	case c.IPCacheSize <= 0:
 		return newMustBePositiveError("ip_cache_size", c.IPCacheSize)
-	case c.RefreshIvl.Duration <= 0:
-		return newMustBePositiveError("refresh_interval", c.RefreshIvl)
-	default:
-		return nil
-	}
-}
-
-// allowListConfig is the consul allow list configuration.
-type allowListConfig struct {
-	// List contains IPs and CIDRs.
-	List []string `yaml:"list"`
-
-	// RefreshIvl time between two updates of allow list from the Consul URL.
-	RefreshIvl timeutil.Duration `yaml:"refresh_interval"`
-}
-
-// safeBrowsingConfig is the configuration for one of the safe browsing filters.
-type safeBrowsingConfig struct {
-	// URL is the URL used to update the filter.
-	URL *agdhttp.URL `yaml:"url"`
-
-	// BlockHost is the hostname with which to respond to any requests that
-	// match the filter.
-	//
-	// TODO(a.garipov): Consider replacing with a list of IPv4 and IPv6
-	// addresses.
-	BlockHost string `yaml:"block_host"`
-
-	// CacheSize is the size of the response cache, in entries.
-	CacheSize int `yaml:"cache_size"`
-
-	// CacheTTL is the TTL of the response cache.
-	CacheTTL timeutil.Duration `yaml:"cache_ttl"`
-
-	// RefreshIvl defines how often AdGuard DNS refreshes the filter.
-	RefreshIvl timeutil.Duration `yaml:"refresh_interval"`
-}
-
-// toInternal converts c to the safe browsing filter configuration for the
-// filter storage of the DNS server.  c is assumed to be valid.
-func (c *safeBrowsingConfig) toInternal(
-	id agd.FilterListID,
-	cacheDir string,
-	errColl agd.ErrorCollector,
-) (conf *filter.HashStorageConfig) {
-	return &filter.HashStorageConfig{
-		URL:        netutil.CloneURL(&c.URL.URL),
-		ErrColl:    errColl,
-		ID:         id,
-		CachePath:  filepath.Join(cacheDir, string(id)),
-		RefreshIvl: c.RefreshIvl.Duration,
-	}
-}
-
-// validate returns an error if the safe browsing filter configuration is
-// invalid.
-func (c *safeBrowsingConfig) validate() (err error) {
-	switch {
-	case c == nil:
-		return errNilConfig
-	case c.URL == nil:
-		return errors.Error("no url")
-	case c.BlockHost == "":
-		return errors.Error("no block_host")
-	case c.CacheSize <= 0:
-		return newMustBePositiveError("cache_size", c.CacheSize)
-	case c.CacheTTL.Duration <= 0:
-		return newMustBePositiveError("cache_ttl", c.CacheTTL)
 	case c.RefreshIvl.Duration <= 0:
 		return newMustBePositiveError("refresh_interval", c.RefreshIvl)
 	default:

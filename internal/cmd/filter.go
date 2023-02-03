@@ -47,16 +47,21 @@ type filtersConfig struct {
 // cacheDir must exist.  c is assumed to be valid.
 func (c *filtersConfig) toInternal(
 	errColl agd.ErrorCollector,
+	resolver agdnet.Resolver,
 	envs *environments,
+	safeBrowsing *filter.HashPrefix,
+	adultBlocking *filter.HashPrefix,
 ) (conf *filter.DefaultStorageConfig) {
 	return &filter.DefaultStorageConfig{
 		FilterIndexURL:            netutil.CloneURL(&envs.FilterIndexURL.URL),
 		BlockedServiceIndexURL:    netutil.CloneURL(&envs.BlockedServiceIndexURL.URL),
 		GeneralSafeSearchRulesURL: netutil.CloneURL(&envs.GeneralSafeSearchURL.URL),
 		YoutubeSafeSearchRulesURL: netutil.CloneURL(&envs.YoutubeSafeSearchURL.URL),
+		SafeBrowsing:              safeBrowsing,
+		AdultBlocking:             adultBlocking,
 		Now:                       time.Now,
 		ErrColl:                   errColl,
-		Resolver:                  agdnet.DefaultResolver{},
+		Resolver:                  resolver,
 		CacheDir:                  envs.FilterCachePath,
 		CustomFilterCacheSize:     c.CustomFilterCacheSize,
 		SafeSearchCacheSize:       c.SafeSearchCacheSize,

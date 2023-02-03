@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/bluele/gcache"
@@ -96,6 +97,11 @@ func NewServerQUIC(conf ConfigQUIC) (s *ServerQUIC) {
 	tlsConfig := conf.TLSConfig
 	if len(tlsConfig.NextProtos) == 0 {
 		tlsConfig.NextProtos = append([]string{nextProtoDoQ}, compatProtoDQ...)
+	}
+
+	if conf.ListenConfig == nil {
+		// Do not enable OOB here as quic-go will do that on its own.
+		conf.ListenConfig = netext.DefaultListenConfig()
 	}
 
 	s = &ServerQUIC{
@@ -476,8 +482,7 @@ func (s *ServerQUIC) readQUICMsg(
 // listenQUIC creates the UDP listener for the ServerQUIC.addr and also starts
 // the QUIC listener.
 func (s *ServerQUIC) listenQUIC(ctx context.Context) (err error) {
-	// Do not enable OOB here as quic-go will do that on its own.
-	conn, err := listenUDP(ctx, s.addr, false)
+	conn, err := s.listenConfig.ListenPacket(ctx, "udp", s.addr)
 	if err != nil {
 		return err
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/mathutil"
 	"github.com/bluele/gcache"
 	"github.com/miekg/dns"
 )
@@ -93,22 +94,16 @@ func (mw *Middleware) toCacheKey(cr *cacheRequest, hostHasECS bool) (key uint64)
 	var buf [6]byte
 	binary.LittleEndian.PutUint16(buf[:2], cr.qType)
 	binary.LittleEndian.PutUint16(buf[2:4], cr.qClass)
-	if cr.reqDO {
-		buf[4] = 1
-	} else {
-		buf[4] = 0
-	}
 
-	if cr.subnet.Addr().Is4() {
-		buf[5] = 0
-	} else {
-		buf[5] = 1
-	}
+	buf[4] = mathutil.BoolToNumber[byte](cr.reqDO)
+
+	addr := cr.subnet.Addr()
+	buf[5] = mathutil.BoolToNumber[byte](addr.Is6())
 
 	_, _ = h.Write(buf[:])
 
 	if hostHasECS {
-		_, _ = h.Write(cr.subnet.Addr().AsSlice())
+		_, _ = h.Write(addr.AsSlice())
 		_ = h.WriteByte(byte(cr.subnet.Bits()))
 	}
 

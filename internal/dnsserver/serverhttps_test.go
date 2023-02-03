@@ -133,7 +133,7 @@ func TestServerHTTPS_integration_serveRequests(t *testing.T) {
 			require.True(t, resp.Response)
 
 			// EDNS0 padding is only present when request also has padding opt.
-			paddingOpt := dnsservertest.FindENDS0Option[*dns.EDNS0_PADDING](resp)
+			paddingOpt := dnsservertest.FindEDNS0Option[*dns.EDNS0_PADDING](resp)
 			require.Nil(t, paddingOpt)
 		})
 	}
@@ -338,7 +338,7 @@ func TestServerHTTPS_integration_ENDS0Padding(t *testing.T) {
 	resp := mustDoHReq(t, addr, tlsConfig, http.MethodGet, false, false, req)
 	require.True(t, resp.Response)
 
-	paddingOpt := dnsservertest.FindENDS0Option[*dns.EDNS0_PADDING](resp)
+	paddingOpt := dnsservertest.FindEDNS0Option[*dns.EDNS0_PADDING](resp)
 	require.NotNil(t, paddingOpt)
 	require.NotEmpty(t, paddingOpt.Padding)
 }

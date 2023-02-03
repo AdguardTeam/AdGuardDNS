@@ -2,9 +2,13 @@ package filter
 
 import (
 	"context"
+	"encoding/hex"
+	"fmt"
 	"strings"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashstorage"
 	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/stringutil"
 )
 
 // Safe Browsing TXT Record Server
@@ -14,12 +18,12 @@ import (
 //
 // TODO(a.garipov): Consider making an interface to simplify testing.
 type SafeBrowsingServer struct {
-	generalHashes       *HashStorage
-	adultBlockingHashes *HashStorage
+	generalHashes       *hashstorage.Storage
+	adultBlockingHashes *hashstorage.Storage
 }
 
 // NewSafeBrowsingServer returns a new safe browsing DNS server.
-func NewSafeBrowsingServer(general, adultBlocking *HashStorage) (f *SafeBrowsingServer) {
+func NewSafeBrowsingServer(general, adultBlocking *hashstorage.Storage) (f *SafeBrowsingServer) {
 	return &SafeBrowsingServer{
 		generalHashes:       general,
 		adultBlockingHashes: adultBlocking,
@@ -48,8 +52,7 @@ func (srv *SafeBrowsingServer) Hashes(
 	}
 
 	var prefixesStr string
-	var strg *HashStorage
-
+	var strg *hashstorage.Storage
 	if strings.HasSuffix(host, GeneralTXTSuffix) {
 		prefixesStr = host[:len(host)-len(GeneralTXTSuffix)]
 		strg = srv.generalHashes
@@ -67,5 +70,45 @@ func (srv *SafeBrowsingServer) Hashes(
 		return nil, false, err
 	}
 
-	return strg.hashes(hashPrefixes), true, nil
+	return strg.Hashes(hashPrefixes), true, nil
+}
+
+// legacyPrefixEncLen is the encoded length of a legacy hash.
+const legacyPrefixEncLen = 8
+
+// hashPrefixesFromStr returns hash prefixes from a dot-separated string.
+func hashPrefixesFromStr(prefixesStr string) (hashPrefixes []hashstorage.Prefix, err error) {
+	if prefixesStr == "" {
+		return nil, nil
+	}
+
+	prefixSet := stringutil.NewSet()
+	prefixStrs := strings.Split(prefixesStr, ".")
+	for _, s := range prefixStrs {
+		if len(s) != hashstorage.PrefixEncLen {
+			// Some legacy clients send eight-character hashes instead of
+			// four-character ones.  For now, remove the final four characters.
+			//
+			// TODO(a.garipov): Either remove this crutch or support such
+			// prefixes better.
+			if len(s) == legacyPrefixEncLen {
+				s = s[:hashstorage.PrefixEncLen]
+			} else {
+				return nil, fmt.Errorf("bad hash len for %q", s)
+			}
+		}
+
+		prefixSet.Add(s)
+	}
+
+	hashPrefixes = make([]hashstorage.Prefix, prefixSet.Len())
+	prefixStrs = prefixSet.Values()
+	for i, s := range prefixStrs {
+		_, err = hex.Decode(hashPrefixes[i][:], []byte(s))
+		if err != nil {
+			return nil, fmt.Errorf("bad hash encoding for %q", s)
+		}
+	}
+
+	return hashPrefixes, nil
 }

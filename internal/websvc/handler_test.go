@@ -31,8 +31,10 @@ func TestService_ServeHTTP(t *testing.T) {
 
 	staticContent := map[string]*websvc.StaticFile{
 		"/favicon.ico": {
-			ContentType: "image/x-icon",
-			Content:     []byte{},
+			Content: []byte{},
+			Headers: http.Header{
+				agdhttp.HdrNameContentType: []string{"image/x-icon"},
+			},
 		},
 	}
 
@@ -56,22 +58,33 @@ func TestService_ServeHTTP(t *testing.T) {
 	})
 
 	// DNSCheck path.
-	assertPathResponse(t, svc, "/dnscheck/test", http.StatusOK)
+	assertResponse(t, svc, "/dnscheck/test", http.StatusOK)
 
-	// Static content path.
-	assertPathResponse(t, svc, "/favicon.ico", http.StatusOK)
+	// Static content path with headers.
+	h := http.Header{
+		agdhttp.HdrNameContentType: []string{"image/x-icon"},
+		agdhttp.HdrNameServer:      []string{"AdGuardDNS/"},
+	}
+	assertResponseWithHeaders(t, svc, "/favicon.ico", http.StatusOK, h)
 
 	// Robots path.
-	assertPathResponse(t, svc, "/robots.txt", http.StatusOK)
+	assertResponse(t, svc, "/robots.txt", http.StatusOK)
 
 	// Root redirect path.
-	assertPathResponse(t, svc, "/", http.StatusFound)
+	assertResponse(t, svc, "/", http.StatusFound)
 
 	// Other path.
-	assertPathResponse(t, svc, "/other", http.StatusNotFound)
+	assertResponse(t, svc, "/other", http.StatusNotFound)
 }
 
-func assertPathResponse(t *testing.T, svc *websvc.Service, path string, statusCode int) {
+// assertResponse is a helper function that checks status code of HTTP
+// response.
+func assertResponse(
+	t *testing.T,
+	svc *websvc.Service,
+	path string,
+	statusCode int,
+) (rw *httptest.ResponseRecorder) {
 	t.Helper()
 
 	r := httptest.NewRequest(http.MethodGet, (&url.URL{
@@ -79,9 +92,27 @@ func assertPathResponse(t *testing.T, svc *websvc.Service, path string, statusCo
 		Host:   "127.0.0.1",
 		Path:   path,
 	}).String(), strings.NewReader(""))
-	rw := httptest.NewRecorder()
+	rw = httptest.NewRecorder()
 	svc.ServeHTTP(rw, r)
 
 	assert.Equal(t, statusCode, rw.Code)
 	assert.Equal(t, agdhttp.UserAgent(), rw.Header().Get(agdhttp.HdrNameServer))
+
+	return rw
+}
+
+// assertResponseWithHeaders is a helper function that checks status code and
+// headers of HTTP response.
+func assertResponseWithHeaders(
+	t *testing.T,
+	svc *websvc.Service,
+	path string,
+	statusCode int,
+	header http.Header,
+) {
+	t.Helper()
+
+	rw := assertResponse(t, svc, path, statusCode)
+
+	assert.Equal(t, header, rw.Header())
 }

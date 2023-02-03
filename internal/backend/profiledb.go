@@ -165,6 +165,31 @@ type v1SettingsRespSettings struct {
 	FilteringEnabled    bool                        `json:"filtering_enabled"`
 	Deleted             bool                        `json:"deleted"`
 	BlockPrivateRelay   bool                        `json:"block_private_relay"`
+	BlockFirefoxCanary  bool                        `json:"block_firefox_canary"`
+}
+
+// type check
+var _ json.Unmarshaler = (*v1SettingsRespSettings)(nil)
+
+// UnmarshalJSON implements the [json.Unmarshaler] interface for
+// *v1SettingsRespSettings.  It puts default value into BlockFirefoxCanary
+// field while it is not implemented on the backend side.
+//
+// TODO(a.garipov): Remove once the backend starts to always send it.
+func (rs *v1SettingsRespSettings) UnmarshalJSON(b []byte) (err error) {
+	type defaultDec v1SettingsRespSettings
+
+	s := defaultDec{
+		BlockFirefoxCanary: true,
+	}
+
+	if err = json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+
+	*rs = v1SettingsRespSettings(s)
+
+	return nil
 }
 
 // v1SettingsRespRuleLists is the structure for decoding filtering rule lists
@@ -414,10 +439,11 @@ const maxFltRespTTL = 1 * time.Hour
 func fltRespTTLToInternal(respTTL uint32) (ttl time.Duration, err error) {
 	ttl = time.Duration(respTTL) * time.Second
 	if ttl > maxFltRespTTL {
-		return ttl, fmt.Errorf("too high: got %d, max %d", respTTL, maxFltRespTTL)
+		ttl = maxFltRespTTL
+		err = fmt.Errorf("too high: got %s, max %s", ttl, maxFltRespTTL)
 	}
 
-	return ttl, nil
+	return ttl, err
 }
 
 // toInternal converts r to an [agd.DSProfilesResponse] instance.
@@ -461,6 +487,9 @@ func (r *v1SettingsResp) toInternal(
 			reportf(ctx, errColl, "settings at index %d: filtered resp ttl: %w", i, err)
 
 			// Go on and use the fixed value.
+			//
+			// TODO(ameshkov, a.garipov): Consider continuing, like with all
+			// other validation errors.
 		}
 
 		sbEnabled := s.SafeBrowsing != nil && s.SafeBrowsing.Enabled
@@ -479,6 +508,7 @@ func (r *v1SettingsResp) toInternal(
 			QueryLogEnabled:     s.QueryLogEnabled,
 			Deleted:             s.Deleted,
 			BlockPrivateRelay:   s.BlockPrivateRelay,
+			BlockFirefoxCanary:  s.BlockFirefoxCanary,
 		})
 	}
 

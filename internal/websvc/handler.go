@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
@@ -58,12 +59,16 @@ func (svc *Service) processRec(
 			body = svc.error404
 			respHdr.Set(agdhttp.HdrNameContentType, agdhttp.HdrValTextHTML)
 		}
+
+		metrics.WebSvcError404RequestsTotal.Inc()
 	case http.StatusInternalServerError:
 		action = "writing 500"
 		if len(svc.error500) != 0 {
 			body = svc.error500
 			respHdr.Set(agdhttp.HdrNameContentType, agdhttp.HdrValTextHTML)
 		}
+
+		metrics.WebSvcError500RequestsTotal.Inc()
 	default:
 		action = "writing response"
 		for k, v := range rec.Header() {
@@ -87,6 +92,8 @@ func (svc *Service) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/dnscheck/test":
 		svc.dnsCheck.ServeHTTP(w, r)
+
+		metrics.WebSvcDNSCheckTestRequestsTotal.Inc()
 	case "/robots.txt":
 		serveRobotsDisallow(w.Header(), w, "handler")
 	case "/":
@@ -94,6 +101,8 @@ func (svc *Service) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 		} else {
 			http.Redirect(w, r, svc.rootRedirectURL, http.StatusFound)
+
+			metrics.WebSvcRootRedirectRequestsTotal.Inc()
 		}
 	default:
 		http.NotFound(w, r)
@@ -101,7 +110,7 @@ func (svc *Service) serveHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // safeBrowsingHandler returns an HTTP handler serving the block page from the
-// blockPagePath.  name is used for logging.
+// blockPagePath.  name is used for logging and metrics.
 func safeBrowsingHandler(name string, blockPage []byte) (h http.Handler) {
 	f := func(w http.ResponseWriter, r *http.Request) {
 		hdr := w.Header()
@@ -122,6 +131,15 @@ func safeBrowsingHandler(name string, blockPage []byte) (h http.Handler) {
 			if err != nil {
 				logErrorByType(err, "websvc: %s: writing response: %s", name, err)
 			}
+
+			switch name {
+			case adultBlockingName:
+				metrics.WebSvcAdultBlockingPageRequestsTotal.Inc()
+			case safeBrowsingName:
+				metrics.WebSvcSafeBrowsingPageRequestsTotal.Inc()
+			default:
+				// Go on.
+			}
 		}
 	}
 
@@ -140,10 +158,11 @@ func (sc StaticContent) serveHTTP(w http.ResponseWriter, r *http.Request) (serve
 		return false
 	}
 
-	if f.AllowOrigin != "" {
-		w.Header().Set(agdhttp.HdrNameAccessControlAllowOrigin, f.AllowOrigin)
+	h := w.Header()
+	for k, v := range f.Headers {
+		h[k] = v
 	}
-	w.Header().Set(agdhttp.HdrNameContentType, f.ContentType)
+
 	w.WriteHeader(http.StatusOK)
 
 	_, err := w.Write(f.Content)
@@ -151,16 +170,15 @@ func (sc StaticContent) serveHTTP(w http.ResponseWriter, r *http.Request) (serve
 		logErrorByType(err, "websvc: static content: writing %s: %s", p, err)
 	}
 
+	metrics.WebSvcStaticContentRequestsTotal.Inc()
+
 	return true
 }
 
 // StaticFile is a single file in a StaticFS.
 type StaticFile struct {
-	// AllowOrigin is the value for the HTTP Access-Control-Allow-Origin header.
-	AllowOrigin string
-
-	// ContentType is the value for the HTTP Content-Type header.
-	ContentType string
+	// Headers contains headers of the HTTP response.
+	Headers http.Header
 
 	// Content is the file content.
 	Content []byte
@@ -174,6 +192,8 @@ func serveRobotsDisallow(hdr http.Header, w http.ResponseWriter, name string) {
 	if err != nil {
 		logErrorByType(err, "websvc: %s: writing response: %s", name, err)
 	}
+
+	metrics.WebSvcRobotsTxtRequestsTotal.Inc()
 }
 
 // logErrorByType writes err to the error log, unless err is a network error or

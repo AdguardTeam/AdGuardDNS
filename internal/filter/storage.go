@@ -15,7 +15,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
-	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/bluele/gcache"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -55,10 +54,10 @@ type DefaultStorage struct {
 	services *serviceBlocker
 
 	// safeBrowsing is the general safe browsing filter.
-	safeBrowsing *hashPrefixFilter
+	safeBrowsing *HashPrefix
 
 	// adultBlocking is the adult content blocking safe browsing filter.
-	adultBlocking *hashPrefixFilter
+	adultBlocking *HashPrefix
 
 	// genSafeSearch is the general safe search filter.
 	genSafeSearch *safeSearch
@@ -111,11 +110,11 @@ type DefaultStorageConfig struct {
 
 	// SafeBrowsing is the configuration for the default safe browsing filter.
 	// It must not be nil.
-	SafeBrowsing *HashPrefixConfig
+	SafeBrowsing *HashPrefix
 
 	// AdultBlocking is the configuration for the adult content blocking safe
 	// browsing filter.  It must not be nil.
-	AdultBlocking *HashPrefixConfig
+	AdultBlocking *HashPrefix
 
 	// Now is a function that returns current time.
 	Now func() (now time.Time)
@@ -156,25 +155,8 @@ type DefaultStorageConfig struct {
 
 // NewDefaultStorage returns a new filter storage.  c must not be nil.
 func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage, err error) {
-	// TODO(ameshkov): Consider making configurable.
-	resolver := agdnet.NewCachingResolver(c.Resolver, 1*timeutil.Day)
-
-	safeBrowsing := newHashPrefixFilter(
-		c.SafeBrowsing,
-		resolver,
-		c.ErrColl,
-		agd.FilterListIDSafeBrowsing,
-	)
-
-	adultBlocking := newHashPrefixFilter(
-		c.AdultBlocking,
-		resolver,
-		c.ErrColl,
-		agd.FilterListIDAdultBlocking,
-	)
-
 	genSafeSearch := newSafeSearch(&safeSearchConfig{
-		resolver: resolver,
+		resolver: c.Resolver,
 		errColl:  c.ErrColl,
 		list: &agd.FilterList{
 			URL:        c.GeneralSafeSearchRulesURL,
@@ -187,7 +169,7 @@ func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage, err error) {
 	})
 
 	ytSafeSearch := newSafeSearch(&safeSearchConfig{
-		resolver: resolver,
+		resolver: c.Resolver,
 		errColl:  c.ErrColl,
 		list: &agd.FilterList{
 			URL:        c.YoutubeSafeSearchRulesURL,
@@ -203,11 +185,11 @@ func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage, err error) {
 		mu:  &sync.RWMutex{},
 		url: c.FilterIndexURL,
 		http: agdhttp.NewClient(&agdhttp.ClientConfig{
-			Timeout: defaultTimeout,
+			Timeout: defaultFilterRefreshTimeout,
 		}),
 		services:      newServiceBlocker(c.BlockedServiceIndexURL, c.ErrColl),
-		safeBrowsing:  safeBrowsing,
-		adultBlocking: adultBlocking,
+		safeBrowsing:  c.SafeBrowsing,
+		adultBlocking: c.AdultBlocking,
 		genSafeSearch: genSafeSearch,
 		ytSafeSearch:  ytSafeSearch,
 		now:           c.Now,
@@ -322,7 +304,7 @@ func (s *DefaultStorage) pcBySchedule(sch *agd.ParentalProtectionSchedule) (ok b
 func (s *DefaultStorage) safeBrowsingForProfile(
 	p *agd.Profile,
 	parentalEnabled bool,
-) (safeBrowsing, adultBlocking *hashPrefixFilter) {
+) (safeBrowsing, adultBlocking *HashPrefix) {
 	if p.SafeBrowsingEnabled {
 		safeBrowsing = s.safeBrowsing
 	}
@@ -359,7 +341,7 @@ func (s *DefaultStorage) safeSearchForProfile(
 // in the filtering group.  g must not be nil.
 func (s *DefaultStorage) safeBrowsingForGroup(
 	g *agd.FilteringGroup,
-) (safeBrowsing, adultBlocking *hashPrefixFilter) {
+) (safeBrowsing, adultBlocking *HashPrefix) {
 	if g.SafeBrowsingEnabled {
 		safeBrowsing = s.safeBrowsing
 	}

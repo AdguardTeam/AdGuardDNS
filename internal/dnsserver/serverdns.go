@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/miekg/dns"
@@ -108,6 +109,10 @@ func newServerDNS(proto Protocol, conf ConfigDNS) (s *ServerDNS) {
 	}
 	if conf.TCPSize == 0 {
 		conf.TCPSize = dns.MinMsgSize
+	}
+
+	if conf.ListenConfig == nil {
+		conf.ListenConfig = netext.DefaultListenConfigWithOOB()
 	}
 
 	s = &ServerDNS{
@@ -262,10 +267,21 @@ func makePacketBuffer(size int) (f func() any) {
 	}
 }
 
+// writeDeadlineSetter is an interface for connections that can set write
+// deadlines.
+type writeDeadlineSetter interface {
+	SetWriteDeadline(t time.Time) (err error)
+}
+
 // withWriteDeadline is a helper that takes the deadline of the context and the
 // write timeout into account.  It sets the write deadline on conn before
 // calling f and resets it once f is done.
-func withWriteDeadline(ctx context.Context, writeTimeout time.Duration, conn net.Conn, f func()) {
+func withWriteDeadline(
+	ctx context.Context,
+	writeTimeout time.Duration,
+	conn writeDeadlineSetter,
+	f func(),
+) {
 	dl, hasDeadline := ctx.Deadline()
 	if !hasDeadline {
 		dl = time.Now().Add(writeTimeout)

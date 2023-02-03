@@ -233,7 +233,8 @@ func TestService_Wrap_deviceIDFromEDNS(t *testing.T) {
 			Data: []byte{},
 		},
 		wantDeviceID: "",
-		wantErrMsg:   `bad device id "": too short: got 0 bytes, min 1`,
+		wantErrMsg: `edns option device id check: bad device id "": ` +
+			`too short: got 0 bytes, min 1`,
 	}, {
 		name: "bad_device_id",
 		opt: &dns.EDNS0_LOCAL{
@@ -241,7 +242,8 @@ func TestService_Wrap_deviceIDFromEDNS(t *testing.T) {
 			Data: []byte("toolongdeviceid"),
 		},
 		wantDeviceID: "",
-		wantErrMsg:   `bad device id "toolongdeviceid": too long: got 15 bytes, max 8`,
+		wantErrMsg: `edns option device id check: bad device id "toolongdeviceid": ` +
+			`too long: got 15 bytes, max 8`,
 	}, {
 		name: "device_id",
 		opt: &dns.EDNS0_LOCAL{

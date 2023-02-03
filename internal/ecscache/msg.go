@@ -8,6 +8,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/golibs/mathutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 )
@@ -269,9 +270,5 @@ func getTTLIfLower(r dns.RR, ttl uint32) (res uint32) {
 		// Go on.
 	}
 
-	if httl := r.Header().Ttl; httl < ttl {
-		return httl
-	}
-
-	return ttl
+	return mathutil.Min(r.Header().Ttl, ttl)
 }

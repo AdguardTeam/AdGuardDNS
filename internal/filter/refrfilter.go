@@ -45,9 +45,8 @@ type refreshableFilter struct {
 	// typ is the type of this filter used for logging and error reporting.
 	typ string
 
-	// refreshIvl is the refresh interval for this filter.  It is also used to
-	// check if the cached file is fresh enough.
-	refreshIvl time.Duration
+	// staleness is the time after which a file is considered stale.
+	staleness time.Duration
 }
 
 // refresh reloads the filter data.  If acceptStale is true, refresh doesn't try
@@ -118,7 +117,7 @@ func (f *refreshableFilter) refreshFromFile(
 			return "", fmt.Errorf("reading filter file stat: %w", err)
 		}
 
-		if mtime := fi.ModTime(); !mtime.Add(f.refreshIvl).After(time.Now()) {
+		if mtime := fi.ModTime(); !mtime.Add(f.staleness).After(time.Now()) {
 			return "", nil
 		}
 	}

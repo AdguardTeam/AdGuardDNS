@@ -1,12 +1,10 @@
 package geoip_test
 
 import (
-	"context"
 	"net/netip"
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/stretchr/testify/assert"
@@ -14,12 +12,7 @@ import (
 )
 
 func TestFile_Data(t *testing.T) {
-	var ec agd.ErrorCollector = &agdtest.ErrorCollector{
-		OnCollect: func(ctx context.Context, err error) { panic("not implemented") },
-	}
-
 	conf := &geoip.FileConfig{
-		ErrColl:       ec,
 		ASNPath:       asnPath,
 		CountryPath:   countryPath,
 		HostCacheSize: 0,
@@ -42,12 +35,7 @@ func TestFile_Data(t *testing.T) {
 }
 
 func TestFile_Data_hostCache(t *testing.T) {
-	var ec agd.ErrorCollector = &agdtest.ErrorCollector{
-		OnCollect: func(ctx context.Context, err error) { panic("not implemented") },
-	}
-
 	conf := &geoip.FileConfig{
-		ErrColl:       ec,
 		ASNPath:       asnPath,
 		CountryPath:   countryPath,
 		HostCacheSize: 1,
@@ -74,12 +62,7 @@ func TestFile_Data_hostCache(t *testing.T) {
 }
 
 func TestFile_SubnetByLocation(t *testing.T) {
-	var ec agd.ErrorCollector = &agdtest.ErrorCollector{
-		OnCollect: func(ctx context.Context, err error) { panic("not implemented") },
-	}
-
 	conf := &geoip.FileConfig{
-		ErrColl:       ec,
 		ASNPath:       asnPath,
 		CountryPath:   countryPath,
 		HostCacheSize: 0,
@@ -106,12 +89,7 @@ var locSink *agd.Location
 var errSink error
 
 func BenchmarkFile_Data(b *testing.B) {
-	var ec agd.ErrorCollector = &agdtest.ErrorCollector{
-		OnCollect: func(ctx context.Context, err error) { panic("not implemented") },
-	}
-
 	conf := &geoip.FileConfig{
-		ErrColl:       ec,
 		ASNPath:       asnPath,
 		CountryPath:   countryPath,
 		HostCacheSize: 0,
@@ -162,12 +140,7 @@ func BenchmarkFile_Data(b *testing.B) {
 var fileSink *geoip.File
 
 func BenchmarkNewFile(b *testing.B) {
-	var ec agd.ErrorCollector = &agdtest.ErrorCollector{
-		OnCollect: func(ctx context.Context, err error) { panic("not implemented") },
-	}
-
 	conf := &geoip.FileConfig{
-		ErrColl:       ec,
 		ASNPath:       asnPath,
 		CountryPath:   countryPath,
 		HostCacheSize: 0,

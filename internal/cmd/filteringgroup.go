@@ -29,6 +29,10 @@ type filteringGroup struct {
 	// BlockPrivateRelay shows if Apple Private Relay queries are blocked for
 	// requests using this filtering group.
 	BlockPrivateRelay bool `yaml:"block_private_relay"`
+
+	// BlockFirefoxCanary shows if Firefox canary domain is blocked for
+	// requests using this filtering group.
+	BlockFirefoxCanary bool `yaml:"block_firefox_canary"`
 }
 
 // fltGrpRuleLists contains filter rule lists configuration for a filtering
@@ -133,6 +137,7 @@ func (groups filteringGroups) toInternal(
 			GeneralSafeSearch:   g.Parental.GeneralSafeSearch,
 			YoutubeSafeSearch:   g.Parental.YoutubeSafeSearch,
 			BlockPrivateRelay:   g.BlockPrivateRelay,
+			BlockFirefoxCanary:  g.BlockFirefoxCanary,
 		}
 	}
 

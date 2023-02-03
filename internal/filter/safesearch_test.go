@@ -3,9 +3,7 @@ package filter_test
 import (
 	"context"
 	"net"
-	"os"
 	"testing"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
@@ -20,45 +18,29 @@ import (
 
 func TestStorage_FilterFromContext_safeSearch(t *testing.T) {
 	numLookupIP := 0
-	onLookupIP := func(
-		_ context.Context,
-		fam netutil.AddrFamily,
-		_ string,
-	) (ips []net.IP, err error) {
-		numLookupIP++
+	resolver := &agdtest.Resolver{
+		OnLookupIP: func(
+			_ context.Context,
+			fam netutil.AddrFamily,
+			_ string,
+		) (ips []net.IP, err error) {
+			numLookupIP++
 
-		if fam == netutil.AddrFamilyIPv4 {
-			return []net.IP{safeSearchIPRespIP4}, nil
-		}
+			if fam == netutil.AddrFamilyIPv4 {
+				return []net.IP{safeSearchIPRespIP4}, nil
+			}
 
-		return []net.IP{safeSearchIPRespIP6}, nil
+			return []net.IP{safeSearchIPRespIP6}, nil
+		},
 	}
 
-	tmpFile, err := os.CreateTemp(t.TempDir(), "")
-	require.NoError(t, err)
-
-	_, err = tmpFile.Write([]byte("bad.example.com\n"))
-	require.NoError(t, err)
-	testutil.CleanupAndRequireSuccess(t, func() (err error) { return os.Remove(tmpFile.Name()) })
-
-	hashes, err := filter.NewHashStorage(&filter.HashStorageConfig{
-		CachePath:  tmpFile.Name(),
-		RefreshIvl: 1 * time.Hour,
-	})
-	require.NoError(t, err)
-
 	c := prepareConf(t)
-
-	c.SafeBrowsing.Hashes = hashes
-	c.AdultBlocking.Hashes = hashes
 
 	c.ErrColl = &agdtest.ErrorCollector{
 		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
 	}
 
-	c.Resolver = &agdtest.Resolver{
-		OnLookupIP: onLookupIP,
-	}
+	c.Resolver = resolver
 
 	s, err := filter.NewDefaultStorage(c)
 	require.NoError(t, err)
@@ -80,13 +62,13 @@ func TestStorage_FilterFromContext_safeSearch(t *testing.T) {
 		host:        safeSearchIPHost,
 		wantIP:      safeSearchIPRespIP4,
 		rrtype:      dns.TypeA,
-		wantLookups: 0,
+		wantLookups: 1,
 	}, {
 		name:        "ip6",
 		host:        safeSearchIPHost,
-		wantIP:      nil,
+		wantIP:      safeSearchIPRespIP6,
 		rrtype:      dns.TypeAAAA,
-		wantLookups: 0,
+		wantLookups: 1,
 	}, {
 		name:        "host_ip4",
 		host:        safeSearchHost,

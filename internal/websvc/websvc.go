@@ -118,8 +118,8 @@ func New(c *Config) (svc *Service) {
 		error404: c.Error404,
 		error500: c.Error500,
 
-		adultBlocking: blockPageServers(c.AdultBlocking, "adult blocking", c.Timeout),
-		safeBrowsing:  blockPageServers(c.SafeBrowsing, "safe browsing", c.Timeout),
+		adultBlocking: blockPageServers(c.AdultBlocking, adultBlockingName, c.Timeout),
+		safeBrowsing:  blockPageServers(c.SafeBrowsing, safeBrowsingName, c.Timeout),
 	}
 
 	if c.RootRedirectURL != nil {
@@ -163,6 +163,12 @@ func New(c *Config) (svc *Service) {
 
 	return svc
 }
+
+// Names for safeBrowsingHandler for logging and metrics.
+const (
+	safeBrowsingName  = "safe browsing"
+	adultBlockingName = "adult blocking"
+)
 
 // blockPageServers is a helper function that converts a *BlockPageServer into
 // HTTP servers.

@@ -86,7 +86,7 @@ func (c *userCounter) record(now time.Time, ip netip.Addr, syncUpdate bool) {
 		prevMinuteCounter := c.currentMinuteCounter
 
 		c.currentMinute = minuteOfTheDay
-		c.currentMinuteCounter = hyperloglog.New()
+		c.currentMinuteCounter = newHyperLogLog()
 
 		// If this is the first iteration and prevMinute is -1, don't update the
 		// counters, since there are none.
@@ -123,7 +123,7 @@ func (c *userCounter) updateCounters(prevMinute int, prevCounter *hyperloglog.Sk
 // estimate uses HyperLogLog counters to estimate the hourly and daily users
 // count, starting with the minute of the day m.
 func (c *userCounter) estimate(m int) (hourly, daily uint64) {
-	hourlyCounter, dailyCounter := hyperloglog.New(), hyperloglog.New()
+	hourlyCounter, dailyCounter := newHyperLogLog(), newHyperLogLog()
 
 	// Go through all minutes in a day while decreasing the current minute m.
 	// Decreasing m, as opposed to increasing it or using i as the minute, is
@@ -166,6 +166,11 @@ func decrMod(n, m int) (res int) {
 	}
 
 	return n - 1
+}
+
+// newHyperLogLog creates a new instance of hyperloglog.Sketch.
+func newHyperLogLog() (sk *hyperloglog.Sketch) {
+	return hyperloglog.New16()
 }
 
 // defaultUserCounter is the main user statistics counter.

@@ -11,6 +11,7 @@
       },
       "deleted": false,
       "block_private_relay": true,
+      "block_firefox_canary": true,
       "devices": [
         {
           "id": "118ffe93",
@@ -43,6 +44,7 @@
       },
       "deleted": true,
       "block_private_relay": false,
+      "block_firefox_canary": false,
       "devices": [
         {
           "id": "0d7724fa",

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
+	"net/textproto"
 	"os"
 	"path"
 
@@ -386,11 +387,8 @@ func (sc staticContent) validate() (err error) {
 
 // staticFile is a single file in a static content mapping.
 type staticFile struct {
-	// AllowOrigin is the value for the HTTP Access-Control-Allow-Origin header.
-	AllowOrigin string `yaml:"allow_origin"`
-
-	// ContentType is the value for the HTTP Content-Type header.
-	ContentType string `yaml:"content_type"`
+	// Headers contains headers of the HTTP response.
+	Headers http.Header `yaml:"headers"`
 
 	// Content is the file content.
 	Content string `yaml:"content"`
@@ -400,8 +398,12 @@ type staticFile struct {
 // assumed to be valid.
 func (f *staticFile) toInternal() (file *websvc.StaticFile, err error) {
 	file = &websvc.StaticFile{
-		AllowOrigin: f.AllowOrigin,
-		ContentType: f.ContentType,
+		Headers: http.Header{},
+	}
+
+	for k, vs := range f.Headers {
+		ck := textproto.CanonicalMIMEHeaderKey(k)
+		file.Headers[ck] = vs
 	}
 
 	file.Content, err = base64.StdEncoding.DecodeString(f.Content)
@@ -409,17 +411,20 @@ func (f *staticFile) toInternal() (file *websvc.StaticFile, err error) {
 		return nil, fmt.Errorf("content: %w", err)
 	}
 
+	// Check Content-Type here as opposed to in validate, because we need
+	// all keys to be canonicalized first.
+	if file.Headers.Get(agdhttp.HdrNameContentType) == "" {
+		return nil, errors.Error("content: " + agdhttp.HdrNameContentType + " header is required")
+	}
+
 	return file, nil
 }
 
 // validate returns an error if the static content file is invalid.
 func (f *staticFile) validate() (err error) {
-	switch {
-	case f == nil:
+	if f == nil {
 		return errors.Error("no file")
-	case f.ContentType == "":
-		return errors.Error("no content_type")
-	default:
-		return nil
 	}
+
+	return nil
 }

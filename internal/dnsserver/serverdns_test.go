@@ -284,8 +284,8 @@ func TestServerDNS_integration_query(t *testing.T) {
 				tc.expectedTruncated,
 			)
 
-			reqKeepAliveOpt := dnsservertest.FindENDS0Option[*dns.EDNS0_TCP_KEEPALIVE](tc.req)
-			respKeepAliveOpt := dnsservertest.FindENDS0Option[*dns.EDNS0_TCP_KEEPALIVE](resp)
+			reqKeepAliveOpt := dnsservertest.FindEDNS0Option[*dns.EDNS0_TCP_KEEPALIVE](tc.req)
+			respKeepAliveOpt := dnsservertest.FindEDNS0Option[*dns.EDNS0_TCP_KEEPALIVE](resp)
 			if tc.network == dnsserver.NetworkTCP && reqKeepAliveOpt != nil {
 				require.NotNil(t, respKeepAliveOpt)
 				expectedTimeout := uint16(dnsserver.DefaultTCPIdleTimeout.Milliseconds() / 100)

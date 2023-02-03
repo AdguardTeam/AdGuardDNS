@@ -7,17 +7,17 @@ import (
 
 // Requests Per Second Counter
 
-// rps is a single request per seconds counter.
-type rps struct {
+// rpsCounter is a single request per seconds counter.
+type rpsCounter struct {
 	// mu protects all fields.
 	mu   *sync.Mutex
 	ring []int64
 	idx  int
 }
 
-// newRPS returns a new requests per second counter.  n must be above zero.
-func newRPS(n int) (r *rps) {
-	return &rps{
+// newRPSCounter returns a new requests per second counter.  n must be above zero.
+func newRPSCounter(n int) (r *rpsCounter) {
+	return &rpsCounter{
 		mu: &sync.Mutex{},
 		// Add one, because we need to always keep track of the previous
 		// request.  For example, consider n == 1.
@@ -28,7 +28,7 @@ func newRPS(n int) (r *rps) {
 
 // add adds another request to the counter.  above is true if the request goes
 // above the counter value.  It is safe for concurrent use.
-func (r *rps) add(t time.Time) (above bool) {
+func (r *rpsCounter) add(t time.Time) (above bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

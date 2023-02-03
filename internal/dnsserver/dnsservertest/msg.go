@@ -222,9 +222,9 @@ func NewEDNS0Padding(msgLen int, UDPBufferSize uint16) (extra dns.RR) {
 	}
 }
 
-// FindENDS0Option searches for the specified EDNS0 option in the OPT resource
+// FindEDNS0Option searches for the specified EDNS0 option in the OPT resource
 // record of the msg and returns it or nil if it's not present.
-func FindENDS0Option[T dns.EDNS0](msg *dns.Msg) (o T) {
+func FindEDNS0Option[T dns.EDNS0](msg *dns.Msg) (o T) {
 	rr := msg.IsEdns0()
 	if rr == nil {
 		return o

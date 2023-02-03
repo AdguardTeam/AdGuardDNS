@@ -3,7 +3,7 @@ module github.com/AdguardTeam/AdGuardDNS/internal/dnsserver
 go 1.19
 
 require (
-	github.com/AdguardTeam/golibs v0.11.3
+	github.com/AdguardTeam/golibs v0.11.4
 	github.com/ameshkov/dnscrypt/v2 v2.2.5
 	github.com/ameshkov/dnsstamps v1.0.3
 	github.com/bluele/gcache v0.0.2

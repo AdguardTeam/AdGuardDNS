@@ -11,6 +11,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
@@ -148,6 +149,8 @@ func (prx *linkedIPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Debug("%s: proxying %s %s: req %s", prx.logPrefix, m, p, reqID)
 
 		prx.httpProxy.ServeHTTP(w, r)
+
+		metrics.WebSvcLinkedIPProxyRequestsTotal.Inc()
 	} else if r.URL.Path == "/robots.txt" {
 		serveRobotsDisallow(respHdr, w, prx.logPrefix)
 	} else {

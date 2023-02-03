@@ -4,7 +4,7 @@ go 1.19
 
 require (
 	github.com/AdguardTeam/AdGuardDNS/internal/dnsserver v0.100.0
-	github.com/AdguardTeam/golibs v0.11.3
+	github.com/AdguardTeam/golibs v0.11.4
 	github.com/AdguardTeam/urlfilter v0.16.1
 	github.com/ameshkov/dnscrypt/v2 v2.2.5
 	github.com/axiomhq/hyperloglog v0.0.0-20220105174342-98591331716a

@@ -11,6 +11,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashstorage"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
@@ -21,8 +22,10 @@ import (
 func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
 	cacheDir := t.TempDir()
 	cachePath := filepath.Join(cacheDir, string(agd.FilterListIDSafeBrowsing))
-	hosts := "scam.example.net\n"
-	err := os.WriteFile(cachePath, []byte(hosts), 0o644)
+	err := os.WriteFile(cachePath, []byte(safeBrowsingHost+"\n"), 0o644)
+	require.NoError(t, err)
+
+	hashes, err := hashstorage.New("")
 	require.NoError(t, err)
 
 	errColl := &agdtest.ErrorCollector{
@@ -31,46 +34,33 @@ func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
 		},
 	}
 
-	hashes, err := filter.NewHashStorage(&filter.HashStorageConfig{
-		URL:        nil,
-		ErrColl:    errColl,
-		ID:         agd.FilterListIDSafeBrowsing,
-		CachePath:  cachePath,
-		RefreshIvl: testRefreshIvl,
-	})
-	require.NoError(t, err)
-
-	ctx := context.Background()
-	err = hashes.Start()
-	require.NoError(t, err)
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return hashes.Shutdown(ctx)
-	})
-
-	// Fake Data
-
-	onLookupIP := func(
-		_ context.Context,
-		_ netutil.AddrFamily,
-		_ string,
-	) (ips []net.IP, err error) {
-		return []net.IP{safeBrowsingSafeIP4}, nil
+	resolver := &agdtest.Resolver{
+		OnLookupIP: func(
+			_ context.Context,
+			_ netutil.AddrFamily,
+			_ string,
+		) (ips []net.IP, err error) {
+			return []net.IP{safeBrowsingSafeIP4}, nil
+		},
 	}
 
 	c := prepareConf(t)
 
-	c.SafeBrowsing = &filter.HashPrefixConfig{
+	c.SafeBrowsing, err = filter.NewHashPrefix(&filter.HashPrefixConfig{
 		Hashes:          hashes,
+		ErrColl:         errColl,
+		Resolver:        resolver,
+		ID:              agd.FilterListIDSafeBrowsing,
+		CachePath:       cachePath,
 		ReplacementHost: safeBrowsingSafeHost,
+		Staleness:       1 * time.Hour,
 		CacheTTL:        10 * time.Second,
 		CacheSize:       100,
-	}
+	})
+	require.NoError(t, err)
 
 	c.ErrColl = errColl
-
-	c.Resolver = &agdtest.Resolver{
-		OnLookupIP: onLookupIP,
-	}
+	c.Resolver = resolver
 
 	s, err := filter.NewDefaultStorage(c)
 	require.NoError(t, err)
@@ -93,7 +83,7 @@ func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
 	}
 
 	ri := newReqInfo(g, nil, safeBrowsingSubHost, clientIP, dns.TypeA)
-	ctx = agd.ContextWithRequestInfo(ctx, ri)
+	ctx := agd.ContextWithRequestInfo(context.Background(), ri)
 
 	f := s.FilterFromContext(ctx, ri)
 	require.NotNil(t, f)

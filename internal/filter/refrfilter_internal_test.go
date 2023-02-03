@@ -30,43 +30,43 @@ func TestRefreshableFilter_RefreshFromFile(t *testing.T) {
 		name        string
 		cachePath   string
 		wantText    string
-		refreshIvl  time.Duration
+		staleness   time.Duration
 		acceptStale bool
 	}{{
 		name:        "no_file",
 		cachePath:   "does_not_exist",
 		wantText:    "",
-		refreshIvl:  0,
+		staleness:   0,
 		acceptStale: true,
 	}, {
 		name:        "file",
 		cachePath:   cachePath,
 		wantText:    defaultText,
-		refreshIvl:  0,
+		staleness:   0,
 		acceptStale: true,
 	}, {
 		name:        "file_stale",
 		cachePath:   cachePath,
 		wantText:    "",
-		refreshIvl:  -1 * time.Second,
+		staleness:   -1 * time.Second,
 		acceptStale: false,
 	}, {
 		name:        "file_stale_accept",
 		cachePath:   cachePath,
 		wantText:    defaultText,
-		refreshIvl:  -1 * time.Second,
+		staleness:   -1 * time.Second,
 		acceptStale: true,
 	}}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &refreshableFilter{
-				http:       nil,
-				url:        nil,
-				id:         "test_filter",
-				cachePath:  tc.cachePath,
-				typ:        "test filter",
-				refreshIvl: tc.refreshIvl,
+				http:      nil,
+				url:       nil,
+				id:        "test_filter",
+				cachePath: tc.cachePath,
+				typ:       "test filter",
+				staleness: tc.staleness,
 			}
 
 			var text string
@@ -161,12 +161,12 @@ func TestRefreshableFilter_RefreshFromURL(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &refreshableFilter{
-				http:       httpCli,
-				url:        u,
-				id:         "test_filter",
-				cachePath:  tc.cachePath,
-				typ:        "test filter",
-				refreshIvl: testTimeout,
+				http:      httpCli,
+				url:       u,
+				id:        "test_filter",
+				cachePath: tc.cachePath,
+				typ:       "test filter",
+				staleness: testTimeout,
 			}
 
 			if tc.expectReq {

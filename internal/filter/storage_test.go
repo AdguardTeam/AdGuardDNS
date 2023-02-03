@@ -11,6 +11,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashstorage"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
@@ -124,34 +125,11 @@ func TestStorage_FilterFromContext(t *testing.T) {
 }
 
 func TestStorage_FilterFromContext_customAllow(t *testing.T) {
-	// Initialize the hashes file and use it with the storage.
-	tmpFile, err := os.CreateTemp(t.TempDir(), "")
-	require.NoError(t, err)
-	testutil.CleanupAndRequireSuccess(t, func() (err error) { return os.Remove(tmpFile.Name()) })
-
-	_, err = io.WriteString(tmpFile, safeBrowsingHost+"\n")
-	require.NoError(t, err)
-
-	hashes, err := filter.NewHashStorage(&filter.HashStorageConfig{
-		CachePath:  tmpFile.Name(),
-		RefreshIvl: 1 * time.Hour,
-	})
-	require.NoError(t, err)
-
-	c := prepareConf(t)
-
-	c.SafeBrowsing = &filter.HashPrefixConfig{
-		Hashes:          hashes,
-		ReplacementHost: safeBrowsingSafeHost,
-		CacheTTL:        10 * time.Second,
-		CacheSize:       100,
-	}
-
-	c.ErrColl = &agdtest.ErrorCollector{
+	errColl := &agdtest.ErrorCollector{
 		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
 	}
 
-	c.Resolver = &agdtest.Resolver{
+	resolver := &agdtest.Resolver{
 		OnLookupIP: func(
 			_ context.Context,
 			_ netutil.AddrFamily,
@@ -160,6 +138,35 @@ func TestStorage_FilterFromContext_customAllow(t *testing.T) {
 			return []net.IP{safeBrowsingSafeIP4}, nil
 		},
 	}
+
+	// Initialize the hashes file and use it with the storage.
+	tmpFile, err := os.CreateTemp(t.TempDir(), "")
+	require.NoError(t, err)
+	testutil.CleanupAndRequireSuccess(t, func() (err error) { return os.Remove(tmpFile.Name()) })
+
+	_, err = io.WriteString(tmpFile, safeBrowsingHost+"\n")
+	require.NoError(t, err)
+
+	hashes, err := hashstorage.New(safeBrowsingHost)
+	require.NoError(t, err)
+
+	c := prepareConf(t)
+
+	c.SafeBrowsing, err = filter.NewHashPrefix(&filter.HashPrefixConfig{
+		Hashes:          hashes,
+		ErrColl:         errColl,
+		Resolver:        resolver,
+		ID:              agd.FilterListIDSafeBrowsing,
+		CachePath:       tmpFile.Name(),
+		ReplacementHost: safeBrowsingSafeHost,
+		Staleness:       1 * time.Hour,
+		CacheTTL:        10 * time.Second,
+		CacheSize:       100,
+	})
+	require.NoError(t, err)
+
+	c.ErrColl = errColl
+	c.Resolver = resolver
 
 	s, err := filter.NewDefaultStorage(c)
 	require.NoError(t, err)
@@ -211,39 +218,11 @@ func TestStorage_FilterFromContext_schedule(t *testing.T) {
 	// parental protection from 11:00:00 until 12:59:59.
 	nowTime := time.Date(2021, 1, 1, 12, 0, 0, 0, time.UTC)
 
-	// Initialize the hashes file and use it with the storage.
-	tmpFile, err := os.CreateTemp(t.TempDir(), "")
-	require.NoError(t, err)
-	testutil.CleanupAndRequireSuccess(t, func() (err error) { return os.Remove(tmpFile.Name()) })
-
-	_, err = io.WriteString(tmpFile, safeBrowsingHost+"\n")
-	require.NoError(t, err)
-
-	hashes, err := filter.NewHashStorage(&filter.HashStorageConfig{
-		CachePath:  tmpFile.Name(),
-		RefreshIvl: 1 * time.Hour,
-	})
-	require.NoError(t, err)
-
-	c := prepareConf(t)
-
-	// Use AdultBlocking, because SafeBrowsing is NOT affected by the schedule.
-	c.AdultBlocking = &filter.HashPrefixConfig{
-		Hashes:          hashes,
-		ReplacementHost: safeBrowsingSafeHost,
-		CacheTTL:        10 * time.Second,
-		CacheSize:       100,
-	}
-
-	c.Now = func() (t time.Time) {
-		return nowTime
-	}
-
-	c.ErrColl = &agdtest.ErrorCollector{
+	errColl := &agdtest.ErrorCollector{
 		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
 	}
 
-	c.Resolver = &agdtest.Resolver{
+	resolver := &agdtest.Resolver{
 		OnLookupIP: func(
 			_ context.Context,
 			_ netutil.AddrFamily,
@@ -252,6 +231,40 @@ func TestStorage_FilterFromContext_schedule(t *testing.T) {
 			return []net.IP{safeBrowsingSafeIP4}, nil
 		},
 	}
+
+	// Initialize the hashes file and use it with the storage.
+	tmpFile, err := os.CreateTemp(t.TempDir(), "")
+	require.NoError(t, err)
+	testutil.CleanupAndRequireSuccess(t, func() (err error) { return os.Remove(tmpFile.Name()) })
+
+	_, err = io.WriteString(tmpFile, safeBrowsingHost+"\n")
+	require.NoError(t, err)
+
+	hashes, err := hashstorage.New(safeBrowsingHost)
+	require.NoError(t, err)
+
+	c := prepareConf(t)
+
+	// Use AdultBlocking, because SafeBrowsing is NOT affected by the schedule.
+	c.AdultBlocking, err = filter.NewHashPrefix(&filter.HashPrefixConfig{
+		Hashes:          hashes,
+		ErrColl:         errColl,
+		Resolver:        resolver,
+		ID:              agd.FilterListIDAdultBlocking,
+		CachePath:       tmpFile.Name(),
+		ReplacementHost: safeBrowsingSafeHost,
+		Staleness:       1 * time.Hour,
+		CacheTTL:        10 * time.Second,
+		CacheSize:       100,
+	})
+	require.NoError(t, err)
+
+	c.Now = func() (t time.Time) {
+		return nowTime
+	}
+
+	c.ErrColl = errColl
+	c.Resolver = resolver
 
 	s, err := filter.NewDefaultStorage(c)
 	require.NoError(t, err)

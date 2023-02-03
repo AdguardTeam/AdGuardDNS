@@ -48,7 +48,7 @@ func newServiceBlocker(indexURL *url.URL, errColl agd.ErrorCollector) (b *servic
 	return &serviceBlocker{
 		url: indexURL,
 		http: agdhttp.NewClient(&agdhttp.ClientConfig{
-			Timeout: defaultTimeout,
+			Timeout: defaultFilterRefreshTimeout,
 		}),
 		mu:      &sync.RWMutex{},
 		errColl: errColl,

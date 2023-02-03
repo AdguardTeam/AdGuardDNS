@@ -27,7 +27,8 @@ func TestRateLimiterMetricsListener_integration_cache(t *testing.T) {
 		Duration:             time.Minute,
 		Count:                rps,
 		ResponseSizeEstimate: 1000,
-		RPS:                  rps,
+		IPv4RPS:              rps,
+		IPv6RPS:              rps,
 		RefuseANY:            true,
 	})
 	rlMw, err := ratelimit.NewMiddleware(rl, nil)

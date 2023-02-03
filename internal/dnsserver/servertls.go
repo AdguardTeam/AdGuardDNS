@@ -3,7 +3,6 @@ package dnsserver
 import (
 	"context"
 	"crypto/tls"
-	"net"
 
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
@@ -102,10 +101,9 @@ func (s *ServerTLS) startServeTCP(ctx context.Context) {
 	}
 }
 
-// listenTLS creates the TLS listener for the ServerTLS.addr.
+// listenTLS creates the TLS listener for s.addr.
 func (s *ServerTLS) listenTLS(ctx context.Context) (err error) {
-	var l net.Listener
-	l, err = listenTCP(ctx, s.addr)
+	l, err := s.listenConfig.Listen(ctx, "tcp", s.addr)
 	if err != nil {
 		return err
 	}

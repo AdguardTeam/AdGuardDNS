@@ -22,6 +22,7 @@ sensitive configuration.  All other configuration is stored in the
  *  [`LISTEN_PORT`](#LISTEN_PORT)
  *  [`LOG_TIMESTAMP`](#LOG_TIMESTAMP)
  *  [`QUERYLOG_PATH`](#QUERYLOG_PATH)
+ *  [`RESEARCH_METRICS`](#RESEARCH_METRICS)
  *  [`RULESTAT_URL`](#RULESTAT_URL)
  *  [`SENTRY_DSN`](#SENTRY_DSN)
  *  [`SSL_KEY_LOG_FILE`](#SSL_KEY_LOG_FILE)
@@ -195,6 +196,15 @@ health check, Prometheus, `pprof`, and other endpoints.
 The path to the file into which the query log is going to be written.
 
 **Default:** `./querylog.jsonl`.
+
+
+
+##  <a href="#RESEARCH_METRICS" id="RESEARCH_METRICS" name="RESEARCH_METRICS">`RESEARCH_METRICS`</a>
+
+If `1`, enable collection of a set of special prometheus metrics (prefix is
+`dns_research`).  If `0`, disable collection of those metrics.
+
+**Default:** `0`.
 
 
 

@@ -73,6 +73,10 @@ type Profile struct {
 	// BlockPrivateRelay shows if Apple Private Relay queries are blocked for
 	// requests from all devices in this profile.
 	BlockPrivateRelay bool
+
+	// BlockFirefoxCanary shows if Firefox canary domain is blocked for
+	// requests from all devices in this profile.
+	BlockFirefoxCanary bool
 }
 
 // ProfileID is the ID of a profile.  It is an opaque string.
