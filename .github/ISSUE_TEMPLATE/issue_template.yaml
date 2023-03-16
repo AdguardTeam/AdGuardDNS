@@ -1,0 +1,79 @@
+name: 🐞 Bug report
+description: Create a bug report to help us improve AdGuard DNS.
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Browser, enviroment and they versions
+      description: |
+        examples:
+          - **Browser**: Chrome Version 110.0.5481.177 (Official Build) (arm64)
+          - **Enviroment**: AdGuard for Windows v7.11 release
+          - **Router**: MikroTik RB2011UiAS-IN
+      value: |
+          - Browser:
+          - Enviroment:
+          - Router:
+      render: markdown
+    validations:
+      required: true
+- type: textarea
+    id: what-happened
+    attributes:
+      label: Issue Details
+      description: Please provide a set of steps to reproduce the issue.
+      placeholder:
+      value: |
+        Steps to reproduce:
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: how_it_should_be
+    attributes:
+      label: Expected Behavior
+      description:
+      placeholder: A clear and concise description of what you expected to happen.
+    validations:
+      required: false
+  - type: textarea
+    id: how_it_is
+    attributes:
+      label: Actual Behavior
+      description:
+      placeholder: A clear description of what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: screens
+    attributes:
+      label: Screenshots
+      description: |
+        If applicable add screenshots explaining your problem.
+        You can drag and drop images or paste them from clipboard.
+        Use `<details> </details>` tag to hide screenshots under the spoiler.
+      placeholder: If applicable add screenshots explaining your problem.
+      value: |
+          <details><summary>Screenshot 1:</summary>
+
+          <!-- paste screenshot here -->
+
+          </details>
+    validations:
+      required: false
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Information
+      description:
+      placeholder: Add any other context about the problem here.
+    validations:
+      required: false
