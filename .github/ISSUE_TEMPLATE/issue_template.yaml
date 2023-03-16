@@ -12,11 +12,16 @@ body:
       required: true
   - type: dropdown
     attributes:
-      label: Version
+      label: Operating system type
       description: On which operating system type does the issue occur?
       options:
-        - 1.0.2
-        - 1.0.3
+        - Windows
+        - macOS
+        - Android
+        - iOS
+        - Linux
+        - Router
+        - Other
     validations:
       required: true                      
   - type: textarea
