@@ -45,14 +45,12 @@ body:
         - No I don't
     validations: 
       required: true
-  - type: input
-    id: contact
+  - type: textarea
     attributes:
-      label: Contact Details
-      description: How can we get in touch with you if we need more info?
-      placeholder: ex. email@example.com
+      label: Traceroute to AdGuard DNS
+      placeholder: Paste the output of the command "traceroute 94.140.14.14"
     validations:
-      required: false                       
+      required: false                    
   - type: textarea
     attributes:
       label: Additional information
