@@ -10,22 +10,162 @@ body:
         Thanks for taking the time to fill out this bug report!
     validations:
       required: true
+  - type: input
+    id: app_version
+    attributes:
+      label: AdGuard version
+      description: What version of our application are you running?
+      placeholder: For example, 3.6.10
+    validations:
+      required: true
   - type: textarea
     attributes:
-      label: Browser, enviroment and they versions
+      label: Environment
       description: |
         examples:
-          - **Browser**: Chrome Version 110.0.5481.177 (Official Build) (arm64)
-          - **Enviroment**: AdGuard for Windows v7.11 release
-          - **Router**: MikroTik RB2011UiAS-IN
+          - **OS**: Android 11
+          - **Device**: Huawei
+          - **Firmware**: INE-L21
       value: |
-          - Browser:
-          - Enviroment:
-          - Router:
+          - OS:
+          - Device:
+          - Firmware:
       render: markdown
     validations:
       required: true
-- type: textarea
+  - type: checkboxes
+    attributes:
+      label: Root access
+      description: Do you have root privileges?
+      options:
+        - label: Yes, I have it.
+    validations:
+      required: false
+  - type: dropdown
+    id: filters
+    attributes:
+      label: What filters do you have enabled?
+      description: |
+        Select enabled filters from the list if they are related to the application bug.
+        If the issue is related to the filtering (missed ads, cookie, etc.)
+        use the [Web Reporting Tool](https://kb.adguard.com/en/technical-support/reporting-tool) please.
+      multiple: true
+      options:
+        - No filters
+        - AdGuard Base filter
+        - AdGuard Mobile Ads filter
+        - AdGuard Chinese filter
+        - AdGuard Dutch filter
+        - AdGuard French filter
+        - AdGuard German filter
+        - AdGuard Japanese filter
+        - AdGuard Russian filter
+        - AdGuard Spanish/Portuguese filter
+        - AdGuard Turkish filter
+        - AdGuard Tracking Protection filter
+        - AdGuard URL Tracking filter
+        - AdGuard Social Media filter
+        - AdGuard Annoyances filter
+        - AdGuard Cookie Notices filter
+        - AdGuard Popups filter
+        - AdGuard Mobile App Banners filter
+        - AdGuard Widgets filter
+        - AdGuard Other Annoyances filter
+        - AdGuard DNS filter
+        - AdGuard Experimental filter
+        - Filter unblocking search ads and self-promotion
+        - ---Third-party filters---
+        - EasyList
+        - ABPindo
+        - Bulgarian list
+        - EasyList China
+        - EasyList Czech and Slovak
+        - EasyList Dutch
+        - EasyList Germany
+        - EasyList Hebrew
+        - EasyList Italy
+        - EasyList Lithuania
+        - Latvian List
+        - Liste AR
+        - Liste FR
+        - ROList
+        - EasyPrivacy
+        - Icelandic ABP List
+        - AdBlockID
+        - Greek AdBlock Filter
+        - Fanboy's Annoyances
+        - Fanboy's Social Blocking List
+        - Web Annoyances Ultralist
+        - Thai Ads Filters
+        - Hungarian filter
+        - Peter Lowe's Blocklist
+        - Xfiles
+        - Adblock Warning Removal List
+        - Online Malicious URL Blocklist
+        - RU AdList - Counters
+        - ABPVN List
+        - Fanboy's Enhanced Tracking List
+        - Official Polish filters for AdBlock, uBlock Origin & AdGuard
+        - Polish GDPR-Cookies Filters
+        - Estonian List
+        - CJX's Annoyances List
+        - Polish Social Filters
+        - Fanboy's Anti-Facebook List
+        - List-KR
+        - xinggsf
+        - I don't care about cookies
+        - EasyList Spanish
+        - KAD - Anti-Scam
+        - Adblock List for Finland
+        - ROLIST2
+        - Iranian filter
+        - road-block
+        - Polish Annoyances Filters
+        - Polish Anti Adblock Filters
+        - Fanboy's Anti-thirdparty Fonts
+        - EasyList Cookie List
+        - NoCoin Filter List
+        - Frellwit's Swedish Filter
+        - YousList
+        - AlleBlock
+        - EasyList Polish
+        - Polish Anti-Annoying Special Supplement
+        - Dandelion Sprout's Nordic Filters
+        - Dandelion Sprout's Annoyances List
+        - Legitimate URL Shortener
+        - Dandelion Sprout's Serbo-Croatian List
+        - IndianList
+        - Others
+    validations:
+      required: false
+  - type: dropdown
+    id: stealth
+    attributes:
+      label: What Stealth Mode options do you have enabled?
+      description: Select any of these options if you have them enabled in Stealth Mode. You can skip this step if it's not relevant.
+      multiple: true
+      options:
+        - Hide your search queries
+        - Send Do-Not-Track signals
+        - Strip URLs of tracking parameters
+        - Self-destruction of third-party cookies
+        - Self-destruction of first-party cookies
+        - Disable cache for third-party requests
+        - Block the third-party Authorization header
+        - Disable WebRTC
+        - Block Push API
+        - Block Location API
+        - Block Flash
+        - Disable Windows Telemetry
+        - Turn off Advertising ID
+        - Disable Microsoft Defender automatic samples submission
+        - Disable WAP Push Message Routing Service
+        - Hide your Referrer from third-parties
+        - Hide your User Agent
+        - Hide your IP address
+        - Remove X-client-Data header from HTTP request
+        - Protect from DPI
+  - type: textarea
     id: what-happened
     attributes:
       label: Issue Details
