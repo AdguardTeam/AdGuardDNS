@@ -48,7 +48,7 @@ body:
   - type: textarea
     attributes:
       label: Traceroute to AdGuard DNS
-      placeholder: Paste the output of the command "traceroute 94.140.14.14"
+      description: Paste the output of the command "traceroute 94.140.14.14"
     validations:
       required: false                    
   - type: textarea
