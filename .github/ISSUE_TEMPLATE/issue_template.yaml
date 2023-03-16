@@ -26,12 +26,7 @@ body:
       required: true                      
   - type: textarea
     attributes:
-      label: Browser, enviroment and they versions
-      description: |
-        examples:
-          - **Browser**: Chrome Version 110.0.5481.177 (Official Build) (arm64)
-          - **Enviroment**: AdGuard for Windows v7.11 release
-          - **Router**: MikroTik RB2011UiAS-IN
+      label: Additional information
       value: |
           - Browser:
           - Enviroment:
