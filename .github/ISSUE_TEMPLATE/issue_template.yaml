@@ -36,14 +36,14 @@ body:
         - DNS-over-QUIC
     validations: 
       required: true
-  - type: checkboxes
-    id: terms
+  - type: input
+    id: contact
     attributes:
-      label: Code of Conduct
-      description: By submitting this issue, you agree to follow our [Code of Conduct](https://example.com)
-      options:
-        - label: I agree to follow this project's Code of Conduct
-          required: true
+      label: Contact Details
+      description: How can we get in touch with you if we need more info?
+      placeholder: ex. email@example.com
+    validations:
+      required: false
     validations: 
       required: true                  
   - type: textarea
