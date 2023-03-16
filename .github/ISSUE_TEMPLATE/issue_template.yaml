@@ -22,8 +22,20 @@ body:
         - Linux
         - Router
         - Other
-    validations:
-      required: true                      
+    validations: 
+      required: true 
+  - type: dropdown
+    attributes:
+      label: Protocol
+      description: Which DNS protocol are you using?
+      option:
+        - Regular
+        - DNSCrypt
+        - DNS-over-HTTPS 
+        - DNS-over-TLS 
+        - DNS-over-QUIC
+      validations:
+        required: true                      
   - type: textarea
     attributes:
       label: Additional information
