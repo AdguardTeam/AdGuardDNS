@@ -27,8 +27,8 @@ body:
   - type: textarea
     attributes:
       label: Additional information
-      description: Specify additional information about the operating system you are using
-      placeholder: Add any other information about the specifics of your operating system
+      description:
+      placeholder: Specify additional information about your configurations
     validations:
       required: false       
   - type: dropdown
@@ -102,14 +102,6 @@ body:
           <!-- paste screenshot here -->
 
           </details>
-    validations:
-      required: false
-  - type: textarea
-    id: additional
-    attributes:
-      label: Additional Information
-      description:
-      placeholder: Add any other context about the problem here.
     validations:
       required: false
       
