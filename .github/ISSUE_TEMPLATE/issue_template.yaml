@@ -104,4 +104,12 @@ body:
           </details>
     validations:
       required: false
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Information
+      description:
+      placeholder: Add any other context about the problem here.
+    validations:
+      required: false
       
