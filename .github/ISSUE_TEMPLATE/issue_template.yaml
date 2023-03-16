@@ -28,10 +28,6 @@ body:
     attributes:
       label: Additional information
       description: Specify additional information about the operating system you are using
-      value: |
-          - Browser:
-          - Enviroment:
-          - Router:
       render: markdown
     validations:
       required: true
