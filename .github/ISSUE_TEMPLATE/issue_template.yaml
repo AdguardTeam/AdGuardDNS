@@ -12,7 +12,7 @@ body:
       required: true
   - type: dropdown
     attributes:
-      label: Operating system type
+      label: Platform
       description: On which operating system type does the issue occur?
       options:
         - Windows
