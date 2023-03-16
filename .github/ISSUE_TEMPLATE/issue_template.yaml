@@ -34,8 +34,8 @@ body:
         - DNS-over-HTTPS 
         - DNS-over-TLS 
         - DNS-over-QUIC
-      validations:
-        required: true                      
+    validations: 
+      required: true                     
   - type: textarea
     attributes:
       label: Additional information
