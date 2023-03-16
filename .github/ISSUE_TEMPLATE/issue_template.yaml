@@ -30,7 +30,7 @@ body:
       description: Specify additional information about the operating system you are using
       render: markdown
     validations:
-      required: true
+      required: false
   - type: textarea
     id: what-happened
     attributes:
