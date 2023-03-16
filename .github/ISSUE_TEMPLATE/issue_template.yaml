@@ -10,6 +10,16 @@ body:
         Thanks for taking the time to fill out this bug report!
     validations:
       required: true
+  - type: dropdown
+    id: Operating system type
+    attributes:
+      label: Version
+      description: On which operating system type does the issue occur?
+      options:
+        - 1.0.2 (Default)
+        - 1.0.3 (Edge)
+    validations:
+      required: true              
   - type: textarea
     attributes:
       label: Browser, enviroment and they versions
@@ -79,3 +89,4 @@ body:
       placeholder: Add any other context about the problem here.
     validations:
       required: false
+      
