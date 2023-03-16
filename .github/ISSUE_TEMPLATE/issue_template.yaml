@@ -41,11 +41,8 @@ body:
       label: Do you use AdGuard app?
       description: 
       options:
-        - Regular
-        - DNSCrypt
-        - DNS-over-HTTPS 
-        - DNS-over-TLS 
-        - DNS-over-QUIC
+        - Yes
+        - No
     validations: 
       required: true                  
   - type: textarea
