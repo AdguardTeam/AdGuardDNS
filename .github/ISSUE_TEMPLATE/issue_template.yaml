@@ -10,18 +10,26 @@ body:
         Thanks for taking the time to fill out this bug report!
     validations:
       required: true
- - type: textarea
+  - type: input
+    id: app_version
     attributes:
-      label: Browser, enviroment and they versions
+      label: AdGuard version
+      description: What version of our application are you running?
+      placeholder: For example, 3.6.10
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Environment
       description: |
         examples:
-          - **Browser**: Chrome Version 110.0.5481.177 (Official Build) (arm64)
-          - **Enviroment**: AdGuard for Windows v7.11 release
-          - **Router**: MikroTik RB2011UiAS-IN
+          - **OS**: Android 11
+          - **Device**: Huawei
+          - **Firmware**: INE-L21
       value: |
-          - Browser:
-          - Enviroment:
-          - Router:
+          - OS:
+          - Device:
+          - Firmware:
       render: markdown
     validations:
       required: true
