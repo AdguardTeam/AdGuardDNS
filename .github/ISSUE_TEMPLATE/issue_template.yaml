@@ -36,13 +36,14 @@ body:
         - DNS-over-QUIC
     validations: 
       required: true
-  - type: dropdown
+  - type: checkboxes
+    id: terms
     attributes:
-      label: Do you use AdGuard app?
-      description: 
+      label: Code of Conduct
+      description: By submitting this issue, you agree to follow our [Code of Conduct](https://example.com)
       options:
-        - Yes
-        - No
+        - label: I agree to follow this project's Code of Conduct
+          required: true
     validations: 
       required: true                  
   - type: textarea
