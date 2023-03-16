@@ -45,7 +45,7 @@ body:
         - No I don't
     validations: 
       required: true
-   - type: input
+  - type: input
     id: contact
     attributes:
       label: Contact Details
