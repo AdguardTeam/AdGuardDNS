@@ -13,7 +13,7 @@ body:
   - type: dropdown
     attributes:
       label: Platform
-      description: On which operating system type does the issue occur?
+      description: 
       options:
         - Windows
         - macOS
@@ -23,7 +23,14 @@ body:
         - Router
         - Other
     validations: 
-      required: true 
+      required: true
+  - type: textarea
+    attributes:
+      label: Additional information
+      description: Specify additional information about the operating system you are using
+      placeholder: Add any other information about the specifics of your operating system
+    validations:
+      required: false       
   - type: dropdown
     attributes:
       label: Protocol
@@ -51,13 +58,6 @@ body:
       description: Paste the output of the command "traceroute 94.140.14.14"
     validations:
       required: false                    
-  - type: textarea
-    attributes:
-      label: Additional information
-      description: Specify additional information about the operating system you are using
-      placeholder: Add any other information about the specifics of your operating system
-    validations:
-      required: false
   - type: textarea
     id: what-happened
     attributes:
