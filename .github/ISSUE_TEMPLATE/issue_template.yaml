@@ -38,8 +38,8 @@ body:
       required: true
   - type: dropdown
     attributes:
-      label: Protocol
-      description: Which DNS protocol are you using?
+      label: Do you use AdGuard app?
+      description: 
       options:
         - Regular
         - DNSCrypt
