@@ -17,7 +17,7 @@ body:
       description: What version of our application are you running?
       placeholder: For example, 3.6.10
     validations:
-      required: true
+      required: false
   - type: textarea
     attributes:
       label: Environment
