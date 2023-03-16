@@ -28,6 +28,7 @@ body:
     attributes:
       label: Additional information
       description: Specify additional information about the operating system you are using
+      placeholder: Add any other information about the specifics of your operating system
     validations:
       required: false
   - type: textarea
