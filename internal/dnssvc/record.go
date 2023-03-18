@@ -174,15 +174,7 @@ func (svc *Service) responseData(
 	}
 
 	if netIP != nil {
-		// Make sure to validate the IP address, because it's not guaranteed to
-		// actually be valid.
-		//
-		// See https://github.com/miekg/dns/issues/1381.
-		err := netutil.ValidateIP(netIP)
-		if err != nil {
-			svc.reportf(ctx, "reading %s resp data: %w", rrType, err)
-		}
-
+		var err error
 		ip, err = netutil.IPToAddr(netIP, fam)
 		if err != nil {
 			svc.reportf(ctx, "converting %s resp data: %w", rrType, err)

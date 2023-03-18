@@ -14,6 +14,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/golibs/testutil"
@@ -216,12 +217,10 @@ func newReqInfo(
 		Device:         d,
 		Profile:        p,
 		FilteringGroup: g,
-		Messages: &dnsmsg.Constructor{
-			FilteredResponseTTL: 10 * time.Second,
-		},
-		Host:     host,
-		RemoteIP: ip,
-		QType:    qt,
+		Messages:       agdtest.NewConstructor(),
+		Host:           host,
+		RemoteIP:       ip,
+		QType:          qt,
 	}
 
 	return ri

@@ -16,7 +16,9 @@ import (
 // Common Constants, Functions, and Types
 
 // maxFilterSize is the maximum size of downloaded filters.
-const maxFilterSize = 196 * int64(datasize.MB)
+//
+// TODO(ameshkov): Consider making configurable.
+const maxFilterSize = 256 * int64(datasize.MB)
 
 // defaultFilterRefreshTimeout is the default timeout to use when fetching
 // filter lists data.

@@ -5,13 +5,11 @@
       "dns_id": "37f97ee9",
       "filtering_enabled": true,
       "query_log_enabled": true,
-      "safe_browsing":
-      {
+      "safe_browsing": {
         "enabled": true
       },
       "deleted": false,
       "block_private_relay": true,
-      "block_firefox_canary": true,
       "devices": [
         {
           "id": "118ffe93",
@@ -24,8 +22,7 @@
           "filtering_enabled": true
         }
       ],
-      "rule_lists":
-      {
+      "rule_lists": {
         "enabled": true,
         "ids": [
           "1"
@@ -38,8 +35,7 @@
       "dns_id": "83f3ea8f",
       "filtering_enabled": true,
       "query_log_enabled": true,
-      "safe_browsing":
-      {
+      "safe_browsing": {
         "enabled": true
       },
       "deleted": true,
@@ -107,6 +103,11 @@
         ]
       },
       "filtered_response_ttl": 3600,
+      "blocking_mode": {
+        "type": "custom_ip",
+        "ipv4": "1.2.3.4",
+        "ipv6": "1234::cdef"
+      },
       "custom_rules": [
         "||example.org^"
       ]

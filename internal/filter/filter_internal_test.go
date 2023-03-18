@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 )
 
 // Common test constants.
@@ -23,3 +24,11 @@ const testReqFQDN = testReqHost + "."
 
 // testRemoteIP is the client IP for tests
 var testRemoteIP = netip.MustParseAddr("1.2.3.4")
+
+// newConstructor returns a standard dnsmsg.Constructor for tests.
+//
+// TODO(a.garipov): Use [agdtest.NewConstructor] once the package is split and
+// import cycles are resolved.
+func newConstructor() (c *dnsmsg.Constructor) {
+	return dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, 10*time.Second)
+}

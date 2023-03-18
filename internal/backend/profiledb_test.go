@@ -14,6 +14,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/backend"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,6 +31,10 @@ func TestProfileStorage_Profiles(t *testing.T) {
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pt := testutil.PanicT{}
 
+		// NOTE: Keep testdata/profiles.json formatted using jq.  Example of a
+		// formatting command using sponge(1) from the current directory:
+		//
+		//	jq '.' ./testdata/profiles.json | sponge ./testdata/profiles.json
 		reqURLStr = r.URL.String()
 		b, err := os.ReadFile(filepath.Join("testdata", "profiles.json"))
 		require.NoError(pt, err)
@@ -86,6 +91,7 @@ func testProfileResp(t *testing.T) *agd.PSProfilesResponse {
 		Start: 0,
 		End:   59,
 	}
+
 	wantParental := &agd.ParentalProtectionSettings{
 		Schedule: &agd.ParentalProtectionSchedule{
 			Week: &agd.WeeklySchedule{
@@ -105,12 +111,23 @@ func testProfileResp(t *testing.T) *agd.PSProfilesResponse {
 		GeneralSafeSearch: false,
 		YoutubeSafeSearch: false,
 	}
+
 	wantLinkedIP := netip.AddrFrom4([4]byte{1, 2, 3, 4})
+
+	wantBlockingMode := dnsmsg.BlockingModeCodec{
+		Mode: &dnsmsg.BlockingModeCustomIP{
+			IPv4: netip.MustParseAddr("1.2.3.4"),
+			IPv6: netip.MustParseAddr("1234::cdef"),
+		},
+	}
 
 	want := &agd.PSProfilesResponse{
 		SyncTime: syncTime,
 		Profiles: []*agd.Profile{{
-			Parental:   nil,
+			Parental: nil,
+			BlockingMode: dnsmsg.BlockingModeCodec{
+				Mode: &dnsmsg.BlockingModeNullIP{},
+			},
 			ID:         "37f97ee9",
 			UpdateTime: updTime,
 			Devices: []*agd.Device{{
@@ -133,9 +150,10 @@ func testProfileResp(t *testing.T) *agd.PSProfilesResponse {
 			BlockPrivateRelay:   true,
 			BlockFirefoxCanary:  true,
 		}, {
-			Parental:   wantParental,
-			ID:         "83f3ea8f",
-			UpdateTime: updTime,
+			Parental:     wantParental,
+			BlockingMode: wantBlockingMode,
+			ID:           "83f3ea8f",
+			UpdateTime:   updTime,
 			Devices: []*agd.Device{{
 				ID:               "0d7724fa",
 				Name:             "Device 1",

@@ -3,10 +3,9 @@ package dnssvc
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
@@ -21,11 +20,13 @@ import (
 func newTXTExtra(strs [][2]string) (extra []dns.RR) {
 	for _, v := range strs {
 		extra = append(extra, &dns.TXT{
+			// TODO(a.garipov): Consider exporting dnsmsg.Constructor.newHdr and
+			// using it here.
 			Hdr: dns.RR_Header{
 				Name:   v[0],
 				Rrtype: dns.TypeTXT,
 				Class:  dns.ClassCHAOS,
-				Ttl:    1,
+				Ttl:    uint32(agdtest.FilteredResponseTTL.Seconds()),
 			},
 			Txt: []string{v[1]},
 		})
@@ -35,7 +36,9 @@ func newTXTExtra(strs [][2]string) (extra []dns.RR) {
 }
 
 func TestService_writeDebugResponse(t *testing.T) {
-	svc := &Service{messages: &dnsmsg.Constructor{FilteredResponseTTL: time.Second}}
+	svc := &Service{
+		messages: agdtest.NewConstructor(),
+	}
 
 	const (
 		fltListID1 agd.FilterListID = "fl1"

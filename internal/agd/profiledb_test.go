@@ -9,6 +9,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,6 +24,9 @@ func newDefaultProfileDB(tb testing.TB, dev *agd.Device) (db *agd.DefaultProfile
 	) (resp *agd.PSProfilesResponse, err error) {
 		return &agd.PSProfilesResponse{
 			Profiles: []*agd.Profile{{
+				BlockingMode: dnsmsg.BlockingModeCodec{
+					Mode: &dnsmsg.BlockingModeNullIP{},
+				},
 				ID:      testProfID,
 				Devices: []*agd.Device{dev},
 			}},

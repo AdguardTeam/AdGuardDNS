@@ -43,7 +43,7 @@ var testIPWithCountry = netip.MustParseAddr("2001:218::")
 
 // Subnets for CountrySubnet tests.
 var (
-	testIPv4CountrySubnet = netip.MustParsePrefix("50.114.0.0/24")
+	testIPv4CountrySubnet = netip.MustParsePrefix("76.128.0.0/24")
 
 	// TODO(a.garipov): Either find a better subnet and country that don't
 	// trigger the ASN optimizations or just remove this one completely.

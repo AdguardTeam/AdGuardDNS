@@ -103,6 +103,9 @@ const (
 
 // RRSection is the slice of resource records to be appended to a new message
 // created by NewReq and NewResp.
+//
+// TODO(e.burkov):  Use separate types for different sections of DNS message
+// instead of constants.
 type RRSection struct {
 	RRs []dns.RR
 	Sec MsgSection
@@ -140,7 +143,8 @@ func NewCNAME(name string, ttl uint32, target string) (rr dns.RR) {
 	}
 }
 
-// NewA constructs the new resource record of type A.
+// NewA constructs the new resource record of type A.  a must be a valid 4-byte
+// IPv4-address.
 func NewA(name string, ttl uint32, a net.IP) (rr dns.RR) {
 	return &dns.A{
 		Hdr: dns.RR_Header{
@@ -150,6 +154,20 @@ func NewA(name string, ttl uint32, a net.IP) (rr dns.RR) {
 			Ttl:    ttl,
 		},
 		A: a,
+	}
+}
+
+// NewAAAA constructs the new resource record of type AAAA.  aaaa must be a
+// valid 16-byte IPv6-address.
+func NewAAAA(name string, ttl uint32, aaaa net.IP) (rr dns.RR) {
+	return &dns.AAAA{
+		Hdr: dns.RR_Header{
+			Name:   dns.Fqdn(name),
+			Rrtype: dns.TypeAAAA,
+			Class:  dns.ClassINET,
+			Ttl:    ttl,
+		},
+		AAAA: aaaa,
 	}
 }
 

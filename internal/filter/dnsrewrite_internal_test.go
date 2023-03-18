@@ -3,12 +3,10 @@ package filter
 import (
 	"net"
 	"testing"
-	"time"
 
 	"github.com/AdguardTeam/golibs/testutil"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/urlfilter/rules"
 	"github.com/miekg/dns"
@@ -76,9 +74,7 @@ func Test_filterDNSRewrite(t *testing.T) {
 	aRecordRule, _ := rules.NewNetworkRule("|a-record^$dnsrewrite=127.0.0.1", 1)
 	refusedRule, _ := rules.NewNetworkRule("|refused^$dnsrewrite=REFUSED", 1)
 
-	messages := &dnsmsg.Constructor{
-		FilteredResponseTTL: 10 * time.Second,
-	}
+	messages := newConstructor()
 
 	req := dnsservertest.NewReq(testReqFQDN, dns.TypeA, dns.ClassINET)
 

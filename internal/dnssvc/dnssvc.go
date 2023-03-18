@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/netip"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
@@ -16,6 +15,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
@@ -81,9 +81,8 @@ type Config struct {
 	// NewListener, when set, is used instead of the package-level function
 	// NewListener when creating a DNS listener.
 	//
-	// TODO(a.garipov, ameshkov): Consider creating a single dnsserver.Dialer
-	// interface/builder function to use instead of the many
-	// dnsserver.NewServerFoo constructors.
+	// TODO(a.garipov): The handler and service logic should really not be
+	// internwined in this way.  See AGDNS-1327.
 	NewListener NewListenerFunc
 
 	// Handler is used as the main DNS handler instead of a simple forwarder.
@@ -270,14 +269,14 @@ func (svc *Service) Shutdown(ctx context.Context) (err error) {
 		for _, s := range g.servers {
 			err = shutdownListeners(ctx, s.listeners)
 			if err != nil {
-				err = fmt.Errorf("group %q: server %q: %w", g.name, s.name, err)
-				errs = append(errs, err)
+				errs = append(errs, fmt.Errorf("group %q: server %q: %w", g.name, s.name, err))
 			}
 		}
 	}
 
-	if len(errs) > 0 {
-		return errors.List("shutting down dns service", errs...)
+	err = errors.Join(errs...)
+	if err != nil {
+		return fmt.Errorf("shutting down dns service: %w", err)
 	}
 
 	return nil
@@ -328,10 +327,11 @@ type Listener = dnsserver.Server
 type NewListenerFunc func(
 	s *agd.Server,
 	name string,
-	addr netip.AddrPort,
+	addr string,
 	h dnsserver.Handler,
 	nonDNS http.Handler,
 	errColl agd.ErrorCollector,
+	lc netext.ListenConfig,
 ) (l Listener, err error)
 
 // listener is a Listener along with some of its associated data.
@@ -342,8 +342,8 @@ type listener struct {
 }
 
 // listenerName returns a standard name for a listener.
-func listenerName(srvName agd.ServerName, addr netip.AddrPort, p agd.Protocol) (name string) {
-	return fmt.Sprintf("%s/%s/%s", srvName, p, addr)
+func listenerName(srvName agd.ServerName, addr string, proto agd.Protocol) (name string) {
+	return fmt.Sprintf("%s/%s/%s", srvName, proto, addr)
 }
 
 // NewListener returns a new Listener.  It is the default DNS listener
@@ -351,15 +351,15 @@ func listenerName(srvName agd.ServerName, addr netip.AddrPort, p agd.Protocol) (
 func NewListener(
 	s *agd.Server,
 	name string,
-	addr netip.AddrPort,
+	addr string,
 	h dnsserver.Handler,
 	nonDNS http.Handler,
 	errColl agd.ErrorCollector,
+	lc netext.ListenConfig,
 ) (l Listener, err error) {
 	defer func() { err = errors.Annotate(err, "listener %q: %w", name) }()
 
 	dcConf := s.DNSCrypt
-	addrStr := addr.String()
 
 	metricsListener := &errCollMetricsListener{
 		errColl:      errColl,
@@ -367,11 +367,13 @@ func NewListener(
 	}
 
 	confBase := dnsserver.ConfigBase{
-		Name:        name,
-		Addr:        addrStr,
-		Handler:     h,
-		BaseContext: ctxWithReqID,
-		Metrics:     metricsListener,
+		Name:         name,
+		Addr:         addr,
+		Network:      dnsserver.NetworkAny,
+		Handler:      h,
+		Metrics:      metricsListener,
+		BaseContext:  ctxWithReqID,
+		ListenConfig: lc,
 	}
 
 	switch p := s.Protocol; p {
@@ -464,12 +466,17 @@ func newServers(
 			imw,
 		)
 
-		listeners := make([]*listener, 0, len(s.BindAddresses))
-		for _, addr := range s.BindAddresses {
+		listeners := make([]*listener, 0, len(s.BindData))
+		for _, bindData := range s.BindData {
+			addr := bindData.Address
+			if addr == "" {
+				addr = bindData.AddrPort.String()
+			}
+
 			name := listenerName(s.Name, addr, s.Protocol)
 
 			var l Listener
-			l, err = newListener(s, name, addr, h, c.NonDNS, c.ErrColl)
+			l, err = newListener(s, name, addr, h, c.NonDNS, c.ErrColl, bindData.ListenConfig)
 			if err != nil {
 				return nil, fmt.Errorf("server %q: %w", s.Name, err)
 			}

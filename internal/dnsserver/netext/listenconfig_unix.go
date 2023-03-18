@@ -3,6 +3,7 @@
 package netext
 
 import (
+	"fmt"
 	"net"
 	"syscall"
 
@@ -37,7 +38,7 @@ func setIPOpts(c net.PacketConn) (err error) {
 	err6 := ipv6.NewPacketConn(c).SetControlMessage(ipv6.FlagDst|ipv6.FlagInterface, true)
 	err4 := ipv4.NewPacketConn(c).SetControlMessage(ipv4.FlagDst|ipv4.FlagInterface, true)
 	if err4 != nil && err6 != nil {
-		return errors.List("setting ipv4 and ipv6 options", err4, err6)
+		return fmt.Errorf("setting ipv4 and ipv6 options: %w", errors.Join(err4, err6))
 	}
 
 	return nil

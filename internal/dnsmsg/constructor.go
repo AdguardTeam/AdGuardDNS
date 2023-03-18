@@ -14,28 +14,65 @@ import (
 
 // Constructor creates DNS messages for blocked or modified responses.
 type Constructor struct {
-	// FilteredResponseTTL is the time-to-live value used for responses created
-	// by this message constructor.
-	FilteredResponseTTL time.Duration
+	blockingMode BlockingMode
+	fltRespTTL   time.Duration
 }
 
-// NewBlockedRespMsg returns a blocked DNS response message.  For A and AAAA
-// requests, it returns a response with an unspecified (aka null) IP (0.0.0.0
-// for IPv4, [::] for IPv6).  For all other types of requests, it returns
-// a response with no answers.
+// NewConstructor returns a properly initialized constructor with the given
+// options.  respTTL is the time-to-live value used for responses created by
+// this message constructor.  bm is the blocking mode to use in
+// [Constructor.NewBlockedRespMsg].
+func NewConstructor(bm BlockingMode, respTTL time.Duration) (c *Constructor) {
+	return &Constructor{
+		blockingMode: bm,
+		fltRespTTL:   respTTL,
+	}
+}
+
+// NewBlockedRespMsg returns a blocked DNS response message based on the
+// constructor's blocking mode.
 func (c *Constructor) NewBlockedRespMsg(req *dns.Msg) (msg *dns.Msg, err error) {
-	if qt := req.Question[0].Qtype; qt == dns.TypeA || qt == dns.TypeAAAA {
-		msg, err = c.NewIPRespMsg(req, nil)
-		if err != nil {
-			// Technically should never happen.
-			return nil, err
+	switch m := c.blockingMode.(type) {
+	case *BlockingModeCustomIP:
+		return c.newBlockedCustomIPRespMsg(req, m)
+	case *BlockingModeNullIP:
+		switch qt := req.Question[0].Qtype; qt {
+		case dns.TypeA, dns.TypeAAAA:
+			return c.NewIPRespMsg(req, nil)
+		default:
+			return c.NewMsgNODATA(req), nil
 		}
-	} else {
-		msg = c.NewRespMsg(req)
-		msg.Ns = c.newSOARecords(req)
+	case *BlockingModeNXDOMAIN:
+		return c.NewMsgNXDOMAIN(req), nil
+	case *BlockingModeREFUSED:
+		return c.NewMsgREFUSED(req), nil
+	default:
+		// Consider unhandled sum type members as unrecoverable programmer
+		// errors.
+		panic(fmt.Errorf("unexpected type %T", c.blockingMode))
+	}
+}
+
+// newBlockedCustomIPRespMsg returns a blocked DNS response message with either
+// the custom IPs from the blocking mode options or a NODATA one.
+func (c *Constructor) newBlockedCustomIPRespMsg(
+	req *dns.Msg,
+	m *BlockingModeCustomIP,
+) (msg *dns.Msg, err error) {
+	switch qt := req.Question[0].Qtype; qt {
+	case dns.TypeA:
+		if m.IPv4.IsValid() {
+			return c.NewIPRespMsg(req, m.IPv4.AsSlice())
+		}
+	case dns.TypeAAAA:
+		if m.IPv6.IsValid() {
+			return c.NewIPRespMsg(req, m.IPv6.AsSlice())
+		}
+	default:
+		// Go on.
 	}
 
-	return msg, nil
+	return c.NewMsgNODATA(req), nil
 }
 
 // NewIPRespMsg returns a DNS A or AAAA response message with the given IP
@@ -152,7 +189,7 @@ func (c *Constructor) newHdr(req *dns.Msg, rrType RRType) (hdr dns.RR_Header) {
 	return dns.RR_Header{
 		Name:   req.Question[0].Name,
 		Rrtype: rrType,
-		Ttl:    uint32(c.FilteredResponseTTL.Seconds()),
+		Ttl:    uint32(c.fltRespTTL.Seconds()),
 		Class:  dns.ClassINET,
 	}
 }
@@ -162,7 +199,7 @@ func (c *Constructor) newHdrWithClass(req *dns.Msg, rrType RRType, class dns.Cla
 	return dns.RR_Header{
 		Name:   req.Question[0].Name,
 		Rrtype: rrType,
-		Ttl:    uint32(c.FilteredResponseTTL.Seconds()),
+		Ttl:    uint32(c.fltRespTTL.Seconds()),
 		Class:  uint16(class),
 	}
 }
@@ -291,7 +328,7 @@ func (c *Constructor) newSOARecords(req *dns.Msg) (soaRecs []dns.RR) {
 		Hdr: dns.RR_Header{
 			Name:   zone,
 			Rrtype: dns.TypeSOA,
-			Ttl:    uint32(c.FilteredResponseTTL.Seconds()),
+			Ttl:    uint32(c.fltRespTTL.Seconds()),
 			Class:  dns.ClassINET,
 		},
 		Mbox: "hostmaster.", // zone will be appended later if it's not empty or "."

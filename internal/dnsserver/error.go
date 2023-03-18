@@ -3,6 +3,7 @@ package dnsserver
 import (
 	"fmt"
 	"net"
+	"os"
 
 	"github.com/AdguardTeam/golibs/errors"
 )
@@ -58,8 +59,11 @@ func (err *WriteError) Unwrap() (unwrapped error) {
 // case.  It seems like all places where this function is used should detect
 // precise error conditions for exiting a loop instead of this.
 func isNonCriticalNetError(err error) (ok bool) {
+	if errors.Is(os.ErrDeadlineExceeded, err) {
+		return true
+	}
+
 	var netErr net.Error
 
-	//lint:ignore SA1019 See TODO in the function documentation.
-	return errors.As(err, &netErr) && netErr.Temporary()
+	return errors.As(err, &netErr) && netErr.Timeout()
 }

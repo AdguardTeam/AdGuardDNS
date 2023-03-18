@@ -7,7 +7,7 @@ import (
 	"golang.org/x/exp/constraints"
 )
 
-// Error Helpers
+// Error-handling utilities
 
 // check is a simple error-checking helper.  It must only be used within Main.
 func check(err error) {
@@ -38,16 +38,6 @@ func coalesceError(errors ...error) (res error) {
 // timeutil.Duration.
 type numberOrDuration interface {
 	constraints.Integer | timeutil.Duration
-}
-
-// validatePositive returns an error if v is not a positive number.  prop is the
-// name of the property being checked, used for error messages.
-func validatePositive[T numberOrDuration](prop string, v T) (err error) {
-	if d, ok := any(v).(timeutil.Duration); ok && d.Duration <= 0 {
-		return newMustBePositiveError(prop, v)
-	}
-
-	return nil
 }
 
 // newMustBePositiveError returns an error about the value that must be positive

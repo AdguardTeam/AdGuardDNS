@@ -109,23 +109,10 @@ func (u *UpstreamPlain) Exchange(ctx context.Context, req *dns.Msg) (resp *dns.M
 
 // Close implements the io.Closer interface for *UpstreamPlain.
 func (u *UpstreamPlain) Close() (err error) {
-	var errs []error
+	udpErr := u.connsPoolUDP.Close()
+	tcpErr := u.connsPoolTCP.Close()
 
-	err = u.connsPoolUDP.Close()
-	if err != nil {
-		errs = append(errs, err)
-	}
-
-	err = u.connsPoolTCP.Close()
-	if err != nil {
-		errs = append(errs, err)
-	}
-
-	if len(errs) > 0 {
-		return errors.List("closing upstream", errs...)
-	}
-
-	return nil
+	return errors.Annotate(errors.Join(udpErr, tcpErr), "closing upstream: %w")
 }
 
 // String implements the fmt.Stringer interface for *UpstreamPlain.

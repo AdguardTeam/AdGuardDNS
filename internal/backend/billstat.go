@@ -10,10 +10,9 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdmaps"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/golibs/errors"
-	"golang.org/x/exp/maps"
-	"golang.org/x/exp/slices"
 )
 
 // Billing Statistics Uploader
@@ -114,13 +113,8 @@ type v1DevicesActivityReqDevice struct {
 // billStatRecsToReq converts billing statistics records into devices for the
 // devices activity HTTP API.
 func billStatRecsToReq(records billstat.Records) (devices []*v1DevicesActivityReqDevice) {
-	// Sort the keys to make the queries reproducible and testable.
-	deviceIDs := maps.Keys(records)
-	slices.Sort(deviceIDs)
-
-	devices = make([]*v1DevicesActivityReqDevice, 0, len(deviceIDs))
-	for _, id := range deviceIDs {
-		rec := records[id]
+	devices = make([]*v1DevicesActivityReqDevice, 0, len(records))
+	agdmaps.OrderedRange(records, func(id agd.DeviceID, rec *billstat.Record) (cont bool) {
 		devices = append(devices, &v1DevicesActivityReqDevice{
 			ClientCountry: rec.Country,
 			DeviceID:      id,
@@ -129,7 +123,9 @@ func billStatRecsToReq(records billstat.Records) (devices []*v1DevicesActivityRe
 			Queries:       rec.Queries,
 			Proto:         uint8(rec.Proto),
 		})
-	}
+
+		return true
+	})
 
 	return devices
 }

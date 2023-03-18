@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/getsentry/sentry-go"
@@ -74,10 +74,8 @@ func TestSentryErrorCollector(t *testing.T) {
 		Device:         &agd.Device{ID: devID},
 		Profile:        &agd.Profile{ID: profID},
 		FilteringGroup: &agd.FilteringGroup{ID: fltGrpID},
-		Messages: &dnsmsg.Constructor{
-			FilteredResponseTTL: 10 * time.Second,
-		},
-		ID: reqID,
+		Messages:       agdtest.NewConstructor(),
+		ID:             reqID,
 	})
 
 	origErr := errors.Error("test error")

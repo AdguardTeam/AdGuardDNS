@@ -2,7 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"net/url"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
+	"github.com/AdguardTeam/AdGuardDNS/internal/consul"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
@@ -116,4 +120,42 @@ func (c *rateLimitConfig) validate() (err error) {
 		validatePositive("response_size_estimate", c.ResponseSizeEstimate),
 		validatePositive("allowlist.refresh_interval", c.Allowlist.RefreshIvl),
 	)
+}
+
+// setupRateLimiter creates and returns a backoff rate limiter as well as starts
+// and registers its refresher in the signal handler.
+func setupRateLimiter(
+	conf *rateLimitConfig,
+	consulAllowlist *url.URL,
+	sigHdlr signalHandler,
+	errColl agd.ErrorCollector,
+) (rateLimiter *ratelimit.BackOff, err error) {
+	allowSubnets, err := agdnet.ParseSubnets(conf.Allowlist.List...)
+	if err != nil {
+		return nil, fmt.Errorf("parsing allowlist subnets: %w", err)
+	}
+
+	allowlist := ratelimit.NewDynamicAllowlist(allowSubnets, nil)
+	refresher, err := consul.NewAllowlistRefresher(allowlist, consulAllowlist)
+	if err != nil {
+		return nil, fmt.Errorf("creating allowlist refresher: %w", err)
+	}
+
+	refr := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
+		Context:             ctxWithDefaultTimeout,
+		Refresher:           refresher,
+		ErrColl:             errColl,
+		Name:                "allowlist",
+		Interval:            conf.Allowlist.RefreshIvl.Duration,
+		RefreshOnShutdown:   false,
+		RoutineLogsAreDebug: false,
+	})
+	err = refr.Start()
+	if err != nil {
+		return nil, fmt.Errorf("starting allowlist refresher: %w", err)
+	}
+
+	sigHdlr.add(refr)
+
+	return ratelimit.NewBackOff(conf.toInternal(allowlist)), nil
 }

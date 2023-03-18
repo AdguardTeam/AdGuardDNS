@@ -1,0 +1,111 @@
+---
+
+name: 🐞 Bug report
+description: Create a bug report to help us improve AdGuard DNS.
+labels: [ 'bug' ]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: Platform
+      description:
+      options:
+        - Windows
+        - macOS
+        - Android
+        - iOS
+        - Linux
+        - Router
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: Protocol
+      description: Which DNS protocol do you use?
+      options:
+        - Regular
+        - DNSCrypt
+        - DNS-over-HTTPS
+        - DNS-over-TLS
+        - DNS-over-QUIC
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: Do you use AdGuard app?
+      description:
+      options:
+        - Yes I am
+        - No I don't
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Your configuration
+      description:
+      placeholder: Specify additional information about your AdGuard DNS configuration.
+    validations:
+      required: false
+  - type: textarea
+    attributes:
+      label: Traceroute to AdGuard DNS
+      description: Paste the output of the command "traceroute 94.140.14.14".
+    validations:
+      required: false
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: Issue Details
+      description: Please provide a set of steps to reproduce the issue.
+      placeholder: |
+        Steps to reproduce:
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: how_it_should_be
+    attributes:
+      label: Expected Behavior
+      description:
+      placeholder: A clear and concise description of what you expected to happen.
+    validations:
+      required: false
+  - type: textarea
+    id: how_it_is
+    attributes:
+      label: Actual Behavior
+      description:
+      placeholder: A clear description of what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: screens
+    attributes:
+      label: Screenshots
+      description: |
+        If applicable add screenshots explaining your problem.
+        You can drag and drop images or paste them from clipboard.
+        Use `<details> </details>` tag to hide screenshots under the spoiler.
+      placeholder: If applicable add screenshots explaining your problem.
+      value: |
+        <details><summary>Screenshot 1:</summary>
+        <!-- paste screenshot here -->
+        </details>
+    validations:
+      required: false
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Information
+      description:
+      placeholder: Add any other context about the problem here.
+    validations:
+      required: false

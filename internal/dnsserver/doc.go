@@ -1,4 +1,4 @@
-// Copyright (C) 2022 AdGuard Software Ltd.
+// Copyright (C) 2022-2023 AdGuard Software Ltd.
 //
 // This program is free software: you can redistribute it and/or modify it under
 // the terms of the GNU Affero General Public License as published by the Free
@@ -166,7 +166,7 @@ them, you need to implement the [dnsserver.MetricsListener] interface and set it
 in the server configuration.  For instance, you can use
 [prometheus.ServerMetricsListener] to make it record prometheus metrics.
 
-[quic-go module]: https://github.com/lucas-clemente/quic-go
+[quic-go module]: https://github.com/quic-go/quic-go
 [dnscrypt module]: https://github.com/ameshkov/dnscrypt
 [module documentation]: https://github.com/ameshkov/dnscrypt#server
 */

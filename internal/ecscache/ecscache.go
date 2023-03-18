@@ -5,7 +5,6 @@ package ecscache
 import (
 	"context"
 	"fmt"
-	"net/netip"
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -15,6 +14,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/bluele/gcache"
 	"github.com/miekg/dns"
@@ -87,25 +87,28 @@ func writeCachedResponse(
 	resp *dns.Msg,
 	ecs *agd.ECS,
 	ecsFam netutil.AddrFamily,
-	hostHasECS bool,
+	respIsECSDependent bool,
 ) (err error) {
 	// Increment the hits metrics here, since we already know if the domain name
 	// supports ECS or not from the cache data.  Increment the misses metrics in
 	// writeResponse, where this information is retrieved from the upstream
 	metrics.ECSCacheLookupTotalHits.Inc()
 
-	if hostHasECS {
+	if respIsECSDependent {
 		metrics.ECSCacheLookupHasSupportHits.Inc()
-
-		// Only set the ECS info if the request had it originally.
-		if ecs != nil {
-			err = setECS(resp, ecs, ecsFam, true)
-			if err != nil {
-				return fmt.Errorf("setting ecs for cached resp: %w", err)
-			}
-		}
 	} else {
 		metrics.ECSCacheLookupNoSupportHits.Inc()
+	}
+
+	// If the client query did include the ECS option, the server MUST include
+	// one in its response.
+	//
+	// See https://datatracker.ietf.org/doc/html/rfc7871#section-7.2.2.
+	if ecs != nil {
+		err = setECS(resp, ecs, ecsFam, true)
+		if err != nil {
+			return fmt.Errorf("setting ecs for cached resp: %w", err)
+		}
 	}
 
 	// resp doesn't need additional filtering, since all hop-to-hop data has
@@ -123,21 +126,21 @@ func writeCachedResponse(
 // the request information using either the contents of the EDNS Client Subnet
 // option or the real remote IP address.
 func ecsFamFromReq(ri *agd.RequestInfo) (ecsFam netutil.AddrFamily) {
-	if ecs := ri.ECS; ecs != nil {
-		if ecs.Subnet.Addr().Is4() {
-			return netutil.AddrFamilyIPv4
-		}
+	// Assume that families other than IPv4 and IPv6 have been filtered out
+	// by dnsmsg.ECSFromMsg.
+	var is4 func() (ok bool)
 
-		// Assume that families other than IPv4 and IPv6 have been filtered out
-		// by dnsmsg.ECSFromMsg.
-		return netutil.AddrFamilyIPv6
+	if ecs := ri.ECS; ecs != nil {
+		is4 = ecs.Subnet.Addr().Is4
+	} else {
+		// Set the address family parameter to the one of the client's address
+		// as per RFC 7871.
+		//
+		// See https://datatracker.ietf.org/doc/html/rfc7871#section-7.1.1.
+		is4 = ri.RemoteIP.Is4
 	}
 
-	// Set the address family parameter to the one of the client's address as
-	// per RFC 7871.
-	//
-	// See https://datatracker.ietf.org/doc/html/rfc7871#section-7.1.1.
-	if ri.RemoteIP.Is4() {
+	if is4() {
 		return netutil.AddrFamilyIPv4
 	}
 
@@ -184,8 +187,12 @@ func (mw *Middleware) writeUpstreamResponse(
 
 	metrics.ECSCacheLookupTotalMisses.Inc()
 
-	hostHasECS := scope != 0 && subnet != (netip.Prefix{})
-	if hostHasECS {
+	// TODO(e.burkov, a.garipov):  Think about ways to mitigate the situation
+	// where an authoritative nameserver incorrectly echoes our ECS data.
+	//
+	// See https://datatracker.ietf.org/doc/html/rfc7871#section-7.2.1.
+	respIsECSDependent := scope != 0
+	if respIsECSDependent {
 		metrics.ECSCacheLookupHasSupportMisses.Inc()
 		metrics.ECSHasSupportCacheSize.Set(float64(mw.ecsCache.Len(false)))
 	} else {
@@ -193,15 +200,19 @@ func (mw *Middleware) writeUpstreamResponse(
 		metrics.ECSNoSupportCacheSize.Set(float64(mw.cache.Len(false)))
 
 		cr.subnet = netutil.ZeroPrefix(ecsFam)
-		ecsFam = netutil.AddrFamilyNone
 	}
 
-	mw.set(resp, cr, hostHasECS)
+	mw.set(resp, cr, respIsECSDependent)
 
 	// Set the AD bit and ECS information here, where it is safe to do so, since
 	// a clone of the otherwise filtered response has already been set to cache.
 	setRespAD(resp, req.AuthenticatedData, reqDO)
-	if hostHasECS && ri.ECS != nil {
+
+	// If the client query did include the ECS option, the server MUST include
+	// one in its response.
+	//
+	// See https://datatracker.ietf.org/doc/html/rfc7871#section-7.2.2.
+	if ri.ECS != nil {
 		err = setECS(resp, ri.ECS, ecsFam, true)
 		if err != nil {
 			return fmt.Errorf("responding with ecs: %w", err)
@@ -240,37 +251,52 @@ func (mh *mwHandler) ServeDNS(
 	}()
 
 	ri := agd.MustRequestInfoFromContext(ctx)
+
 	cr.host, cr.qType, cr.qClass = ri.Host, ri.QType, ri.QClass
-
-	// Try getting a cached result using the data from the request and the
-	// subnet of the location.  If there is one, write, increment the metrics,
-	// and return.  See also writeCachedResponse.
-	ecsFam := ecsFamFromReq(ri)
-	ctry, asn := locFromReq(ri)
-	cr.subnet, err = mw.geoIP.SubnetByLocation(ctry, asn, ecsFam)
-	if err != nil {
-		return fmt.Errorf("getting subnet for country %s (family: %d): %w", ctry, ecsFam, err)
-	}
-
-	optlog.Debug3("ecscache: got ctry %s, asn %d, subnet %s", ctry, asn, cr.subnet)
-
 	cr.reqDO = dnsmsg.IsDO(req)
-	resp, found, hostHasECS := mw.get(req, cr)
-	if found {
-		// Don't wrap the error, because it's informative enough as is.
-		return writeCachedResponse(ctx, rw, req, resp, ri.ECS, ecsFam, hostHasECS)
+
+	ecsFam := ecsFamFromReq(ri)
+
+	cr.isECSDeclined = ri.ECS != nil && ri.ECS.Subnet.Bits() == 0
+	if cr.isECSDeclined {
+		// Don't perform subnet lookup when ECS contains zero-length prefix.
+		// Cache key calculation shouldn't consider the subnet of the cache
+		// request in this case, but the actual DNS request generated on cache
+		// miss will use this data.
+		log.Debug("ecscache: explicitly declined ecs")
+
+		cr.subnet = netutil.ZeroPrefix(ecsFam)
+	} else {
+		ctry, asn := locFromReq(ri)
+		cr.subnet, err = mw.geoIP.SubnetByLocation(ctry, asn, ecsFam)
+		if err != nil {
+			return fmt.Errorf("getting subnet for country %s (family: %d): %w", ctry, ecsFam, err)
+		}
+
+		optlog.Debug3("ecscache: got ctry %s, asn %d, subnet %s", ctry, asn, cr.subnet)
 	}
 
-	// Perform an upstream request with the ECS data for the location.  If
-	// successful, write, increment the metrics,  and return.  See also
-	// writeUpstreamResponse.
-	reqECS := &agd.ECS{
+	// Try getting a cached result using the subnet of the location or zero one
+	// when explicitly requested by user.  If there is one, write, increment the
+	// metrics, and return.  See also [writeCachedResponse].
+	resp, found, respIsECSDependent := mw.get(req, cr)
+	if found {
+		optlog.Debug1("ecscache: using cached response (ecs-aware: %t)", respIsECSDependent)
+
+		// Don't wrap the error, because it's informative enough as is.
+		return writeCachedResponse(ctx, rw, req, resp, ri.ECS, ecsFam, respIsECSDependent)
+	}
+
+	log.Debug("ecscache: no cached response")
+
+	// Perform an upstream request with the ECS data for the location or zero
+	// one on circumstances described above.  If successful, write, increment
+	// the metrics, and return.  See also [writeUpstreamResponse].
+	ecsReq := dnsmsg.Clone(req)
+	err = setECS(ecsReq, &agd.ECS{
 		Subnet: cr.subnet,
 		Scope:  0,
-	}
-
-	ecsReq := dnsmsg.Clone(req)
-	err = setECS(ecsReq, reqECS, ecsFam, false)
+	}, ecsFam, false)
 	if err != nil {
 		return fmt.Errorf("setting ecs for upstream req: %w", err)
 	}

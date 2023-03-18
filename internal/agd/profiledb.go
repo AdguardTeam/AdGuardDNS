@@ -179,6 +179,8 @@ type profileCache struct {
 
 // saveStorageCache saves profiles data to cache file.
 func (db *DefaultProfileDB) saveProfileCache(ctx context.Context) (err error) {
+	log.Info("profiledb: saving profile cache")
+
 	var resp *PSProfilesResponse
 	resp, err = db.storage.Profiles(ctx, &PSProfilesRequest{
 		SyncTime: time.Time{},
@@ -205,33 +207,43 @@ func (db *DefaultProfileDB) saveProfileCache(ctx context.Context) (err error) {
 		return err
 	}
 
-	log.Debug("profiledb: cache: saved %d profiles to %q", len(resp.Profiles), db.cacheFilePath)
+	log.Info("profiledb: cache: saved %d profiles to %q", len(resp.Profiles), db.cacheFilePath)
 
 	return nil
 }
 
 // defaultProfileDBCacheVersion is the version of cached data structure.  It's
 // manually incremented on every change in [profileCache] structure.
-const defaultProfileDBCacheVersion = 1
+const defaultProfileDBCacheVersion = 2
 
 // loadProfileCache loads profiles data from cache file.
 func (db *DefaultProfileDB) loadProfileCache() (err error) {
+	log.Info("profiledb: loading cache")
+
 	data, err := db.loadStorageCache()
 	if err != nil {
 		return fmt.Errorf("loading cache: %w", err)
 	}
 
 	if data == nil {
+		log.Info("profiledb: cache is empty")
+
 		return nil
 	}
 
 	if data.Version == defaultProfileDBCacheVersion {
 		profiles := data.Profiles
 		devNum := db.setProfiles(profiles)
-		log.Debug("profiledb: cache: got %d profiles with %d devices", len(profiles), devNum)
+		log.Info("profiledb: cache: got %d profiles with %d devices", len(profiles), devNum)
 
 		db.syncTime = data.SyncTime
 		db.syncTimeFull = data.SyncTime
+	} else {
+		log.Info(
+			"profiledb: cache version %d is different from %d",
+			data.Version,
+			defaultProfileDBCacheVersion,
+		)
 	}
 
 	return nil

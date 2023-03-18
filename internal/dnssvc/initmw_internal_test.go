@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/netip"
 	"testing"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
@@ -45,23 +44,31 @@ func TestInitMw_ServeDNS_ddr(t *testing.T) {
 
 	srvs := map[agd.ServerName]*agd.Server{
 		"dot": {
-			TLS:           &tls.Config{},
-			BindAddresses: []netip.AddrPort{netip.MustParseAddrPort("1.2.3.4:12345")},
-			Protocol:      agd.ProtoDoT,
+			TLS: &tls.Config{},
+			BindData: []*agd.ServerBindData{{
+				AddrPort: netip.MustParseAddrPort("1.2.3.4:12345"),
+			}},
+			Protocol: agd.ProtoDoT,
 		},
 		"doh": {
-			TLS:           &tls.Config{},
-			BindAddresses: []netip.AddrPort{netip.MustParseAddrPort("5.6.7.8:54321")},
-			Protocol:      agd.ProtoDoH,
+			TLS: &tls.Config{},
+			BindData: []*agd.ServerBindData{{
+				AddrPort: netip.MustParseAddrPort("5.6.7.8:54321"),
+			}},
+			Protocol: agd.ProtoDoH,
 		},
 		"dns": {
-			BindAddresses:   []netip.AddrPort{netip.MustParseAddrPort("2.4.6.8:53")},
+			BindData: []*agd.ServerBindData{{
+				AddrPort: netip.MustParseAddrPort("2.4.6.8:53"),
+			}},
 			Protocol:        agd.ProtoDNS,
 			LinkedIPEnabled: true,
 		},
 		"dns_nolink": {
-			BindAddresses: []netip.AddrPort{netip.MustParseAddrPort("2.4.6.8:53")},
-			Protocol:      agd.ProtoDNS,
+			BindData: []*agd.ServerBindData{{
+				AddrPort: netip.MustParseAddrPort("2.4.6.8:53"),
+			}},
+			Protocol: agd.ProtoDNS,
 		},
 	}
 
@@ -83,11 +90,9 @@ func TestInitMw_ServeDNS_ddr(t *testing.T) {
 
 	var dev *agd.Device
 	mw := &initMw{
-		messages: &dnsmsg.Constructor{
-			FilteredResponseTTL: 10 * time.Second,
-		},
-		fltGrp: &agd.FilteringGroup{},
-		srvGrp: srvGrp,
+		messages: agdtest.NewConstructor(),
+		fltGrp:   &agd.FilteringGroup{},
+		srvGrp:   srvGrp,
 		db: &agdtest.ProfileDB{
 			OnProfileByDeviceID: func(
 				_ context.Context,
@@ -437,9 +442,7 @@ func TestInitMw_ServeDNS_specialDomain(t *testing.T) {
 			}
 
 			mw := &initMw{
-				messages: &dnsmsg.Constructor{
-					FilteredResponseTTL: 10 * time.Second,
-				},
+				messages: agdtest.NewConstructor(),
 				fltGrp: &agd.FilteringGroup{
 					BlockPrivateRelay:  tc.fltGrpBlocked,
 					BlockFirefoxCanary: tc.fltGrpBlocked,
@@ -492,19 +495,18 @@ func BenchmarkInitMw_Wrap(b *testing.B) {
 		},
 		Name: agd.ServerGroupName("test_server_group"),
 		Servers: []*agd.Server{{
-			BindAddresses: []netip.AddrPort{
-				netip.MustParseAddrPort("1.2.3.4:12345"),
-				netip.MustParseAddrPort("4.3.2.1:12345"),
-			},
+			BindData: []*agd.ServerBindData{{
+				AddrPort: netip.MustParseAddrPort("1.2.3.4:12345"),
+			}, {
+				AddrPort: netip.MustParseAddrPort("4.3.2.1:12345"),
+			}},
 			Protocol: agd.ProtoDoT,
 		}},
 	}
 
-	messages := &dnsmsg.Constructor{
-		FilteredResponseTTL: 10 * time.Second,
-	}
+	messages := agdtest.NewConstructor()
 
-	ipv4Hints := []netip.Addr{srvGrp.Servers[0].BindAddresses[0].Addr()}
+	ipv4Hints := []netip.Addr{srvGrp.Servers[0].BindData[0].AddrPort.Addr()}
 	ipv6Hints := []netip.Addr{netip.MustParseAddr("2001::1234")}
 
 	srvGrp.DDR.DeviceTargets.Add(devIDTarget)

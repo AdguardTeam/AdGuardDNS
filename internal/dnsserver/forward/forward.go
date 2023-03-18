@@ -151,22 +151,15 @@ var _ io.Closer = &Handler{}
 
 // Close implements the [io.Closer] interface for *Handler.
 func (h *Handler) Close() (err error) {
-	var errs []error
-
-	cErr := h.upstream.Close()
-	if cErr != nil {
-		errs = append(errs, cErr)
+	errs := make([]error, len(h.fallbacks)+1)
+	errs[0] = h.upstream.Close()
+	for i, f := range h.fallbacks {
+		errs[i+1] = f.Close()
 	}
 
-	for _, f := range h.fallbacks {
-		cErr = f.Close()
-		if cErr != nil {
-			errs = append(errs, cErr)
-		}
-	}
-
-	if len(errs) > 0 {
-		return errors.List("closing forward handler", errs...)
+	err = errors.Join(errs...)
+	if err != nil {
+		return fmt.Errorf("closing forward handler: %w", err)
 	}
 
 	return nil

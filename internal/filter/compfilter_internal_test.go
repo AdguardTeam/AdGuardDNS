@@ -5,7 +5,6 @@ import (
 	"net"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
@@ -56,9 +55,7 @@ func TestCompFilter_FilterRequest_badrequest(t *testing.T) {
 	}}
 
 	ri := &agd.RequestInfo{
-		Messages: &dnsmsg.Constructor{
-			FilteredResponseTTL: 10 * time.Second,
-		},
+		Messages: newConstructor(),
 		Host:     testReqHost,
 		RemoteIP: testRemoteIP,
 		QType:    dns.TypeA,
@@ -135,9 +132,7 @@ func TestCompFilter_FilterRequest_hostsRules(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ri := &agd.RequestInfo{
-				Messages: &dnsmsg.Constructor{
-					FilteredResponseTTL: 10 * time.Second,
-				},
+				Messages: newConstructor(),
 				Host:     tc.reqHost,
 				RemoteIP: testRemoteIP,
 				QType:    tc.reqType,
@@ -274,9 +269,7 @@ func TestCompFilter_FilterRequest_dnsrewrite(t *testing.T) {
 
 			ctx := context.Background()
 			ri := &agd.RequestInfo{
-				Messages: &dnsmsg.Constructor{
-					FilteredResponseTTL: 10 * time.Second,
-				},
+				Messages: newConstructor(),
 				Host:     testReqHost,
 				RemoteIP: testRemoteIP,
 				QType:    dns.TypeA,

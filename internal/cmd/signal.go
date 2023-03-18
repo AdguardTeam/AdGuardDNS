@@ -20,6 +20,22 @@ type signalHandler struct {
 	services []agd.Service
 }
 
+// newSignalHandler returns a new signalHandler that shuts down services.
+func newSignalHandler() (h signalHandler) {
+	h = signalHandler{
+		signal: make(chan os.Signal, 1),
+	}
+
+	signal.Notify(h.signal, unix.SIGINT, unix.SIGQUIT, unix.SIGTERM)
+
+	return h
+}
+
+// add adds a service to the signal handler.
+func (h *signalHandler) add(s agd.Service) {
+	h.services = append(h.services, s)
+}
+
 // Exit status constants.
 const (
 	statusSuccess = 0
@@ -54,8 +70,9 @@ func (h *signalHandler) shutdown() (status int) {
 	defer cancel()
 
 	log.Info("sighdlr: shutting down services")
-	for i, service := range h.services {
-		err := service.Shutdown(ctx)
+	for i := len(h.services) - 1; i >= 0; i-- {
+		s := h.services[i]
+		err := s.Shutdown(ctx)
 		if err != nil {
 			log.Error("sighdlr: shutting down service at index %d: %s", i, err)
 			status = statusError
@@ -65,16 +82,4 @@ func (h *signalHandler) shutdown() (status int) {
 	log.Info("sighdlr: shutting down adguard dns")
 
 	return status
-}
-
-// newSignalHandler returns a new signalHandler that shuts down svcs.
-func newSignalHandler(svcs ...agd.Service) (h signalHandler) {
-	h = signalHandler{
-		signal:   make(chan os.Signal, 1),
-		services: svcs,
-	}
-
-	signal.Notify(h.signal, unix.SIGINT, unix.SIGQUIT, unix.SIGTERM)
-
-	return h
 }

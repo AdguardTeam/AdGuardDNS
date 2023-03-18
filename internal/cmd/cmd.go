@@ -8,20 +8,15 @@ import (
 	"math/rand"
 	"os"
 	"runtime"
-	"sync"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
-	"github.com/AdguardTeam/AdGuardDNS/internal/backend"
-	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
-	"github.com/AdguardTeam/AdGuardDNS/internal/consul"
 	"github.com/AdguardTeam/AdGuardDNS/internal/debugsvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
@@ -37,6 +32,8 @@ import (
 func Main() {
 	// Initial Configuration
 
+	//lint:ignore SA1019 According to ameshkov, using a non-cryptographically
+	//secure RNG is fine for things such as random upstream selection.
 	rand.Seed(time.Now().UnixNano())
 
 	// Log only to stdout and let users decide how to process it.
@@ -50,7 +47,7 @@ func Main() {
 	// Signal service startup now that we have the logs set up.
 	log.Info("main: starting adguard dns")
 
-	// Error Collector
+	// Error collector
 	//
 	// TODO(a.garipov): Consider parsing SENTRY_DSN separately to set sentry up
 	// first and collect panics from the readEnvs call above as well.
@@ -60,7 +57,7 @@ func Main() {
 
 	defer collectPanics(errColl)
 
-	// Configuration File
+	// Configuration file
 
 	c, err := readConfig(envs.ConfPath)
 	check(err)
@@ -68,86 +65,52 @@ func Main() {
 	err = c.validate()
 	check(err)
 
-	// Additional Metrics
+	// Additional metrics
 
 	metrics.SetAdditionalInfo(c.AdditionalMetricsInfo)
 
-	// GeoIP Database
+	// Signal handler
 
-	// We start GeoIP initialization early in a dedicated routine cause it
-	// takes time, later we wait for completion and continue with GeoIP.
+	sigHdlr := newSignalHandler()
+
+	// GeoIP database
+
+	// We start GeoIP initialization early in a dedicated routine cause it takes
+	// time, later we wait for completion and continue with GeoIP.
 	//
 	// See AGDNS-884.
 
-	geoIPMu := &sync.Mutex{}
+	geoIP, geoIPRefr := &geoip.File{}, &agd.RefreshWorker{}
+	geoIPErrCh := make(chan error, 1)
 
-	var (
-		geoIP    *geoip.File
-		geoIPErr error
-	)
-
-	geoIPMu.Lock()
-	go func() {
-		defer geoIPMu.Unlock()
-
-		geoIP, geoIPErr = envs.geoIP(c.GeoIP)
-	}()
+	go setupGeoIP(geoIP, geoIPRefr, geoIPErrCh, c.GeoIP, envs, errColl)
 
 	// Safe-browsing and adult-blocking filters
 
 	// TODO(ameshkov): Consider making configurable.
-	filteringResolver := agdnet.NewCachingResolver(
-		agdnet.DefaultResolver{},
-		1*timeutil.Day,
-	)
+	filteringResolver := agdnet.NewCachingResolver(agdnet.DefaultResolver{}, 1*timeutil.Day)
 
 	err = os.MkdirAll(envs.FilterCachePath, agd.DefaultDirPerm)
 	check(err)
 
-	safeBrowsingConf, err := c.SafeBrowsing.toInternal(
-		errColl,
+	safeBrowsingHashes, safeBrowsingFilter, err := setupHashPrefixFilter(
+		c.SafeBrowsing,
 		filteringResolver,
 		agd.FilterListIDSafeBrowsing,
 		envs.FilterCachePath,
+		sigHdlr,
+		errColl,
 	)
 	check(err)
 
-	safeBrowsingFilter, err := filter.NewHashPrefix(safeBrowsingConf)
-	check(err)
-
-	safeBrowsingUpd := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
-		Context:             ctxWithDefaultTimeout,
-		Refresher:           safeBrowsingFilter,
-		ErrColl:             errColl,
-		Name:                string(agd.FilterListIDSafeBrowsing),
-		Interval:            safeBrowsingConf.Staleness,
-		RefreshOnShutdown:   false,
-		RoutineLogsAreDebug: false,
-	})
-	err = safeBrowsingUpd.Start()
-	check(err)
-
-	adultBlockingConf, err := c.AdultBlocking.toInternal(
-		errColl,
+	adultBlockingHashes, adultBlockingFilter, err := setupHashPrefixFilter(
+		c.AdultBlocking,
 		filteringResolver,
 		agd.FilterListIDAdultBlocking,
 		envs.FilterCachePath,
+		sigHdlr,
+		errColl,
 	)
-	check(err)
-
-	adultBlockingFilter, err := filter.NewHashPrefix(adultBlockingConf)
-	check(err)
-
-	adultBlockingUpd := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
-		Context:             ctxWithDefaultTimeout,
-		Refresher:           adultBlockingFilter,
-		ErrColl:             errColl,
-		Name:                string(agd.FilterListIDAdultBlocking),
-		Interval:            adultBlockingConf.Staleness,
-		RefreshOnShutdown:   false,
-		RoutineLogsAreDebug: false,
-	})
-	err = adultBlockingUpd.Start()
 	check(err)
 
 	// Filter storage and filtering groups
@@ -160,31 +123,16 @@ func Main() {
 		adultBlockingFilter,
 	)
 
-	fltStrg, err := filter.NewDefaultStorage(fltStrgConf)
+	fltRefrTimeout := c.Filters.RefreshTimeout.Duration
+	fltStrg, err := setupFilterStorage(fltStrgConf, sigHdlr, errColl, fltRefrTimeout)
 	check(err)
-
-	fltStrgUpd := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
-		Context: func() (ctx context.Context, cancel context.CancelFunc) {
-			return context.WithTimeout(context.Background(), c.Filters.RefreshTimeout.Duration)
-		},
-		Refresher:           fltStrg,
-		ErrColl:             errColl,
-		Name:                "filters",
-		Interval:            fltStrgConf.RefreshIvl,
-		RefreshOnShutdown:   false,
-		RoutineLogsAreDebug: false,
-	})
-	err = fltStrgUpd.Start()
-	check(err)
-
-	// Server Groups
 
 	fltGroups, err := c.FilteringGroups.toInternal(fltStrg)
 	check(err)
 
-	messages := &dnsmsg.Constructor{
-		FilteredResponseTTL: c.Filters.ResponseTTL.Duration,
-	}
+	// Server groups
+
+	messages := dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, c.Filters.ResponseTTL.Duration)
 
 	srvGrps, err := c.ServerGroups.toInternal(messages, fltGroups)
 	check(err)
@@ -197,133 +145,45 @@ func Main() {
 		check(err)
 	}
 
-	// TLS Session Tickets Rotation
+	// TLS session-tickets rotation
 
-	tickRot, err := newTicketRotator(srvGrps)
+	err = setupTicketRotator(srvGrps, sigHdlr, errColl)
 	check(err)
 
-	tickRotUpd := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
-		Context:   ctxWithDefaultTimeout,
-		Refresher: tickRot,
-		ErrColl:   errColl,
-		Name:      "tickrot",
-		// TODO(ameshkov): Consider making configurable.
-		Interval:            1 * time.Minute,
-		RefreshOnShutdown:   false,
-		RoutineLogsAreDebug: true,
-	})
-	err = tickRotUpd.Start()
+	// Profiles database and billing statistics
+
+	profDB, billStatRec, err := setupBackend(c.Backend, envs, sigHdlr, errColl)
 	check(err)
 
-	// Profiles Database
-
-	profStrgConf, billStatConf := c.Backend.toInternal(envs, errColl)
-	profStrg := backend.NewProfileStorage(profStrgConf)
-
-	// Billing Statistics
-
-	billStatRec := billstat.NewRuntimeRecorder(&billstat.RuntimeRecorderConfig{
-		Uploader: backend.NewBillStat(billStatConf),
-	})
-
-	billStatRecUpd := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
-		Context:             ctxWithDefaultTimeout,
-		Refresher:           billStatRec,
-		ErrColl:             errColl,
-		Name:                "billstat",
-		Interval:            c.Backend.BillStatIvl.Duration,
-		RefreshOnShutdown:   true,
-		RoutineLogsAreDebug: true,
-	})
-	err = billStatRecUpd.Start()
-	check(err)
-
-	profDB, err := agd.NewDefaultProfileDB(
-		profStrg,
-		c.Backend.FullRefreshIvl.Duration,
-		envs.ProfilesCachePath,
-	)
-	check(err)
-
-	profDBUpd := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
-		Context: func() (ctx context.Context, cancel context.CancelFunc) {
-			return context.WithTimeout(context.Background(), c.Backend.Timeout.Duration)
-		},
-		Refresher:           profDB,
-		ErrColl:             errColl,
-		Name:                "profiledb",
-		Interval:            c.Backend.RefreshIvl.Duration,
-		RefreshOnShutdown:   false,
-		RoutineLogsAreDebug: true,
-	})
-	err = profDBUpd.Start()
-	check(err)
-
-	// Query Log
-
-	queryLog := c.buildQueryLog(envs)
-
-	// DNS Checker
+	// DNS checker
 
 	dnsCk, err := dnscheck.NewConsul(c.Check.toInternal(envs, messages, errColl))
 	check(err)
 
 	// DNSDB
 
-	dnsDB, dnsDBUpd := envs.buildDNSDB(errColl)
-	err = dnsDBUpd.Start()
+	dnsDB, err := envs.buildDNSDB(sigHdlr, errColl)
 	check(err)
 
-	// Filtering Rule Statistics
+	// Filtering-rule statistics
 
-	ruleStat, ruleStatUpd := envs.ruleStat(errColl)
-	err = ruleStatUpd.Start()
+	ruleStat, err := envs.buildRuleStat(sigHdlr, errColl)
 	check(err)
 
-	// Rate Limiting
+	// Rate limiting
 
-	allowSubnets, err := agdnet.ParseSubnets(c.RateLimit.Allowlist.List...)
+	consulAllowlistURL := &envs.ConsulAllowlistURL.URL
+	rateLimiter, err := setupRateLimiter(c.RateLimit, consulAllowlistURL, sigHdlr, errColl)
 	check(err)
 
-	allowlist := ratelimit.NewDynamicAllowlist(allowSubnets, nil)
-	allowlistRefresher, err := consul.NewAllowlistRefresher(allowlist, &envs.ConsulAllowlistURL.URL)
-	check(err)
-
-	allowlistUpd := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
-		Context:             ctxWithDefaultTimeout,
-		Refresher:           allowlistRefresher,
-		ErrColl:             errColl,
-		Name:                "allowlist",
-		Interval:            c.RateLimit.Allowlist.RefreshIvl.Duration,
-		RefreshOnShutdown:   false,
-		RoutineLogsAreDebug: false,
-	})
-	err = allowlistUpd.Start()
-	check(err)
-
-	rateLimiter := ratelimit.NewBackOff(c.RateLimit.toInternal(allowlist))
-
-	// GeoIP Database
+	// GeoIP database
 
 	// Wait for long-running GeoIP initialization.
-	geoIPMu.Lock()
-	defer geoIPMu.Unlock()
+	check(<-geoIPErrCh)
 
-	check(geoIPErr)
+	sigHdlr.add(geoIPRefr)
 
-	geoIPUpd := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
-		Context:             ctxWithDefaultTimeout,
-		Refresher:           geoIP,
-		ErrColl:             errColl,
-		Name:                "geoip",
-		Interval:            c.GeoIP.RefreshIvl.Duration,
-		RefreshOnShutdown:   false,
-		RoutineLogsAreDebug: false,
-	})
-	err = geoIPUpd.Start()
-	check(err)
-
-	// Web Service
+	// Web service
 
 	webConf, err := c.Web.toInternal(envs, dnsCk, errColl)
 	check(err)
@@ -333,7 +193,9 @@ func Main() {
 	// instead of returning an error.
 	_ = webSvc.Start()
 
-	// DNS Service
+	sigHdlr.add(webSvc)
+
+	// DNS service
 
 	metricsListener := prometheus.NewForwardMetricsListener(len(c.Upstream.FallbackServers) + 1)
 
@@ -351,11 +213,8 @@ func Main() {
 	}, c.Upstream.Healthcheck.Enabled)
 
 	dnsConf := &dnssvc.Config{
-		Messages: messages,
-		SafeBrowsing: filter.NewSafeBrowsingServer(
-			safeBrowsingConf.Hashes,
-			adultBlockingConf.Hashes,
-		),
+		Messages:        messages,
+		SafeBrowsing:    filter.NewSafeBrowsingServer(safeBrowsingHashes, adultBlockingHashes),
 		BillStat:        billStatRec,
 		ProfileDB:       profDB,
 		DNSCheck:        dnsCk,
@@ -365,7 +224,7 @@ func Main() {
 		FilterStorage:   fltStrg,
 		GeoIP:           geoIP,
 		Handler:         handler,
-		QueryLog:        queryLog,
+		QueryLog:        c.buildQueryLog(envs),
 		RuleStat:        ruleStat,
 		Upstream:        upstream,
 		RateLimit:       rateLimiter,
@@ -380,6 +239,10 @@ func Main() {
 	dnsSvc, err := dnssvc.New(dnsConf)
 	check(err)
 
+	sigHdlr.add(dnsSvc)
+
+	// Connectivity check
+
 	err = connectivityCheck(dnsConf, c.ConnectivityCheck)
 	check(err)
 
@@ -387,17 +250,23 @@ func Main() {
 	err = upstreamHealthcheckUpd.Start()
 	check(err)
 
+	sigHdlr.add(upstreamHealthcheckUpd)
+
 	// The DNS service is considered critical, so its Start method panics
 	// instead of returning an error.
 	_ = dnsSvc.Start()
 
-	// Debug HTTP Service
+	sigHdlr.add(dnsSvc)
+
+	// Debug HTTP-service
 
 	debugSvc := debugsvc.New(envs.debugConf(dnsDB))
 
 	// The debug HTTP service is considered critical, so its Start method panics
 	// instead of returning an error.
 	_ = debugSvc.Start()
+
+	sigHdlr.add(debugSvc)
 
 	// Signal that the server is started.
 	metrics.SetUpGauge(
@@ -408,23 +277,7 @@ func Main() {
 		runtime.Version(),
 	)
 
-	h := newSignalHandler(
-		debugSvc,
-		webSvc,
-		dnsSvc,
-		safeBrowsingUpd,
-		adultBlockingUpd,
-		profDBUpd,
-		dnsDBUpd,
-		geoIPUpd,
-		ruleStatUpd,
-		allowlistUpd,
-		fltStrgUpd,
-		tickRotUpd,
-		billStatRecUpd,
-	)
-
-	os.Exit(h.handle())
+	os.Exit(sigHdlr.handle())
 }
 
 // collectPanics reports all panics in Main.  It should be called in a defer.
@@ -447,14 +300,4 @@ func collectPanics(errColl agd.ErrorCollector) {
 	errColl.Collect(context.Background(), err)
 
 	panic(v)
-}
-
-// defaultTimeout is the timeout used for some operations where another timeout
-// hasn't been defined yet.
-const defaultTimeout = 30 * time.Second
-
-// ctxWithDefaultTimeout is a helper function that returns a context with
-// timeout set to defaultTimeout.
-func ctxWithDefaultTimeout() (ctx context.Context, cancel context.CancelFunc) {
-	return context.WithTimeout(context.Background(), defaultTimeout)
 }

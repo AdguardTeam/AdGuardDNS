@@ -5,6 +5,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/golibs/errors"
 )
 
@@ -14,7 +15,8 @@ import (
 // the infrastructure, a profile is also called a “DNS server”.  We call it
 // profile, because it's less confusing.
 //
-// NOTE: Increment defaultProfileDBCacheVersion on any change of this structure.
+// NOTE: Increment [defaultProfileDBCacheVersion] on any change of this
+// structure.
 //
 // TODO(a.garipov): Consider making it closer to the config file and the backend
 // response by grouping parental, rule list, and safe browsing settings into
@@ -23,6 +25,9 @@ type Profile struct {
 	// Parental are the parental settings for this profile.  They are ignored if
 	// FilteringEnabled is set to false.
 	Parental *ParentalProtectionSettings
+
+	// BlockingMode defines the way blocked responses are constructed.
+	BlockingMode dnsmsg.BlockingModeCodec
 
 	// ID is the unique ID of this profile.
 	ID ProfileID

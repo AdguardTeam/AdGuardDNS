@@ -12,6 +12,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/timeutil"
@@ -158,6 +159,7 @@ type v1SettingsRespSettings struct {
 	Parental            *v1SettingsRespParental     `json:"parental"`
 	RuleLists           *v1SettingsRespRuleLists    `json:"rule_lists"`
 	SafeBrowsing        *v1SettingsRespSafeBrowsing `json:"safe_browsing"`
+	BlockingMode        dnsmsg.BlockingModeCodec    `json:"blocking_mode"`
 	Devices             []*v1SettingsRespDevice     `json:"devices"`
 	CustomRules         []string                    `json:"custom_rules"`
 	FilteredResponseTTL uint32                      `json:"filtered_response_ttl"`
@@ -180,6 +182,9 @@ func (rs *v1SettingsRespSettings) UnmarshalJSON(b []byte) (err error) {
 	type defaultDec v1SettingsRespSettings
 
 	s := defaultDec{
+		BlockingMode: dnsmsg.BlockingModeCodec{
+			Mode: &dnsmsg.BlockingModeNullIP{},
+		},
 		BlockFirefoxCanary: true,
 	}
 
@@ -496,6 +501,7 @@ func (r *v1SettingsResp) toInternal(
 
 		pr.Profiles = append(pr.Profiles, &agd.Profile{
 			Parental:            parental,
+			BlockingMode:        s.BlockingMode,
 			ID:                  id,
 			UpdateTime:          updTime,
 			Devices:             devices,

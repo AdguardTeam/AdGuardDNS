@@ -1,8 +1,19 @@
  #  AdGuard DNS Development Setup
 
+##  Contents
+
+ *  [Initial setup](#init)
+ *  [Common Makefile macros and targets](#makefile)
+ *  [How to run AdGuard DNS](#run)
+ *  [Testing](#testing)
+
+
+
+##  <a href="#init" id="init" name="init">Initial setup</a>
+
 Development is supported on Linux and macOS (aka Darwin) systems.
 
-1.  Install Go 1.18 or later.
+1.  Install Go 1.20 or later.
 
 1.  Call `make init` to set up the Git pre-commit hook.
 
@@ -11,7 +22,7 @@ Development is supported on Linux and macOS (aka Darwin) systems.
 
 
 
-##  <a href="#makefile" id="makefile" name="makefile">Common Makefile Macros And Targets</a>
+##  <a href="#makefile" id="makefile" name="makefile">Common Makefile macros and targets</a>
 
 Most development tasks are done through the use of our Makefile.  Please keep
 the Makefile POSIX-compliant and portable.
@@ -92,13 +103,13 @@ This is not an extensive list.  See `../Makefile`.
 
 
 
-##  <a href="#run" id="run" name="run">How To Run AdGuard DNS</a>
+##  <a href="#run" id="run" name="run">How to run AdGuard DNS</a>
 
 This is an example on how to run AdGuard DNS locally.
 
 
 
-   ###  <a href="#run-1" id="run-1" name="run-1">Step 1: Prepare The TLS Certificate And The Key</a>
+   ###  <a href="#run-1" id="run-1" name="run-1">Step 1: prepare the TLS certificate and the key</a>
 
 Keeping the test files in the `test` directory since it's added to `.gitignore`:
 
@@ -122,7 +133,7 @@ openssl rand 32 > ./tls_key_2
 
 
 
-   ###  <a href="#run-2" id="run-2" name="run-2">Step 2: Prepare The DNSCrypt Configuration</a>
+   ###  <a href="#run-2" id="run-2" name="run-2">Step 2: prepare the DNSCrypt configuration</a>
 
 Install the [`dnscrypt`][dnsc] tool:
 
@@ -143,7 +154,7 @@ dnscrypt generate -p testdns -o ./dnscrypt.yml
 
 
 
-   ###  <a href="#run-3" id="run-3" name="run-3">Step 3: Prepare The Configuration File</a>
+   ###  <a href="#run-3" id="run-3" name="run-3">Step 3: prepare the configuration file</a>
 
 ```sh
 cd ../
@@ -152,7 +163,7 @@ cp -f config.dist.yml config.yml
 
 
 
-   ###  <a href="#run-4" id="run-4" name="run-4">Step 4: Prepare The Test Data</a>
+   ###  <a href="#run-4" id="run-4" name="run-4">Step 4: prepare the test data</a>
 
 ```sh
 echo '<html><body>Dangerous content ahead</body></html>' > ./test/block_page_sb.html
@@ -163,7 +174,7 @@ echo '<html><body>Error 500</body></html>' > ./test/error_500.html
 
 
 
-   ###  <a href="#run-5" id="run-5" name="run-5">Step 5: Compile AdGuard DNS</a>
+   ###  <a href="#run-5" id="run-5" name="run-5">Step 5: compile AdGuard DNS</a>
 
 ```sh
 make build
@@ -171,7 +182,7 @@ make build
 
 
 
-   ###  <a href="#run-6" id="run-6" name="run-6">Step 6: Prepare Cache Data And GeoIP</a>
+   ###  <a href="#run-6" id="run-6" name="run-6">Step 6: prepare cache data and GeoIP</a>
 
 We'll use the test versions of the GeoIP databases here.
 
@@ -184,7 +195,7 @@ curl 'https://raw.githubusercontent.com/maxmind/MaxMind-DB/main/test-data/GeoLit
 
 
 
-   ###  <a href="#run-7" id="run-7" name="run-7">Step 7: Run AdGuard DNS</a>
+   ###  <a href="#run-7" id="run-7" name="run-7">Step 7: run AdGuard DNS</a>
 
 You'll need to supply the following:
 
@@ -235,7 +246,7 @@ env \
 
 
 
-   ###  <a href="#run-8" id="run-8" name="run-8">Step 8: Test Your Instance</a>
+   ###  <a href="#run-8" id="run-8" name="run-8">Step 8: test your instance</a>
 
 Plain DNS:
 
@@ -275,3 +286,55 @@ dnslookup example.org sdns://AQcAAAAAAAAADjEyNy4wLjAuMTo1NDQzIAbKgP3dmXybr1DaKIF
 
 [dnsc]: https://github.com/ameshkov/dnscrypt
 [dnscdl]: https://github.com/ameshkov/dnscrypt/releases
+
+
+
+##  <a href="#testing" id="testing" name="testing">Testing</a>
+
+The `go-bench` and `go-test` targets [described earlier](#makefile-targets)
+should generally be enough, but there are cases where additional testing setup
+is required.  One such case is package `bindtodevice`.
+
+
+
+   ###  <a href="#testing-bindtodevice" id="testing-bindtodevice" name="testing-bindtodevice">Testing `SO_BINDTODEVICE` features</a>
+
+The `SO_BINDTODEVICE` features require a Linux machine with a particular IP
+routing set up.  In order to test these features on architectures other than
+Linux, this repository has a Dockerfile and a convenient script to use it, see
+`scripts/test/bindtodevice.sh`.
+
+A simple example:
+
+ *  If your Docker is installed in a way that doesn't require `sudo` to use it:
+
+    ```sh
+    sh ./scripts/test/bindtodevice.sh
+    ```
+
+ *  Otherwise:
+
+    ```sh
+    env USE_SUDO=1 sh ./scripts/test/bindtodevice.sh
+    ```
+
+This will build the image and open a shell within the container.  The container
+environment is defined by `scripts/test/bindtodevice.docker`, and has all
+utilities required to build the `AdGuardDNS` binary and test it.  The working
+directory is also shared with the container through the `/test` directory inside
+it.  The container also routes all IP connections to any address in the
+`172.17.0.0/16` subnet to the `eth0` network interface.  So, calling `make
+go-test` or a similar command from within the container will actually test the
+`SO_BINDTODEVICE` features:
+
+```sh
+go test --cover -v ./internal/bindtodevice/
+```
+
+If you want to open an additional terminal (for example to launch `AdGuardDNS`
+in one and `dig` it in the other), use `docker exec` like this (you may need
+`sudo` for that):
+
+```sh
+docker exec -i -t agdns_bindtodevice_test /bin/sh
+```

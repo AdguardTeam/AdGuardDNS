@@ -9,6 +9,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/urlfilter/rules"
 	"github.com/miekg/dns"
+	"github.com/quic-go/quic-go/http3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,10 +25,7 @@ var (
 func TestConstructor_NewAnswerHTTPS_andSVCB(t *testing.T) {
 	// Preconditions.
 
-	mc := &dnsmsg.Constructor{
-		FilteredResponseTTL: testFltRespTTL,
-	}
-
+	mc := dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
 	req := &dns.Msg{
 		Question: []dns.Question{{
 			Name: "abcd",
@@ -36,14 +34,13 @@ func TestConstructor_NewAnswerHTTPS_andSVCB(t *testing.T) {
 
 	// Constants and helper values.
 
-	const host = "example.com"
 	const prio = 32
 
 	// Helper functions.
 
 	dnssvcb := func(key, value string) (svcb *rules.DNSSVCB) {
 		svcb = &rules.DNSSVCB{
-			Target:   host,
+			Target:   testFQDN,
 			Priority: prio,
 		}
 
@@ -63,11 +60,11 @@ func TestConstructor_NewAnswerHTTPS_andSVCB(t *testing.T) {
 			Hdr: dns.RR_Header{
 				Name:   req.Question[0].Name,
 				Rrtype: dns.TypeSVCB,
-				Ttl:    uint32(mc.FilteredResponseTTL.Seconds()),
+				Ttl:    testFltRespTTLSec,
 				Class:  dns.ClassINET,
 			},
 			Priority: prio,
-			Target:   dns.Fqdn(host),
+			Target:   testFQDN,
 		}
 
 		if kv != nil {
@@ -92,8 +89,8 @@ func TestConstructor_NewAnswerHTTPS_andSVCB(t *testing.T) {
 		want: wantsvcb(nil),
 		name: "invalid",
 	}, {
-		svcb: dnssvcb("alpn", "h3"),
-		want: wantsvcb(&dns.SVCBAlpn{Alpn: []string{"h3"}}),
+		svcb: dnssvcb("alpn", http3.NextProtoH3),
+		want: wantsvcb(&dns.SVCBAlpn{Alpn: []string{http3.NextProtoH3}}),
 		name: "alpn",
 	}, {
 		svcb: dnssvcb("dohpath", "/some/url/path"),
@@ -170,9 +167,7 @@ func TestConstructor_NewDDR(t *testing.T) {
 		dohPath           = "/dns-query"
 	)
 
-	mc := &dnsmsg.Constructor{
-		FilteredResponseTTL: testFltRespTTL,
-	}
+	mc := dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
 
 	testCases := []struct {
 		name     string
@@ -248,7 +243,7 @@ func TestConstructor_NewDDR(t *testing.T) {
 
 			assert.Equal(t, targetFQDN, svcb.Target)
 			assert.Equal(t, prio, svcb.Priority)
-			assert.Equal(t, uint32(mc.FilteredResponseTTL.Seconds()), svcb.Hdr.Ttl)
+			assert.Equal(t, testFltRespTTLSec, svcb.Hdr.Ttl)
 			assert.ElementsMatch(t, tc.wantVals, svcb.Value)
 		})
 	}

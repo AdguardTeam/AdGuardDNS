@@ -3,6 +3,7 @@ package pool
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -118,14 +119,11 @@ func (p *Pool) Close() (err error) {
 			errs = append(errs, err)
 		}
 	}
+
 	// This marks the pool as closed.
 	p.connsChan = nil
 
-	if len(errs) > 0 {
-		return errors.List("errors when closing the pool", errs...)
-	}
-
-	return nil
+	return errors.Annotate(errors.Join(errs...), "closing pool: %w")
 }
 
 // closeConn is used when the pool is closed. In this case we attempt to close
@@ -133,11 +131,7 @@ func (p *Pool) Close() (err error) {
 func (p *Pool) closeConn(conn *Conn) (err error) {
 	err = conn.Close()
 	if err != nil {
-		return errors.List(
-			"error while closing a pool connection",
-			err,
-			ErrClosed,
-		)
+		return errors.WithDeferred(fmt.Errorf("closing pool connection: %w", err), ErrClosed)
 	}
 
 	return ErrClosed

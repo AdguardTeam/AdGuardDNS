@@ -298,16 +298,17 @@ func (f *compFilter) Close() (err error) {
 		return nil
 	}
 
-	var errs []error
+	errs := make([]error, len(f.ruleLists))
 	for i, rl := range f.ruleLists {
 		err = rl.Close()
 		if err != nil {
-			errs = append(errs, fmt.Errorf("rule list at index %d: %w", i, err))
+			errs[i] = fmt.Errorf("rule list at index %d: %w", i, err)
 		}
 	}
 
-	if len(errs) > 0 {
-		return errors.List("closing filters", errs...)
+	err = errors.Join(errs...)
+	if err != nil {
+		return fmt.Errorf("closing filters: %w", err)
 	}
 
 	return nil

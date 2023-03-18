@@ -237,7 +237,7 @@ func (c *Constructor) NewDDRTemplate(
 			// Keep the name empty for the client of the API to fill it.
 			Name:   "",
 			Rrtype: dns.TypeSVCB,
-			Ttl:    uint32(c.FilteredResponseTTL.Seconds()),
+			Ttl:    uint32(c.fltRespTTL.Seconds()),
 			Class:  dns.ClassINET,
 		},
 		Priority: prio,

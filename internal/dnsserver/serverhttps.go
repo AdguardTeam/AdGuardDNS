@@ -18,9 +18,9 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
-	"github.com/lucas-clemente/quic-go"
-	"github.com/lucas-clemente/quic-go/http3"
 	"github.com/miekg/dns"
+	"github.com/quic-go/quic-go"
+	"github.com/quic-go/quic-go/http3"
 	"golang.org/x/net/http2"
 )
 
@@ -49,7 +49,7 @@ var nextProtoDoH = []string{http2.NextProtoTLS, "http/1.1"}
 // nextProtoDoH3 is a list of ALPN that we should add by default to the server's
 // *tls.Config if no NextProto is specified there and DoH3 is supposed to be
 // used.
-var nextProtoDoH3 = []string{"h3", http2.NextProtoTLS, "http/1.1"}
+var nextProtoDoH3 = []string{http3.NextProtoH3, http2.NextProtoTLS, "http/1.1"}
 
 // ConfigHTTPS is a struct that needs to be passed to NewServerHTTPS to
 // initialize a new ServerHTTPS instance.  You can choose whether HTTP/3 is
@@ -297,7 +297,7 @@ func (s *ServerHTTPS) serveH3(ctx context.Context, hs *http3.Server, ql quic.Ear
 	defer s.handlePanicAndExit(ctx)
 
 	u := &url.URL{
-		Scheme: "h3",
+		Scheme: http3.NextProtoH3,
 		Host:   s.addr,
 	}
 	log.Info("[%s]: Start listening to %s", s.name, u)
@@ -393,15 +393,7 @@ func (h *httpHandler) serveDoH(ctx context.Context, w http.ResponseWriter, r *ht
 	rAddr := h.remoteAddr(r)
 	lAddr := h.localAddr
 	rw := NewNonWriterResponseWriter(lAddr, rAddr)
-
-	ctx, err = httpContextWithClientInfo(ctx, r)
-	if err != nil {
-		log.Debug("Failed to enrich DoH context: %v", err)
-		h.srv.metrics.OnInvalidMsg(ctx)
-		http.Error(w, err.Error(), http.StatusBadRequest)
-
-		return
-	}
+	ctx = httpContextWithClientInfo(ctx, r)
 
 	// Serve the query
 	written := h.srv.serveDNS(ctx, m, rw)
@@ -524,36 +516,19 @@ func (s *ServerHTTPS) listenQUIC(ctx context.Context) (err error) {
 	return nil
 }
 
-// httpContextWithClientInfo adds client info to the context.  ctx is never nil,
-// even when there is an error.
-func httpContextWithClientInfo(
-	parent context.Context,
-	r *http.Request,
-) (ctx context.Context, err error) {
+// httpContextWithClientInfo adds client info to the context.
+func httpContextWithClientInfo(parent context.Context, r *http.Request) (ctx context.Context) {
 	ctx = parent
 
 	ci := ClientInfo{
 		URL: netutil.CloneURL(r.URL),
 	}
 
-	// Due to the quic-go bug we should use Host instead of r.TLS.  See
-	// https://github.com/quic-go/quic-go/issues/2879 and
-	// https://github.com/lucas-clemente/quic-go/issues/3596.
-	//
-	// TODO(ameshkov): Remove when quic-go is fixed, likely in v0.32.0.
-	if r.ProtoAtLeast(3, 0) {
-		var host string
-		host, err = netutil.SplitHost(r.Host)
-		if err != nil {
-			return ctx, fmt.Errorf("failed to parse Host: %w", err)
-		}
-
-		ci.TLSServerName = host
-	} else if r.TLS != nil {
+	if r.TLS != nil {
 		ci.TLSServerName = strings.ToLower(r.TLS.ServerName)
 	}
 
-	return ContextWithClientInfo(ctx, ci), nil
+	return ContextWithClientInfo(ctx, ci)
 }
 
 // httpRequestToMsg reads the DNS message from http.Request.

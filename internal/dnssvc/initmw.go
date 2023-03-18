@@ -187,9 +187,7 @@ func (mw *initMw) addProfile(ctx context.Context, ri *agd.RequestInfo, req *dns.
 		optlog.Debug3("init mw: found profile %s and device %s by %s", prof.ID, dev.ID, byWhat)
 
 		ri.Device, ri.Profile = dev, prof
-		ri.Messages = &dnsmsg.Constructor{
-			FilteredResponseTTL: prof.FilteredResponseTTL,
-		}
+		ri.Messages = dnsmsg.NewConstructor(prof.BlockingMode.Mode, prof.FilteredResponseTTL)
 	}
 
 	return nil

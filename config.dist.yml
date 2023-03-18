@@ -8,7 +8,6 @@ ratelimit:
     refuseany: true
     # If response is larger than this, it is counted as several responses.
     response_size_estimate: 1KB
-    rps: 30
     # Rate limit options for IPv4 addresses.
     ipv4:
         # Rate of requests per second for one subnet for IPv4 addresses.

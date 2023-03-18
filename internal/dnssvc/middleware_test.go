@@ -148,11 +148,13 @@ func TestService_Wrap_withClient(t *testing.T) {
 	srvAddr := netip.MustParseAddrPort("94.149.14.14:853")
 	srvName := agd.ServerName("test_server_dns_tls")
 	srvs := []*agd.Server{{
-		DNSCrypt:      nil,
-		TLS:           nil,
-		Name:          srvName,
-		Protocol:      agd.ProtoDoT,
-		BindAddresses: []netip.AddrPort{srvAddr},
+		DNSCrypt: nil,
+		TLS:      nil,
+		Name:     srvName,
+		BindData: []*agd.ServerBindData{{
+			AddrPort: srvAddr,
+		}},
+		Protocol: agd.ProtoDoT,
 	}}
 
 	tl := newTestListener()
@@ -211,9 +213,7 @@ func TestService_Wrap_withClient(t *testing.T) {
 	fltGrpID := agd.FilteringGroupID("1234")
 	srvGrpName := agd.ServerGroupName("test_group")
 	c := &dnssvc.Config{
-		Messages: &dnsmsg.Constructor{
-			FilteredResponseTTL: 10 * time.Second,
-		},
+		Messages: agdtest.NewConstructor(),
 		BillStat: &agdtest.BillStatRecorder{
 			OnRecord: func(
 				_ context.Context,

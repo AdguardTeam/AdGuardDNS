@@ -1,0 +1,19 @@
+# Use the golang:alpine as the base image as it already has most of the
+# necessary ip(8) tooling installed.
+FROM golang:alpine
+
+RUN apk add bind-tools bmake gcc git libc-dev &&\
+	ln /usr/bin/bmake /usr/bin/make &&\
+	mkdir /test/ &&\
+	git config --global --add safe.directory /test
+
+WORKDIR /test/
+
+ENV ADGUARD_DNS_TEST_NET_INTERFACE='eth0'
+
+# The ip route operations must be here and not in the RUN instruction above,
+# because they require --cap-add='NET_ADMIN', which is unavailable during build
+# time.  See ./bindtodevice.sh.
+ENTRYPOINT ip route del '172.17.0.0/16' dev 'eth0' &&\
+	ip route add local '172.17.0.0/16' dev 'eth0' &&\
+	exec sh

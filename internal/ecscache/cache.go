@@ -20,23 +20,46 @@ import (
 // cacheRequest contains data necessary to get a value from the cache.  It is
 // used to optimize goroutine stack usage.
 type cacheRequest struct {
-	host   string
+	// host is a non-FQDN version of a cached hostname.
+	host string
+
+	// subnet is the network of the country the DNS request came from determined
+	// with GeoIP.
 	subnet netip.Prefix
-	qType  uint16
+
+	// qType is the question type of the DNS request.
+	qType uint16
+
+	// qClass is the class of the DNS request.
 	qClass uint16
-	reqDO  bool
+
+	// reqDO is the state of DNSSEC OK bit from the DNS request.
+	reqDO bool
+
+	// isECSDeclined reflects if the client explicitly restricts using its
+	// information in EDNS client subnet option as per RFC 7871.
+	//
+	// See https://datatracker.ietf.org/doc/html/rfc7871#section-7.1.2.
+	isECSDeclined bool
 }
 
 // get retrieves a DNS message for the specified request from the cache, if
 // there is one.  If the host was found in the cache for domain names that
-// support ECS, hostHasECS is true.  cr, cr.req, and cr.subnet must not be nil.
-func (mw *Middleware) get(req *dns.Msg, cr *cacheRequest) (resp *dns.Msg, found, hostHasECS bool) {
+// support ECS, isECSDependent is true.  cr, cr.req, and cr.subnet must not be
+// nil.
+func (mw *Middleware) get(
+	req *dns.Msg,
+	cr *cacheRequest,
+) (resp *dns.Msg, found, isECSDependent bool) {
 	key := mw.toCacheKey(cr, false)
 	item, ok := itemFromCache(mw.cache, key, cr)
 	if ok {
 		return fromCacheItem(item, req, cr.reqDO), true, false
+	} else if cr.isECSDeclined {
+		return nil, false, false
 	}
 
+	// Try ECS-aware cache.
 	key = mw.toCacheKey(cr, true)
 	item, ok = itemFromCache(mw.ecsCache, key, cr)
 	if ok {
@@ -82,9 +105,11 @@ var hashSeed = maphash.MakeSeed()
 
 // toCacheKey returns the appropriate cache key for msg.  msg must have one
 // question record.  subnet must not be nil.
-func (mw *Middleware) toCacheKey(cr *cacheRequest, hostHasECS bool) (key uint64) {
+func (mw *Middleware) toCacheKey(cr *cacheRequest, respIsECSDependent bool) (key uint64) {
 	// Use maphash explicitly instead of using a key structure to reduce
 	// allocations and optimize interface conversion up the stack.
+	//
+	// TODO(a.garipov, e.burkov):  Consider just using struct as a key.
 	h := &maphash.Hash{}
 	h.SetSeed(hashSeed)
 
@@ -102,9 +127,11 @@ func (mw *Middleware) toCacheKey(cr *cacheRequest, hostHasECS bool) (key uint64)
 
 	_, _ = h.Write(buf[:])
 
-	if hostHasECS {
+	if respIsECSDependent {
 		_, _ = h.Write(addr.AsSlice())
 		_ = h.WriteByte(byte(cr.subnet.Bits()))
+	} else {
+		_ = h.WriteByte(mathutil.BoolToNumber[byte](cr.isECSDeclined))
 	}
 
 	return h.Sum64()
@@ -112,18 +139,18 @@ func (mw *Middleware) toCacheKey(cr *cacheRequest, hostHasECS bool) (key uint64)
 
 // set saves resp to the cache if it's cacheable.  If msg cannot be cached, it
 // is ignored.
-func (mw *Middleware) set(resp *dns.Msg, cr *cacheRequest, hostHasECS bool) {
+func (mw *Middleware) set(resp *dns.Msg, cr *cacheRequest, respIsECSDependent bool) {
 	ttl := findLowestTTL(resp)
 	if ttl == 0 || !isCacheable(resp) {
 		return
 	}
 
 	cache := mw.cache
-	if hostHasECS {
+	if respIsECSDependent {
 		cache = mw.ecsCache
 	}
 
-	key := mw.toCacheKey(cr, hostHasECS)
+	key := mw.toCacheKey(cr, respIsECSDependent)
 	item := toCacheItem(resp, cr.host)
 
 	err := cache.SetWithExpire(key, item, time.Duration(ttl)*time.Second)

@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"fmt"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -10,7 +12,7 @@ import (
 	"github.com/AdguardTeam/golibs/timeutil"
 )
 
-// Filters Configuration
+// Filters configuration
 
 // filtersConfig contains the configuration for the filter lists and filtering
 // storage to be used.
@@ -91,4 +93,38 @@ func (c *filtersConfig) validate() (err error) {
 	default:
 		return nil
 	}
+}
+
+// setupFilterStorage creates and returns a filter storage as well as starts and
+// registers its refresher in the signal handler.
+func setupFilterStorage(
+	conf *filter.DefaultStorageConfig,
+	sigHdlr signalHandler,
+	errColl agd.ErrorCollector,
+	refreshTimeout time.Duration,
+) (strg *filter.DefaultStorage, err error) {
+	strg, err = filter.NewDefaultStorage(conf)
+	if err != nil {
+		return nil, fmt.Errorf("creating default filter storage: %w", err)
+	}
+
+	refr := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
+		Context: func() (ctx context.Context, cancel context.CancelFunc) {
+			return context.WithTimeout(context.Background(), refreshTimeout)
+		},
+		Refresher:           strg,
+		ErrColl:             errColl,
+		Name:                "filters",
+		Interval:            conf.RefreshIvl,
+		RefreshOnShutdown:   false,
+		RoutineLogsAreDebug: false,
+	})
+	err = refr.Start()
+	if err != nil {
+		return nil, fmt.Errorf("starting default filter storage update: %w", err)
+	}
+
+	sigHdlr.add(refr)
+
+	return strg, nil
 }

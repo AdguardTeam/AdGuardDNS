@@ -16,9 +16,9 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/bluele/gcache"
-	"github.com/lucas-clemente/quic-go"
 	"github.com/miekg/dns"
 	"github.com/panjf2000/ants/v2"
+	"github.com/quic-go/quic-go"
 )
 
 const (
@@ -438,10 +438,11 @@ func (s *ServerQUIC) readQUICMsg(
 	// The client MUST send the DNS query over the selected stream, and MUST
 	// indicate through the STREAM FIN mechanism that no further data will
 	// be sent on that stream.
-
 	_ = stream.SetReadDeadline(time.Now().Add(DefaultReadTimeout))
+
+	// Read the stream data until io.EOF, i.e. until FIN is received.
 	var n int
-	n, err = stream.Read(buf)
+	n, err = readAll(stream, buf)
 
 	// err is not checked here because STREAM FIN sent by the client is
 	// indicated as an error here. instead, we should check the number of bytes
@@ -477,6 +478,32 @@ func (s *ServerQUIC) readQUICMsg(
 	}
 
 	return m, doqDraft, nil
+}
+
+// readAll reads from r until an error or io.EOF into the specified buffer buf.
+// A successful call returns err == nil, not err == io.EOF.  If the buffer is
+// too small, it returns error io.ErrShortBuffer.  This function has some
+// similarities to io.ReadAll, but it reads to the specified buffer and not
+// allocates (and grows) a new one.  Also, it is completely different from
+// io.ReadFull as that one reads the exact number of bytes (buffer length) and
+// readAll reads until io.EOF or until the buffer is filled.
+func readAll(r io.Reader, buf []byte) (n int, err error) {
+	for {
+		if n == len(buf) {
+			return n, io.ErrShortBuffer
+		}
+
+		var read int
+		read, err = r.Read(buf[n:])
+		n += read
+
+		if err != nil {
+			if err == io.EOF {
+				err = nil
+			}
+			return n, err
+		}
+	}
 }
 
 // listenQUIC creates the UDP listener for the ServerQUIC.addr and also starts
@@ -630,9 +657,14 @@ func newServerQUICConfig(metrics MetricsListener) (conf *quic.Config) {
 
 	return &quic.Config{
 		MaxIdleTimeout:           maxQUICIdleTimeout,
-		RequireAddressValidation: v.requiresValidation,
 		MaxIncomingStreams:       math.MaxUint16,
 		MaxIncomingUniStreams:    math.MaxUint16,
+		RequireAddressValidation: v.requiresValidation,
+		// Enable 0-RTT by default for all addresses, it's beneficial for the
+		// performance.
+		Allow0RTT: func(net.Addr) (ok bool) {
+			return true
+		},
 	}
 }
 

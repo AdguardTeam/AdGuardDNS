@@ -3,28 +3,22 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdmaps"
 	"github.com/prometheus/common/model"
-	"golang.org/x/exp/maps"
-	"golang.org/x/exp/slices"
 )
+
+// Additional prometheus information configuration
 
 // additionalInfo is a extra info configuration.
 type additionalInfo map[string]string
 
 // validateAdditionalInfo return an error is the section is invalid.
 func (c additionalInfo) validate() (err error) {
-	if c == nil {
-		return nil
-	}
-
-	keys := maps.Keys(c)
-	slices.Sort(keys)
-
-	for _, k := range keys {
-		if !model.LabelName(k).IsValid() {
-			return fmt.Errorf("prometheus labels must match %s, got %q", model.LabelNameRE, k)
+	return agdmaps.OrderedRangeError(c, func(k, _ string) (keyErr error) {
+		if model.LabelName(k).IsValid() {
+			return nil
 		}
-	}
 
-	return nil
+		return fmt.Errorf("prometheus labels must match %s, got %q", model.LabelNameRE, k)
+	})
 }

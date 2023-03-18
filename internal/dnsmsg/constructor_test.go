@@ -1,6 +1,8 @@
 package dnsmsg_test
 
 import (
+	"net"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -24,15 +26,13 @@ func newTXTExtra(ttl uint32, strs ...string) (extra []dns.RR) {
 	}}
 }
 
-func TestConstructor_NewBlockedRespMsg(t *testing.T) {
-	mc := dnsmsg.Constructor{
-		FilteredResponseTTL: testFltRespTTL,
-	}
+func TestConstructor_NewBlockedRespMsg_nullIP(t *testing.T) {
+	mc := dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
 
 	testCases := []struct {
 		name       string
 		wantAnsNum int
-		qt         uint16
+		qt         dnsmsg.RRType
 	}{{
 		name:       "a",
 		wantAnsNum: 1,
@@ -49,38 +49,137 @@ func TestConstructor_NewBlockedRespMsg(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			req := dnsservertest.NewReq("example.com", tc.qt, dns.ClassINET)
+			req := dnsservertest.NewReq(testFQDN, tc.qt, dns.ClassINET)
 			resp, err := mc.NewBlockedRespMsg(req)
 			require.NoError(t, err)
 			require.NotNil(t, resp)
 
 			assert.Equal(t, dns.RcodeSuccess, resp.Rcode)
 
-			ttl := uint32(testFltRespTTL.Seconds())
+			const wantTTL = testFltRespTTLSec
 			if tc.wantAnsNum == 0 {
 				assert.Empty(t, resp.Answer)
 
 				require.Len(t, resp.Ns, 1)
 
-				ns := resp.Ns[0]
-				assert.Equal(t, ttl, ns.Header().Ttl)
+				nsTTL := resp.Ns[0].Header().Ttl
+				assert.Equal(t, wantTTL, nsTTL)
 			} else {
 				require.Len(t, resp.Answer, 1)
 
-				ans := resp.Answer[0]
-				assert.Equal(t, ttl, ans.Header().Ttl)
+				ansTTL := resp.Answer[0].Header().Ttl
+				assert.Equal(t, wantTTL, ansTTL)
 			}
 		})
 	}
 }
 
-func TestConstructor_noAnswerMethods(t *testing.T) {
-	mc := dnsmsg.Constructor{
-		FilteredResponseTTL: testFltRespTTL,
-	}
+func TestConstructor_NewBlockedRespMsg_customIP(t *testing.T) {
+	wantIPv4 := netip.MustParseAddr("1.2.3.4")
+	wantIPv6 := netip.MustParseAddr("1234::cdef")
 
-	req := dnsservertest.NewReq("example.com", dns.TypeA, dns.ClassINET)
-	ttl := uint32(testFltRespTTL.Seconds())
+	testCases := []struct {
+		messages *dnsmsg.Constructor
+		name     string
+		wantA    bool
+		wantAAAA bool
+	}{{
+		messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeCustomIP{
+			IPv4: wantIPv4,
+			IPv6: wantIPv6,
+		}, testFltRespTTL),
+		name:     "both",
+		wantA:    true,
+		wantAAAA: true,
+	}, {
+		messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeCustomIP{
+			IPv4: wantIPv4,
+		}, testFltRespTTL),
+		name:     "ipv4_only",
+		wantA:    true,
+		wantAAAA: false,
+	}, {
+		messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeCustomIP{
+			IPv6: wantIPv6,
+		}, testFltRespTTL),
+		name:     "ipv6_only",
+		wantA:    false,
+		wantAAAA: true,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			reqA := dnsservertest.NewReq(testFQDN, dns.TypeA, dns.ClassINET)
+			respA, err := tc.messages.NewBlockedRespMsg(reqA)
+			require.NoError(t, err)
+			require.NotNil(t, respA)
+
+			assert.Equal(t, dns.RcodeSuccess, respA.Rcode)
+
+			if tc.wantA {
+				require.Len(t, respA.Answer, 1)
+
+				a := testutil.RequireTypeAssert[*dns.A](t, respA.Answer[0])
+				assert.Equal(t, net.IP(wantIPv4.AsSlice()), a.A)
+			} else {
+				assert.Empty(t, respA.Answer)
+			}
+
+			reqAAAA := dnsservertest.NewReq(testFQDN, dns.TypeAAAA, dns.ClassINET)
+			respAAAA, err := tc.messages.NewBlockedRespMsg(reqAAAA)
+			require.NoError(t, err)
+			require.NotNil(t, respAAAA)
+
+			assert.Equal(t, dns.RcodeSuccess, respAAAA.Rcode)
+
+			if tc.wantAAAA {
+				require.Len(t, respAAAA.Answer, 1)
+
+				aaaa := testutil.RequireTypeAssert[*dns.AAAA](t, respAAAA.Answer[0])
+				assert.Equal(t, net.IP(wantIPv6.AsSlice()), aaaa.AAAA)
+			} else {
+				assert.Empty(t, respAAAA.Answer)
+			}
+		})
+	}
+}
+
+func TestConstructor_NewBlockedRespMsg_noAnswer(t *testing.T) {
+	req := dnsservertest.NewReq(testFQDN, dns.TypeA, dns.ClassINET)
+
+	testCases := []struct {
+		messages *dnsmsg.Constructor
+		name     string
+		rcode    dnsmsg.RCode
+	}{{
+		messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeNXDOMAIN{}, testFltRespTTL),
+		name:     "nxdomain",
+		rcode:    dns.RcodeNameError,
+	}, {
+		messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeREFUSED{}, testFltRespTTL),
+		name:     "refused",
+		rcode:    dns.RcodeRefused,
+	}}
+
+	const wantTTL = testFltRespTTLSec
+	for _, tc := range testCases {
+		resp, err := tc.messages.NewBlockedRespMsg(req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		assert.Equal(t, tc.rcode, dnsmsg.RCode(resp.Rcode))
+		assert.Empty(t, resp.Answer)
+
+		require.Len(t, resp.Ns, 1)
+
+		nsTTL := resp.Ns[0].Header().Ttl
+		assert.Equal(t, wantTTL, nsTTL)
+	}
+}
+
+func TestConstructor_noAnswerMethods(t *testing.T) {
+	mc := dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
+	req := dnsservertest.NewReq(testFQDN, dns.TypeA, dns.ClassINET)
 
 	testCases := []struct {
 		method func(req *dns.Msg) (resp *dns.Msg)
@@ -108,6 +207,7 @@ func TestConstructor_noAnswerMethods(t *testing.T) {
 		want:   dns.RcodeSuccess,
 	}}
 
+	const wantTTL = testFltRespTTLSec
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := tc.method(req)
@@ -117,18 +217,15 @@ func TestConstructor_noAnswerMethods(t *testing.T) {
 			assert.Empty(t, resp.Answer)
 			assert.Equal(t, tc.want, dnsmsg.RCode(resp.Rcode))
 
-			ns := resp.Ns[0]
-			assert.Equal(t, ttl, ns.Header().Ttl)
+			nsTTL := resp.Ns[0].Header().Ttl
+			assert.Equal(t, wantTTL, nsTTL)
 		})
 	}
 }
 
 func TestConstructor_NewTXTRespMsg(t *testing.T) {
-	mc := dnsmsg.Constructor{
-		FilteredResponseTTL: testFltRespTTL,
-	}
-
-	req := dnsservertest.NewReq("example.com.", dns.TypeTXT, dns.ClassINET)
+	mc := dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
+	req := dnsservertest.NewReq(testFQDN, dns.TypeTXT, dns.ClassINET)
 	tooLong := strings.Repeat("1", dnsmsg.MaxTXTStringLen+1)
 
 	testCases := []struct {
@@ -157,6 +254,7 @@ func TestConstructor_NewTXTRespMsg(t *testing.T) {
 		strs:       []string{tooLong},
 	}}
 
+	const wantTTL = testFltRespTTLSec
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			resp, err := mc.NewTXTRespMsg(req, tc.strs...)
@@ -173,20 +271,17 @@ func TestConstructor_NewTXTRespMsg(t *testing.T) {
 			require.Len(t, resp.Answer, 1)
 
 			ans := resp.Answer[0]
-			ttl := uint32(testFltRespTTL.Seconds())
-			assert.Equal(t, ttl, ans.Header().Ttl)
+			ansTTL := ans.Header().Ttl
+			assert.Equal(t, wantTTL, ansTTL)
 
-			txt := ans.(*dns.TXT)
+			txt := testutil.RequireTypeAssert[*dns.TXT](t, ans)
 			assert.Equal(t, tc.strs, txt.Txt)
 		})
 	}
 }
 
 func TestConstructor_AppendDebugExtra(t *testing.T) {
-	mc := dnsmsg.Constructor{
-		FilteredResponseTTL: testFltRespTTL,
-	}
-
+	mc := dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
 	shortText := "This is a short test text"
 	longText := strings.Repeat("a", 2*dnsmsg.MaxTXTStringLen)
 
@@ -200,14 +295,14 @@ func TestConstructor_AppendDebugExtra(t *testing.T) {
 		name:       "short_text",
 		text:       shortText,
 		qt:         dns.TypeTXT,
-		wantExtra:  newTXTExtra(uint32(mc.FilteredResponseTTL.Seconds()), shortText),
+		wantExtra:  newTXTExtra(testFltRespTTLSec, shortText),
 		wantErrMsg: "",
 	}, {
 		name: "long_text",
 		text: longText,
 		qt:   dns.TypeTXT,
 		wantExtra: newTXTExtra(
-			uint32(mc.FilteredResponseTTL.Seconds()),
+			testFltRespTTLSec,
 			longText[:dnsmsg.MaxTXTStringLen],
 			longText[dnsmsg.MaxTXTStringLen:],
 		),
@@ -222,11 +317,11 @@ func TestConstructor_AppendDebugExtra(t *testing.T) {
 		name:       "empty_text",
 		text:       "",
 		qt:         dns.TypeTXT,
-		wantExtra:  newTXTExtra(uint32(mc.FilteredResponseTTL.Seconds()), ""),
+		wantExtra:  newTXTExtra(testFltRespTTLSec, ""),
 		wantErrMsg: "",
 	}}
 
-	const fqdn = "example.com."
+	const fqdn = testFQDN
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {

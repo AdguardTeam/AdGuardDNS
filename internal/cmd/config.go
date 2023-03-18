@@ -1,12 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/timeutil"
 	"gopkg.in/yaml.v2"
 )
 
@@ -154,60 +155,6 @@ func (c *configuration) validate() (err error) {
 	return nil
 }
 
-// queryLogConfig is the query log configuration.
-type queryLogConfig struct {
-	// File contains the JSONL file query log configuration.
-	File *queryLogFileConfig `yaml:"file"`
-}
-
-// validate returns an error if the query log configuration is invalid.
-func (c *queryLogConfig) validate() (err error) {
-	switch {
-	case c == nil:
-		return errNilConfig
-	case c.File == nil:
-		return fmt.Errorf("file: %w", errNilConfig)
-	default:
-		return nil
-	}
-}
-
-// queryLogFileConfig is the JSONL file query log configuration.
-type queryLogFileConfig struct {
-	Enabled bool `yaml:"enabled"`
-}
-
-// geoIPConfig is the GeoIP database configuration.
-type geoIPConfig struct {
-	// HostCacheSize is the size of the hostname lookup cache, in entries.
-	HostCacheSize int `yaml:"host_cache_size"`
-
-	// IPCacheSize is the size of the IP lookup cache, in entries.
-	IPCacheSize int `yaml:"ip_cache_size"`
-
-	// RefreshIvl defines how often AdGuard DNS reopens the GeoIP database
-	// files.
-	RefreshIvl timeutil.Duration `yaml:"refresh_interval"`
-}
-
-// validate returns an error if the GeoIP database configuration is invalid.
-func (c *geoIPConfig) validate() (err error) {
-	switch {
-	case c == nil:
-		return errNilConfig
-	case c.HostCacheSize <= 0:
-		// Note that while geoip.File can work with an empty host cache, that
-		// feature is only used for tests.
-		return newMustBePositiveError("host_cache_size", c.HostCacheSize)
-	case c.IPCacheSize <= 0:
-		return newMustBePositiveError("ip_cache_size", c.IPCacheSize)
-	case c.RefreshIvl.Duration <= 0:
-		return newMustBePositiveError("refresh_interval", c.RefreshIvl)
-	default:
-		return nil
-	}
-}
-
 // readConfig reads the configuration.
 func readConfig(confPath string) (c *configuration, err error) {
 	// #nosec G304 -- Trust the path to the configuration file that is given
@@ -224,4 +171,14 @@ func readConfig(confPath string) (c *configuration, err error) {
 	}
 
 	return c, nil
+}
+
+// defaultTimeout is the timeout used for some operations where another timeout
+// hasn't been defined yet.
+const defaultTimeout = 30 * time.Second
+
+// ctxWithDefaultTimeout is a helper function that returns a context with
+// timeout set to defaultTimeout.
+func ctxWithDefaultTimeout() (ctx context.Context, cancel context.CancelFunc) {
+	return context.WithTimeout(context.Background(), defaultTimeout)
 }

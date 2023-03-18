@@ -56,7 +56,7 @@ func TestService_Wrap_deviceID(t *testing.T) {
 		cliSrvName:   "!!!.dns.example.com",
 		wantDeviceID: "",
 		wantErrMsg: `tls server name device id check: bad device id "!!!": ` +
-			`bad domain name label rune '!'`,
+			`bad hostname label rune '!'`,
 		wildcards: []string{"*.dns.example.com"},
 		proto:     agd.ProtoDoT,
 	}, {
@@ -159,7 +159,7 @@ func TestService_Wrap_deviceIDHTTPS(t *testing.T) {
 		path:         "/dns-query/!!!",
 		wantDeviceID: "",
 		wantErrMsg: `http url device id check: bad device id "!!!": ` +
-			`bad domain name label rune '!'`,
+			`bad hostname label rune '!'`,
 	}}
 
 	const proto = agd.ProtoDoH

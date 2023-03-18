@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"path/filepath"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -83,4 +84,43 @@ func (c *safeBrowsingConfig) validate() (err error) {
 	default:
 		return nil
 	}
+}
+
+// setupHashPrefixFilter creates and returns a hash-prefix filter as well as
+// starts and registers its refresher in the signal handler.
+func setupHashPrefixFilter(
+	conf *safeBrowsingConfig,
+	resolver *agdnet.CachingResolver,
+	id agd.FilterListID,
+	cachePath string,
+	sigHdlr signalHandler,
+	errColl agd.ErrorCollector,
+) (strg *hashstorage.Storage, flt *filter.HashPrefix, err error) {
+	fltConf, err := conf.toInternal(errColl, resolver, id, cachePath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("configuring hash prefix filter %s: %w", id, err)
+	}
+
+	flt, err = filter.NewHashPrefix(fltConf)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating hash prefix filter %s: %w", id, err)
+	}
+
+	refr := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
+		Context:             ctxWithDefaultTimeout,
+		Refresher:           flt,
+		ErrColl:             errColl,
+		Name:                string(id),
+		Interval:            fltConf.Staleness,
+		RefreshOnShutdown:   false,
+		RoutineLogsAreDebug: false,
+	})
+	err = refr.Start()
+	if err != nil {
+		return nil, nil, fmt.Errorf("starting refresher for hash prefix filter %s: %w", id, err)
+	}
+
+	sigHdlr.add(refr)
+
+	return fltConf.Hashes, flt, nil
 }

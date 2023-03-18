@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"net/netip"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/stringutil"
 	"github.com/ameshkov/dnscrypt/v2"
 	"github.com/miekg/dns"
@@ -87,8 +88,8 @@ type Server struct {
 	// Server Name.
 	Name ServerName
 
-	// BindAddresses are addresses this server binds to.
-	BindAddresses []netip.AddrPort
+	// BindData are the socket binding data for this server.
+	BindData []*ServerBindData
 
 	// Protocol is the protocol of the server.
 	Protocol Protocol
@@ -96,6 +97,22 @@ type Server struct {
 	// LinkedIPEnabled shows if the linked IP addresses should be used to detect
 	// profiles on this server.
 	LinkedIPEnabled bool
+}
+
+// ServerBindData are the socket binding data for a server.  Either AddrPort or
+// ListenConfig with Address must be set.
+//
+// TODO(a.garipov): Add support for ListenConfig in the config file.
+//
+// TODO(a.garipov): Consider turning this into a sum type.
+//
+// TODO(a.garipov): Consider renaming this and the one in websvc to something
+// like BindConfig.
+type ServerBindData struct {
+	ListenConfig netext.ListenConfig
+	Address      string
+
+	AddrPort netip.AddrPort
 }
 
 // ServerName is the name of a server.

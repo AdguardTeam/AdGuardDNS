@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
@@ -268,7 +269,7 @@ func readSessionTicketKey(fn string) (key [sessTickLen]byte, err error) {
 		return key, fmt.Errorf("session ticket in %s: bad len %d, want %d", fn, len(b), sessTickLen)
 	}
 
-	return *(*[sessTickLen]byte)(b), nil
+	return [sessTickLen]byte(b), nil
 }
 
 // enableTLSKeyLogging enables TLS key logging (use for debug purposes only).
@@ -288,6 +289,38 @@ func enableTLSKeyLogging(grps []*agd.ServerGroup, keyLogFileName string) (err er
 			}
 		}
 	}
+
+	return nil
+}
+
+// setupTicketRotator creates and returns a ticket rotator as well as starts and
+// registers its refresher in the signal handler.
+func setupTicketRotator(
+	srvGrps []*agd.ServerGroup,
+	sigHdlr signalHandler,
+	errColl agd.ErrorCollector,
+) (err error) {
+	tickRot, err := newTicketRotator(srvGrps)
+	if err != nil {
+		return fmt.Errorf("setting up ticket rotator: %w", err)
+	}
+
+	refr := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
+		Context:   ctxWithDefaultTimeout,
+		Refresher: tickRot,
+		ErrColl:   errColl,
+		Name:      "tickrot",
+		// TODO(ameshkov): Consider making configurable.
+		Interval:            1 * time.Minute,
+		RefreshOnShutdown:   false,
+		RoutineLogsAreDebug: true,
+	})
+	err = refr.Start()
+	if err != nil {
+		return fmt.Errorf("starting ticket rotator refresh: %w", err)
+	}
+
+	sigHdlr.add(refr)
 
 	return nil
 }

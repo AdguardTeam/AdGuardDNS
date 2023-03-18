@@ -37,6 +37,8 @@ func linkedIPHandler(
 
 	// Use a custom Director to make sure we send the correct Host header and
 	// don't send anything besides the path.
+	//
+	// TODO(a.garipov): Use the Go 1.20 [httputil.ReverseProxy.Rewrite] API?
 	director := func(r *http.Request) {
 		r.URL.Scheme = apiURL.Scheme
 		r.Host, r.URL.Host = apiURL.Host, apiURL.Host

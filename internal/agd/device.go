@@ -58,7 +58,7 @@ func NewDeviceID(s string) (id DeviceID, err error) {
 		return "", err
 	}
 
-	err = netutil.ValidateDomainNameLabel(s)
+	err = netutil.ValidateHostnameLabel(s)
 	if err != nil {
 		// Unwrap the error to replace the domain name label wrapper message
 		// with our own.

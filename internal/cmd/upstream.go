@@ -13,7 +13,7 @@ import (
 	"github.com/AdguardTeam/golibs/timeutil"
 )
 
-// DNS Upstream Configuration
+// DNS upstream configuration
 
 // upstreamConfig module configuration
 type upstreamConfig struct {
@@ -60,10 +60,9 @@ func (c *upstreamConfig) validate() (err error) {
 		return newMustBePositiveError("timeout", c.Timeout)
 	}
 
-	for i, ipp := range c.FallbackServers {
-		if ipp == (netip.AddrPort{}) {
-			return fmt.Errorf("fallback at index %d: no address", i)
-		}
+	err = validateAddrs(c.FallbackServers)
+	if err != nil {
+		return fmt.Errorf("fallback: %w", err)
 	}
 
 	return errors.Annotate(c.Healthcheck.validate(), "healthcheck: %w")

@@ -2,18 +2,21 @@ package dnsserver_test
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"io"
+	"net"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/testutil"
-	"github.com/lucas-clemente/quic-go"
 	"github.com/miekg/dns"
+	"github.com/quic-go/quic-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,9 +37,9 @@ func TestServerQUIC_integration_query(t *testing.T) {
 	conn, err := quic.DialAddr(addr.String(), tlsConfig, nil)
 	require.NoError(t, err)
 
-	defer func(conn quic.Connection, code quic.ApplicationErrorCode, s string) {
-		_ = conn.CloseWithError(code, s)
-	}(conn, 0, "")
+	defer testutil.CleanupAndRequireSuccess(t, func() (err error) {
+		return conn.CloseWithError(0, "")
+	})
 
 	// Send multiple queries to the DNS server in parallel
 	wg := &sync.WaitGroup{}
@@ -102,6 +105,111 @@ func TestServerQUIC_integration_ENDS0Padding(t *testing.T) {
 	require.NotEmpty(t, paddingOpt.Padding)
 }
 
+func TestServerQUIC_integration_0RTT(t *testing.T) {
+	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
+	srv, addr, err := dnsservertest.RunLocalQUICServer(
+		dnsservertest.DefaultHandler(),
+		tlsConfig,
+	)
+	require.NoError(t, err)
+
+	testutil.CleanupAndRequireSuccess(t, func() (err error) {
+		return srv.Shutdown(context.Background())
+	})
+
+	quicTracer := &dnsservertest.QUICTracer{}
+
+	// quicConfig with TokenStore set so that 0-RTT was enabled.
+	quicConfig := &quic.Config{
+		TokenStore: quic.NewLRUTokenStore(1, 10),
+		Tracer:     quicTracer,
+	}
+
+	// ClientSessionCache in the tls.Config must also be set for 0-RTT to work.
+	clientTLSConfig := tlsConfig.Clone()
+	clientTLSConfig.ClientSessionCache = tls.NewLRUClientSessionCache(10)
+
+	// Use the first connection (no 0-RTT).
+	testQUICExchange(t, addr, clientTLSConfig, quicConfig)
+
+	// Use the second connection (now 0-RTT should kick in).
+	testQUICExchange(t, addr, clientTLSConfig, quicConfig)
+
+	// Verify how 0-RTT was used.
+	conns := quicTracer.ConnectionsInfo()
+
+	require.Len(t, conns, 2)
+	require.False(t, conns[0].Is0RTT())
+	require.True(t, conns[1].Is0RTT())
+}
+
+func TestServerQUIC_integration_largeQuery(t *testing.T) {
+	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
+	srv, addr, err := dnsservertest.RunLocalQUICServer(
+		dnsservertest.DefaultHandler(),
+		tlsConfig,
+	)
+	require.NoError(t, err)
+
+	testutil.CleanupAndRequireSuccess(t, func() (err error) {
+		return srv.Shutdown(context.Background())
+	})
+
+	// Open a QUIC connection.
+	conn, err := quic.DialAddr(addr.String(), tlsConfig, nil)
+	require.NoError(t, err)
+
+	defer testutil.CleanupAndRequireSuccess(t, func() (err error) {
+		return conn.CloseWithError(0, "")
+	})
+
+	// Create a test message large enough so that it was sent using multiple
+	// QUIC frames.
+	req := dnsservertest.NewReq("example.org.", dns.TypeA, dns.ClassINET)
+	req.RecursionDesired = true
+	req.Extra = []dns.RR{
+		&dns.OPT{
+			Hdr: dns.RR_Header{Name: ".", Rrtype: dns.TypeOPT, Class: 4096},
+			Option: []dns.EDNS0{
+				&dns.EDNS0_PADDING{Padding: make([]byte, 4096)},
+			},
+		},
+	}
+
+	resp, err := sendQUICMessage(conn, req, false)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.True(t, resp.Response)
+}
+
+// testQUICExchange initializes a new QUIC connection and sends one test DNS
+// query through it.
+func testQUICExchange(
+	t *testing.T,
+	addr *net.UDPAddr,
+	tlsConfig *tls.Config,
+	quicConfig *quic.Config,
+) {
+	conn, err := quic.DialAddrEarly(addr.String(), tlsConfig, quicConfig)
+	require.NoError(t, err)
+
+	defer testutil.CleanupAndRequireSuccess(t, func() (err error) {
+		return conn.CloseWithError(0, "")
+	})
+
+	defer func(conn quic.Connection, code quic.ApplicationErrorCode, s string) {
+		_ = conn.CloseWithError(code, s)
+	}(conn, 0, "")
+
+	// Create a test message.
+	req := dnsservertest.NewReq("example.org.", dns.TypeA, dns.ClassINET)
+	req.RecursionDesired = true
+
+	resp, err := sendQUICMessage(conn, req, false)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+}
+
 // sendQUICMessage sends a test QUIC message.
 func sendQUICMessage(conn quic.Connection, req *dns.Msg, doqDraft bool) (*dns.Msg, error) {
 	// Open stream.
@@ -126,14 +234,14 @@ func sendQUICMessage(conn quic.Connection, req *dns.Msg, doqDraft bool) (*dns.Ms
 		copy(buf[2:], data)
 	}
 
-	// Send the DNS query to the stream.
-	_, err = stream.Write(buf)
+	err = writeQUICStream(buf, stream)
 	if err != nil {
 		return nil, err
 	}
 
-	// Close closes the write-direction of the stream
-	// and sends a STREAM FIN packet.
+	// Closes the write-direction of the stream and sends a STREAM FIN packet.
+	// A DoQ client MUST send a FIN packet to indicate that the query is
+	// finished.
 	_ = stream.Close()
 
 	// Now read the response.
@@ -160,4 +268,31 @@ func sendQUICMessage(conn quic.Connection, req *dns.Msg, doqDraft bool) (*dns.Ms
 	}
 
 	return reply, nil
+}
+
+// writeQUICStream writes buf to the specified QUIC stream in chunks.  This way
+// it is possible to test how the server deals with chunked DNS messages.
+func writeQUICStream(buf []byte, stream quic.Stream) (err error) {
+	// Send the DNS query to the stream and split it into chunks of up
+	// to 400 bytes.  400 is an arbitrary chosen value.
+	chunkSize := 400
+	for i := 0; i < len(buf); i += chunkSize {
+		chunkStart := i
+		chunkEnd := i + chunkSize
+		if chunkEnd > len(buf) {
+			chunkEnd = len(buf)
+		}
+
+		_, err = stream.Write(buf[chunkStart:chunkEnd])
+		if err != nil {
+			return err
+		}
+
+		if len(buf) > chunkSize {
+			// Emulate network latency.
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	return nil
 }

@@ -85,9 +85,7 @@ func TestWriteFilteredResp(t *testing.T) {
 
 	ctx := context.Background()
 	ri := &agd.RequestInfo{
-		Messages: &dnsmsg.Constructor{
-			FilteredResponseTTL: fltRespTTL * time.Second,
-		},
+		Messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, fltRespTTL*time.Second),
 	}
 
 	for _, tc := range testCases {

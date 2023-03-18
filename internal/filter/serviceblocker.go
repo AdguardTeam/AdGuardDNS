@@ -171,14 +171,13 @@ func (r *svcIndexResp) toInternal(
 		return nil, nil
 	}
 
-	var errs []error
-
 	services = make(serviceRuleLists, l)
-	for _, svc := range r.BlockedServices {
+	errs := make([]error, len(r.BlockedServices))
+	for i, svc := range r.BlockedServices {
 		var id agd.BlockedServiceID
 		id, err = agd.NewBlockedServiceID(svc.ID)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("validating id: %w", err))
+			errs[i] = fmt.Errorf("service at index %d: validating id: %w", i, err)
 
 			continue
 		}
@@ -200,7 +199,7 @@ func (r *svcIndexResp) toInternal(
 			useCache,
 		)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("compiling %s: %w", svc.ID, err))
+			errs[i] = fmt.Errorf("compiling %s: %w", svc.ID, err)
 
 			continue
 		}
@@ -208,8 +207,9 @@ func (r *svcIndexResp) toInternal(
 		services[id] = rl
 	}
 
-	if len(errs) > 0 {
-		return nil, errors.List("converting blocked services", errs...)
+	err = errors.Join(errs...)
+	if err != nil {
+		return nil, fmt.Errorf("converting blocked services: %w", err)
 	}
 
 	return services, nil

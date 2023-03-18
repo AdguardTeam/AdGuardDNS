@@ -43,7 +43,7 @@ go="${GO:-go}"
 count_flags='--count=1'
 shuffle_flags='--shuffle=on'
 # TODO(ameshkov): Find out, why QUIC tests are so slow, and return to 30s.
-timeout_flags="${TIMEOUT_FLAGS:---timeout=60s}"
+timeout_flags="${TIMEOUT_FLAGS:---timeout=90s}"
 readonly go count_flags shuffle_flags timeout_flags
 
 # TODO(a.garipov): Remove the dnsserver stuff once it is separated.

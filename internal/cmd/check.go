@@ -15,7 +15,7 @@ import (
 	"github.com/AdguardTeam/golibs/timeutil"
 )
 
-// DNS Server Check Configuration
+// DNS server check configuration
 
 // checkConfig is the DNS server checking configuration.
 type checkConfig struct {
@@ -86,8 +86,6 @@ func (c *checkConfig) toInternal(
 
 // validate returns an error if the DNS server checking configuration is
 // invalid.
-//
-// TODO(a.garipov): Factor out IP validation; add IPv6 validation.
 func (c *checkConfig) validate() (err error) {
 	if c == nil {
 		return errNilConfig
@@ -135,6 +133,8 @@ func (c *checkConfig) validate() (err error) {
 
 // validateNonNilIPs returns an error if ips is empty or had IP addresses of
 // incorrect protocol version.
+//
+// TODO(a.garipov): Merge with [validateAddrs].
 func validateNonNilIPs(ips []netip.Addr, fam netutil.AddrFamily) (err error) {
 	if len(ips) == 0 {
 		return fmt.Errorf("no %s", fam)

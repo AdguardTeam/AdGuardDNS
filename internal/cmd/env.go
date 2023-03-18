@@ -16,11 +16,11 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
-	env "github.com/caarlos0/env/v6"
+	"github.com/caarlos0/env/v7"
 	"github.com/getsentry/sentry-go"
 )
 
-// Environment Configuration
+// Environment configuration
 
 // environments represents the configuration that is kept in the environment.
 type environments struct {
@@ -97,13 +97,14 @@ func (envs *environments) buildErrColl() (errColl agd.ErrorCollector, err error)
 	return errcoll.NewSentryErrorCollector(cli), nil
 }
 
-// buildDNSDB builds and returns an anonymous statistics collector and its
-// refresh worker.
+// buildDNSDB builds and returns an anonymous statistics collector and register
+// its refresher in sigHdlr, if needed.
 func (envs *environments) buildDNSDB(
+	sigHdlr signalHandler,
 	errColl agd.ErrorCollector,
-) (d dnsdb.Interface, refr agd.Service) {
+) (d dnsdb.Interface, err error) {
 	if envs.DNSDBPath == "" {
-		return dnsdb.Empty{}, agd.EmptyService{}
+		return dnsdb.Empty{}, nil
 	}
 
 	b := dnsdb.NewBolt(&dnsdb.BoltConfig{
@@ -111,7 +112,7 @@ func (envs *environments) buildDNSDB(
 		ErrColl: errColl,
 	})
 
-	refr = agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
+	refr := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
 		Context:   ctxWithDefaultTimeout,
 		Refresher: b,
 		ErrColl:   errColl,
@@ -121,8 +122,14 @@ func (envs *environments) buildDNSDB(
 		RefreshOnShutdown:   true,
 		RoutineLogsAreDebug: false,
 	})
+	err = refr.Start()
+	if err != nil {
+		return nil, fmt.Errorf("starting dnsdb refresher: %w", err)
+	}
 
-	return b, refr
+	sigHdlr.add(refr)
+
+	return b, nil
 }
 
 // geoIP returns an GeoIP database implementation from environment.
@@ -174,22 +181,23 @@ func (envs *environments) debugConf(dnsDB dnsdb.Interface) (conf *debugsvc.Confi
 	return conf
 }
 
-// ruleStat returns a filtering rule statistics collector from environment.  It
-// also returns the refresh worker service that updates the collector.
-func (envs *environments) ruleStat(
+// buildRuleStat returns a filtering rule statistics collector from environment and
+// registers its refresher in sigHdlr, if necessary.
+func (envs *environments) buildRuleStat(
+	sigHdlr signalHandler,
 	errColl agd.ErrorCollector,
-) (r rulestat.Interface, refr agd.Service) {
+) (r rulestat.Interface, err error) {
 	if envs.RuleStatURL == nil {
 		log.Info("main: warning: not collecting rule stats")
 
-		return rulestat.Empty{}, agd.EmptyService{}
+		return rulestat.Empty{}, nil
 	}
 
 	httpRuleStat := rulestat.NewHTTP(&rulestat.HTTPConfig{
 		URL: &envs.RuleStatURL.URL,
 	})
 
-	refr = agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
+	refr := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
 		Context:   ctxWithDefaultTimeout,
 		Refresher: httpRuleStat,
 		ErrColl:   errColl,
@@ -199,8 +207,14 @@ func (envs *environments) ruleStat(
 		RefreshOnShutdown:   true,
 		RoutineLogsAreDebug: false,
 	})
+	err = refr.Start()
+	if err != nil {
+		return nil, fmt.Errorf("starting rulestat refresher: %w", err)
+	}
 
-	return httpRuleStat, refr
+	sigHdlr.add(refr)
+
+	return httpRuleStat, nil
 }
 
 // strictBool is a type for booleans that are parsed from the environment more

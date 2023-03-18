@@ -114,11 +114,9 @@ func TestPreServiceMwHandler_ServeDNS(t *testing.T) {
 			}
 
 			mw := &preServiceMw{
-				messages: &dnsmsg.Constructor{
-					FilteredResponseTTL: ttl * time.Second,
-				},
-				filter:  srv,
-				checker: dnsCk,
+				messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, ttl*time.Second),
+				filter:   srv,
+				checker:  dnsCk,
 			}
 			handler := dnsservertest.DefaultHandler()
 			h := mw.Wrap(handler)

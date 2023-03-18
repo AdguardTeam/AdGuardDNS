@@ -11,6 +11,8 @@ import (
 	"github.com/AdguardTeam/golibs/log"
 )
 
+// Connectivity check configuration
+
 // connCheckConfig is the connectivity check configuration.
 type connCheckConfig struct {
 	// ProbeIPv4 is a probe v4 address to perform a check to.
@@ -82,8 +84,8 @@ func connectivityCheck(c *dnssvc.Config, connCheck *connCheckConfig) error {
 func containsIPv6BindAddress(serverGroups []*agd.ServerGroup) (ok bool) {
 	for _, srvGrp := range serverGroups {
 		for _, s := range srvGrp.Servers {
-			for _, addr := range s.BindAddresses {
-				if addr.Addr().Is6() {
+			for _, bindData := range s.BindData {
+				if addr := bindData.AddrPort; addr.IsValid() && addr.Addr().Is6() {
 					return true
 				}
 			}

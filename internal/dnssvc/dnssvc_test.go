@@ -13,6 +13,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
@@ -105,10 +106,11 @@ func newTestListenerFunc(tl *testListener) (f dnssvc.NewListenerFunc) {
 	return func(
 		_ *agd.Server,
 		_ string,
-		_ netip.AddrPort,
+		_ string,
 		_ dnsserver.Handler,
 		_ http.Handler,
 		_ agd.ErrorCollector,
+		_ netext.ListenConfig,
 	) (l dnssvc.Listener, err error) {
 		return tl, nil
 	}
@@ -157,9 +159,11 @@ func TestService_Start(t *testing.T) {
 	}
 
 	srv := &agd.Server{
-		Name:          "test_server",
-		Protocol:      agd.ProtoDNS,
-		BindAddresses: []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:53")},
+		Name: "test_server",
+		BindData: []*agd.ServerBindData{{
+			AddrPort: netip.MustParseAddrPort("127.0.0.1:53"),
+		}},
+		Protocol: agd.ProtoDNS,
 	}
 
 	c := &dnssvc.Config{
@@ -195,35 +199,45 @@ func TestService_Start(t *testing.T) {
 
 func TestNew(t *testing.T) {
 	srvs := []*agd.Server{{
-		DNSCrypt:      nil,
-		TLS:           nil,
-		Name:          "test_server_dns",
-		Protocol:      agd.ProtoDNS,
-		BindAddresses: []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:53")},
+		DNSCrypt: nil,
+		TLS:      nil,
+		Name:     "test_server_dns",
+		BindData: []*agd.ServerBindData{{
+			AddrPort: netip.MustParseAddrPort("127.0.0.1:53"),
+		}},
+		Protocol: agd.ProtoDNS,
 	}, {
-		DNSCrypt:      &agd.DNSCryptConfig{},
-		TLS:           nil,
-		Name:          "test_server_dnscrypt_tcp",
-		Protocol:      agd.ProtoDNSCrypt,
-		BindAddresses: []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:8853")},
+		DNSCrypt: &agd.DNSCryptConfig{},
+		TLS:      nil,
+		Name:     "test_server_dnscrypt_tcp",
+		BindData: []*agd.ServerBindData{{
+			AddrPort: netip.MustParseAddrPort("127.0.0.1:8853"),
+		}},
+		Protocol: agd.ProtoDNSCrypt,
 	}, {
-		DNSCrypt:      nil,
-		TLS:           &tls.Config{},
-		Name:          "test_server_doh",
-		Protocol:      agd.ProtoDoH,
-		BindAddresses: []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:443")},
+		DNSCrypt: nil,
+		TLS:      &tls.Config{},
+		Name:     "test_server_doh",
+		BindData: []*agd.ServerBindData{{
+			AddrPort: netip.MustParseAddrPort("127.0.0.1:443"),
+		}},
+		Protocol: agd.ProtoDoH,
 	}, {
-		DNSCrypt:      nil,
-		TLS:           &tls.Config{},
-		Name:          "test_server_doq",
-		Protocol:      agd.ProtoDoQ,
-		BindAddresses: []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:853")},
+		DNSCrypt: nil,
+		TLS:      &tls.Config{},
+		Name:     "test_server_doq",
+		BindData: []*agd.ServerBindData{{
+			AddrPort: netip.MustParseAddrPort("127.0.0.1:853"),
+		}},
+		Protocol: agd.ProtoDoQ,
 	}, {
-		DNSCrypt:      nil,
-		TLS:           &tls.Config{},
-		Name:          "test_server_dot",
-		Protocol:      agd.ProtoDoT,
-		BindAddresses: []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:853")},
+		DNSCrypt: nil,
+		TLS:      &tls.Config{},
+		Name:     "test_server_dot",
+		BindData: []*agd.ServerBindData{{
+			AddrPort: netip.MustParseAddrPort("127.0.0.1:853"),
+		}},
+		Protocol: agd.ProtoDoT,
 	}}
 
 	c := &dnssvc.Config{

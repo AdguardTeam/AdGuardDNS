@@ -220,12 +220,10 @@ func TestConsul_Check(t *testing.T) {
 	}}
 
 	conf := &dnscheck.ConsulConfig{
-		Messages: &dnsmsg.Constructor{
-			FilteredResponseTTL: ttl * time.Second,
-		},
-		Domains: []string{checkDomain},
-		IPv4:    []net.IP{{1, 2, 3, 4}},
-		IPv6:    []net.IP{net.ParseIP("1234::5678")},
+		Messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, ttl*time.Second),
+		Domains:  []string{checkDomain},
+		IPv4:     []net.IP{{1, 2, 3, 4}},
+		IPv6:     []net.IP{net.ParseIP("1234::5678")},
 	}
 
 	dnsCk, err := dnscheck.NewConsul(conf)
@@ -249,9 +247,7 @@ func TestConsul_Check(t *testing.T) {
 				Host:     tc.host,
 				RemoteIP: testRemoteIP,
 				QType:    tc.qtype,
-				Messages: &dnsmsg.Constructor{
-					FilteredResponseTTL: ttl * time.Second,
-				},
+				Messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, ttl*time.Second),
 			}
 
 			resp, cErr := dnsCk.Check(ctx, req, ri)

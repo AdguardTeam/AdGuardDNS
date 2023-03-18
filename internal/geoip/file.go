@@ -103,12 +103,12 @@ func ipToCacheKey(ip netip.Addr) (k any) {
 	if ip.Is4() {
 		a := ip.As4()
 
-		return *(*[3]byte)(a[:])
+		return [3]byte(a[:])
 	}
 
 	a := ip.As16()
 
-	return *(*[7]byte)(a[:])
+	return [7]byte(a[:])
 }
 
 // type check

@@ -71,8 +71,8 @@ func New(hostnames string) (s *Storage, err error) {
 // resulting slice shares storage for all underlying strings.
 //
 // TODO(a.garipov): This currently doesn't take duplicates into account.
-func (s *Storage) Hashes(hps []Prefix) (hashes []string) {
-	if len(hps) == 0 {
+func (s *Storage) Hashes(prefs []Prefix) (hashes []string) {
+	if len(prefs) == 0 {
 		return nil
 	}
 
@@ -81,8 +81,8 @@ func (s *Storage) Hashes(hps []Prefix) (hashes []string) {
 
 	// First, calculate the number of hashes to allocate the buffer.
 	l := 0
-	for _, hp := range hps {
-		hashSufs := s.hashSuffixes[hp]
+	for _, pref := range prefs {
+		hashSufs := s.hashSuffixes[pref]
 		l += len(hashSufs)
 	}
 
@@ -100,15 +100,12 @@ func (s *Storage) Hashes(hps []Prefix) (hashes []string) {
 	// using hex.NewEncoder, because that seems to incur a significant
 	// performance hit.
 	var buf [hashEncLen]byte
-	for _, hp := range hps {
-		hashSufs := s.hashSuffixes[hp]
+	for _, pref := range prefs {
+		hashSufs := s.hashSuffixes[pref]
 		for _, suf := range hashSufs {
-			// Slicing is safe here, since the contents of hp and suf are being
-			// encoded.
-
-			// nolint:looppointer
-			hex.Encode(buf[:], hp[:])
-			// nolint:looppointer
+			// nolint:looppointer // Slicing is safe; used for encoding.
+			hex.Encode(buf[:], pref[:])
+			// nolint:looppointer // Slicing is safe; used for encoding.
 			hex.Encode(buf[PrefixEncLen:], suf[:])
 			_, _ = b.Write(buf[:])
 		}
@@ -126,19 +123,17 @@ func (s *Storage) Hashes(hps []Prefix) (hashes []string) {
 // Matches returns true if the host matches one of the hashes.
 func (s *Storage) Matches(host string) (ok bool) {
 	sum := sha256.Sum256([]byte(host))
-	hp := *(*Prefix)(sum[:PrefixLen])
+	pref := Prefix(sum[:PrefixLen])
 
 	var buf [hashLen]byte
-	hashSufs, ok := s.loadHashSuffixes(hp)
+	hashSufs, ok := s.loadHashSuffixes(pref)
 	if !ok {
 		return false
 	}
 
-	copy(buf[:], hp[:])
+	copy(buf[:], pref[:])
 	for _, suf := range hashSufs {
-		// Slicing is safe here, because we make a copy.
-
-		// nolint:looppointer
+		// nolint:looppointer // Slicing is safe; used for copying.
 		copy(buf[PrefixLen:], suf[:])
 		if buf == sum {
 			return true
@@ -161,8 +156,8 @@ func (s *Storage) Reset(hostnames string) (n int, err error) {
 	// This is optimized, see https://github.com/golang/go/issues/20138.
 	//
 	// TODO(a.garipov): Use clear once golang/go#56351 is implemented.
-	for hp := range s.hashSuffixes {
-		delete(s.hashSuffixes, hp)
+	for pref := range s.hashSuffixes {
+		delete(s.hashSuffixes, pref)
 	}
 
 	sc := bufio.NewScanner(strings.NewReader(hostnames))
@@ -173,12 +168,9 @@ func (s *Storage) Reset(hostnames string) (n int, err error) {
 		}
 
 		sum := sha256.Sum256([]byte(host))
-		hp := *(*Prefix)(sum[:PrefixLen])
-
-		// TODO(a.garipov): Here and everywhere, convert to array directly when
-		// proposal golang/go#46505 is implemented in Go 1.20.
-		suf := *(*suffix)(sum[PrefixLen:])
-		s.hashSuffixes[hp] = append(s.hashSuffixes[hp], suf)
+		pref := Prefix(sum[:PrefixLen])
+		suf := suffix(sum[PrefixLen:])
+		s.hashSuffixes[pref] = append(s.hashSuffixes[pref], suf)
 
 		n++
 	}
@@ -193,11 +185,11 @@ func (s *Storage) Reset(hostnames string) (n int, err error) {
 
 // loadHashSuffixes returns hash suffixes for the given prefix.  It is safe for
 // concurrent use.  sufs must not be modified.
-func (s *Storage) loadHashSuffixes(hp Prefix) (sufs []suffix, ok bool) {
+func (s *Storage) loadHashSuffixes(pref Prefix) (sufs []suffix, ok bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	sufs, ok = s.hashSuffixes[hp]
+	sufs, ok = s.hashSuffixes[pref]
 
 	return sufs, ok
 }

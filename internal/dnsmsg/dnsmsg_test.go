@@ -19,8 +19,17 @@ func TestMain(m *testing.M) {
 	testutil.DiscardLogOutput(m)
 }
 
-// testFltRespTTL is the common filtered response TTL.
-const testFltRespTTL = 10 * time.Second
+// Common filtered response TTL constants.
+const (
+	testFltRespTTL    = 10 * time.Second
+	testFltRespTTLSec = uint32(testFltRespTTL / time.Second)
+)
+
+// Common domain names for tests.
+const (
+	testDomain = "test.example"
+	testFQDN   = testDomain + "."
+)
 
 // Common test constants.
 const (
@@ -42,7 +51,7 @@ func newECSExtraMsg(ip netip.Addr, ecsFam netutil.AddrFamily, mask uint8) (msg *
 		panic(fmt.Errorf("unsupported ecs addr fam %s", ecsFam))
 	}
 
-	msg = dnsservertest.NewReq("example.com.", dns.TypeA, dns.ClassINET)
+	msg = dnsservertest.NewReq(testFQDN, dns.TypeA, dns.ClassINET)
 	msg.SetEdns0(dnsmsg.DefaultEDNSUDPSize, true)
 	msg.Extra = append(msg.Extra, dnsservertest.NewECSExtra(
 		ip.AsSlice(),
@@ -70,7 +79,7 @@ func TestClone(t *testing.T) {
 		},
 		name: "empty_slice_ans",
 	}, {
-		msg:  dnsservertest.NewReq("example.com.", dns.TypeA, dns.ClassINET),
+		msg:  dnsservertest.NewReq(testFQDN, dns.TypeA, dns.ClassINET),
 		name: "a",
 	}}
 
@@ -86,7 +95,7 @@ func TestECSFromMsg(t *testing.T) {
 	ipv4Net := netip.MustParsePrefix("1.2.3.0/24")
 	ipv6Net := netip.MustParsePrefix("2001:0:0102:0304::/64")
 
-	msgNoOpt := dnsservertest.NewReq("example.com.", dns.TypeA, dns.ClassINET)
+	msgNoOpt := dnsservertest.NewReq(testFQDN, dns.TypeA, dns.ClassINET)
 
 	testCases := []struct {
 		msg        *dns.Msg

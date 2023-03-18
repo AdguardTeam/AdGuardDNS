@@ -14,7 +14,7 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-// Discovery Of Designated Resolvers (DDR) Configuration
+// Discovery Of Designated Resolvers (DDR) configuration
 
 // ddrConfig is the configuration for a server group's DDR handler.
 type ddrConfig struct {
@@ -118,7 +118,7 @@ func (c *ddrConfig) validate() (err error) {
 		}
 
 		domainSuf := wildcard[2:]
-		err = netutil.ValidateDomainName(domainSuf)
+		err = netutil.ValidateHostname(domainSuf)
 		if err != nil {
 			return fmt.Errorf("device_records: %w", err)
 		}
@@ -130,7 +130,7 @@ func (c *ddrConfig) validate() (err error) {
 	}
 
 	for domain, r := range c.PublicRecords {
-		err = netutil.ValidateDomainName(domain)
+		err = netutil.ValidateHostname(domain)
 		if err != nil {
 			return fmt.Errorf("public_records: %w", err)
 		}
@@ -184,6 +184,7 @@ func (r *ddrRecord) validate() (err error) {
 		return errors.Error("doh_path: cannot be empty if https_port is set")
 	}
 
+	// TODO(a.garipov): Merge with [validateAddrs] and [validateNonNilIPs].
 	for i, addr := range r.IPv4Hints {
 		if !addr.Is4() {
 			return fmt.Errorf("ipv4_hints: at index %d: not an ipv4 addr", i)

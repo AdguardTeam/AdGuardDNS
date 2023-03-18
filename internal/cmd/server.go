@@ -8,22 +8,22 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/stringutil"
-	"golang.org/x/exp/slices"
 )
 
-// Server Configuration
+// Server configuration
 
 // toInternal returns the configuration of DNS servers for a single server
 // group.  srvs is assumed to be valid.
 func (srvs servers) toInternal(tlsConfig *agd.TLS) (dnsSrvs []*agd.Server, err error) {
 	dnsSrvs = make([]*agd.Server, 0, len(srvs))
 	for _, srv := range srvs {
+		bindData := srv.bindData()
 		name := agd.ServerName(srv.Name)
 		switch p := srv.Protocol; p {
 		case srvProtoDNS:
 			dnsSrvs = append(dnsSrvs, &agd.Server{
 				Name:            name,
-				BindAddresses:   slices.Clone(srv.BindAddresses),
+				BindData:        bindData,
 				Protocol:        agd.ProtoDNS,
 				LinkedIPEnabled: srv.LinkedIPEnabled,
 			})
@@ -37,7 +37,7 @@ func (srvs servers) toInternal(tlsConfig *agd.TLS) (dnsSrvs []*agd.Server, err e
 			dnsSrvs = append(dnsSrvs, &agd.Server{
 				DNSCrypt:        dcConf,
 				Name:            name,
-				BindAddresses:   slices.Clone(srv.BindAddresses),
+				BindData:        bindData,
 				Protocol:        agd.ProtoDNSCrypt,
 				LinkedIPEnabled: srv.LinkedIPEnabled,
 			})
@@ -56,7 +56,7 @@ func (srvs servers) toInternal(tlsConfig *agd.TLS) (dnsSrvs []*agd.Server, err e
 			dnsSrvs = append(dnsSrvs, &agd.Server{
 				TLS:             tlsConf,
 				Name:            name,
-				BindAddresses:   slices.Clone(srv.BindAddresses),
+				BindData:        bindData,
 				Protocol:        p.toInternal(),
 				LinkedIPEnabled: srv.LinkedIPEnabled,
 			})
@@ -166,6 +166,21 @@ type server struct {
 	LinkedIPEnabled bool `yaml:"linked_ip_enabled"`
 }
 
+// bindData returns the socket binding data for this server.
+func (s *server) bindData() (bindData []*agd.ServerBindData) {
+	addrs := s.BindAddresses
+	bindData = make([]*agd.ServerBindData, 0, len(addrs))
+	for _, addr := range addrs {
+		bindData = append(bindData, &agd.ServerBindData{
+			AddrPort: addr,
+		})
+	}
+
+	// TODO(a.garipov): Support bind_interfaces.
+
+	return bindData
+}
+
 // validate returns an error if the configuration is invalid.
 func (s *server) validate() (err error) {
 	switch {
@@ -175,6 +190,11 @@ func (s *server) validate() (err error) {
 		return errors.Error("no name")
 	case len(s.BindAddresses) == 0:
 		return errors.Error("no bind_addresses")
+	}
+
+	err = validateAddrs(s.BindAddresses)
+	if err != nil {
+		return fmt.Errorf("bind_addresses: %w", err)
 	}
 
 	err = s.Protocol.validate()

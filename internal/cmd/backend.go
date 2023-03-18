@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"context"
+	"fmt"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/backend"
+	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
@@ -63,4 +66,69 @@ func (c *backendConfig) validate() (err error) {
 	default:
 		return nil
 	}
+}
+
+// setupBackend creates and returns a profile database and a billing-statistics
+// recorder as well as starts and registers their refreshers in the signal
+// handler.
+func setupBackend(
+	conf *backendConfig,
+	envs *environments,
+	sigHdlr signalHandler,
+	errColl agd.ErrorCollector,
+) (profDB *agd.DefaultProfileDB, rec *billstat.RuntimeRecorder, err error) {
+	profStrgConf, billStatConf := conf.toInternal(envs, errColl)
+	rec = billstat.NewRuntimeRecorder(&billstat.RuntimeRecorderConfig{
+		Uploader: backend.NewBillStat(billStatConf),
+	})
+
+	refrIvl := conf.RefreshIvl.Duration
+	timeout := conf.Timeout.Duration
+	billStatRefr := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
+		Context: func() (ctx context.Context, cancel context.CancelFunc) {
+			return context.WithTimeout(context.Background(), timeout)
+		},
+		Refresher:           rec,
+		ErrColl:             errColl,
+		Name:                "billstat",
+		Interval:            refrIvl,
+		RefreshOnShutdown:   true,
+		RoutineLogsAreDebug: true,
+	})
+	err = billStatRefr.Start()
+	if err != nil {
+		return nil, nil, fmt.Errorf("starting bill stat recorder refresher: %w", err)
+	}
+
+	sigHdlr.add(billStatRefr)
+
+	profStrg := backend.NewProfileStorage(profStrgConf)
+	profDB, err = agd.NewDefaultProfileDB(
+		profStrg,
+		conf.FullRefreshIvl.Duration,
+		envs.ProfilesCachePath,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating default profile database: %w", err)
+	}
+
+	profDBRefr := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
+		Context: func() (ctx context.Context, cancel context.CancelFunc) {
+			return context.WithTimeout(context.Background(), timeout)
+		},
+		Refresher:           profDB,
+		ErrColl:             errColl,
+		Name:                "profiledb",
+		Interval:            refrIvl,
+		RefreshOnShutdown:   false,
+		RoutineLogsAreDebug: true,
+	})
+	err = profDBRefr.Start()
+	if err != nil {
+		return nil, nil, fmt.Errorf("starting default profile database refresher: %w", err)
+	}
+
+	sigHdlr.add(profDBRefr)
+
+	return profDB, rec, nil
 }

@@ -19,9 +19,9 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/testutil"
-	"github.com/lucas-clemente/quic-go"
-	"github.com/lucas-clemente/quic-go/http3"
 	"github.com/miekg/dns"
+	"github.com/quic-go/quic-go"
+	"github.com/quic-go/quic-go/http3"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
 )
@@ -114,14 +114,9 @@ func TestServerHTTPS_integration_serveRequests(t *testing.T) {
 				return srv.Shutdown(context.Background())
 			})
 
-			// Create a test message
-			req := new(dns.Msg)
-			req.Id = dns.Id()
+			// Create a test message.
+			req := dnsservertest.NewReq("example.org.", dns.TypeA, dns.ClassINET)
 			req.RecursionDesired = true
-			name := "example.org."
-			req.Question = []dns.Question{
-				{Name: name, Qtype: dns.TypeA, Qclass: dns.ClassINET},
-			}
 
 			var resp *dns.Msg
 			addr := srv.LocalTCPAddr()
@@ -232,7 +227,7 @@ func TestDNSMsgToJSONMsg(t *testing.T) {
 				Target: "example.com",
 				Value: []dns.SVCBKeyValue{
 					&dns.SVCBAlpn{
-						Alpn: []string{"h2", "h3"},
+						Alpn: []string{http2.NextProtoTLS, http3.NextProtoH3},
 					},
 					&dns.SVCBECHConfig{
 						ECH: []byte{1, 2},
@@ -343,6 +338,80 @@ func TestServerHTTPS_integration_ENDS0Padding(t *testing.T) {
 	require.NotEmpty(t, paddingOpt.Padding)
 }
 
+func TestServerHTTPS_0RTT(t *testing.T) {
+	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
+	srv, err := dnsservertest.RunLocalHTTPSServer(
+		dnsservertest.DefaultHandler(),
+		tlsConfig,
+		nil,
+	)
+	require.NoError(t, err)
+
+	testutil.CleanupAndRequireSuccess(t, func() (err error) {
+		return srv.Shutdown(context.Background())
+	})
+
+	quicTracer := &dnsservertest.QUICTracer{}
+
+	// quicConfig with TokenStore set so that 0-RTT was enabled.
+	quicConfig := &quic.Config{
+		TokenStore: quic.NewLRUTokenStore(1, 10),
+		Tracer:     quicTracer,
+	}
+
+	// ClientSessionCache in the tls.Config must also be set for 0-RTT to work.
+	clientTLSConfig := tlsConfig.Clone()
+	clientTLSConfig.ClientSessionCache = tls.NewLRUClientSessionCache(10)
+
+	// Use the first connection (no 0-RTT).
+	testDoH3Exchange(t, srv.LocalUDPAddr(), clientTLSConfig, quicConfig)
+
+	// Use the second connection (now 0-RTT should kick in).
+	testDoH3Exchange(t, srv.LocalUDPAddr(), clientTLSConfig, quicConfig)
+
+	// Verify how 0-RTT was used.
+	conns := quicTracer.ConnectionsInfo()
+
+	require.Len(t, conns, 2)
+	require.False(t, conns[0].Is0RTT())
+	require.True(t, conns[1].Is0RTT())
+}
+
+// testDoH3Exchange initializes a new DoH3 client and sends one DNS query
+// through it.
+func testDoH3Exchange(
+	t *testing.T,
+	addr net.Addr,
+	tlsConfig *tls.Config,
+	quicConfig *quic.Config,
+) {
+	client, err := createDoH3Client(addr, tlsConfig, quicConfig)
+	require.NoError(t, err)
+
+	// Create a test message.
+	req := dnsservertest.NewReq("example.org.", dns.TypeA, dns.ClassINET)
+	req.RecursionDesired = true
+
+	httpReq, err := createDoHRequest("https", http.MethodGet, req)
+	require.NoError(t, err)
+
+	// Send the request and check the response.
+	httpResp, err := client.Do(httpReq)
+	require.NoError(t, err)
+	defer log.OnCloserError(httpResp.Body, log.DEBUG)
+
+	body, err := io.ReadAll(httpResp.Body)
+	require.NoError(t, err)
+
+	resp, err := unpackDoHMsg(body)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.True(t, resp.Response)
+
+	// Close connections.
+	client.CloseIdleConnections()
+}
+
 func mustDoHReq(
 	t testing.TB,
 	httpsAddr net.Addr,
@@ -394,7 +463,7 @@ func mustDoHReq(
 
 func createDoHClient(httpsAddr net.Addr, tlsConfig *tls.Config) (client *http.Client, err error) {
 	if dnsserver.NetworkFromAddr(httpsAddr) == dnsserver.NetworkUDP {
-		return createDoH3Client(httpsAddr, tlsConfig)
+		return createDoH3Client(httpsAddr, tlsConfig, nil)
 	}
 
 	return createDoH2Client(httpsAddr, tlsConfig)
@@ -431,9 +500,13 @@ func createDoH2Client(httpsAddr net.Addr, tlsConfig *tls.Config) (client *http.C
 	}, nil
 }
 
-func createDoH3Client(httpsAddr net.Addr, tlsConfig *tls.Config) (client *http.Client, err error) {
+func createDoH3Client(
+	httpsAddr net.Addr,
+	tlsConfig *tls.Config,
+	quicConfig *quic.Config,
+) (client *http.Client, err error) {
 	tlsConfig = tlsConfig.Clone()
-	tlsConfig.NextProtos = []string{"h3"}
+	tlsConfig.NextProtos = []string{http3.NextProtoH3}
 
 	transport := &http3.RoundTripper{
 		DisableCompression: true,
@@ -445,6 +518,7 @@ func createDoH3Client(httpsAddr net.Addr, tlsConfig *tls.Config) (client *http.C
 		) (c quic.EarlyConnection, e error) {
 			return quic.DialAddrEarlyContext(ctx, httpsAddr.String(), tlsCfg, cfg)
 		},
+		QuicConfig:      quicConfig,
 		TLSClientConfig: tlsConfig,
 	}
 

@@ -1,19 +1,19 @@
 module github.com/AdguardTeam/AdGuardDNS/internal/tools
 
-go 1.19
+go 1.20
 
 require (
 	github.com/fzipp/gocyclo v0.6.0
 	github.com/golangci/misspell v0.4.0
-	github.com/gordonklaus/ineffassign v0.0.0-20220928193011-d2c82e48359b
-	github.com/kisielk/errcheck v1.6.2
+	github.com/gordonklaus/ineffassign v0.0.0-20230107090616-13ace0543b28
+	github.com/kisielk/errcheck v1.6.3
 	github.com/kyoh86/looppointer v0.2.1
-	github.com/securego/gosec/v2 v2.14.0
-	golang.org/x/tools v0.3.0
-	golang.org/x/vuln v0.0.0-20221122171214-05fb7250142c
-	honnef.co/go/tools v0.3.3
+	github.com/securego/gosec/v2 v2.15.0
+	golang.org/x/tools v0.7.0
+	golang.org/x/vuln v0.0.0-20230308034057-d4ed0a4fab9e
+	honnef.co/go/tools v0.4.2
 	mvdan.cc/gofumpt v0.4.0
-	mvdan.cc/unparam v0.0.0-20221109083536-cac433cd1bcb
+	mvdan.cc/unparam v0.0.0-20230125043941-70a0ce6e7b95
 )
 
 require (
@@ -24,10 +24,10 @@ require (
 	github.com/kyoh86/nolint v0.0.1 // indirect
 	github.com/nbutton23/zxcvbn-go v0.0.0-20210217022336-fa2cb2858354 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
-	golang.org/x/exp v0.0.0-20221126150942-6ab00d035af9 // indirect
-	golang.org/x/exp/typeparams v0.0.0-20221126150942-6ab00d035af9 // indirect
-	golang.org/x/mod v0.7.0 // indirect
+	golang.org/x/exp v0.0.0-20230307190834-24139beb5833 // indirect
+	golang.org/x/exp/typeparams v0.0.0-20230307190834-24139beb5833 // indirect
+	golang.org/x/mod v0.9.0 // indirect
 	golang.org/x/sync v0.1.0 // indirect
-	golang.org/x/sys v0.2.0 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
+	golang.org/x/sys v0.6.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
