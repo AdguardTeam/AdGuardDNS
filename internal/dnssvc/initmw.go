@@ -12,6 +12,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
+	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
@@ -27,8 +28,6 @@ import (
 // one.
 //
 // TODO(a.garipov): Add tests.
-//
-// TODO(a.garipov): Make other middlewares more compact as well.  See AGDNS-328.
 type initMw struct {
 	// messages is used to build the responses specific for the request's
 	// context.
@@ -43,8 +42,8 @@ type initMw struct {
 	// srv is the current server which serves the request.
 	srv *agd.Server
 
-	// db is the storage of user profiles.
-	db agd.ProfileDB
+	// db is the database of user profiles and devices.
+	db profiledb.Interface
 
 	// geoIP detects the location of the request source.
 	geoIP geoip.Interface
@@ -69,6 +68,7 @@ func (mw *initMw) Wrap(h dnsserver.Handler) (wrapped dnsserver.Handler) {
 func (mw *initMw) newRequestInfo(
 	ctx context.Context,
 	req *dns.Msg,
+	laddr net.Addr,
 	raddr net.Addr,
 	fqdn string,
 	qt dnsmsg.RRType,
@@ -100,7 +100,8 @@ func (mw *initMw) newRequestInfo(
 	}
 
 	// Add the profile information, if any.
-	err = mw.addProfile(ctx, ri, req)
+	localIP := netutil.NetAddrToAddrPort(laddr).Addr()
+	err = mw.addProfile(ctx, ri, req, localIP)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
@@ -149,7 +150,12 @@ func (mw *initMw) locationData(ctx context.Context, ip netip.Addr, typ string) (
 
 // addProfile adds profile and device information, if any, to the request
 // information.
-func (mw *initMw) addProfile(ctx context.Context, ri *agd.RequestInfo, req *dns.Msg) (err error) {
+func (mw *initMw) addProfile(
+	ctx context.Context,
+	ri *agd.RequestInfo,
+	req *dns.Msg,
+	localIP netip.Addr,
+) (err error) {
 	defer func() { err = errors.Annotate(err, "getting profile from req: %w") }()
 
 	var id agd.DeviceID
@@ -170,14 +176,12 @@ func (mw *initMw) addProfile(ctx context.Context, ri *agd.RequestInfo, req *dns.
 
 	optlog.Debug2("init mw: got device id %q and ip %s", id, ri.RemoteIP)
 
-	prof, dev, byWhat, err := mw.profile(ctx, ri.RemoteIP, id, mw.srv.Protocol)
+	prof, dev, byWhat, err := mw.profile(ctx, localIP, ri.RemoteIP, id)
 	if err != nil {
-		// Use two errors.Is calls to prevent unnecessary allocations.
-		if !errors.Is(err, agd.DeviceNotFoundError{}) &&
-			!errors.Is(err, agd.ProfileNotFoundError{}) {
+		if !errors.Is(err, profiledb.ErrDeviceNotFound) {
 			// Very unlikely, since those two error types are the only ones
-			// currently returned from the profile DB.
-			return err
+			// currently returned from the default profile DB.
+			return fmt.Errorf("unexpected profiledb error: %s", err)
 		}
 
 		optlog.Debug1("init mw: profile or device not found: %s", err)
@@ -193,32 +197,51 @@ func (mw *initMw) addProfile(ctx context.Context, ri *agd.RequestInfo, req *dns.
 	return nil
 }
 
+// Constants for the parameter by which a device has been found.
+const (
+	byDeviceID    = "device id"
+	byDedicatedIP = "dedicated ip"
+	byLinkedIP    = "linked ip"
+)
+
 // profile finds the profile by the client data.
 func (mw *initMw) profile(
 	ctx context.Context,
-	ip netip.Addr,
+	localIP netip.Addr,
+	remoteIP netip.Addr,
 	id agd.DeviceID,
-	p agd.Protocol,
 ) (prof *agd.Profile, dev *agd.Device, byWhat string, err error) {
 	if id != "" {
 		prof, dev, err = mw.db.ProfileByDeviceID(ctx, id)
+		if err != nil {
+			return nil, nil, "", err
+		}
 
-		return prof, dev, "device id", err
+		return prof, dev, byDeviceID, nil
 	}
 
 	if !mw.srv.LinkedIPEnabled {
-		optlog.Debug1("init mw: not matching by ip for server %s", mw.srv.Name)
+		optlog.Debug1("init mw: not matching by linked or dedicated ip for server %s", mw.srv.Name)
 
-		return nil, nil, "", agd.ProfileNotFoundError{}
-	} else if p != agd.ProtoDNS {
-		optlog.Debug1("init mw: not matching by ip for proto %v", p)
+		return nil, nil, "", profiledb.ErrDeviceNotFound
+	} else if p := mw.srv.Protocol; p != agd.ProtoDNS {
+		optlog.Debug1("init mw: not matching by linked or dedicated ip for proto %v", p)
 
-		return nil, nil, "", agd.ProfileNotFoundError{}
+		return nil, nil, "", profiledb.ErrDeviceNotFound
 	}
 
-	prof, dev, err = mw.db.ProfileByIP(ctx, ip)
+	byWhat = byDedicatedIP
+	prof, dev, err = mw.db.ProfileByDedicatedIP(ctx, localIP)
+	if errors.Is(err, profiledb.ErrDeviceNotFound) {
+		byWhat = byLinkedIP
+		prof, dev, err = mw.db.ProfileByLinkedIP(ctx, remoteIP)
+	}
 
-	return prof, dev, "linked ip", err
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	return prof, dev, byWhat, nil
 }
 
 // initMwHandler implements the [dnsserver.Handler] interface and will be used
@@ -259,7 +282,7 @@ func (mh *initMwHandler) ServeDNS(
 	mw := mh.mw
 
 	// Get the request's information, such as GeoIP data and user profiles.
-	ri, err := mw.newRequestInfo(ctx, req, rw.RemoteAddr(), fqdn, qt, cl)
+	ri, err := mw.newRequestInfo(ctx, req, rw.LocalAddr(), rw.RemoteAddr(), fqdn, qt, cl)
 	if err != nil {
 		var ecsErr dnsmsg.BadECSError
 		if errors.As(err, &ecsErr) {

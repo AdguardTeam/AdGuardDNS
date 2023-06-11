@@ -41,7 +41,7 @@ var _ Server = (*ServerDNSCrypt)(nil)
 // NewServerDNSCrypt creates a new instance of ServerDNSCrypt.
 func NewServerDNSCrypt(conf ConfigDNSCrypt) (s *ServerDNSCrypt) {
 	if conf.ListenConfig == nil {
-		conf.ListenConfig = netext.DefaultListenConfig()
+		conf.ListenConfig = netext.DefaultListenConfig(nil)
 	}
 
 	return &ServerDNSCrypt{

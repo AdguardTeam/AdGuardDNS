@@ -17,6 +17,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
+	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
@@ -27,6 +28,8 @@ import (
 )
 
 func TestServerHTTPS_integration_serveRequests(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name          string
 		method        string
@@ -101,7 +104,10 @@ func TestServerHTTPS_integration_serveRequests(t *testing.T) {
 	}}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
 			srv, err := dnsservertest.RunLocalHTTPSServer(
 				dnsservertest.DefaultHandler(),
@@ -356,7 +362,7 @@ func TestServerHTTPS_0RTT(t *testing.T) {
 	// quicConfig with TokenStore set so that 0-RTT was enabled.
 	quicConfig := &quic.Config{
 		TokenStore: quic.NewLRUTokenStore(1, 10),
-		Tracer:     quicTracer,
+		Tracer:     quicTracer.TracerForConnection,
 	}
 
 	// ClientSessionCache in the tls.Config must also be set for 0-RTT to work.
@@ -516,7 +522,7 @@ func createDoH3Client(
 			tlsCfg *tls.Config,
 			cfg *quic.Config,
 		) (c quic.EarlyConnection, e error) {
-			return quic.DialAddrEarlyContext(ctx, httpsAddr.String(), tlsCfg, cfg)
+			return quic.DialAddrEarly(ctx, httpsAddr.String(), tlsCfg, cfg)
 		},
 		QuicConfig:      quicConfig,
 		TLSClientConfig: tlsConfig,
@@ -550,8 +556,8 @@ func createDoHRequest(proto, method string, msg *dns.Msg) (r *http.Request, err 
 		return nil, err
 	}
 
-	r.Header.Set("Content-Type", dnsserver.MimeTypeDoH)
-	r.Header.Set("Accept", dnsserver.MimeTypeDoH)
+	r.Header.Set(httphdr.ContentType, dnsserver.MimeTypeDoH)
+	r.Header.Set(httphdr.Accept, dnsserver.MimeTypeDoH)
 
 	return r, nil
 }
@@ -582,8 +588,8 @@ func createJSONRequest(
 		return nil, err
 	}
 
-	r.Header.Set("Content-Type", dnsserver.MimeTypeJSON)
-	r.Header.Set("Accept", dnsserver.MimeTypeJSON)
+	r.Header.Set(httphdr.ContentType, dnsserver.MimeTypeJSON)
+	r.Header.Set(httphdr.Accept, dnsserver.MimeTypeJSON)
 
 	return r, err
 }

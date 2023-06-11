@@ -3,7 +3,6 @@ package dnssvc
 import (
 	"context"
 	"crypto/tls"
-	"net"
 	"net/netip"
 	"testing"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
+	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/stringutil"
@@ -21,10 +21,148 @@ import (
 	"golang.org/x/exp/maps"
 )
 
-// testRAddr is the common remote address for tests.
-var testRAddr = &net.TCPAddr{
-	IP:   net.IP{1, 2, 3, 4},
-	Port: 12345,
+func TestInitMw_profile(t *testing.T) {
+	prof := &agd.Profile{
+		ID: testProfileID,
+		DeviceIDs: []agd.DeviceID{
+			testDeviceID,
+		},
+	}
+	dev := &agd.Device{
+		ID:       testDeviceID,
+		LinkedIP: testClientAddr,
+		DedicatedIPs: []netip.Addr{
+			testServerAddr,
+		},
+	}
+
+	testCases := []struct {
+		wantDev         *agd.Device
+		wantProf        *agd.Profile
+		wantByWhat      string
+		wantErrMsg      string
+		name            string
+		id              agd.DeviceID
+		proto           agd.Protocol
+		linkedIPEnabled bool
+	}{{
+		wantDev:         nil,
+		wantProf:        nil,
+		wantByWhat:      "",
+		wantErrMsg:      "device not found",
+		name:            "no_device_id",
+		id:              "",
+		proto:           agd.ProtoDNS,
+		linkedIPEnabled: true,
+	}, {
+		wantDev:         dev,
+		wantProf:        prof,
+		wantByWhat:      byDeviceID,
+		wantErrMsg:      "",
+		name:            "device_id",
+		id:              testDeviceID,
+		proto:           agd.ProtoDNS,
+		linkedIPEnabled: true,
+	}, {
+		wantDev:         dev,
+		wantProf:        prof,
+		wantByWhat:      byLinkedIP,
+		wantErrMsg:      "",
+		name:            "linked_ip",
+		id:              "",
+		proto:           agd.ProtoDNS,
+		linkedIPEnabled: true,
+	}, {
+		wantDev:         nil,
+		wantProf:        nil,
+		wantByWhat:      "",
+		wantErrMsg:      "device not found",
+		name:            "linked_ip_dot",
+		id:              "",
+		proto:           agd.ProtoDoT,
+		linkedIPEnabled: true,
+	}, {
+		wantDev:         nil,
+		wantProf:        nil,
+		wantByWhat:      "",
+		wantErrMsg:      "device not found",
+		name:            "linked_ip_disabled",
+		id:              "",
+		proto:           agd.ProtoDoT,
+		linkedIPEnabled: false,
+	}, {
+		wantDev:         dev,
+		wantProf:        prof,
+		wantByWhat:      byDedicatedIP,
+		wantErrMsg:      "",
+		name:            "dedicated_ip",
+		id:              "",
+		proto:           agd.ProtoDNS,
+		linkedIPEnabled: true,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := &agdtest.ProfileDB{
+				OnProfileByDeviceID: func(
+					_ context.Context,
+					gotID agd.DeviceID,
+				) (p *agd.Profile, d *agd.Device, err error) {
+					assert.Equal(t, tc.id, gotID)
+
+					if tc.wantByWhat == byDeviceID {
+						return prof, dev, nil
+					}
+
+					return nil, nil, profiledb.ErrDeviceNotFound
+				},
+				OnProfileByDedicatedIP: func(
+					_ context.Context,
+					gotLocalIP netip.Addr,
+				) (p *agd.Profile, d *agd.Device, err error) {
+					assert.Equal(t, testServerAddr, gotLocalIP)
+
+					if tc.wantByWhat == byDedicatedIP {
+						return prof, dev, nil
+					}
+
+					return nil, nil, profiledb.ErrDeviceNotFound
+				},
+				OnProfileByLinkedIP: func(
+					_ context.Context,
+					gotRemoteIP netip.Addr,
+				) (p *agd.Profile, d *agd.Device, err error) {
+					assert.Equal(t, testClientAddr, gotRemoteIP)
+
+					if tc.wantByWhat == byLinkedIP {
+						return prof, dev, nil
+					}
+
+					return nil, nil, profiledb.ErrDeviceNotFound
+				},
+			}
+
+			mw := &initMw{
+				srv: &agd.Server{
+					Protocol:        tc.proto,
+					LinkedIPEnabled: tc.linkedIPEnabled,
+				},
+				db: db,
+			}
+			ctx := context.Background()
+
+			gotProf, gotDev, gotByWhat, err := mw.profile(
+				ctx,
+				testServerAddr,
+				testClientAddr,
+				tc.id,
+			)
+			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)
+			assert.Equal(t, tc.wantProf, gotProf)
+			assert.Equal(t, tc.wantDev, gotDev)
+			assert.Equal(t, tc.wantByWhat, gotByWhat)
+		})
+	}
 }
 
 func TestInitMw_ServeDNS_ddr(t *testing.T) {
@@ -32,15 +170,14 @@ func TestInitMw_ServeDNS_ddr(t *testing.T) {
 		resolverName = "dns.example.com"
 		resolverFQDN = resolverName + "."
 
-		deviceID     = "dev1234"
-		targetWithID = deviceID + ".d." + resolverName + "."
+		targetWithID = testDeviceID + ".d." + resolverName + "."
 
 		ddrFQDN = ddrDomain + "."
 
 		dohPath = "/dns-query"
 	)
 
-	testDevice := &agd.Device{ID: deviceID}
+	testDevice := &agd.Device{ID: testDeviceID}
 
 	srvs := map[agd.ServerName]*agd.Server{
 		"dot": {
@@ -98,15 +235,21 @@ func TestInitMw_ServeDNS_ddr(t *testing.T) {
 				_ context.Context,
 				_ agd.DeviceID,
 			) (p *agd.Profile, d *agd.Device, err error) {
-				p = &agd.Profile{Devices: []*agd.Device{dev}}
+				p = &agd.Profile{}
 
 				return p, dev, nil
 			},
-			OnProfileByIP: func(
+			OnProfileByDedicatedIP: func(
 				_ context.Context,
 				_ netip.Addr,
 			) (p *agd.Profile, d *agd.Device, err error) {
-				p = &agd.Profile{Devices: []*agd.Device{dev}}
+				return nil, nil, profiledb.ErrDeviceNotFound
+			},
+			OnProfileByLinkedIP: func(
+				_ context.Context,
+				_ netip.Addr,
+			) (p *agd.Profile, d *agd.Device, err error) {
+				p = &agd.Profile{}
 
 				return p, dev, nil
 			},
@@ -397,12 +540,12 @@ func TestInitMw_ServeDNS_specialDomain(t *testing.T) {
 				return rw.WriteMsg(ctx, req, resp)
 			})
 
-			onProfileByIP := func(
+			onProfileByLinkedIP := func(
 				_ context.Context,
 				_ netip.Addr,
 			) (p *agd.Profile, d *agd.Device, err error) {
 				if !tc.hasProf {
-					return nil, nil, agd.DeviceNotFoundError{}
+					return nil, nil, profiledb.ErrDeviceNotFound
 				}
 
 				prof := &agd.Profile{
@@ -419,7 +562,13 @@ func TestInitMw_ServeDNS_specialDomain(t *testing.T) {
 				) (p *agd.Profile, d *agd.Device, err error) {
 					panic("not implemented")
 				},
-				OnProfileByIP: onProfileByIP,
+				OnProfileByDedicatedIP: func(
+					_ context.Context,
+					_ netip.Addr,
+				) (p *agd.Profile, d *agd.Device, err error) {
+					return nil, nil, profiledb.ErrDeviceNotFound
+				},
+				OnProfileByLinkedIP: onProfileByLinkedIP,
 			}
 
 			geoIP := &agdtest.GeoIP{
@@ -543,7 +692,7 @@ func BenchmarkInitMw_Wrap(b *testing.B) {
 
 	ctx := context.Background()
 	ctx = dnsserver.ContextWithClientInfo(ctx, dnsserver.ClientInfo{
-		TLSServerName: "dev1234.dns.example.com",
+		TLSServerName: testDeviceID + ".dns.example.com",
 	})
 
 	req := &dns.Msg{
@@ -573,6 +722,18 @@ func BenchmarkInitMw_Wrap(b *testing.B) {
 		) (p *agd.Profile, d *agd.Device, err error) {
 			return prof, dev, nil
 		},
+		OnProfileByDedicatedIP: func(
+			_ context.Context,
+			_ netip.Addr,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic("not implemented")
+		},
+		OnProfileByLinkedIP: func(
+			_ context.Context,
+			_ netip.Addr,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic("not implemented")
+		},
 	}
 	b.Run("success", func(b *testing.B) {
 		b.ReportAllocs()
@@ -589,7 +750,19 @@ func BenchmarkInitMw_Wrap(b *testing.B) {
 			_ context.Context,
 			_ agd.DeviceID,
 		) (p *agd.Profile, d *agd.Device, err error) {
-			return nil, nil, agd.ProfileNotFoundError{}
+			return nil, nil, profiledb.ErrDeviceNotFound
+		},
+		OnProfileByDedicatedIP: func(
+			_ context.Context,
+			_ netip.Addr,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic("not implemented")
+		},
+		OnProfileByLinkedIP: func(
+			_ context.Context,
+			_ netip.Addr,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic("not implemented")
 		},
 	}
 	b.Run("not_found", func(b *testing.B) {
@@ -616,6 +789,18 @@ func BenchmarkInitMw_Wrap(b *testing.B) {
 		) (p *agd.Profile, d *agd.Device, err error) {
 			return prof, dev, nil
 		},
+		OnProfileByDedicatedIP: func(
+			_ context.Context,
+			_ netip.Addr,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic("not implemented")
+		},
+		OnProfileByLinkedIP: func(
+			_ context.Context,
+			_ netip.Addr,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic("not implemented")
+		},
 	}
 	b.Run("firefox_canary", func(b *testing.B) {
 		b.ReportAllocs()
@@ -630,13 +815,13 @@ func BenchmarkInitMw_Wrap(b *testing.B) {
 	ddrReq := &dns.Msg{
 		Question: []dns.Question{{
 			// Check the worst case when wildcards are checked.
-			Name:   "_dns.dev1234.dns.example.com.",
+			Name:   "_dns." + testDeviceID + ".dns.example.com.",
 			Qtype:  dns.TypeSVCB,
 			Qclass: dns.ClassINET,
 		}},
 	}
 	devWithID := &agd.Device{
-		ID: "dev1234",
+		ID: testDeviceID,
 	}
 	mw.db = &agdtest.ProfileDB{
 		OnProfileByDeviceID: func(
@@ -644,6 +829,18 @@ func BenchmarkInitMw_Wrap(b *testing.B) {
 			_ agd.DeviceID,
 		) (p *agd.Profile, d *agd.Device, err error) {
 			return prof, devWithID, nil
+		},
+		OnProfileByDedicatedIP: func(
+			_ context.Context,
+			_ netip.Addr,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic("not implemented")
+		},
+		OnProfileByLinkedIP: func(
+			_ context.Context,
+			_ netip.Addr,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic("not implemented")
 		},
 	}
 	b.Run("ddr", func(b *testing.B) {

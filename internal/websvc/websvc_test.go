@@ -11,6 +11,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
+	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -142,7 +143,7 @@ func assertContent(t *testing.T, addr netip.AddrPort, path string, status int, e
 
 	assert.Equal(t, expected, body)
 	assert.Equal(t, status, resp.StatusCode)
-	assert.Equal(t, agdhttp.UserAgent(), resp.Header.Get(agdhttp.HdrNameServer))
+	assert.Equal(t, agdhttp.UserAgent(), resp.Header.Get(httphdr.Server))
 }
 
 func startService(t *testing.T, c *websvc.Config) {

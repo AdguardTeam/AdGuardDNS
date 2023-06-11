@@ -7,8 +7,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashstorage"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/timeutil"
@@ -45,13 +44,13 @@ func (c *safeBrowsingConfig) toInternal(
 	resolver agdnet.Resolver,
 	id agd.FilterListID,
 	cacheDir string,
-) (fltConf *filter.HashPrefixConfig, err error) {
-	hashes, err := hashstorage.New("")
+) (fltConf *hashprefix.FilterConfig, err error) {
+	hashes, err := hashprefix.NewStorage("")
 	if err != nil {
 		return nil, err
 	}
 
-	return &filter.HashPrefixConfig{
+	return &hashprefix.FilterConfig{
 		Hashes:          hashes,
 		URL:             netutil.CloneURL(&c.URL.URL),
 		ErrColl:         errColl,
@@ -95,13 +94,13 @@ func setupHashPrefixFilter(
 	cachePath string,
 	sigHdlr signalHandler,
 	errColl agd.ErrorCollector,
-) (strg *hashstorage.Storage, flt *filter.HashPrefix, err error) {
+) (strg *hashprefix.Storage, flt *hashprefix.Filter, err error) {
 	fltConf, err := conf.toInternal(errColl, resolver, id, cachePath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("configuring hash prefix filter %s: %w", id, err)
 	}
 
-	flt, err = filter.NewHashPrefix(fltConf)
+	flt, err = hashprefix.NewFilter(fltConf)
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating hash prefix filter %s: %w", id, err)
 	}

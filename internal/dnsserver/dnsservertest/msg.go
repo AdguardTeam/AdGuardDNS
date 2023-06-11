@@ -4,23 +4,17 @@ import (
 	"net"
 	"testing"
 
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 )
 
 // CreateMessage creates a DNS message for the specified hostname and qtype.
 func CreateMessage(hostname string, qtype uint16) (m *dns.Msg) {
-	return &dns.Msg{
-		MsgHdr: dns.MsgHdr{
-			Id:               dns.Id(),
-			RecursionDesired: true,
-		},
-		Question: []dns.Question{{
-			Name:   dns.Fqdn(hostname),
-			Qtype:  qtype,
-			Qclass: dns.ClassINET,
-		}},
-	}
+	m = NewReq(hostname, qtype, dns.ClassINET)
+	m.RecursionDesired = true
+
+	return m
 }
 
 // RequireResponse checks that the DNS response we received is what was
@@ -29,9 +23,9 @@ func RequireResponse(
 	t *testing.T,
 	req *dns.Msg,
 	resp *dns.Msg,
-	expectedRecordsCount int,
-	expectedRCode int,
-	expectedTruncated bool,
+	wantAnsLen int,
+	wantRCode int,
+	wantTruncated bool,
 ) {
 	t.Helper()
 
@@ -40,25 +34,63 @@ func RequireResponse(
 	// Check that Opcode is not changed in the response
 	// regardless of the response status
 	require.Equal(t, req.Opcode, resp.Opcode)
-	require.Equal(t, expectedRCode, resp.Rcode)
-	require.Equal(t, expectedTruncated, resp.Truncated)
+	require.Equal(t, wantRCode, resp.Rcode)
+	require.Equal(t, wantTruncated, resp.Truncated)
 	require.True(t, resp.Response)
 	// Response must not have a Z flag set even for a query that does
 	// See https://github.com/miekg/dns/issues/975
 	require.False(t, resp.Zero)
-	require.Equal(t, expectedRecordsCount, len(resp.Answer))
+	require.Len(t, resp.Answer, wantAnsLen)
 
 	// Check that there's an OPT record in the response
 	if len(req.Extra) > 0 {
-		require.True(t, len(resp.Extra) > 0)
+		require.NotEmpty(t, resp.Extra)
 	}
 
-	if expectedRecordsCount > 0 {
-		a, ok := resp.Answer[0].(*dns.A)
-		require.True(t, ok)
+	if wantAnsLen > 0 {
+		a := testutil.RequireTypeAssert[*dns.A](t, resp.Answer[0])
 		require.Equal(t, req.Question[0].Name, a.Hdr.Name)
 	}
 }
+
+// RRSection is the resource record set to be appended to a new message created
+// by [NewReq] and [NewResp].  It's essentially a sum type of:
+//
+//   - [SectionAnswer]
+//   - [SectionNs]
+//   - [SectionExtra]
+type RRSection interface {
+	// appendTo modifies m adding the resource record set into it appropriately.
+	appendTo(m *dns.Msg)
+}
+
+// type check
+var (
+	_ RRSection = SectionAnswer{}
+	_ RRSection = SectionNs{}
+	_ RRSection = SectionExtra{}
+)
+
+// SectionAnswer should wrap a resource record set for the Answer section of DNS
+// message.
+type SectionAnswer []dns.RR
+
+// appendTo implements the [RRSection] interface for SectionAnswer.
+func (rrs SectionAnswer) appendTo(m *dns.Msg) { m.Answer = append(m.Answer, ([]dns.RR)(rrs)...) }
+
+// SectionNs should wrap a resource record set for the Ns section of DNS
+// message.
+type SectionNs []dns.RR
+
+// appendTo implements the [RRSection] interface for SectionNs.
+func (rrs SectionNs) appendTo(m *dns.Msg) { m.Ns = append(m.Ns, ([]dns.RR)(rrs)...) }
+
+// SectionExtra should wrap a resource record set for the Extra section of DNS
+// message.
+type SectionExtra []dns.RR
+
+// appendTo implements the [RRSection] interface for SectionExtra.
+func (rrs SectionExtra) appendTo(m *dns.Msg) { m.Extra = append(m.Extra, ([]dns.RR)(rrs)...) }
 
 // NewReq returns the new DNS request with a single question for name, qtype,
 // qclass, and rrs added.
@@ -68,13 +100,15 @@ func NewReq(name string, qtype, qclass uint16, rrs ...RRSection) (req *dns.Msg) 
 			Id: dns.Id(),
 		},
 		Question: []dns.Question{{
-			Name:   name,
+			Name:   dns.Fqdn(name),
 			Qtype:  qtype,
 			Qclass: qclass,
 		}},
 	}
 
-	withRRs(req, rrs...)
+	for _, rr := range rrs {
+		rr.appendTo(req)
+	}
 
 	return req
 }
@@ -86,48 +120,11 @@ func NewResp(rcode int, req *dns.Msg, rrs ...RRSection) (resp *dns.Msg) {
 	resp.RecursionAvailable = true
 	resp.Compress = true
 
-	withRRs(resp, rrs...)
+	for _, rr := range rrs {
+		rr.appendTo(resp)
+	}
 
 	return resp
-}
-
-// MsgSection is used to specify the resource record set of the DNS message.
-type MsgSection int
-
-// Possible values of the MsgSection.
-const (
-	SectionAnswer MsgSection = iota
-	SectionNs
-	SectionExtra
-)
-
-// RRSection is the slice of resource records to be appended to a new message
-// created by NewReq and NewResp.
-//
-// TODO(e.burkov):  Use separate types for different sections of DNS message
-// instead of constants.
-type RRSection struct {
-	RRs []dns.RR
-	Sec MsgSection
-}
-
-// withRRs adds rrs to the m.  Invalid rrs are skipped.
-func withRRs(m *dns.Msg, rrs ...RRSection) {
-	for _, r := range rrs {
-		var msgRR *[]dns.RR
-		switch r.Sec {
-		case SectionAnswer:
-			msgRR = &m.Answer
-		case SectionNs:
-			msgRR = &m.Ns
-		case SectionExtra:
-			msgRR = &m.Extra
-		default:
-			continue
-		}
-
-		*msgRR = append(*msgRR, r.RRs...)
-	}
 }
 
 // NewCNAME constructs the new resource record of type CNAME.

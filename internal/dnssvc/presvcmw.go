@@ -25,8 +25,8 @@ type preServiceMw struct {
 	// messages is used to construct TXT responses.
 	messages *dnsmsg.Constructor
 
-	// filter is the safe browsing DNS filter.
-	filter *filter.SafeBrowsingServer
+	// hashMatcher is the safe browsing DNS hashMatcher.
+	hashMatcher filter.HashMatcher
 
 	// checker is used to detect and process DNS-check requests.
 	checker dnscheck.Interface
@@ -91,7 +91,7 @@ func (mh *preServiceMwHandler) respondWithHashes(
 ) (err error) {
 	optlog.Debug1("presvc mw: safe browsing: got txt req for %q", ri.Host)
 
-	hashes, matched, err := mh.mw.filter.Hashes(ctx, ri.Host)
+	hashes, matched, err := mh.mw.hashMatcher.MatchByPrefix(ctx, ri.Host)
 	if err != nil {
 		// Don't return or collect this error to prevent DDoS of the error
 		// collector by sending bad requests.

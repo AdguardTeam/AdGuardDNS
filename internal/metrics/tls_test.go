@@ -7,7 +7,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_model/go"
+	io_prometheus_client "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -134,4 +134,19 @@ outerLoop:
 	}
 
 	return assert.Truef(t, ok, "%s not found in server name labels", wantLabel)
+}
+
+func TestTLSMetricsBeforeHandshake(t *testing.T) {
+	f := metrics.TLSMetricsBeforeHandshake("srv-name")
+
+	var conf *tls.Config
+	var err error
+	require.NotPanics(t, func() {
+		conf, err = f(&tls.ClientHelloInfo{
+			SupportedProtos: []string{"\xC0\xC1\xF5\xF6\xF7\xF8\xF9\xFA\xFB\xFC\xFD\xFE\xFF"},
+		})
+	})
+	require.NoError(t, err)
+
+	assert.Nil(t, conf)
 }

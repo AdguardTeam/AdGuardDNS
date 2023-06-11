@@ -13,8 +13,10 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/backend"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -61,7 +63,7 @@ func TestProfileStorage_Profiles(t *testing.T) {
 	require.NotNil(t, ds)
 
 	ctx := context.Background()
-	req := &agd.PSProfilesRequest{
+	req := &profiledb.StorageRequest{
 		SyncTime: syncTime,
 	}
 
@@ -81,10 +83,10 @@ func TestProfileStorage_Profiles(t *testing.T) {
 // testProfileResp returns profile resp corresponding with testdata.
 //
 // Keep in sync with the testdata one.
-func testProfileResp(t *testing.T) *agd.PSProfilesResponse {
+func testProfileResp(t *testing.T) (resp *profiledb.StorageResponse) {
 	t.Helper()
 
-	wantLoc, err := time.LoadLocation("GMT")
+	wantLoc, err := agdtime.LoadLocation("GMT")
 	require.NoError(t, err)
 
 	dayRange := agd.DayRange{
@@ -121,7 +123,7 @@ func testProfileResp(t *testing.T) *agd.PSProfilesResponse {
 		},
 	}
 
-	want := &agd.PSProfilesResponse{
+	want := &profiledb.StorageResponse{
 		SyncTime: syncTime,
 		Profiles: []*agd.Profile{{
 			Parental: nil,
@@ -130,15 +132,10 @@ func testProfileResp(t *testing.T) *agd.PSProfilesResponse {
 			},
 			ID:         "37f97ee9",
 			UpdateTime: updTime,
-			Devices: []*agd.Device{{
-				ID:               "118ffe93",
-				Name:             "Device 1",
-				FilteringEnabled: true,
-			}, {
-				ID:               "b9e1a762",
-				Name:             "Device 2",
-				FilteringEnabled: true,
-			}},
+			DeviceIDs: []agd.DeviceID{
+				"118ffe93",
+				"b9e1a762",
+			},
 			RuleListIDs:         []agd.FilterListID{"1"},
 			CustomRules:         nil,
 			FilteredResponseTTL: 10 * time.Second,
@@ -154,24 +151,12 @@ func testProfileResp(t *testing.T) *agd.PSProfilesResponse {
 			BlockingMode: wantBlockingMode,
 			ID:           "83f3ea8f",
 			UpdateTime:   updTime,
-			Devices: []*agd.Device{{
-				ID:               "0d7724fa",
-				Name:             "Device 1",
-				FilteringEnabled: true,
-			}, {
-				ID:               "6d2ac775",
-				Name:             "Device 2",
-				FilteringEnabled: true,
-			}, {
-				ID:               "94d4c481",
-				Name:             "Device 3",
-				FilteringEnabled: true,
-			}, {
-				ID:               "ada436e3",
-				LinkedIP:         &wantLinkedIP,
-				Name:             "Device 4",
-				FilteringEnabled: true,
-			}},
+			DeviceIDs: []agd.DeviceID{
+				"0d7724fa",
+				"6d2ac775",
+				"94d4c481",
+				"ada436e3",
+			},
 			RuleListIDs:         []agd.FilterListID{"1"},
 			CustomRules:         []agd.FilterRuleText{"||example.org^"},
 			FilteredResponseTTL: 3600 * time.Second,
@@ -182,6 +167,35 @@ func testProfileResp(t *testing.T) *agd.PSProfilesResponse {
 			Deleted:             true,
 			BlockPrivateRelay:   false,
 			BlockFirefoxCanary:  false,
+		}},
+		Devices: []*agd.Device{{
+			ID:               "118ffe93",
+			Name:             "Device 1",
+			FilteringEnabled: true,
+		}, {
+			ID:               "b9e1a762",
+			Name:             "Device 2",
+			FilteringEnabled: true,
+		}, {
+			ID:               "0d7724fa",
+			Name:             "Device 1",
+			FilteringEnabled: true,
+		}, {
+			ID:               "6d2ac775",
+			Name:             "Device 2",
+			FilteringEnabled: true,
+		}, {
+			ID:   "94d4c481",
+			Name: "Device 3",
+			DedicatedIPs: []netip.Addr{
+				netip.MustParseAddr("1.2.3.4"),
+			},
+			FilteringEnabled: true,
+		}, {
+			ID:               "ada436e3",
+			LinkedIP:         wantLinkedIP,
+			Name:             "Device 4",
+			FilteringEnabled: true,
 		}},
 	}
 

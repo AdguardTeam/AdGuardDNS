@@ -6,9 +6,12 @@ configuration file with comments.
 
 ##  Contents
 
- *  [Recommended values](#recommended)
+ *  [Recommended values and notes](#recommended)
      *  [Result cache sizes](#recommended-result_cache)
+     *  [`SO_RCVBUF` and `SO_SNDBUF` on Linux](#recommended-buffers)
+     *  [Connection limiter](#recommended-connection_limit)
  *  [Rate limiting](#ratelimit)
+     *  [Stream connection limit](#ratelimit-connection_limit)
  *  [Cache](#cache)
  *  [Upstream](#upstream)
      *  [Healthcheck](#upstream-healthcheck)
@@ -21,11 +24,13 @@ configuration file with comments.
  *  [Adult-content blocking](#adult_blocking)
  *  [Filters](#filters)
  *  [Filtering groups](#filtering_groups)
+ *  [Network interface listeners](#interface_listeners)
  *  [Server groups](#server_groups)
      *  [TLS](#server_groups-*-tls)
      *  [DDR](#server_groups-*-ddr)
      *  [Servers](#server_groups-*-servers-*)
  *  [Connectivity check](#connectivity-check)
+ *  [Network settings](#network)
  *  [Additional metrics information](#additional_metrics_info)
 
 [dist]: ../config.dist.yml
@@ -34,7 +39,7 @@ configuration file with comments.
 
 
 
-##  <a href="#recommended" id="recommended" name="recommended">Recommended values</a>
+##  <a href="#recommended" id="recommended" name="recommended">Recommended values and notes</a>
 
    ###  <a href="#recommended-result_cache" id="recommended-result_cache" name="recommended-result_cache">Result cache sizes</a>
 
@@ -56,6 +61,55 @@ record is a question or an answer.
 So, for example, if you want to reach 95 % cache-hit rate for a cache that
 includes a question type in its cache key and also caches questions separately
 from answers, you'll need to multiply the value from the statistic by 5 or 6.
+
+
+
+   ###  <a href="#recommended-buffers" id="recommended-buffers" name="recommended-buffers">`SO_RCVBUF` and `SO_SNDBUF` on Linux</a>
+
+On Linux OSs the values for these socket options coming from the configuration
+file (parameters [`network.so_rcvbuf`](#network-so_rcvbuf) and
+[`network.so_sndbuf`](#network-so_sndbuf)) is doubled, and the maximum and
+minimum values are controlled by the values in `/proc/`.  See `man 7 socket`:
+
+ >  `SO_RCVBUF`
+ >
+ >  \[…\]  The kernel doubles this value (to allow space for bookkeeping
+ >  overhead) when it is set using setsockopt(2), and this doubled value is
+ >  returned by getsockopt(2).  The  default value  is set by the
+ >  `/proc/sys/net/core/rmem_default` file, and the maximum allowed value is set
+ >  by the `/proc/sys/net/core/rmem_max` file.  The minimum (doubled) value for
+ >  this option is `256`.
+ >
+ >  \[…\]
+ >
+ >  `SO_SNDBUF`
+ >
+ >  \[…\]  The  default value  is set by the `/proc/sys/net/core/wmem_default`
+ >  file, and the maximum allowed value is set by the
+ >  `/proc/sys/net/core/wmem_max` file.  The minimum (doubled) value for this
+ >  option is `2048`.
+
+
+
+   ###  <a href="#recommended-connection_limit" id="recommended-connection_limit" name="recommended-connection_limit">Stream connection limit</a>
+
+Currently, there are the following recommendations for parameters
+[`ratelimit.connection_limit.stop`](#ratelimit-connection_limit-stop) and
+[`ratelimit.connection_limit.resume`](#ratelimit-connection_limit-resume):
+
+ *  `stop` should be about 25 % above the current maximum daily number of used
+    TCP sockets.  That is, if the instance currently has a maximum of 100 000
+    TCP sockets in use every day, `stop` should be set to about `125000`.
+
+ *  `resume` should be about 20 % above the current maximum daily number of used
+    TCP sockets.  That is, if the instance currently has a maximum of 100 000
+    TCP sockets in use every day, `resume` should be set to about `120000`.
+
+**NOTE:** The number of active stream-connections includes sockets that are
+in the process of accepting new connections but have not yet accepted one.  That
+means that `resume` should be greater than the number of bound addresses.
+
+These recommendations are to be revised based on the metrics.
 
 
 
@@ -137,6 +191,30 @@ For example, if `back_off_period` is `1m`, `back_off_count` is `10`, and
 by `ipv4-subnet_key_len`) that made 15 requests in one second or 6 requests
 (one above `rps`) every second for 10 seconds within one minute, the client is
 blocked for `back_off_duration`.
+
+   ###  <a href="#ratelimit-connection_limit" id="ratelimit-connection_limit" name="ratelimit-connection_limit">Stream connection limit</a>
+
+The `connection_limit` object has the following properties:
+
+ *  <a href="#ratelimit-connection_limit-enabled" id="ratelimit-connection_limit-enabled" name="ratelimit-connection_limit-enabled">`enabled`</a>:
+    Whether or not the stream-connection limit should be enforced.
+
+    **Example:** `true`.
+
+ *  <a href="#ratelimit-connection_limit-stop" id="ratelimit-connection_limit-stop" name="ratelimit-connection_limit-stop">`stop`</a>:
+    The point at which the limiter stops accepting new connections.  Once the
+    number of active connections reaches this limit, new connections wait for
+    the number to decrease to or below `resume`.
+
+    **Example:** `1000`.
+
+ *  <a href="#ratelimit-connection_limit-resume" id="ratelimit-connection_limit-resume" name="ratelimit-connection_limit-resume">`resume`</a>:
+    The point at which the limiter starts accepting new connections again after
+    reaching `stop`.
+
+    **Example:** `800`.
+
+See also [notes on these parameters](#recommended-connection_limit).
 
 [env-consul_allowlist_url]: environment.md#CONSUL_ALLOWLIST_URL
 
@@ -660,6 +738,39 @@ The items of the `filtering_groups` array have the following properties:
 
 
 
+##  <a href="#interface_listeners" id="interface_listeners" name="interface_listeners">Network interface listeners</a>
+
+**NOTE:** The network interface listening works only on Linux with
+`SO_BINDTODEVICE` support (2.0.30 and later) and properly setup IP routes.  See
+the [section on testing `SO_BINDTODEVICE` using Docker][dev-btd].
+
+The `interface_listeners` object has the following properties:
+
+ *  <a href="#ifl-channel_buffer_size" id="ifl-channel_buffer_size" name="ifl-channel_buffer_size">`channel_buffer_size`</a>:
+    The size of the buffers of the channels used to dispatch TCP connections and
+    UDP sessions.
+
+    **Example:** `1000`.
+
+ *  <a href="#ifl-list" id="ifl-list" name="ifl-list">`list`</a>:
+    The mapping of interface-listener IDs to their configuration.
+
+    **Property example:**
+
+    ```yaml
+    list:
+        'eth0_plain_dns':
+            interface: 'eth0'
+            port: 53
+        'eth0_plain_dns_secondary':
+            interface: 'eth0'
+            port: 5353
+    ```
+
+[dev-btd]: development.md#testing-bindtodevice
+
+
+
 ##  <a href="#server_groups" id="server_groups" name="server_groups">Server groups</a>
 
 The items of the `server_groups` array have the following properties:
@@ -829,9 +940,24 @@ The items of the `servers` array have the following properties:
     **Example:** `true`.
 
  *  <a href="#sg-s-*-bind_addresses" id="sg-s-*-bind_addresses" name="sg-s-*-bind_addresses">`bind_addresses`</a>:
-    The array of `ip:port` addresses to listen on.
+    The array of `ip:port` addresses to listen on.  If `bind_addresses` is set,
+    `bind_interfaces` (see below) should not be set.
 
     **Example:** `[127.0.0.1:53, 192.168.1.1:53]`.
+
+ *  <a href="#sg-s-*-bind_interfaces" id="sg-s-*-bind_interfaces" name="sg-s-*-bind_interfaces">`bind_interfaces`</a>:
+    The array of [interface listener](#ifl-list) data.  If `bind_interfaces` is
+    set, `bind_addresses` (see above) should not be set.
+
+    **Property example:**
+
+    ```yaml
+    'bind_interfaces':
+      - 'id': eth0_plain_dns'
+        'subnet': '172.17.0.0/16'
+      - 'id': eth0_plain_dns_secondary'
+        'subnet': '172.17.0.0/16'
+    ```
 
  *  <a href="#sg-s-*-dnscrypt" id="sg-s-*-dnscrypt" name="sg-s-*-dnscrypt">`dnscrypt`</a>:
     The optional DNSCrypt configuration object.  It has the following
@@ -883,6 +1009,28 @@ The `connectivity_check` object has the following properties:
     [`bind_addresses`](#sg-s-*-bind_addresses).
 
     **Example:** `[2001:4860:4860::8888]:53`.
+
+
+
+##  <a href="#network" id="network" name="network">Network settings</a>
+
+The `network` object has the following properties:
+
+ *  <a href="#network-so_rcvbuf" id="network-so_rcvbuf" name="network-so_rcvbuf">`so_rcvbuf`</a>:
+    The size of socket receive buffer (`SO_RCVBUF`), in bytes.  Default is zero,
+    which means use the default system settings.
+
+    See also [notes on these parameters](#recommended-buffers).
+
+    **Example:** `1048576`.
+
+ *  <a href="#network-so_sndbuf" id="network-so_sndbuf" name="network-so_sndbuf">`so_sndbuf`</a>:
+    The size of socket send buffer (`SO_SNDBUF`), in bytes.  Default is zero,
+    which means use the default system settings.
+
+    See also [notes on these parameters](#recommended-buffers).
+
+    **Example:** `1048576`.
 
 
 

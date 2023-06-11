@@ -87,6 +87,17 @@ In the `ADDITIONAL SECTION`, the following debug information is returned:
     ```none
     asn.adguard-dns.com.	10 CH	TXT	"1234"
     ```
+ 
+ *  <a href="#additional-subdivision" id="additional-subdivision" name="additional-subdivision">`subdivision`</a>:
+    User's location subdivision code.  This field could be empty even if user's
+    country code is present.  The full name is `subdivision.adguard-dns.com`.
+
+   **Example:**
+
+   ```none
+   country.adguard-dns.com.	10 CH	TXT	"US"
+   subdivision.adguard-dns.com. 10 CH	TXT	"CA"
+   ```
 
 The following debug records can have one of two prefixes: `req` or `resp`.  The
 prefix depends on whether the filtering was applied to the request or the

@@ -11,9 +11,11 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
 	"github.com/AdguardTeam/golibs/netutil"
@@ -22,7 +24,144 @@ import (
 
 // Interface Mocks
 //
-// Keep entities in this file in alphabetic order.
+// Keep entities within a module/package in alphabetic order.
+
+// Module std
+
+// Package net
+//
+// TODO(a.garipov): Move these to golibs?
+
+// type check
+var _ net.Conn = (*Conn)(nil)
+
+// Conn is the [net.Conn] for tests.
+type Conn struct {
+	OnClose            func() (err error)
+	OnLocalAddr        func() (laddr net.Addr)
+	OnRead             func(b []byte) (n int, err error)
+	OnRemoteAddr       func() (raddr net.Addr)
+	OnSetDeadline      func(t time.Time) (err error)
+	OnSetReadDeadline  func(t time.Time) (err error)
+	OnSetWriteDeadline func(t time.Time) (err error)
+	OnWrite            func(b []byte) (n int, err error)
+}
+
+// Close implements the [net.Conn] interface for *Conn.
+func (c *Conn) Close() (err error) {
+	return c.OnClose()
+}
+
+// LocalAddr implements the [net.Conn] interface for *Conn.
+func (c *Conn) LocalAddr() (laddr net.Addr) {
+	return c.OnLocalAddr()
+}
+
+// Read implements the [net.Conn] interface for *Conn.
+func (c *Conn) Read(b []byte) (n int, err error) {
+	return c.OnRead(b)
+}
+
+// RemoteAddr implements the [net.Conn] interface for *Conn.
+func (c *Conn) RemoteAddr() (raddr net.Addr) {
+	return c.OnRemoteAddr()
+}
+
+// SetDeadline implements the [net.Conn] interface for *Conn.
+func (c *Conn) SetDeadline(t time.Time) (err error) {
+	return c.OnSetDeadline(t)
+}
+
+// SetReadDeadline implements the [net.Conn] interface for *Conn.
+func (c *Conn) SetReadDeadline(t time.Time) (err error) {
+	return c.OnSetReadDeadline(t)
+}
+
+// SetWriteDeadline implements the [net.Conn] interface for *Conn.
+func (c *Conn) SetWriteDeadline(t time.Time) (err error) {
+	return c.OnSetWriteDeadline(t)
+}
+
+// Write implements the [net.Conn] interface for *Conn.
+func (c *Conn) Write(b []byte) (n int, err error) {
+	return c.OnWrite(b)
+}
+
+// type check
+var _ net.Listener = (*Listener)(nil)
+
+// Listener is a [net.Listener] for tests.
+type Listener struct {
+	OnAccept func() (c net.Conn, err error)
+	OnAddr   func() (addr net.Addr)
+	OnClose  func() (err error)
+}
+
+// Accept implements the [net.Listener] interface for *Listener.
+func (l *Listener) Accept() (c net.Conn, err error) {
+	return l.OnAccept()
+}
+
+// Addr implements the [net.Listener] interface for *Listener.
+func (l *Listener) Addr() (addr net.Addr) {
+	return l.OnAddr()
+}
+
+// Close implements the [net.Listener] interface for *Listener.
+func (l *Listener) Close() (err error) {
+	return l.OnClose()
+}
+
+// type check
+var _ net.PacketConn = (*PacketConn)(nil)
+
+// PacketConn is the [net.PacketConn] for tests.
+type PacketConn struct {
+	OnClose            func() (err error)
+	OnLocalAddr        func() (laddr net.Addr)
+	OnReadFrom         func(b []byte) (n int, addr net.Addr, err error)
+	OnSetDeadline      func(t time.Time) (err error)
+	OnSetReadDeadline  func(t time.Time) (err error)
+	OnSetWriteDeadline func(t time.Time) (err error)
+	OnWriteTo          func(b []byte, addr net.Addr) (n int, err error)
+}
+
+// Close implements the [net.PacketConn] interface for *PacketConn.
+func (c *PacketConn) Close() (err error) {
+	return c.OnClose()
+}
+
+// LocalAddr implements the [net.PacketConn] interface for *PacketConn.
+func (c *PacketConn) LocalAddr() (laddr net.Addr) {
+	return c.OnLocalAddr()
+}
+
+// ReadFrom implements the [net.PacketConn] interface for *PacketConn.
+func (c *PacketConn) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
+	return c.OnReadFrom(b)
+}
+
+// SetDeadline implements the [net.PacketConn] interface for *PacketConn.
+func (c *PacketConn) SetDeadline(t time.Time) (err error) {
+	return c.OnSetDeadline(t)
+}
+
+// SetReadDeadline implements the [net.PacketConn] interface for *PacketConn.
+func (c *PacketConn) SetReadDeadline(t time.Time) (err error) {
+	return c.OnSetReadDeadline(t)
+}
+
+// SetWriteDeadline implements the [net.PacketConn] interface for *PacketConn.
+func (c *PacketConn) SetWriteDeadline(t time.Time) (err error) {
+	return c.OnSetWriteDeadline(t)
+}
+
+// WriteTo implements the [net.PacketConn] interface for *PacketConn.
+func (c *PacketConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
+	return c.OnWriteTo(b, addr)
+}
+
+// Module AdGuardDNS
 
 // type check
 var _ agd.ErrorCollector = (*ErrorCollector)(nil)
@@ -37,56 +176,6 @@ type ErrorCollector struct {
 // Collect implements the agd.ErrorCollector interface for *ErrorCollector.
 func (c *ErrorCollector) Collect(ctx context.Context, err error) {
 	c.OnCollect(ctx, err)
-}
-
-// type check
-var _ agd.ProfileDB = (*ProfileDB)(nil)
-
-// ProfileDB is an agd.ProfileDB for tests.
-type ProfileDB struct {
-	OnProfileByDeviceID func(
-		ctx context.Context,
-		id agd.DeviceID,
-	) (p *agd.Profile, d *agd.Device, err error)
-	OnProfileByIP func(
-		ctx context.Context,
-		ip netip.Addr,
-	) (p *agd.Profile, d *agd.Device, err error)
-}
-
-// ProfileByDeviceID implements the agd.ProfileDB interface for *ProfileDB.
-func (db *ProfileDB) ProfileByDeviceID(
-	ctx context.Context,
-	id agd.DeviceID,
-) (p *agd.Profile, d *agd.Device, err error) {
-	return db.OnProfileByDeviceID(ctx, id)
-}
-
-// ProfileByIP implements the agd.ProfileDB interface for *ProfileDB.
-func (db *ProfileDB) ProfileByIP(
-	ctx context.Context,
-	ip netip.Addr,
-) (p *agd.Profile, d *agd.Device, err error) {
-	return db.OnProfileByIP(ctx, ip)
-}
-
-// type check
-var _ agd.ProfileStorage = (*ProfileStorage)(nil)
-
-// ProfileStorage is a agd.ProfileStorage for tests.
-type ProfileStorage struct {
-	OnProfiles func(
-		ctx context.Context,
-		req *agd.PSProfilesRequest,
-	) (resp *agd.PSProfilesResponse, err error)
-}
-
-// Profiles implements the agd.ProfileStorage interface for *ProfileStorage.
-func (ds *ProfileStorage) Profiles(
-	ctx context.Context,
-	req *agd.PSProfilesRequest,
-) (resp *agd.PSProfilesResponse, err error) {
-	return ds.OnProfiles(ctx, req)
 }
 
 // type check
@@ -206,7 +295,7 @@ func (db *DNSDB) Record(ctx context.Context, resp *dns.Msg, ri *agd.RequestInfo)
 // type check
 var _ filter.Interface = (*Filter)(nil)
 
-// Filter is a filter.Interface for tests.
+// Filter is a [filter.Interface] for tests.
 type Filter struct {
 	OnFilterRequest func(
 		ctx context.Context,
@@ -218,10 +307,9 @@ type Filter struct {
 		resp *dns.Msg,
 		ri *agd.RequestInfo,
 	) (r filter.Result, err error)
-	OnClose func() (err error)
 }
 
-// FilterRequest implements the filter.Interface interface for *Filter.
+// FilterRequest implements the [filter.Interface] interface for *Filter.
 func (f *Filter) FilterRequest(
 	ctx context.Context,
 	req *dns.Msg,
@@ -230,7 +318,7 @@ func (f *Filter) FilterRequest(
 	return f.OnFilterRequest(ctx, req, ri)
 }
 
-// FilterResponse implements the filter.Interface interface for *Filter.
+// FilterResponse implements the [filter.Interface] interface for *Filter.
 func (f *Filter) FilterResponse(
 	ctx context.Context,
 	resp *dns.Msg,
@@ -239,21 +327,36 @@ func (f *Filter) FilterResponse(
 	return f.OnFilterResponse(ctx, resp, ri)
 }
 
-// Close implements the filter.Interface interface for *Filter.
-func (f *Filter) Close() (err error) {
-	return f.OnClose()
+// type check
+var _ filter.HashMatcher = (*HashMatcher)(nil)
+
+// HashMatcher is a [filter.HashMatcher] for tests.
+type HashMatcher struct {
+	OnMatchByPrefix func(
+		ctx context.Context,
+		host string,
+	) (hashes []string, matched bool, err error)
+}
+
+// MatchByPrefix implements the [filter.HashMatcher] interface for *HashMatcher.
+func (m *HashMatcher) MatchByPrefix(
+	ctx context.Context,
+	host string,
+) (hashes []string, matched bool, err error) {
+	return m.OnMatchByPrefix(ctx, host)
 }
 
 // type check
 var _ filter.Storage = (*FilterStorage)(nil)
 
-// FilterStorage is an filter.Storage for tests.
+// FilterStorage is a [filter.Storage] for tests.
 type FilterStorage struct {
 	OnFilterFromContext func(ctx context.Context, ri *agd.RequestInfo) (f filter.Interface)
 	OnHasListID         func(id agd.FilterListID) (ok bool)
 }
 
-// FilterFromContext implements the filter.Storage interface for *FilterStorage.
+// FilterFromContext implements the [filter.Storage] interface for
+// *FilterStorage.
 func (s *FilterStorage) FilterFromContext(
 	ctx context.Context,
 	ri *agd.RequestInfo,
@@ -261,7 +364,7 @@ func (s *FilterStorage) FilterFromContext(
 	return s.OnFilterFromContext(ctx, ri)
 }
 
-// HasListID implements the filter.Storage interface for *FilterStorage.
+// HasListID implements the [filter.Storage] interface for *FilterStorage.
 func (s *FilterStorage) HasListID(id agd.FilterListID) (ok bool) {
 	return s.OnHasListID(id)
 }
@@ -295,6 +398,73 @@ func (g *GeoIP) Data(host string, ip netip.Addr) (l *agd.Location, err error) {
 	return g.OnData(host, ip)
 }
 
+// Package profiledb
+
+// type check
+var _ profiledb.Interface = (*ProfileDB)(nil)
+
+// ProfileDB is a [profiledb.Interface] for tests.
+type ProfileDB struct {
+	OnProfileByDeviceID func(
+		ctx context.Context,
+		id agd.DeviceID,
+	) (p *agd.Profile, d *agd.Device, err error)
+	OnProfileByDedicatedIP func(
+		ctx context.Context,
+		ip netip.Addr,
+	) (p *agd.Profile, d *agd.Device, err error)
+	OnProfileByLinkedIP func(
+		ctx context.Context,
+		ip netip.Addr,
+	) (p *agd.Profile, d *agd.Device, err error)
+}
+
+// ProfileByDeviceID implements the [profiledb.Interface] interface for
+// *ProfileDB.
+func (db *ProfileDB) ProfileByDeviceID(
+	ctx context.Context,
+	id agd.DeviceID,
+) (p *agd.Profile, d *agd.Device, err error) {
+	return db.OnProfileByDeviceID(ctx, id)
+}
+
+// ProfileByDedicatedIP implements the [profiledb.Interface] interface for
+// *ProfileDB.
+func (db *ProfileDB) ProfileByDedicatedIP(
+	ctx context.Context,
+	ip netip.Addr,
+) (p *agd.Profile, d *agd.Device, err error) {
+	return db.OnProfileByDedicatedIP(ctx, ip)
+}
+
+// ProfileByLinkedIP implements the [profiledb.Interface] interface for
+// *ProfileDB.
+func (db *ProfileDB) ProfileByLinkedIP(
+	ctx context.Context,
+	ip netip.Addr,
+) (p *agd.Profile, d *agd.Device, err error) {
+	return db.OnProfileByLinkedIP(ctx, ip)
+}
+
+// type check
+var _ profiledb.Storage = (*ProfileStorage)(nil)
+
+// ProfileStorage is a profiledb.Storage for tests.
+type ProfileStorage struct {
+	OnProfiles func(
+		ctx context.Context,
+		req *profiledb.StorageRequest,
+	) (resp *profiledb.StorageResponse, err error)
+}
+
+// Profiles implements the [profiledb.Storage] interface for *ProfileStorage.
+func (s *ProfileStorage) Profiles(
+	ctx context.Context,
+	req *profiledb.StorageRequest,
+) (resp *profiledb.StorageResponse, err error) {
+	return s.OnProfiles(ctx, req)
+}
+
 // Package querylog
 
 // type check
@@ -326,6 +496,39 @@ func (s *RuleStat) Collect(ctx context.Context, id agd.FilterListID, text agd.Fi
 }
 
 // Module dnsserver
+
+// Package netext
+
+var _ netext.ListenConfig = (*ListenConfig)(nil)
+
+// ListenConfig is a [netext.ListenConfig] for tests.
+type ListenConfig struct {
+	OnListen       func(ctx context.Context, network, address string) (l net.Listener, err error)
+	OnListenPacket func(
+		ctx context.Context,
+		network string,
+		address string,
+	) (conn net.PacketConn, err error)
+}
+
+// Listen implements the [netext.ListenConfig] interface for *ListenConfig.
+func (c *ListenConfig) Listen(
+	ctx context.Context,
+	network string,
+	address string,
+) (l net.Listener, err error) {
+	return c.OnListen(ctx, network, address)
+}
+
+// ListenPacket implements the [netext.ListenConfig] interface for
+// *ListenConfig.
+func (c *ListenConfig) ListenPacket(
+	ctx context.Context,
+	network string,
+	address string,
+) (conn net.PacketConn, err error) {
+	return c.OnListenPacket(ctx, network, address)
+}
 
 // Package ratelimit
 

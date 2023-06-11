@@ -31,16 +31,23 @@ func writeFilteredResp(
 	case *filter.ResultAllowed:
 		err = rw.WriteMsg(ctx, req, resp)
 		if err != nil {
-			err = fmt.Errorf("writing allowed response: %w", err)
+			err = fmt.Errorf("writing response to allowed request: %w", err)
 		} else {
 			written = resp
 		}
 	case *filter.ResultModified:
-		err = rw.WriteMsg(ctx, req, reqRes.Msg)
+		if reqRes.Msg.Response {
+			// Only use the request filtering result in case it's already a
+			// response.  Otherwise, it's a CNAME rewrite result, which isn't
+			// filtered after resolving.
+			resp = reqRes.Msg
+		}
+
+		err = rw.WriteMsg(ctx, req, resp)
 		if err != nil {
-			err = fmt.Errorf("writing modified response: %w", err)
+			err = fmt.Errorf("writing response to modified request: %w", err)
 		} else {
-			written = reqRes.Msg
+			written = resp
 		}
 	default:
 		// Consider unhandled sum type members as unrecoverable programmer

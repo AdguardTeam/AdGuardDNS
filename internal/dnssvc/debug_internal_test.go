@@ -26,7 +26,7 @@ func newTXTExtra(strs [][2]string) (extra []dns.RR) {
 				Name:   v[0],
 				Rrtype: dns.TypeTXT,
 				Class:  dns.ClassCHAOS,
-				Ttl:    uint32(agdtest.FilteredResponseTTL.Seconds()),
+				Ttl:    agdtest.FilteredResponseTTLSec,
 			},
 			Txt: []string{v[1]},
 		})
@@ -47,6 +47,7 @@ func TestService_writeDebugResponse(t *testing.T) {
 		blockRule = "||example.com^"
 	)
 
+	clientIPStr := testClientIP.String()
 	testCases := []struct {
 		name      string
 		ri        *agd.RequestInfo
@@ -59,7 +60,7 @@ func TestService_writeDebugResponse(t *testing.T) {
 		reqRes:  nil,
 		respRes: nil,
 		wantExtra: newTXTExtra([][2]string{
-			{"client-ip.adguard-dns.com.", "1.2.3.4"},
+			{"client-ip.adguard-dns.com.", clientIPStr},
 			{"resp.res-type.adguard-dns.com.", "normal"},
 		}),
 	}, {
@@ -68,7 +69,7 @@ func TestService_writeDebugResponse(t *testing.T) {
 		reqRes:  &filter.ResultBlocked{List: fltListID1, Rule: blockRule},
 		respRes: nil,
 		wantExtra: newTXTExtra([][2]string{
-			{"client-ip.adguard-dns.com.", "1.2.3.4"},
+			{"client-ip.adguard-dns.com.", clientIPStr},
 			{"req.res-type.adguard-dns.com.", "blocked"},
 			{"req.rule.adguard-dns.com.", "||example.com^"},
 			{"req.rule-list-id.adguard-dns.com.", "fl1"},
@@ -79,7 +80,7 @@ func TestService_writeDebugResponse(t *testing.T) {
 		reqRes:  nil,
 		respRes: &filter.ResultBlocked{List: fltListID2, Rule: blockRule},
 		wantExtra: newTXTExtra([][2]string{
-			{"client-ip.adguard-dns.com.", "1.2.3.4"},
+			{"client-ip.adguard-dns.com.", clientIPStr},
 			{"resp.res-type.adguard-dns.com.", "blocked"},
 			{"resp.rule.adguard-dns.com.", "||example.com^"},
 			{"resp.rule-list-id.adguard-dns.com.", "fl2"},
@@ -90,7 +91,7 @@ func TestService_writeDebugResponse(t *testing.T) {
 		reqRes:  &filter.ResultAllowed{},
 		respRes: nil,
 		wantExtra: newTXTExtra([][2]string{
-			{"client-ip.adguard-dns.com.", "1.2.3.4"},
+			{"client-ip.adguard-dns.com.", clientIPStr},
 			{"req.res-type.adguard-dns.com.", "allowed"},
 			{"req.rule.adguard-dns.com.", ""},
 			{"req.rule-list-id.adguard-dns.com.", ""},
@@ -101,7 +102,7 @@ func TestService_writeDebugResponse(t *testing.T) {
 		reqRes:  nil,
 		respRes: &filter.ResultAllowed{},
 		wantExtra: newTXTExtra([][2]string{
-			{"client-ip.adguard-dns.com.", "1.2.3.4"},
+			{"client-ip.adguard-dns.com.", clientIPStr},
 			{"resp.res-type.adguard-dns.com.", "allowed"},
 			{"resp.rule.adguard-dns.com.", ""},
 			{"resp.rule-list-id.adguard-dns.com.", ""},
@@ -114,31 +115,31 @@ func TestService_writeDebugResponse(t *testing.T) {
 		},
 		respRes: nil,
 		wantExtra: newTXTExtra([][2]string{
-			{"client-ip.adguard-dns.com.", "1.2.3.4"},
+			{"client-ip.adguard-dns.com.", clientIPStr},
 			{"req.res-type.adguard-dns.com.", "modified"},
 			{"req.rule.adguard-dns.com.", "||example.com^$dnsrewrite=REFUSED"},
 			{"req.rule-list-id.adguard-dns.com.", ""},
 		}),
 	}, {
 		name:    "device",
-		ri:      &agd.RequestInfo{Device: &agd.Device{ID: "dev1234"}},
+		ri:      &agd.RequestInfo{Device: &agd.Device{ID: testDeviceID}},
 		reqRes:  nil,
 		respRes: nil,
 		wantExtra: newTXTExtra([][2]string{
-			{"client-ip.adguard-dns.com.", "1.2.3.4"},
-			{"device-id.adguard-dns.com.", "dev1234"},
+			{"client-ip.adguard-dns.com.", clientIPStr},
+			{"device-id.adguard-dns.com.", testDeviceID},
 			{"resp.res-type.adguard-dns.com.", "normal"},
 		}),
 	}, {
 		name: "profile",
 		ri: &agd.RequestInfo{
-			Profile: &agd.Profile{ID: agd.ProfileID("some-profile-id")},
+			Profile: &agd.Profile{ID: testProfileID},
 		},
 		reqRes:  nil,
 		respRes: nil,
 		wantExtra: newTXTExtra([][2]string{
-			{"client-ip.adguard-dns.com.", "1.2.3.4"},
-			{"profile-id.adguard-dns.com.", "some-profile-id"},
+			{"client-ip.adguard-dns.com.", clientIPStr},
+			{"profile-id.adguard-dns.com.", testProfileID},
 			{"resp.res-type.adguard-dns.com.", "normal"},
 		}),
 	}, {
@@ -147,9 +148,23 @@ func TestService_writeDebugResponse(t *testing.T) {
 		reqRes:  nil,
 		respRes: nil,
 		wantExtra: newTXTExtra([][2]string{
-			{"client-ip.adguard-dns.com.", "1.2.3.4"},
-			{"country.adguard-dns.com.", "AD"},
+			{"client-ip.adguard-dns.com.", clientIPStr},
+			{"country.adguard-dns.com.", string(agd.CountryAD)},
 			{"asn.adguard-dns.com.", "0"},
+			{"resp.res-type.adguard-dns.com.", "normal"},
+		}),
+	}, {
+		name: "location_subdivision",
+		ri: &agd.RequestInfo{
+			Location: &agd.Location{Country: agd.CountryAD, TopSubdivision: "CA"},
+		},
+		reqRes:  nil,
+		respRes: nil,
+		wantExtra: newTXTExtra([][2]string{
+			{"client-ip.adguard-dns.com.", clientIPStr},
+			{"country.adguard-dns.com.", string(agd.CountryAD)},
+			{"asn.adguard-dns.com.", "0"},
+			{"subdivision.adguard-dns.com.", "CA"},
 			{"resp.res-type.adguard-dns.com.", "normal"},
 		}),
 	}}

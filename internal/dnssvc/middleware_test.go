@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
@@ -22,46 +24,95 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestService_Wrap_withClient(t *testing.T) {
-	// Part 1.  Server Configuration
-	//
-	// Configure a server with fakes to make sure that the wrapped handler
-	// has all necessary entities and data in place.
-	//
-	// TODO(a.garipov): Put this thing into some kind of helper so that we
-	// could create several such tests.
+const (
+	// testProfID is the [agd.ProfileID] for tests.
+	testProfID agd.ProfileID = "prof1234"
 
-	const (
-		id        agd.ProfileID    = "prof1234"
-		devID     agd.DeviceID     = "dev1234"
-		fltListID agd.FilterListID = "flt1234"
-	)
+	// testDevID is the [agd.DeviceID] for tests.
+	testDevID agd.DeviceID = "dev1234"
+
+	// testFltListID is the [agd.FilterListID] for tests.
+	testFltListID agd.FilterListID = "flt1234"
+
+	// testSrvName is the [agd.ServerName] for tests.
+	testSrvName agd.ServerName = "test_server_dns_tls"
+
+	// testSrvGrpName is the [agd.ServerGroupName] for tests.
+	testSrvGrpName agd.ServerGroupName = "test_group"
+
+	// testDevIDWildcard is the wildcard domain for retrieving [agd.DeviceID] in
+	// tests.  Use [strings.ReplaceAll] to replace the "*" symbol with the
+	// actual [agd.DeviceID].
+	testDevIDWildcard string = "*.dns.example.com"
+)
+
+// testTimeout is the common timeout for tests.
+const testTimeout time.Duration = 1 * time.Second
+
+// newTestService creates a new [dnssvc.Service] for tests.  The service built
+// of stubs, that use the following data:
+//
+//   - A filtering group containing a filter with [testFltListID] and enabled
+//     rule lists.
+//   - A device with [testDevID] and enabled filtering.
+//   - A profile with [testProfID] with enabled filtering and query
+//     logging, containing the device.
+//   - GeoIP database always returning [agd.CountryAD], [agd.ContinentEU], and
+//     ASN of 42.
+//   - A server with [testSrvName] under group with [testSrvGrpName], matching
+//     the DeviceID with [testDevIDWildcard].
+//
+// Each stub also uses the corresponding channels to send the data it receives
+// from the service.  If the channel is [nil], the stub ignores it.  Each
+// sending to a channel wrapped with [testutil.RequireSend] using [testTimeout].
+//
+// It also uses the [dnsservertest.DefaultHandler] to create the DNS handler.
+func newTestService(
+	t testing.TB,
+	flt filter.Interface,
+	errCollCh chan<- error,
+	profileDBCh chan<- agd.DeviceID,
+	querylogCh chan<- *querylog.Entry,
+	geoIPCh chan<- string,
+	dnsDBCh chan<- *agd.RequestInfo,
+	ruleStatCh chan<- agd.FilterRuleText,
+) (svc *dnssvc.Service, srvAddr netip.AddrPort) {
+	t.Helper()
+
+	pt := testutil.PanicT{}
 
 	dev := &agd.Device{
-		ID:               devID,
+		ID:               testDevID,
 		FilteringEnabled: true,
 	}
 
 	prof := &agd.Profile{
-		ID:                  id,
-		Devices:             []*agd.Device{dev},
-		RuleListIDs:         []agd.FilterListID{fltListID},
-		FilteredResponseTTL: 10 * time.Second,
+		ID:                  testProfID,
+		DeviceIDs:           []agd.DeviceID{testDevID},
+		RuleListIDs:         []agd.FilterListID{testFltListID},
+		FilteredResponseTTL: agdtest.FilteredResponseTTL,
 		FilteringEnabled:    true,
 		QueryLogEnabled:     true,
 	}
 
-	dbDeviceIDs := make(chan agd.DeviceID, 1)
 	db := &agdtest.ProfileDB{
 		OnProfileByDeviceID: func(
 			_ context.Context,
 			id agd.DeviceID,
 		) (p *agd.Profile, d *agd.Device, err error) {
-			dbDeviceIDs <- id
+			if profileDBCh != nil {
+				testutil.RequireSend(pt, profileDBCh, id, testTimeout)
+			}
 
 			return prof, dev, nil
 		},
-		OnProfileByIP: func(
+		OnProfileByDedicatedIP: func(
+			_ context.Context,
+			_ netip.Addr,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic("not implemented")
+		},
+		OnProfileByLinkedIP: func(
 			ctx context.Context,
 			ip netip.Addr,
 		) (p *agd.Profile, d *agd.Device, err error) {
@@ -71,24 +122,19 @@ func TestService_Wrap_withClient(t *testing.T) {
 
 	// Make sure that any panics and errors within handlers are caught and
 	// that they fail the test by panicking.
-	errCh := make(chan error, 1)
-	go func() {
-		pt := testutil.PanicT{}
-
-		err, ok := <-errCh
-		if !ok {
-			return
-		}
-
-		require.NoError(pt, err)
-	}()
-
 	errColl := &agdtest.ErrorCollector{
 		OnCollect: func(_ context.Context, err error) {
-			errCh <- err
+			if errCollCh != nil {
+				testutil.RequireSend(pt, errCollCh, err, testTimeout)
+			}
 		},
 	}
 
+	loc := &agd.Location{
+		Country:   agd.CountryAD,
+		Continent: agd.ContinentEU,
+		ASN:       42,
+	}
 	geoIP := &agdtest.GeoIP{
 		OnSubnetByLocation: func(
 			_ agd.Country,
@@ -97,34 +143,13 @@ func TestService_Wrap_withClient(t *testing.T) {
 		) (n netip.Prefix, err error) {
 			panic("not implemented")
 		},
-		OnData: func(_ string, _ netip.Addr) (l *agd.Location, err error) {
-			return &agd.Location{
-				Country:   agd.CountryAD,
-				Continent: agd.ContinentEU,
-				ASN:       42,
-			}, nil
-		},
-	}
+		OnData: func(host string, _ netip.Addr) (l *agd.Location, err error) {
+			if geoIPCh != nil {
+				testutil.RequireSend(pt, geoIPCh, host, testTimeout)
+			}
 
-	fltDomainCh := make(chan string, 1)
-	flt := &agdtest.Filter{
-		OnFilterRequest: func(
-			_ context.Context,
-			req *dns.Msg,
-			_ *agd.RequestInfo,
-		) (r filter.Result, err error) {
-			fltDomainCh <- req.Question[0].Name
-
-			return nil, nil
+			return loc, nil
 		},
-		OnFilterResponse: func(
-			_ context.Context,
-			_ *dns.Msg,
-			_ *agd.RequestInfo,
-		) (r filter.Result, err error) {
-			return nil, nil
-		},
-		OnClose: func() (err error) { panic("not implemented") },
 	}
 
 	fltStrg := &agdtest.FilterStorage{
@@ -134,23 +159,21 @@ func TestService_Wrap_withClient(t *testing.T) {
 		OnHasListID: func(_ agd.FilterListID) (ok bool) { panic("not implemented") },
 	}
 
-	logDomainCh := make(chan string, 1)
-	logQTypeCh := make(chan dnsmsg.RRType, 1)
 	var ql querylog.Interface = &agdtest.QueryLog{
 		OnWrite: func(_ context.Context, e *querylog.Entry) (err error) {
-			logDomainCh <- e.DomainFQDN
-			logQTypeCh <- e.RequestType
+			if querylogCh != nil {
+				testutil.RequireSend(pt, querylogCh, e, testTimeout)
+			}
 
 			return nil
 		},
 	}
 
-	srvAddr := netip.MustParseAddrPort("94.149.14.14:853")
-	srvName := agd.ServerName("test_server_dns_tls")
+	srvAddr = netip.MustParseAddrPort("94.149.14.14:853")
 	srvs := []*agd.Server{{
 		DNSCrypt: nil,
 		TLS:      nil,
-		Name:     srvName,
+		Name:     testSrvName,
 		BindData: []*agd.ServerBindData{{
 			AddrPort: srvAddr,
 		}},
@@ -160,20 +183,6 @@ func TestService_Wrap_withClient(t *testing.T) {
 	tl := newTestListener()
 	tl.onStart = func(_ context.Context) (err error) { return nil }
 	tl.onShutdown = func(_ context.Context) (err error) { return nil }
-
-	var h dnsserver.Handler = dnsserver.HandlerFunc(func(
-		ctx context.Context,
-		rw dnsserver.ResponseWriter,
-		r *dns.Msg,
-	) (err error) {
-		resp := &dns.Msg{}
-		resp.SetReply(r)
-		resp.Answer = append(resp.Answer, &dns.A{
-			A: net.IP{1, 2, 3, 4},
-		})
-
-		return rw.WriteMsg(ctx, r, resp)
-	})
 
 	dnsCk := &agdtest.DNSCheck{
 		OnCheck: func(
@@ -185,17 +194,19 @@ func TestService_Wrap_withClient(t *testing.T) {
 		},
 	}
 
-	numDNSDBReq := 0
 	dnsDB := &agdtest.DNSDB{
-		OnRecord: func(_ context.Context, _ *dns.Msg, _ *agd.RequestInfo) {
-			numDNSDBReq++
+		OnRecord: func(_ context.Context, _ *dns.Msg, ri *agd.RequestInfo) {
+			if dnsDBCh != nil {
+				testutil.RequireSend(pt, dnsDBCh, ri, testTimeout)
+			}
 		},
 	}
 
-	numRuleStatReq := 0
 	ruleStat := &agdtest.RuleStat{
-		OnCollect: func(_ context.Context, _ agd.FilterListID, _ agd.FilterRuleText) {
-			numRuleStatReq++
+		OnCollect: func(_ context.Context, _ agd.FilterListID, text agd.FilterRuleText) {
+			if ruleStatCh != nil {
+				testutil.RequireSend(pt, ruleStatCh, text, testTimeout)
+			}
 		},
 	}
 
@@ -207,11 +218,13 @@ func TestService_Wrap_withClient(t *testing.T) {
 		) (drop, allowlisted bool, err error) {
 			return true, false, nil
 		},
-		OnCountResponses: func(_ context.Context, _ *dns.Msg, _ netip.Addr) {},
+		OnCountResponses: func(_ context.Context, _ *dns.Msg, _ netip.Addr) {
+			panic("not implemented")
+		},
 	}
 
-	fltGrpID := agd.FilteringGroupID("1234")
-	srvGrpName := agd.ServerGroupName("test_group")
+	testFltGrpID := agd.FilteringGroupID("1234")
+
 	c := &dnssvc.Config{
 		Messages: agdtest.NewConstructor(),
 		BillStat: &agdtest.BillStatRecorder{
@@ -234,31 +247,25 @@ func TestService_Wrap_withClient(t *testing.T) {
 		GeoIP:         geoIP,
 		QueryLog:      ql,
 		RuleStat:      ruleStat,
-		Upstream: &agd.Upstream{
-			Server: netip.MustParseAddrPort("8.8.8.8:53"),
-			FallbackServers: []netip.AddrPort{
-				netip.MustParseAddrPort("1.1.1.1:53"),
-			},
-		},
-		NewListener: newTestListenerFunc(tl),
-		Handler:     h,
-		RateLimit:   rl,
+		NewListener:   newTestListenerFunc(tl),
+		Handler:       dnsservertest.DefaultHandler(),
+		RateLimit:     rl,
 		FilteringGroups: map[agd.FilteringGroupID]*agd.FilteringGroup{
-			fltGrpID: {
-				ID:               fltGrpID,
-				RuleListIDs:      []agd.FilterListID{fltListID},
+			testFltGrpID: {
+				ID:               testFltGrpID,
+				RuleListIDs:      []agd.FilterListID{testFltListID},
 				RuleListsEnabled: true,
 			},
 		},
 		ServerGroups: []*agd.ServerGroup{{
 			TLS: &agd.TLS{
-				DeviceIDWildcards: []string{"*.dns.example.com"},
+				DeviceIDWildcards: []string{testDevIDWildcard},
 			},
 			DDR: &agd.DDR{
 				Enabled: true,
 			},
-			Name:           srvGrpName,
-			FilteringGroup: fltGrpID,
+			Name:           testSrvGrpName,
+			FilteringGroup: testFltGrpID,
 			Servers:        srvs,
 		}},
 	}
@@ -266,56 +273,190 @@ func TestService_Wrap_withClient(t *testing.T) {
 	svc, err := dnssvc.New(c)
 	require.NoError(t, err)
 	require.NotNil(t, svc)
+
+	err = svc.Start()
+	require.NoError(t, err)
 	testutil.CleanupAndRequireSuccess(t, func() (err error) {
 		return svc.Shutdown(context.Background())
 	})
 
-	err = svc.Start()
-	require.NoError(t, err)
+	return svc, srvAddr
+}
 
-	// Part 2.  Testing Proper
-	//
-	// Create a context, a request, and a simple handler.  Wrap the handler
-	// and make sure that all processing went as needed.
+func TestService_Wrap(t *testing.T) {
+	profileDBCh := make(chan agd.DeviceID, 1)
+	querylogCh := make(chan *querylog.Entry, 1)
+	geoIPCh := make(chan string, 2)
+	dnsDBCh := make(chan *agd.RequestInfo, 1)
+	ruleStatCh := make(chan agd.FilterRuleText, 1)
 
-	domain := "example.org."
+	errCollCh := make(chan error, 1)
+	go func() {
+		for err := range errCollCh {
+			require.NoError(t, err)
+		}
+	}()
+
+	const domain = "example.org"
+
+	domainFQDN := dns.Fqdn(domain)
+
 	reqType := dns.TypeA
-	req := &dns.Msg{
-		MsgHdr: dns.MsgHdr{
-			Id:               dns.Id(),
-			RecursionDesired: true,
-		},
-		Question: []dns.Question{{
-			Name:   domain,
-			Qtype:  reqType,
-			Qclass: dns.ClassINET,
-		}},
-	}
+	req := dnsservertest.CreateMessage(domain, reqType)
+
+	clientAddr := &net.TCPAddr{IP: net.IP{1, 2, 3, 4}, Port: 12345}
 
 	ctx := context.Background()
 	ctx = dnsserver.ContextWithClientInfo(ctx, dnsserver.ClientInfo{
-		TLSServerName: string(devID) + ".dns.example.com",
+		TLSServerName: strings.ReplaceAll(testDevIDWildcard, "*", string(testDevID)),
 	})
 	ctx = dnsserver.ContextWithServerInfo(ctx, dnsserver.ServerInfo{
 		Proto: agd.ProtoDoT,
 	})
-	ctx = dnsserver.ContextWithStartTime(ctx, time.Now())
 
-	clientAddr := &net.TCPAddr{IP: net.IP{1, 2, 3, 4}, Port: 12345}
-	rw := &testResponseWriter{
-		onLocalAddr:  func() (a net.Addr) { return net.TCPAddrFromAddrPort(srvAddr) },
-		onRemoteAddr: func() (a net.Addr) { return clientAddr },
-		onWriteMsg: func(_ context.Context, _, _ *dns.Msg) (err error) {
-			return nil
-		},
-	}
-	err = svc.Handle(ctx, srvGrpName, srvName, rw, req)
-	require.NoError(t, err)
+	t.Run("simple_success", func(t *testing.T) {
+		noMatch := func(
+			_ context.Context,
+			m *dns.Msg,
+			_ *agd.RequestInfo,
+		) (r filter.Result, err error) {
+			pt := testutil.PanicT{}
+			require.NotEmpty(pt, m.Question)
+			require.Equal(pt, domainFQDN, m.Question[0].Name)
 
-	assert.Equal(t, devID, <-dbDeviceIDs)
-	assert.Equal(t, domain, <-fltDomainCh)
-	assert.Equal(t, domain, <-logDomainCh)
-	assert.Equal(t, reqType, <-logQTypeCh)
-	assert.Equal(t, 1, numDNSDBReq)
-	assert.Equal(t, 1, numRuleStatReq)
+			return nil, nil
+		}
+
+		flt := &agdtest.Filter{
+			OnFilterRequest:  noMatch,
+			OnFilterResponse: noMatch,
+		}
+
+		svc, srvAddr := newTestService(
+			t,
+			flt,
+			errCollCh,
+			profileDBCh,
+			querylogCh,
+			geoIPCh,
+			dnsDBCh,
+			ruleStatCh,
+		)
+
+		rw := dnsserver.NewNonWriterResponseWriter(
+			net.TCPAddrFromAddrPort(srvAddr),
+			clientAddr,
+		)
+
+		ctx = dnsserver.ContextWithStartTime(ctx, time.Now())
+
+		err := svc.Handle(ctx, testSrvGrpName, testSrvName, rw, req)
+		require.NoError(t, err)
+
+		resp := rw.Msg()
+		dnsservertest.RequireResponse(t, req, resp, 1, dns.RcodeSuccess, false)
+
+		assert.Equal(t, testDevID, <-profileDBCh)
+
+		logEntry := <-querylogCh
+		assert.Equal(t, domainFQDN, logEntry.DomainFQDN)
+		assert.Equal(t, reqType, logEntry.RequestType)
+
+		assert.Equal(t, "", <-geoIPCh)
+		assert.Equal(t, domain, <-geoIPCh)
+
+		dnsDBReqInfo := <-dnsDBCh
+		assert.NotNil(t, dnsDBReqInfo)
+		assert.Equal(t, agd.FilterRuleText(""), <-ruleStatCh)
+	})
+
+	t.Run("request_cname", func(t *testing.T) {
+		const (
+			cname                        = "cname.example.org"
+			cnameRule agd.FilterRuleText = "||" + domain + "^$dnsrewrite=" + cname
+		)
+
+		cnameFQDN := dns.Fqdn(cname)
+
+		flt := &agdtest.Filter{
+			OnFilterRequest: func(
+				_ context.Context,
+				m *dns.Msg,
+				_ *agd.RequestInfo,
+			) (r filter.Result, err error) {
+				// Pretend a CNAME rewrite matched the request.
+				mod := dnsmsg.Clone(m)
+				mod.Question[0].Name = cnameFQDN
+
+				return &filter.ResultModified{
+					Msg:  mod,
+					List: testFltListID,
+					Rule: cnameRule,
+				}, nil
+			},
+			OnFilterResponse: func(
+				_ context.Context,
+				_ *dns.Msg,
+				_ *agd.RequestInfo,
+			) (filter.Result, error) {
+				panic("not implemented")
+			},
+		}
+
+		svc, srvAddr := newTestService(
+			t,
+			flt,
+			errCollCh,
+			profileDBCh,
+			querylogCh,
+			geoIPCh,
+			dnsDBCh,
+			ruleStatCh,
+		)
+
+		rw := dnsserver.NewNonWriterResponseWriter(
+			net.TCPAddrFromAddrPort(srvAddr),
+			clientAddr,
+		)
+
+		ctx = dnsserver.ContextWithStartTime(ctx, time.Now())
+
+		err := svc.Handle(ctx, testSrvGrpName, testSrvName, rw, req)
+		require.NoError(t, err)
+
+		resp := rw.Msg()
+		require.NotNil(t, resp)
+		require.Len(t, resp.Answer, 2)
+
+		assert.Equal(t, []dns.RR{&dns.CNAME{
+			Hdr: dns.RR_Header{
+				Name:   domainFQDN,
+				Rrtype: dns.TypeCNAME,
+				Class:  dns.ClassINET,
+				Ttl:    uint32(agdtest.FilteredResponseTTL.Seconds()),
+			},
+			Target: cnameFQDN,
+		}, &dns.A{
+			Hdr: dns.RR_Header{
+				Name:   cnameFQDN,
+				Rrtype: dns.TypeA,
+				Class:  dns.ClassINET,
+				Ttl:    uint32(dnsservertest.AnswerTTL.Seconds()),
+			},
+			A: netutil.IPv4Localhost().AsSlice(),
+		}}, resp.Answer)
+
+		assert.Equal(t, testDevID, <-profileDBCh)
+
+		logEntry := <-querylogCh
+		assert.Equal(t, domainFQDN, logEntry.DomainFQDN)
+		assert.Equal(t, reqType, logEntry.RequestType)
+
+		assert.Equal(t, "", <-geoIPCh)
+		assert.Equal(t, cname, <-geoIPCh)
+
+		dnsDBReqInfo := <-dnsDBCh
+		assert.Equal(t, cname, dnsDBReqInfo.Host)
+		assert.Equal(t, cnameRule, <-ruleStatCh)
+	})
 }

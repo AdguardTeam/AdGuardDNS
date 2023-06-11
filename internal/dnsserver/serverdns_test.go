@@ -411,6 +411,8 @@ func TestServerDNS_integration_udpMsgIgnore(t *testing.T) {
 }
 
 func TestServerDNS_integration_tcpMsgIgnore(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name          string
 		buf           []byte
@@ -459,7 +461,10 @@ func TestServerDNS_integration_tcpMsgIgnore(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			_, addr := dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
 			conn, err := net.Dial("tcp", addr)
 			require.Nil(t, err)

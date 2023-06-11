@@ -11,6 +11,117 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
 
 
+##  AGDNS-1498 / Build 527
+
+ *  Object `ratelimit` has a new property, `connection_limit`, which allows
+    setting stream-connection limits.  Example configuration:
+
+    ```yaml
+    ratelimit:
+        # …
+        connection_limit:
+            enabled: true
+            stop: 1000
+            resume: 800
+    ```
+
+
+
+##  AGDNS-1383 / Build 525
+
+ *  The environment variable `PROFILES_CACHE_PATH` is now sensitive to the file
+    extension.  Use `.json` for the previous behavior of encoding the cache into
+    a JSON file or `.pb` for encoding it into protobuf.  Other extensions are
+    invalid.
+
+
+
+##  AGDNS-1381 / Build 518
+
+ *  The new object `network` has been added:
+
+    ```yaml
+    network:
+        so_sndbuf: 0
+        so_rcvbuf: 0
+    ```
+
+
+
+##  AGDNS-1383 / Build 515
+
+ *  The environment variable `PROFILES_CACHE_PATH` now has a new special value,
+    `none`, which disables profile caching entirely.  The default value of
+    `./profilecache.json` has not been changed.
+
+
+
+##  AGDNS-1479 / Build 513
+
+ *  The profile-cache version has been changed to `6`.  Versions of the profile
+    cache from `3` to `5` are invalid and should not be reused.
+
+
+
+##  AGDNS-1473 / Build 506
+
+ *  The profile-cache version has been changed to `5`.
+
+
+
+##  AGDNS-1247 / Build 484
+
+ *  The new object `interface_listeners` has been added:
+
+    ```yaml
+    interface_listeners:
+        channel_buffer_size: 1000
+        list:
+            eth0_plain_dns:
+                interface: 'eth0'
+                port': 53
+            eth0_plain_dns_secondary:
+                interface: 'eth0'
+                port': 5353
+    ```
+
+ *  The objects within the `server_groups.*.servers` array have a new optional
+    property, `bind_interfaces`:
+
+    ```yaml
+    server_groups:
+    -
+        # …
+        servers:
+          - name: 'default_dns'
+            # …
+            bind_interfaces:
+              - id: 'eth0_plain_dns'
+                subnet: '127.0.0.0/8'
+              - id: 'eth0_plain_dns_secondary'
+                subnet: '127.0.0.0/8'
+    ```
+
+    It is mutually exclusive with the current `bind_addresses` field.
+
+
+
+##  AGDNS-1406 / Build 480
+
+ *  The default behavior of the environment variable `DNSDB_PATH` has been
+    changed.  Previously, if the variable was unset then the default value,
+    `./dnsdb.bolt`, was used, but if it was an empty string, DNSDB was disabled.
+    Now both unset and empty value disable DNSDB, which is consistent with the
+    documentation.
+
+    This means that DNSDB is disabled by default.
+
+ *  The default configuration file path has been changed from `config.yml` to
+    <code>./config.y<strong>a</strong>ml</code> for consistency with other
+    services.
+
+
+
 ##  AGDNS-916 / Build 456
 
  *  `ratelimit` now defines rate of requests per second for IPv4 and IPv6
@@ -181,7 +292,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
 ##  AGDNS-842 / Build 372
 
- *  The new environment variable `PROFILES_CACHE_PATH` has been added.  Its 
+ *  The new environment variable `PROFILES_CACHE_PATH` has been added.  Its
     default value is `./profilecache.json`.  Adjust the value, if necessary.
 
 
@@ -189,7 +300,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 ##  AGDNS-891 / Build 371
 
  *  The property `server` of `upstream` object has been changed.  Now it
-    is a URL optionally starting with `tcp://` or `udp://`, and then an address 
+    is a URL optionally starting with `tcp://` or `udp://`, and then an address
     in `ip:port` format.
 
     ```yaml

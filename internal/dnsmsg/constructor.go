@@ -195,12 +195,12 @@ func (c *Constructor) newHdr(req *dns.Msg, rrType RRType) (hdr dns.RR_Header) {
 }
 
 // newHdrWithClass returns a new resource record header with specified class.
-func (c *Constructor) newHdrWithClass(req *dns.Msg, rrType RRType, class dns.Class) (hdr dns.RR_Header) {
+func (c *Constructor) newHdrWithClass(req *dns.Msg, rrType RRType, cl dns.Class) (h dns.RR_Header) {
 	return dns.RR_Header{
 		Name:   req.Question[0].Name,
 		Rrtype: rrType,
 		Ttl:    uint32(c.fltRespTTL.Seconds()),
-		Class:  uint16(class),
+		Class:  uint16(cl),
 	}
 }
 

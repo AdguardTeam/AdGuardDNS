@@ -1,5 +1,6 @@
 // Package metrics contains definitions of most of the prometheus metrics
 // that we use in AdGuard DNS.
+//
 // TODO(ameshkov): consider not using promauto.
 package metrics
 
@@ -16,6 +17,7 @@ const (
 	subsystemApplication = "app"
 	subsystemBackend     = "backend"
 	subsystemBillStat    = "billstat"
+	subsystemConnLimiter = "connlimiter"
 	subsystemConsul      = "consul"
 	subsystemDNSCheck    = "dnscheck"
 	subsystemDNSDB       = "dnsdb"
@@ -30,8 +32,8 @@ const (
 	subsystemWebSvc      = "websvc"
 )
 
-// SetUpGauge signals that the server has been started.
-// We're using a function here to avoid circular dependencies.
+// SetUpGauge signals that the server has been started.  Use a function here to
+// avoid circular dependencies.
 func SetUpGauge(version, buildtime, branch, revision, goversion string) {
 	upGauge := promauto.NewGauge(
 		prometheus.GaugeOpts{

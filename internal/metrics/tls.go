@@ -93,6 +93,8 @@ func TLSMetricsAfterHandshake(
 			tlsVersionToString(state.Version),
 			BoolString(state.DidResume),
 			tls.CipherSuiteName(state.CipherSuite),
+			// Don't validate the negotiated protocol since it's expected to
+			// contain only ASCII after negotiation itself.
 			state.NegotiatedProtocol,
 			sLabel,
 		).Inc()
@@ -112,12 +114,17 @@ func TLSMetricsBeforeHandshake(proto string) (f func(*tls.ClientHelloInfo) (*tls
 			}
 		}
 
+		supProtos := make([]string, len(info.SupportedProtos))
+		for i := range info.SupportedProtos {
+			supProtos[i] = strings.ToValidUTF8(info.SupportedProtos[i], "")
+		}
+
 		// Stick to using WithLabelValues instead of With in order to avoid
 		// extra allocations on prometheus.Labels.  The labels order is VERY
 		// important here.
 		TLSHandshakeAttemptsTotal.WithLabelValues(
 			proto,
-			strings.Join(info.SupportedProtos, ","),
+			strings.Join(supProtos, ","),
 			tlsVersionToString(maxVersion),
 		).Inc()
 
@@ -127,7 +134,6 @@ func TLSMetricsBeforeHandshake(proto string) (f func(*tls.ClientHelloInfo) (*tls
 
 // tlsVersionToString converts TLS version to string.
 func tlsVersionToString(ver uint16) (tlsVersion string) {
-	tlsVersion = "unknown"
 	switch ver {
 	case tls.VersionTLS13:
 		tlsVersion = "tls1.3"
@@ -137,7 +143,10 @@ func tlsVersionToString(ver uint16) (tlsVersion string) {
 		tlsVersion = "tls1.1"
 	case tls.VersionTLS10:
 		tlsVersion = "tls1.0"
+	default:
+		tlsVersion = "unknown"
 	}
+
 	return tlsVersion
 }
 
@@ -151,8 +160,8 @@ func serverNameToLabel(
 	srvCerts []tls.Certificate,
 ) (label string) {
 	if sni == "" {
-		// SNI is not provided, so the request is probably made on the
-		// IP address.
+		// SNI is not provided, so the request is probably made on the IP
+		// address.
 		return fmt.Sprintf("%s: other", srvName)
 	}
 

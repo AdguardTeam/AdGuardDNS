@@ -13,17 +13,50 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// defaultListenControl is used as a [net.ListenConfig.Control] function to set
-// the SO_REUSEPORT socket option on all sockets used by the DNS servers in this
-// package.
-func defaultListenControl(_, _ string, c syscall.RawConn) (err error) {
+// setSockOptFunc is a function that sets a socket option on fd.
+type setSockOptFunc func(fd int) (err error)
+
+// newSetSockOptFunc returns a socket-option function with the given parameters.
+func newSetSockOptFunc(name string, lvl, opt, val int) (o setSockOptFunc) {
+	return func(fd int) (err error) {
+		err = unix.SetsockoptInt(fd, lvl, opt, val)
+
+		return errors.Annotate(err, "setting %s: %w", name)
+	}
+}
+
+// listenControlWithSO is used as a [net.ListenConfig.Control] function to set
+// the SO_REUSEPORT, SO_SNDBUF, and SO_RCVBUF socket options on all sockets
+// used by the DNS servers in this package.  conf must not be nil.
+func listenControlWithSO(conf *ControlConfig, c syscall.RawConn) (err error) {
+	opts := []setSockOptFunc{
+		newSetSockOptFunc("SO_REUSEPORT", unix.SOL_SOCKET, unix.SO_REUSEPORT, 1),
+	}
+
+	if conf.SndBufSize > 0 {
+		opts = append(
+			opts,
+			newSetSockOptFunc("SO_SNDBUF", unix.SOL_SOCKET, unix.SO_SNDBUF, conf.SndBufSize),
+		)
+	}
+
+	if conf.RcvBufSize > 0 {
+		opts = append(
+			opts,
+			newSetSockOptFunc("SO_RCVBUF", unix.SOL_SOCKET, unix.SO_RCVBUF, conf.RcvBufSize),
+		)
+	}
+
 	var opErr error
 	err = c.Control(func(fd uintptr) {
-		opErr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEPORT, 1)
+		fdInt := int(fd)
+		for _, opt := range opts {
+			opErr = opt(fdInt)
+			if opErr != nil {
+				return
+			}
+		}
 	})
-	if err != nil {
-		return err
-	}
 
 	return errors.WithDeferred(opErr, err)
 }

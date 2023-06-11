@@ -4,9 +4,19 @@ package agd
 
 // Location represents the GeoIP location data about an IP address.
 type Location struct {
-	Country   Country
+	// Country is the country whose subnets contain the IP address.
+	Country Country
+
+	// Continent is the continent whose subnets contain the IP address.
 	Continent Continent
-	ASN       ASN
+
+	// TopSubdivision is the ISO-code of the political subdivision of a country
+	// whose subnets contain the IP address.  This field may be empty.
+	TopSubdivision string
+
+	// ASN is the number of the autonomous system whose subnets contain the IP
+	// address.
+	ASN ASN
 }
 
 // ASN is the autonomous system number of an IP address.

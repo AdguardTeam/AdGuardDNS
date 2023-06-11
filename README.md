@@ -86,7 +86,7 @@ following features:
     you need that.
 
 [rules system]: https://adguard-dns.io/kb/general/dns-filtering-syntax/
-[API]:          https://adguard-dns.io/kb/private-dns/api/
+[API]:          https://adguard-dns.io/kb/private-dns/api/overview/
 
 
 

@@ -12,10 +12,13 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/timeutil"
+	"golang.org/x/exp/slices"
 )
 
 // Profile Storage
@@ -47,7 +50,7 @@ func NewProfileStorage(c *ProfileStorageConfig) (s *ProfileStorage) {
 	}
 }
 
-// ProfileStorage is the implementation of the [agd.ProfileStorage] interface
+// ProfileStorage is the implementation of the [profiledb.Storage] interface
 // that retrieves the profile and device information from the business logic
 // backend.  It is safe for concurrent use.
 //
@@ -61,13 +64,13 @@ type ProfileStorage struct {
 }
 
 // type check
-var _ agd.ProfileStorage = (*ProfileStorage)(nil)
+var _ profiledb.Storage = (*ProfileStorage)(nil)
 
-// Profiles implements the [agd.ProfileStorage] interface for *ProfileStorage.
+// Profiles implements the [profiledb.Storage] interface for *ProfileStorage.
 func (s *ProfileStorage) Profiles(
 	ctx context.Context,
-	req *agd.PSProfilesRequest,
-) (resp *agd.PSProfilesResponse, err error) {
+	req *profiledb.StorageRequest,
+) (resp *profiledb.StorageResponse, err error) {
 	q := url.Values{}
 	if !req.SyncTime.IsZero() {
 		syncTimeStr := strconv.FormatInt(req.SyncTime.UnixMilli(), 10)
@@ -127,7 +130,12 @@ type v1SettingsRespSchedule struct {
 	Friday    *[2]timeutil.Duration `json:"fri"`
 	Saturday  *[2]timeutil.Duration `json:"sat"`
 	Sunday    *[2]timeutil.Duration `json:"sun"`
-	TimeZone  string                `json:"tmz"`
+
+	// TimeZone is the tzdata name of the time zone.
+	//
+	// NOTE: Do not use *agdtime.Location here so that lookup failures are
+	// properly mitigated in [v1SettingsRespParental.toInternal].
+	TimeZone string `json:"tmz"`
 }
 
 // v1SettingsRespParental is the structure for decoding the settings.*.parental
@@ -146,10 +154,11 @@ type v1SettingsRespParental struct {
 // v1SettingsRespDevice is the structure for decoding the settings.devices
 // property of the response from the backend.
 type v1SettingsRespDevice struct {
-	LinkedIP         *netip.Addr `json:"linked_ip"`
-	ID               string      `json:"id"`
-	Name             string      `json:"name"`
-	FilteringEnabled bool        `json:"filtering_enabled"`
+	LinkedIP         netip.Addr   `json:"linked_ip"`
+	ID               string       `json:"id"`
+	Name             string       `json:"name"`
+	DedicatedIPs     []netip.Addr `json:"dedicated_ips"`
+	FilteringEnabled bool         `json:"filtering_enabled"`
 }
 
 // v1SettingsRespSettings is the structure for decoding the settings property of
@@ -232,12 +241,12 @@ func (p *v1SettingsRespParental) toInternal(
 		sch = &agd.ParentalProtectionSchedule{}
 
 		// TODO(a.garipov): Cache location lookup results.
-		sch.TimeZone, err = time.LoadLocation(psch.TimeZone)
+		sch.TimeZone, err = agdtime.LoadLocation(psch.TimeZone)
 		if err != nil {
 			// Report the error and assume UTC.
 			reportf(ctx, errColl, "settings at index %d: schedule: time zone: %w", settIdx, err)
 
-			sch.TimeZone = time.UTC
+			sch.TimeZone = agdtime.UTC()
 		}
 
 		sch.Week = &agd.WeeklySchedule{}
@@ -330,10 +339,10 @@ func devicesToInternal(
 	errColl agd.ErrorCollector,
 	settIdx int,
 	respDevices []*v1SettingsRespDevice,
-) (devices []*agd.Device) {
+) (devices []*agd.Device, ids []agd.DeviceID) {
 	l := len(respDevices)
 	if l == 0 {
-		return nil
+		return nil, nil
 	}
 
 	devices = make([]*agd.Device, 0, l)
@@ -344,8 +353,11 @@ func devicesToInternal(
 			continue
 		}
 
+		// TODO(a.garipov): Consider validating uniqueness of linked and
+		// dedicated IPs.
 		dev := &agd.Device{
 			LinkedIP:         d.LinkedIP,
+			DedicatedIPs:     slices.Clone(d.DedicatedIPs),
 			FilteringEnabled: d.FilteringEnabled,
 		}
 
@@ -368,10 +380,11 @@ func devicesToInternal(
 			continue
 		}
 
+		ids = append(ids, dev.ID)
 		devices = append(devices, dev)
 	}
 
-	return devices
+	return devices, ids
 }
 
 // filterListsToInternal is a helper that converts the filter lists from the
@@ -458,12 +471,12 @@ func (r *v1SettingsResp) toInternal(
 	// TODO(a.garipov): Here and in other functions, consider just adding the
 	// error collector to the context.
 	errColl agd.ErrorCollector,
-) (pr *agd.PSProfilesResponse) {
+) (pr *profiledb.StorageResponse) {
 	if r == nil {
 		return nil
 	}
 
-	pr = &agd.PSProfilesResponse{
+	pr = &profiledb.StorageResponse{
 		SyncTime: time.Unix(0, r.SyncTime*1_000_000),
 		Profiles: make([]*agd.Profile, 0, len(r.Settings)),
 	}
@@ -476,7 +489,7 @@ func (r *v1SettingsResp) toInternal(
 			continue
 		}
 
-		devices := devicesToInternal(ctx, errColl, i, s.Devices)
+		devices, deviceIDs := devicesToInternal(ctx, errColl, i, s.Devices)
 		rlEnabled, ruleLists := filterListsToInternal(ctx, errColl, i, s.RuleLists)
 		rules := rulesToInternal(ctx, errColl, i, s.CustomRules)
 
@@ -499,12 +512,14 @@ func (r *v1SettingsResp) toInternal(
 
 		sbEnabled := s.SafeBrowsing != nil && s.SafeBrowsing.Enabled
 
+		pr.Devices = append(pr.Devices, devices...)
+
 		pr.Profiles = append(pr.Profiles, &agd.Profile{
 			Parental:            parental,
 			BlockingMode:        s.BlockingMode,
 			ID:                  id,
 			UpdateTime:          updTime,
-			Devices:             devices,
+			DeviceIDs:           deviceIDs,
 			RuleListIDs:         ruleLists,
 			CustomRules:         rules,
 			FilteredResponseTTL: fltRespTTL,

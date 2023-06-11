@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 )
@@ -41,7 +42,7 @@ func TestCheckStatus(t *testing.T) {
 			resp := &http.Response{
 				StatusCode: tc.got,
 				Header: http.Header{
-					agdhttp.HdrNameServer: []string{tc.srv},
+					httphdr.Server: []string{tc.srv},
 				},
 			}
 			err := agdhttp.CheckStatus(resp, tc.exp)
@@ -73,7 +74,7 @@ func TestServerError(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := &http.Response{
 				Header: http.Header{
-					agdhttp.HdrNameServer: []string{tc.srv},
+					httphdr.Server: []string{tc.srv},
 				},
 			}
 			err := agdhttp.WrapServerError(tc.err, resp)

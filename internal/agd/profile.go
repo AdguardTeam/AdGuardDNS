@@ -5,6 +5,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/golibs/errors"
 )
@@ -15,8 +16,8 @@ import (
 // the infrastructure, a profile is also called a “DNS server”.  We call it
 // profile, because it's less confusing.
 //
-// NOTE: Increment [defaultProfileDBCacheVersion] on any change of this
-// structure.
+// NOTE: Do not change fields of this structure without incrementing
+// [internal/profiledb/internal.FileCacheVersion].
 //
 // TODO(a.garipov): Consider making it closer to the config file and the backend
 // response by grouping parental, rule list, and safe browsing settings into
@@ -24,63 +25,107 @@ import (
 type Profile struct {
 	// Parental are the parental settings for this profile.  They are ignored if
 	// FilteringEnabled is set to false.
+	//
+	// NOTE: Do not change fields of this structure without incrementing
+	// [internal/profiledb/internal.FileCacheVersion].
 	Parental *ParentalProtectionSettings
 
 	// BlockingMode defines the way blocked responses are constructed.
+	//
+	// NOTE: Do not change fields of this structure without incrementing
+	// [internal/profiledb/internal.FileCacheVersion].
 	BlockingMode dnsmsg.BlockingModeCodec
 
 	// ID is the unique ID of this profile.
+	//
+	// NOTE: Do not change fields of this structure without incrementing
+	// [internal/profiledb/internal.FileCacheVersion].
 	ID ProfileID
 
 	// UpdateTime shows the last time this profile was updated from the backend.
 	// This is NOT the time of update in the backend's database, since the
 	// backend doesn't send this information.
+	//
+	// NOTE: Do not change fields of this structure without incrementing
+	// [internal/profiledb/internal.FileCacheVersion].
 	UpdateTime time.Time
 
-	// Devices are the devices attached to this profile.  Every element of the
-	// slice must be non-nil.
-	Devices []*Device
+	// DeviceIDs are the IDs of devices attached to this profile.
+	//
+	// NOTE: Do not change fields of this structure without incrementing
+	// [internal/profiledb/internal.FileCacheVersion].
+	DeviceIDs []DeviceID
 
 	// RuleListIDs are the IDs of the filtering rule lists enabled for this
 	// profile.  They are ignored if FilteringEnabled or RuleListsEnabled are
 	// set to false.
+	//
+	// NOTE: Do not change fields of this structure without incrementing
+	// [internal/profiledb/internal.FileCacheVersion].
 	RuleListIDs []FilterListID
 
 	// CustomRules are the custom filtering rules for this profile.  They are
 	// ignored if RuleListsEnabled is set to false.
+	//
+	// NOTE: Do not change fields of this structure without incrementing
+	// [internal/profiledb/internal.FileCacheVersion].
 	CustomRules []FilterRuleText
 
 	// FilteredResponseTTL is the time-to-live value used for responses sent to
 	// the devices of this profile.
+	//
+	// NOTE: Do not change fields of this structure without incrementing
+	// [internal/profiledb/internal.FileCacheVersion].
 	FilteredResponseTTL time.Duration
 
 	// FilteringEnabled defines whether queries from devices of this profile
 	// should be filtered in any way at all.
+	//
+	// NOTE: Do not change fields of this structure without incrementing
+	// [internal/profiledb/internal.FileCacheVersion].
 	FilteringEnabled bool
 
 	// SafeBrowsingEnabled defines whether queries from devices of this profile
 	// should be filtered using the safe browsing filter.  Requires
 	// FilteringEnabled to be set to true.
+	//
+	// NOTE: Do not change fields of this structure without incrementing
+	// [internal/profiledb/internal.FileCacheVersion].
 	SafeBrowsingEnabled bool
 
 	// RuleListsEnabled defines whether queries from devices of this profile
 	// should be filtered using the filtering rule lists in RuleListIDs.
 	// Requires FilteringEnabled to be set to true.
+	//
+	// NOTE: Do not change fields of this structure without incrementing
+	// [internal/profiledb/internal.FileCacheVersion].
 	RuleListsEnabled bool
 
 	// QueryLogEnabled defines whether query logs should be saved for the
 	// devices of this profile.
+	//
+	// NOTE: Do not change fields of this structure without incrementing
+	// [internal/profiledb/internal.FileCacheVersion].
 	QueryLogEnabled bool
 
 	// Deleted shows if this profile is deleted.
+	//
+	// NOTE: Do not change fields of this structure without incrementing
+	// [internal/profiledb/internal.FileCacheVersion].
 	Deleted bool
 
 	// BlockPrivateRelay shows if Apple Private Relay queries are blocked for
 	// requests from all devices in this profile.
+	//
+	// NOTE: Do not change fields of this structure without incrementing
+	// [internal/profiledb/internal.FileCacheVersion].
 	BlockPrivateRelay bool
 
 	// BlockFirefoxCanary shows if Firefox canary domain is blocked for
 	// requests from all devices in this profile.
+	//
+	// NOTE: Do not change fields of this structure without incrementing
+	// [internal/profiledb/internal.FileCacheVersion].
 	BlockFirefoxCanary bool
 }
 
@@ -163,23 +208,26 @@ type WeeklySchedule [7]DayRange
 
 // ParentalProtectionSchedule is the schedule of a client's parental protection.
 // All fields must not be nil.
+//
+// NOTE: Do not change fields of this structure without incrementing
+// [internal/profiledb/internal.FileCacheVersion].
 type ParentalProtectionSchedule struct {
 	// Week is the parental protection schedule for every day of the week.
 	Week *WeeklySchedule
 
 	// TimeZone is the profile's time zone.
-	TimeZone *time.Location
+	TimeZone *agdtime.Location
 }
 
 // Contains returns true if t is within the allowed schedule.
 func (s *ParentalProtectionSchedule) Contains(t time.Time) (ok bool) {
-	t = t.In(s.TimeZone)
+	t = t.In(&s.TimeZone.Location)
 	r := s.Week[int(t.Weekday())]
 	if r.IsZeroLength() {
 		return false
 	}
 
-	day := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, s.TimeZone)
+	day := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, &s.TimeZone.Location)
 	start := day.Add(time.Duration(r.Start) * time.Minute)
 	end := day.Add(time.Duration(r.End+1)*time.Minute - 1*time.Nanosecond)
 
@@ -187,6 +235,9 @@ func (s *ParentalProtectionSchedule) Contains(t time.Time) (ok bool) {
 }
 
 // ParentalProtectionSettings are the parental protection settings of a profile.
+//
+// NOTE: Do not change fields of this structure without incrementing
+// [internal/profiledb/internal.FileCacheVersion].
 type ParentalProtectionSettings struct {
 	Schedule *ParentalProtectionSchedule
 

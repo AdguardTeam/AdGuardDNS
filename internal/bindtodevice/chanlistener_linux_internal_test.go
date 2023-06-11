@@ -12,7 +12,7 @@ import (
 
 func TestChanListener_Accept(t *testing.T) {
 	conns := make(chan net.Conn, 1)
-	l := newChanListener(conns, testLAddr)
+	l := newChanListener(conns, testSubnetIPv4, testLAddr)
 
 	// A simple way to have a distinct net.Conn without actually implementing
 	// the entire interface.
@@ -32,14 +32,14 @@ func TestChanListener_Accept(t *testing.T) {
 }
 
 func TestChanListener_Addr(t *testing.T) {
-	l := newChanListener(nil, testLAddr)
+	l := newChanListener(nil, testSubnetIPv4, testLAddr)
 	got := l.Addr()
 	assert.Equal(t, testLAddr, got)
 }
 
 func TestChanListener_Close(t *testing.T) {
 	conns := make(chan net.Conn)
-	l := newChanListener(conns, testLAddr)
+	l := newChanListener(conns, testSubnetIPv4, testLAddr)
 	err := l.Close()
 	assert.NoError(t, err)
 

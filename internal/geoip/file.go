@@ -23,7 +23,8 @@ type FileConfig struct {
 	// ASNPath is the path to the GeoIP database of ASNs.
 	ASNPath string
 
-	// CountryPath is the path to the GeoIP database of countries.
+	// CountryPath is the path to the GeoIP database of countries.  The
+	// databases containing subdivisions and cities info are also supported.
 	CountryPath string
 
 	// HostCacheSize is how many lookups are cached by hostname.  Zero means no
@@ -207,16 +208,14 @@ func (f *File) Data(host string, ip netip.Addr) (l *agd.Location, err error) {
 		return nil, fmt.Errorf("looking up asn: %w", err)
 	}
 
-	ctry, cont, err := f.lookupCtry(ip)
+	l = &agd.Location{
+		ASN: asn,
+	}
+
+	err = f.setCtry(l, ip)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
-	}
-
-	l = &agd.Location{
-		Country:   ctry,
-		Continent: cont,
-		ASN:       asn,
 	}
 
 	f.setCaches(host, cacheKey, l)
@@ -271,29 +270,36 @@ type countryResult struct {
 	Country struct {
 		ISOCode string `maxminddb:"iso_code"`
 	} `maxminddb:"country"`
+	Subdivisions []struct {
+		ISOCode string `maxminddb:"iso_code"`
+	} `maxminddb:"subdivisions"`
 }
 
-// lookupCtry looks up and returns the country and continent parts of the GeoIP
-// data for ip.
-func (f *File) lookupCtry(ip netip.Addr) (ctry agd.Country, cont agd.Continent, err error) {
+// setCtry looks up and sets the country, continent and the subdivision parts
+// of the GeoIP data for ip into loc.  loc must not be nil.
+func (f *File) setCtry(loc *agd.Location, ip netip.Addr) (err error) {
 	// TODO(a.garipov): Remove AsSlice if oschwald/maxminddb-golang#88 is done.
 	var res countryResult
 	err = f.country.Lookup(ip.AsSlice(), &res)
 	if err != nil {
-		return ctry, cont, fmt.Errorf("looking up country: %w", err)
+		return fmt.Errorf("looking up country: %w", err)
 	}
 
-	ctry, err = agd.NewCountry(res.Country.ISOCode)
+	loc.Country, err = agd.NewCountry(res.Country.ISOCode)
 	if err != nil {
-		return ctry, cont, fmt.Errorf("converting country: %w", err)
+		return fmt.Errorf("converting country: %w", err)
 	}
 
-	cont, err = agd.NewContinent(res.Continent.Code)
+	loc.Continent, err = agd.NewContinent(res.Continent.Code)
 	if err != nil {
-		return ctry, cont, fmt.Errorf("converting continent: %w", err)
+		return fmt.Errorf("converting continent: %w", err)
 	}
 
-	return ctry, cont, nil
+	if len(res.Subdivisions) > 0 {
+		loc.TopSubdivision = res.Subdivisions[0].ISOCode
+	}
+
+	return nil
 }
 
 // setCaches sets the GeoIP data into the caches.

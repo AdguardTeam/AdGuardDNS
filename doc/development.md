@@ -68,10 +68,26 @@ This is not an extensive list.  See `../Makefile`.
     </dd>
     <dt><code>make go-gen</code></dt>
     <dd>
-        Regenerate the automatically generated Go files.  Those generated files
-        are <code>../internal/agd/country_generate.go</code> and
-        <code>../internal/geoip/asntops_generate.go</code>.  They need to be
-        periodically updated.
+        <p>
+            Regenerate the automatically generated Go files that need to be
+            periodically updated.  Those generated files are:
+        </p>
+        <ul>
+            <li>
+                <code>../internal/agd/country_generate.go</code>;
+            </li>
+            <li>
+                <code>../internal/geoip/asntops_generate.go</code>;
+            </li>
+            <li>
+                <code>../internal/profiledb/internal/filecachepb/filecache.pb.go</code>.
+            </li>
+        </ul>
+        <p>
+            You'll need to
+            <a href="https://protobuf.dev/getting-started/gotutorial/#compiling-protocol-buffers">install <code>protoc</code></a>
+            for the last one.
+        </p>
     </dd>
     <dt><code>make go-lint</code></dt>
     <dd>
@@ -158,7 +174,7 @@ dnscrypt generate -p testdns -o ./dnscrypt.yml
 
 ```sh
 cd ../
-cp -f config.dist.yml config.yml
+cp -f config.dist.yaml config.yaml
 ```
 
 
@@ -190,6 +206,7 @@ We'll use the test versions of the GeoIP databases here.
 rm -f -r ./test/cache/
 mkdir ./test/cache
 curl 'https://raw.githubusercontent.com/maxmind/MaxMind-DB/main/test-data/GeoIP2-Country-Test.mmdb' -o ./test/GeoIP2-Country-Test.mmdb
+curl 'https://raw.githubusercontent.com/maxmind/MaxMind-DB/main/test-data/GeoIP2-City-Test.mmdb' -o ./test/GeoIP2-City-Test.mmdb
 curl 'https://raw.githubusercontent.com/maxmind/MaxMind-DB/main/test-data/GeoLite2-ASN-Test.mmdb' -o ./test/GeoLite2-ASN-Test.mmdb
 ```
 
@@ -206,8 +223,8 @@ You'll need to supply the following:
 
 See the [external HTTP API documentation][externalhttp].
 
-You may need to change the listen ports in `config.yml` which are less than 1024
-to some other ports.  Otherwise, `sudo` or `doas` is required to run
+You may need to change the listen ports in `config.yaml` which are less than
+1024 to some other ports.  Otherwise, `sudo` or `doas` is required to run
 `AdGuardDNS`.
 
 Examples below are for the configuration with the following changes:
@@ -224,14 +241,14 @@ env \
     BACKEND_ENDPOINT='PUT BACKEND URL HERE' \
     BLOCKED_SERVICE_INDEX_URL='https://atropnikov.github.io/HostlistsRegistry/assets/services.json'\
     CONSUL_ALLOWLIST_URL='PUT CONSUL ALLOWLIST URL HERE' \
-    CONFIG_PATH='./config.yml' \
+    CONFIG_PATH='./config.yaml' \
     DNSDB_PATH='./test/cache/dnsdb.bolt' \
     FILTER_INDEX_URL='https://atropnikov.github.io/HostlistsRegistry/assets/filters.json' \
     FILTER_CACHE_PATH='./test/cache' \
     PROFILES_CACHE_PATH='./test/profilecache.json' \
     GENERAL_SAFE_SEARCH_URL='https://adguardteam.github.io/HostlistsRegistry/assets/engines_safe_search.txt' \
     GEOIP_ASN_PATH='./test/GeoLite2-ASN-Test.mmdb' \
-    GEOIP_COUNTRY_PATH='./test/GeoIP2-Country-Test.mmdb' \
+    GEOIP_COUNTRY_PATH='./test/GeoIP2-City-Test.mmdb' \
     QUERYLOG_PATH='./test/cache/querylog.jsonl' \
     LISTEN_ADDR='127.0.0.1' \
     LISTEN_PORT='8081' \

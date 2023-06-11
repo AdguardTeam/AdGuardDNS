@@ -59,7 +59,7 @@ func ExampleWithMiddlewares() {
 	forwarder := forward.NewHandler(&forward.HandlerConfig{
 		Address: netip.MustParseAddrPort("94.140.14.140:53"),
 		Network: forward.NetworkAny,
-	}, true)
+	})
 
 	middleware := querylog.NewLogMiddleware(os.Stdout)
 	handler := dnsserver.WithMiddlewares(forwarder, middleware)

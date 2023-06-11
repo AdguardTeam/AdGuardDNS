@@ -27,6 +27,26 @@ set -f -u
 # Source the common helpers, including not_found.
 . ./scripts/make/helper.sh
 
+# trailing_newlines is a simple check that makes sure that all plain-text files
+# have a trailing newlines to make sure that all tools work correctly with them.
+trailing_newlines() {
+	nl="$( printf "\n" )"
+	readonly nl
+
+	# NOTE: Adjust for your project.
+	git ls-files\
+		':!*.mmdb'\
+		| while read -r f
+		do
+			if [ "$( tail -c -1 "$f" )" != "$nl" ]
+			then
+				printf '%s: must have a trailing newline\n' "$f"
+			fi
+		done
+}
+
+run_linter -e trailing_newlines
+
 git ls-files -- '*.md' '*.yaml' '*.yml'\
 	| xargs misspell --error\
 	| sed -e 's/^/misspell: /'

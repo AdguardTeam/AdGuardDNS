@@ -59,7 +59,7 @@ requirements section][ext-blocked] on the expected format of the response.
 
 The path to the configuration file.
 
-**Default:** `./config.yml`.
+**Default:** `./config.yaml`.
 
 
 
@@ -122,8 +122,29 @@ The path to the directory with the filter lists cache.
 
 ##  <a href="#PROFILES_CACHE_PATH" id="PROFILES_CACHE_PATH" name="PROFILES_CACHE_PATH">`PROFILES_CACHE_PATH`</a>
 
-The path to the profile cache file.  The profile cache is read on start and is
-later updated on every [full refresh][conf-backend-full_refresh_interval].
+The path to the profile cache file:
+
+ *  `none` means that the profile caching is disabled.
+
+ *  A file with the extension `.pb` means that the profiles are cached in the
+    protobuf format.
+
+    Use the following command to inspect the cache, assuming that the version is
+    correct:
+
+    ```sh
+    protoc\
+        --decode\
+        profiledb.FileCache\
+        ./internal/profiledb/internal/filecachepb/filecache.proto\
+        < /path/to/profilecache.pb
+    ```
+
+ *  A file with the extension `.json` means that the profiles are cached in the
+    JSON format.  This format is **deprecated** and is not recommended.
+
+The profile cache is read on start and is later updated on every
+[full refresh][conf-backend-full_refresh_interval].
 
 **Default:** `./profilecache.json`.
 

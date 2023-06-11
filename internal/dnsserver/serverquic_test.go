@@ -34,7 +34,7 @@ func TestServerQUIC_integration_query(t *testing.T) {
 	})
 
 	// Open a QUIC connection.
-	conn, err := quic.DialAddr(addr.String(), tlsConfig, nil)
+	conn, err := quic.DialAddr(context.Background(), addr.String(), tlsConfig, nil)
 	require.NoError(t, err)
 
 	defer testutil.CleanupAndRequireSuccess(t, func() (err error) {
@@ -83,7 +83,7 @@ func TestServerQUIC_integration_ENDS0Padding(t *testing.T) {
 	})
 
 	// Open a QUIC connection.
-	conn, err := quic.DialAddr(addr.String(), tlsConfig, nil)
+	conn, err := quic.DialAddr(context.Background(), addr.String(), tlsConfig, nil)
 	require.NoError(t, err)
 
 	defer func(conn quic.Connection, code quic.ApplicationErrorCode, s string) {
@@ -122,7 +122,7 @@ func TestServerQUIC_integration_0RTT(t *testing.T) {
 	// quicConfig with TokenStore set so that 0-RTT was enabled.
 	quicConfig := &quic.Config{
 		TokenStore: quic.NewLRUTokenStore(1, 10),
-		Tracer:     quicTracer,
+		Tracer:     quicTracer.TracerForConnection,
 	}
 
 	// ClientSessionCache in the tls.Config must also be set for 0-RTT to work.
@@ -156,7 +156,7 @@ func TestServerQUIC_integration_largeQuery(t *testing.T) {
 	})
 
 	// Open a QUIC connection.
-	conn, err := quic.DialAddr(addr.String(), tlsConfig, nil)
+	conn, err := quic.DialAddr(context.Background(), addr.String(), tlsConfig, nil)
 	require.NoError(t, err)
 
 	defer testutil.CleanupAndRequireSuccess(t, func() (err error) {
@@ -190,7 +190,7 @@ func testQUICExchange(
 	tlsConfig *tls.Config,
 	quicConfig *quic.Config,
 ) {
-	conn, err := quic.DialAddrEarly(addr.String(), tlsConfig, quicConfig)
+	conn, err := quic.DialAddrEarly(context.Background(), addr.String(), tlsConfig, quicConfig)
 	require.NoError(t, err)
 
 	defer testutil.CleanupAndRequireSuccess(t, func() (err error) {

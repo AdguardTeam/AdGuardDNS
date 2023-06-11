@@ -4,10 +4,9 @@ import (
 	"context"
 	"net"
 	"testing"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
@@ -20,10 +19,10 @@ import (
 
 func TestWriteFilteredResp(t *testing.T) {
 	const (
-		fltRespTTL = 42
-		respTTL    = 10
+		respTTL = 60
 	)
 
+	const fltRespTTL = agdtest.FilteredResponseTTLSec
 	respIP := net.IP{1, 2, 3, 4}
 	rewrIP := net.IP{5, 6, 7, 8}
 	blockIP := netutil.IPv4Zero()
@@ -85,14 +84,14 @@ func TestWriteFilteredResp(t *testing.T) {
 
 	ctx := context.Background()
 	ri := &agd.RequestInfo{
-		Messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, fltRespTTL*time.Second),
+		Messages: agdtest.NewConstructor(),
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			rw := dnsserver.NewNonWriterResponseWriter(nil, nil)
 			resp := dnsservertest.NewResp(dns.RcodeSuccess, req)
-			resp.Answer = append(resp.Answer, dnsservertest.NewA(domain, 10, respIP))
+			resp.Answer = append(resp.Answer, dnsservertest.NewA(domain, respTTL, respIP))
 
 			written, err := writeFilteredResp(ctx, ri, rw, req, resp, tc.reqRes, tc.respRes)
 			require.NoError(t, err)

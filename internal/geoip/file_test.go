@@ -11,7 +11,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFile_Data(t *testing.T) {
+func TestFile_Data_cityDB(t *testing.T) {
+	conf := &geoip.FileConfig{
+		ASNPath:       asnPath,
+		CountryPath:   cityPath,
+		HostCacheSize: 0,
+		IPCacheSize:   1,
+	}
+
+	g, err := geoip.NewFile(conf)
+	require.NoError(t, err)
+
+	d, err := g.Data(testHost, testIPWithASN)
+	require.NoError(t, err)
+
+	assert.Equal(t, testASN, d.ASN)
+
+	d, err = g.Data(testHost, testIPWithSubdiv)
+	require.NoError(t, err)
+
+	assert.Equal(t, testCtry, d.Country)
+	assert.Equal(t, testCont, d.Continent)
+	assert.Equal(t, testSubdiv, d.TopSubdivision)
+}
+
+func TestFile_Data_countryDB(t *testing.T) {
 	conf := &geoip.FileConfig{
 		ASNPath:       asnPath,
 		CountryPath:   countryPath,
@@ -27,17 +51,18 @@ func TestFile_Data(t *testing.T) {
 
 	assert.Equal(t, testASN, d.ASN)
 
-	d, err = g.Data(testHost, testIPWithCountry)
+	d, err = g.Data(testHost, testIPWithSubdiv)
 	require.NoError(t, err)
 
 	assert.Equal(t, testCtry, d.Country)
 	assert.Equal(t, testCont, d.Continent)
+	assert.Empty(t, d.TopSubdivision)
 }
 
 func TestFile_Data_hostCache(t *testing.T) {
 	conf := &geoip.FileConfig{
 		ASNPath:       asnPath,
-		CountryPath:   countryPath,
+		CountryPath:   cityPath,
 		HostCacheSize: 1,
 		IPCacheSize:   1,
 	}
@@ -64,7 +89,7 @@ func TestFile_Data_hostCache(t *testing.T) {
 func TestFile_SubnetByLocation(t *testing.T) {
 	conf := &geoip.FileConfig{
 		ASNPath:       asnPath,
-		CountryPath:   countryPath,
+		CountryPath:   cityPath,
 		HostCacheSize: 0,
 		IPCacheSize:   1,
 	}
@@ -91,7 +116,7 @@ var errSink error
 func BenchmarkFile_Data(b *testing.B) {
 	conf := &geoip.FileConfig{
 		ASNPath:       asnPath,
-		CountryPath:   countryPath,
+		CountryPath:   cityPath,
 		HostCacheSize: 0,
 		IPCacheSize:   1,
 	}
@@ -103,7 +128,7 @@ func BenchmarkFile_Data(b *testing.B) {
 
 	// Change the eighth byte in testIPWithCountry to create a different address
 	// in the same network.
-	ipSlice := testIPWithCountry.AsSlice()
+	ipSlice := ipCountry1.AsSlice()
 	ipSlice[7] = 1
 	ipCountry2, ok := netip.AddrFromSlice(ipSlice)
 	require.True(b, ok)
@@ -142,7 +167,7 @@ var fileSink *geoip.File
 func BenchmarkNewFile(b *testing.B) {
 	conf := &geoip.FileConfig{
 		ASNPath:       asnPath,
-		CountryPath:   countryPath,
+		CountryPath:   cityPath,
 		HostCacheSize: 0,
 		IPCacheSize:   1,
 	}

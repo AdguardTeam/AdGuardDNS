@@ -16,9 +16,9 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
@@ -130,11 +130,23 @@ func Main() {
 	fltGroups, err := c.FilteringGroups.toInternal(fltStrg)
 	check(err)
 
+	// Network interface listener
+
+	btdCtrlConf, ctrlConf := c.Network.toInternal()
+
+	btdMgr, err := c.InterfaceListeners.toInternal(errColl, btdCtrlConf)
+	check(err)
+
+	err = btdMgr.Start()
+	check(err)
+
+	sigHdlr.add(btdMgr)
+
 	// Server groups
 
 	messages := dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, c.Filters.ResponseTTL.Duration)
 
-	srvGrps, err := c.ServerGroups.toInternal(messages, fltGroups)
+	srvGrps, err := c.ServerGroups.toInternal(messages, btdMgr, fltGroups)
 	check(err)
 
 	// TLS keys logging
@@ -173,7 +185,7 @@ func Main() {
 	// Rate limiting
 
 	consulAllowlistURL := &envs.ConsulAllowlistURL.URL
-	rateLimiter, err := setupRateLimiter(c.RateLimit, consulAllowlistURL, sigHdlr, errColl)
+	rateLimiter, connLimiter, err := setupRateLimiter(c.RateLimit, consulAllowlistURL, sigHdlr, errColl)
 	check(err)
 
 	// GeoIP database
@@ -197,24 +209,21 @@ func Main() {
 
 	// DNS service
 
-	metricsListener := prometheus.NewForwardMetricsListener(len(c.Upstream.FallbackServers) + 1)
-
-	upstream, err := c.Upstream.toInternal()
+	fwdConf, err := c.Upstream.toInternal()
 	check(err)
 
-	handler := forward.NewHandler(&forward.HandlerConfig{
-		Address:                    upstream.Server,
-		Network:                    upstream.Network,
-		MetricsListener:            metricsListener,
-		HealthcheckDomainTmpl:      c.Upstream.Healthcheck.DomainTmpl,
-		FallbackAddresses:          c.Upstream.FallbackServers,
-		Timeout:                    c.Upstream.Timeout.Duration,
-		HealthcheckBackoffDuration: c.Upstream.Healthcheck.BackoffDuration.Duration,
-	}, c.Upstream.Healthcheck.Enabled)
+	handler := forward.NewHandler(fwdConf)
+
+	// TODO(a.garipov): Consider making these configurable via the configuration
+	// file.
+	hashStorages := map[string]*hashprefix.Storage{
+		filter.GeneralTXTSuffix:       safeBrowsingHashes,
+		filter.AdultBlockingTXTSuffix: adultBlockingHashes,
+	}
 
 	dnsConf := &dnssvc.Config{
 		Messages:        messages,
-		SafeBrowsing:    filter.NewSafeBrowsingServer(safeBrowsingHashes, adultBlockingHashes),
+		SafeBrowsing:    hashprefix.NewMatcher(hashStorages),
 		BillStat:        billStatRec,
 		ProfileDB:       profDB,
 		DNSCheck:        dnsCk,
@@ -226,20 +235,19 @@ func Main() {
 		Handler:         handler,
 		QueryLog:        c.buildQueryLog(envs),
 		RuleStat:        ruleStat,
-		Upstream:        upstream,
 		RateLimit:       rateLimiter,
+		ConnLimiter:     connLimiter,
 		FilteringGroups: fltGroups,
 		ServerGroups:    srvGrps,
 		CacheSize:       c.Cache.Size,
 		ECSCacheSize:    c.Cache.ECSSize,
 		UseECSCache:     c.Cache.Type == cacheTypeECS,
 		ResearchMetrics: bool(envs.ResearchMetrics),
+		ControlConf:     ctrlConf,
 	}
 
 	dnsSvc, err := dnssvc.New(dnsConf)
 	check(err)
-
-	sigHdlr.add(dnsSvc)
 
 	// Connectivity check
 

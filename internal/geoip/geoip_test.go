@@ -15,6 +15,7 @@ func TestMain(m *testing.M) {
 // Paths to test data.
 const (
 	asnPath     = "./testdata/GeoLite2-ASN-Test.mmdb"
+	cityPath    = "./testdata/GeoIP2-City-Test.mmdb"
 	countryPath = "./testdata/GeoIP2-Country-Test.mmdb"
 )
 
@@ -24,12 +25,16 @@ const (
 	testOtherHost = "other.example.com"
 )
 
-// Test data.  See https://github.com/maxmind/MaxMind-DB/blob/2bf1713b3b5adcb022cf4bb77eb0689beaadcfef/source-data/GeoLite2-ASN-Test.json
-// and https://github.com/maxmind/MaxMind-DB/blob/2bf1713b3b5adcb022cf4bb77eb0689beaadcfef/source-data/GeoIP2-Country-Test.json.
+// Test data.  See [ASN], [city], and [country] testing datum.
+//
+// [ASN]: https://github.com/maxmind/MaxMind-DB/blob/2bf1713b3b5adcb022cf4bb77eb0689beaadcfef/source-data/GeoLite2-ASN-Test.json
+// [city]: https://github.com/maxmind/MaxMind-DB/blob/2bf1713b3b5adcb022cf4bb77eb0689beaadcfef/source-data/GeoIP2-City-Test.json
+// [country]: https://github.com/maxmind/MaxMind-DB/blob/2bf1713b3b5adcb022cf4bb77eb0689beaadcfef/source-data/GeoIP2-Country-Test.json
 const (
-	testASN  agd.ASN       = 1221
-	testCtry agd.Country   = agd.CountryJP
-	testCont agd.Continent = agd.ContinentAS
+	testASN    agd.ASN       = 1221
+	testCtry   agd.Country   = agd.CountryUS
+	testCont   agd.Continent = agd.ContinentNA
+	testSubdiv string        = "WA"
 
 	testIPv4SubnetCtry = agd.CountryUS
 	testIPv6SubnetCtry = agd.CountryJP
@@ -38,7 +43,13 @@ const (
 // testIPWithASN has ASN set to 1221 in the test database.
 var testIPWithASN = netip.MustParseAddr("1.128.0.0")
 
-// testIPWithCountry has country set to Japan in the test database.
+// testIPWithSubdiv has country set to USA and the subdivision set to Washington
+// in the city-aware test database.  It has no subdivision in the country-aware
+// test database but resolves into USA as well.
+var testIPWithSubdiv = netip.MustParseAddr("216.160.83.56")
+
+// testIPWithCountry has country set to Japan in the country-aware test
+// database.
 var testIPWithCountry = netip.MustParseAddr("2001:218::")
 
 // Subnets for CountrySubnet tests.

@@ -5,6 +5,8 @@ import (
 	"net/netip"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/stringutil"
@@ -14,10 +16,18 @@ import (
 
 // toInternal returns the configuration of DNS servers for a single server
 // group.  srvs is assumed to be valid.
-func (srvs servers) toInternal(tlsConfig *agd.TLS) (dnsSrvs []*agd.Server, err error) {
+func (srvs servers) toInternal(
+	tlsConfig *agd.TLS,
+	btdMgr *bindtodevice.Manager,
+) (dnsSrvs []*agd.Server, err error) {
 	dnsSrvs = make([]*agd.Server, 0, len(srvs))
 	for _, srv := range srvs {
-		bindData := srv.bindData()
+		var bindData []*agd.ServerBindData
+		bindData, err = srv.bindData(btdMgr)
+		if err != nil {
+			return nil, fmt.Errorf("server %q: %w", srv.Name, err)
+		}
+
 		name := agd.ServerName(srv.Name)
 		switch p := srv.Protocol; p {
 		case srvProtoDNS:
@@ -158,8 +168,13 @@ type server struct {
 	// Protocol is the protocol of the server.
 	Protocol serverProto `yaml:"protocol"`
 
-	// BindAddresses are addresses this server binds to.
+	// BindAddresses are addresses this server binds to.  If BindAddresses is
+	// set, BindInterfaces must not be set.
 	BindAddresses []netip.AddrPort `yaml:"bind_addresses"`
+
+	// BindInterfaces are network interface data for this server to bind to.  If
+	// BindInterfaces is set, BindAddresses must not be set.
+	BindInterfaces []*serverBindInterface `yaml:"bind_interfaces"`
 
 	// LinkedIPEnabled shows if the linked IP addresses should be used to detect
 	// profiles on this server.
@@ -167,18 +182,42 @@ type server struct {
 }
 
 // bindData returns the socket binding data for this server.
-func (s *server) bindData() (bindData []*agd.ServerBindData) {
-	addrs := s.BindAddresses
-	bindData = make([]*agd.ServerBindData, 0, len(addrs))
-	for _, addr := range addrs {
+func (s *server) bindData(
+	btdMgr *bindtodevice.Manager,
+) (bindData []*agd.ServerBindData, err error) {
+	if addrs := s.BindAddresses; len(addrs) > 0 {
+		bindData = make([]*agd.ServerBindData, 0, len(addrs))
+		for _, addr := range addrs {
+			bindData = append(bindData, &agd.ServerBindData{
+				AddrPort: addr,
+			})
+		}
+
+		return bindData, nil
+	}
+
+	if btdMgr == nil {
+		err = errors.Error("bind_interfaces are only supported when interface_listeners are set")
+
+		return nil, err
+	}
+
+	ifaces := s.BindInterfaces
+	bindData = make([]*agd.ServerBindData, 0, len(ifaces))
+	for i, iface := range s.BindInterfaces {
+		var lc netext.ListenConfig
+		lc, err = btdMgr.ListenConfig(iface.ID, iface.Subnet)
+		if err != nil {
+			return nil, fmt.Errorf("bind_interface at index %d: %w", i, err)
+		}
+
 		bindData = append(bindData, &agd.ServerBindData{
-			AddrPort: addr,
+			ListenConfig: lc,
+			Address:      string(iface.ID),
 		})
 	}
 
-	// TODO(a.garipov): Support bind_interfaces.
-
-	return bindData
+	return bindData, nil
 }
 
 // validate returns an error if the configuration is invalid.
@@ -188,13 +227,12 @@ func (s *server) validate() (err error) {
 		return errNilConfig
 	case s.Name == "":
 		return errors.Error("no name")
-	case len(s.BindAddresses) == 0:
-		return errors.Error("no bind_addresses")
 	}
 
-	err = validateAddrs(s.BindAddresses)
+	err = s.validateBindData()
 	if err != nil {
-		return fmt.Errorf("bind_addresses: %w", err)
+		// Don't wrap the error, because it's informative enough as is.
+		return err
 	}
 
 	err = s.Protocol.validate()
@@ -208,4 +246,63 @@ func (s *server) validate() (err error) {
 	}
 
 	return nil
+}
+
+// validateBindData returns an error if the server's binding data aren't valid.
+func (s *server) validateBindData() (err error) {
+	bindAddrsSet, bindIfacesSet := len(s.BindAddresses) > 0, len(s.BindInterfaces) > 0
+	if bindAddrsSet {
+		if bindIfacesSet {
+			return errors.Error("bind_addresses and bind_interfaces cannot both be set")
+		}
+
+		err = validateAddrs(s.BindAddresses)
+		if err != nil {
+			return fmt.Errorf("bind_addresses: %w", err)
+		}
+
+		return nil
+	}
+
+	if !bindIfacesSet {
+		return errors.Error("neither bind_addresses nor bind_interfaces is set")
+	}
+
+	if s.Protocol != srvProtoDNS {
+		return fmt.Errorf(
+			"bind_interfaces: only supported for protocol %q, got %q",
+			srvProtoDNS,
+			s.Protocol,
+		)
+	}
+
+	for i, bindIface := range s.BindInterfaces {
+		err = bindIface.validate()
+		if err != nil {
+			return fmt.Errorf("bind_interfaces: at index %d: %w", i, err)
+		}
+	}
+
+	return nil
+}
+
+// serverBindInterface contains the data for a network interface binding.
+type serverBindInterface struct {
+	ID     bindtodevice.ID `yaml:"id"`
+	Subnet netip.Prefix    `yaml:"subnet"`
+}
+
+// validate returns an error if the network interface binding configuration is
+// invalid.
+func (c *serverBindInterface) validate() (err error) {
+	switch {
+	case c == nil:
+		return errNilConfig
+	case c.ID == "":
+		return errors.Error("no id")
+	case !c.Subnet.IsValid():
+		return errors.Error("bad subnet")
+	default:
+		return nil
+	}
 }

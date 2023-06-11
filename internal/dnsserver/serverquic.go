@@ -81,7 +81,7 @@ type ServerQUIC struct {
 	pool *ants.Pool
 
 	// quicListener is a listener that we use to accept DoQ connections.
-	quicListener quic.Listener
+	quicListener *quic.Listener
 
 	// bytesPool is a pool to avoid unnecessary allocations when reading
 	// DNS packets.
@@ -101,7 +101,7 @@ func NewServerQUIC(conf ConfigQUIC) (s *ServerQUIC) {
 
 	if conf.ListenConfig == nil {
 		// Do not enable OOB here as quic-go will do that on its own.
-		conf.ListenConfig = netext.DefaultListenConfig()
+		conf.ListenConfig = netext.DefaultListenConfig(nil)
 	}
 
 	s = &ServerQUIC{
@@ -220,7 +220,7 @@ func (s *ServerQUIC) startServeQUIC(ctx context.Context) {
 }
 
 // serveQUIC listens for incoming QUIC connections.
-func (s *ServerQUIC) serveQUIC(ctx context.Context, l quic.Listener) (err error) {
+func (s *ServerQUIC) serveQUIC(ctx context.Context, l *quic.Listener) (err error) {
 	connWg := &sync.WaitGroup{}
 	// Wait until all conns are processed before exiting this method
 	defer connWg.Wait()
@@ -261,7 +261,7 @@ func (s *ServerQUIC) serveQUIC(ctx context.Context, l quic.Listener) (err error)
 
 // acceptQUICConn is a wrapper around quic.Listener.Accept that makes sure that the
 // timeout is handled properly.
-func acceptQUICConn(ctx context.Context, l quic.Listener) (conn quic.Connection, err error) {
+func acceptQUICConn(ctx context.Context, l *quic.Listener) (conn quic.Connection, err error) {
 	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(DefaultReadTimeout))
 	defer cancel()
 
@@ -662,9 +662,7 @@ func newServerQUICConfig(metrics MetricsListener) (conf *quic.Config) {
 		RequireAddressValidation: v.requiresValidation,
 		// Enable 0-RTT by default for all addresses, it's beneficial for the
 		// performance.
-		Allow0RTT: func(net.Addr) (ok bool) {
-			return true
-		},
+		Allow0RTT: true,
 	}
 }
 

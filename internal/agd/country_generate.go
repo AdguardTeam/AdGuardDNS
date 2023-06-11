@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/log"
 	"golang.org/x/exp/slices"
 )
@@ -22,7 +23,7 @@ func main() {
 	req, err := http.NewRequest(http.MethodGet, csvURL, nil)
 	check(err)
 
-	req.Header.Add("User-Agent", agdhttp.UserAgent())
+	req.Header.Add(httphdr.UserAgent, agdhttp.UserAgent())
 
 	resp, err := c.Do(req)
 	check(err)

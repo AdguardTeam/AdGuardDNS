@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
@@ -17,6 +18,21 @@ func TestMain(m *testing.M) {
 	testutil.DiscardLogOutput(m)
 }
 
+// testTimeout is the timeout for tests.
+const testTimeout = 1 * time.Second
+
+// newTimeoutCtx is a test helper that returns a context with a timeout of
+// [testTimeout] and its cancel function being called in the test cleanup.
+// It should not be used where cancellation is expected sooner.
+func newTimeoutCtx(tb testing.TB, parent context.Context) (ctx context.Context) {
+	tb.Helper()
+
+	ctx, cancel := context.WithTimeout(parent, testTimeout)
+	tb.Cleanup(cancel)
+
+	return ctx
+}
+
 func TestHandler_ServeDNS(t *testing.T) {
 	srv, addr := dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
 
@@ -24,13 +40,14 @@ func TestHandler_ServeDNS(t *testing.T) {
 	handler := forward.NewHandler(&forward.HandlerConfig{
 		Address: netip.MustParseAddrPort(addr),
 		Network: forward.NetworkAny,
-	}, true)
+		Timeout: testTimeout,
+	})
 
 	req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
 	rw := dnsserver.NewNonWriterResponseWriter(srv.LocalUDPAddr(), srv.LocalUDPAddr())
 
 	// Check the handler's ServeDNS method
-	err := handler.ServeDNS(context.Background(), rw, req)
+	err := handler.ServeDNS(newTimeoutCtx(t, context.Background()), rw, req)
 	require.NoError(t, err)
 
 	res := rw.Msg()
@@ -46,7 +63,8 @@ func TestHandler_ServeDNS_fallbackNetError(t *testing.T) {
 		FallbackAddresses: []netip.AddrPort{
 			netip.MustParseAddrPort(srv.LocalUDPAddr().String()),
 		},
-	}, true)
+		Timeout: testTimeout,
+	})
 
 	req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
 	rw := dnsserver.NewNonWriterResponseWriter(srv.LocalUDPAddr(), srv.LocalUDPAddr())

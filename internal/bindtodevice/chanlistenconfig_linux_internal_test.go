@@ -11,8 +11,8 @@ import (
 )
 
 func TestChanListenConfig(t *testing.T) {
-	pc := newChanPacketConn(nil, nil, testLAddr)
-	lsnr := newChanListener(nil, testLAddr)
+	pc := newChanPacketConn(nil, testSubnetIPv4, nil, testLAddr)
+	lsnr := newChanListener(nil, testSubnetIPv4, testLAddr)
 	c := chanListenConfig{
 		packetConn: pc,
 		listener:   lsnr,

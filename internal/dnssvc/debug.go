@@ -17,15 +17,16 @@ import (
 
 // Debug header name constants.
 const (
-	hdrNameResType    = "res-type"
-	hdrNameRuleListID = "rule-list-id"
-	hdrNameRule       = "rule"
-	hdrNameClientIP   = "client-ip"
-	hdrNameDeviceID   = "device-id"
-	hdrNameProfileID  = "profile-id"
-	hdrNameCountry    = "country"
-	hdrNameASN        = "asn"
-	hdrNameHost       = "adguard-dns.com."
+	hdrNameResType     = "res-type"
+	hdrNameRuleListID  = "rule-list-id"
+	hdrNameRule        = "rule"
+	hdrNameClientIP    = "client-ip"
+	hdrNameDeviceID    = "device-id"
+	hdrNameProfileID   = "profile-id"
+	hdrNameCountry     = "country"
+	hdrNameASN         = "asn"
+	hdrNameSubdivision = "subdivision"
+	hdrNameHost        = "adguard-dns.com."
 )
 
 // writeDebugResponse writes the debug response to rw.
@@ -97,17 +98,41 @@ func (svc *Service) appendDebugExtraFromContext(
 		}
 	}
 
-	if d := ri.Location; d != nil {
-		setQuestionName(debugReq, "", hdrNameCountry)
-		err = svc.messages.AppendDebugExtra(debugReq, resp, string(d.Country))
+	if loc := ri.Location; loc != nil {
+		err = svc.appendDebugExtraFromLocation(loc, debugReq, resp)
 		if err != nil {
-			return fmt.Errorf("adding %s extra: %w", hdrNameCountry, err)
+			// Don't wrap the error, because it's informative enough as is.
+			return err
 		}
+	}
 
-		setQuestionName(debugReq, "", hdrNameASN)
-		err = svc.messages.AppendDebugExtra(debugReq, resp, strconv.FormatUint(uint64(d.ASN), 10))
+	return nil
+}
+
+// appendDebugExtraFromLocation adds debug info to response got from request
+// info location.  loc should not be nil.
+func (svc *Service) appendDebugExtraFromLocation(
+	loc *agd.Location,
+	debugReq *dns.Msg,
+	resp *dns.Msg,
+) (err error) {
+	setQuestionName(debugReq, "", hdrNameCountry)
+	err = svc.messages.AppendDebugExtra(debugReq, resp, string(loc.Country))
+	if err != nil {
+		return fmt.Errorf("adding %s extra: %w", hdrNameCountry, err)
+	}
+
+	setQuestionName(debugReq, "", hdrNameASN)
+	err = svc.messages.AppendDebugExtra(debugReq, resp, strconv.FormatUint(uint64(loc.ASN), 10))
+	if err != nil {
+		return fmt.Errorf("adding %s extra: %w", hdrNameASN, err)
+	}
+
+	if subdivision := loc.TopSubdivision; subdivision != "" {
+		setQuestionName(debugReq, "", hdrNameSubdivision)
+		err = svc.messages.AppendDebugExtra(debugReq, resp, subdivision)
 		if err != nil {
-			return fmt.Errorf("adding %s extra: %w", hdrNameASN, err)
+			return fmt.Errorf("adding %s extra: %w", hdrNameSubdivision, err)
 		}
 	}
 

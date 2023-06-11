@@ -10,7 +10,11 @@ import (
 
 // FilteredResponseTTL is the common filtering response TTL for tests.  It is
 // also used by [NewConstructor].
-const FilteredResponseTTL = 10 * time.Second
+const FilteredResponseTTL = FilteredResponseTTLSec * time.Second
+
+// FilteredResponseTTLSec is the common filtering response TTL for tests, as a
+// number to simplify message creation.
+const FilteredResponseTTLSec = 10
 
 // NewConstructor returns a standard dnsmsg.Constructor for tests.
 func NewConstructor() (c *dnsmsg.Constructor) {

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -15,6 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
+	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,9 +41,9 @@ func TestBolt_ServeHTTP(t *testing.T) {
 	const dname = "some-domain.name"
 
 	successHdr := http.Header{
-		agdhttp.HdrNameContentType:     []string{agdhttp.HdrValTextCSV},
-		agdhttp.HdrNameTrailer:         []string{agdhttp.HdrNameXError},
-		agdhttp.HdrNameContentEncoding: []string{"gzip"},
+		httphdr.ContentType:     []string{agdhttp.HdrValTextCSV},
+		httphdr.Trailer:         []string{httphdr.XError},
+		httphdr.ContentEncoding: []string{"gzip"},
 	}
 
 	newMsg := func(rcode int, name string, qtype uint16) (m *dns.Msg) {
@@ -104,7 +106,10 @@ func TestBolt_ServeHTTP(t *testing.T) {
 		for _, m := range msgs {
 			ctx := context.Background()
 			db.Record(ctx, m, &agd.RequestInfo{
-				Host: m.Question[0].Name,
+				// Emulate the logic from init middleware.
+				//
+				// See [dnssvc.initMw.newRequestInfo].
+				Host: strings.TrimSuffix(m.Question[0].Name, "."),
 			})
 
 			err := db.Refresh(context.Background())
@@ -117,7 +122,7 @@ func TestBolt_ServeHTTP(t *testing.T) {
 		(&url.URL{Scheme: "http", Host: "example.com"}).String(),
 		nil,
 	)
-	r.Header.Add(agdhttp.HdrNameAcceptEncoding, "gzip")
+	r.Header.Add(httphdr.AcceptEncoding, "gzip")
 
 	for _, tc := range testCases {
 		db := newTmpBolt(t)

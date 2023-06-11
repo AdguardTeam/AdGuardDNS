@@ -112,7 +112,7 @@ func newServerDNS(proto Protocol, conf ConfigDNS) (s *ServerDNS) {
 	}
 
 	if conf.ListenConfig == nil {
-		conf.ListenConfig = netext.DefaultListenConfigWithOOB()
+		conf.ListenConfig = netext.DefaultListenConfigWithOOB(nil)
 	}
 
 	s = &ServerDNS{

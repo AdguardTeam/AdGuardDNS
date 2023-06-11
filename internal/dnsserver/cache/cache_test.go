@@ -23,14 +23,8 @@ func TestMiddleware_Wrap(t *testing.T) {
 
 	aReq := dnsservertest.NewReq(reqHostname, dns.TypeA, dns.ClassINET)
 	cnameReq := dnsservertest.NewReq(reqHostname, dns.TypeCNAME, dns.ClassINET)
-	cnameAns := dnsservertest.RRSection{
-		RRs: []dns.RR{dnsservertest.NewCNAME(reqHostname, 3600, reqCname)},
-		Sec: dnsservertest.SectionAnswer,
-	}
-	soaNs := dnsservertest.RRSection{
-		RRs: []dns.RR{dnsservertest.NewSOA(reqHostname, 3600, reqNs1, reqNs2)},
-		Sec: dnsservertest.SectionNs,
-	}
+	cnameAns := dnsservertest.SectionAnswer{dnsservertest.NewCNAME(reqHostname, 3600, reqCname)}
+	soaNs := dnsservertest.SectionNs{dnsservertest.NewSOA(reqHostname, 3600, reqNs1, reqNs2)}
 
 	const N = 5
 	testCases := []struct {
@@ -40,8 +34,8 @@ func TestMiddleware_Wrap(t *testing.T) {
 		wantNumReq int
 	}{{
 		req: aReq,
-		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.RRSection{
-			RRs: []dns.RR{dnsservertest.NewA(reqHostname, 3600, net.IP{1, 2, 3, 4})},
+		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
+			dnsservertest.NewA(reqHostname, 3600, net.IP{1, 2, 3, 4}),
 		}),
 		name:       "simple_a",
 		wantNumReq: 1,
@@ -67,9 +61,8 @@ func TestMiddleware_Wrap(t *testing.T) {
 		wantNumReq: N,
 	}, {
 		req: aReq,
-		resp: dnsservertest.NewResp(dns.RcodeNameError, aReq, dnsservertest.RRSection{
-			RRs: []dns.RR{dnsservertest.NewNS(reqHostname, 3600, reqNs1)},
-			Sec: dnsservertest.SectionNs,
+		resp: dnsservertest.NewResp(dns.RcodeNameError, aReq, dnsservertest.SectionNs{
+			dnsservertest.NewNS(reqHostname, 3600, reqNs1),
 		}),
 		name: "non_authoritative_nxdomain",
 		// TODO(ameshkov): Consider https://datatracker.ietf.org/doc/html/rfc2308#section-3.
@@ -86,15 +79,15 @@ func TestMiddleware_Wrap(t *testing.T) {
 		wantNumReq: 1,
 	}, {
 		req: cnameReq,
-		resp: dnsservertest.NewResp(dns.RcodeSuccess, cnameReq, dnsservertest.RRSection{
-			RRs: []dns.RR{dnsservertest.NewCNAME(reqHostname, 3600, reqCname)},
+		resp: dnsservertest.NewResp(dns.RcodeSuccess, cnameReq, dnsservertest.SectionAnswer{
+			dnsservertest.NewCNAME(reqHostname, 3600, reqCname),
 		}),
 		name:       "simple_cname_ans",
 		wantNumReq: 1,
 	}, {
 		req: aReq,
-		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.RRSection{
-			RRs: []dns.RR{dnsservertest.NewA(reqHostname, 0, net.IP{1, 2, 3, 4})},
+		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
+			dnsservertest.NewA(reqHostname, 0, net.IP{1, 2, 3, 4}),
 		}),
 		name:       "expired_one",
 		wantNumReq: N,

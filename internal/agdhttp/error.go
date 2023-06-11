@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/httphdr"
 )
 
 // Common HTTP Errors
@@ -40,7 +41,7 @@ func CheckStatus(resp *http.Response, expected int) (err error) {
 	}
 
 	return &StatusError{
-		ServerName: resp.Header.Get(HdrNameServer),
+		ServerName: resp.Header.Get(httphdr.Server),
 		Expected:   expected,
 		Got:        resp.StatusCode,
 	}
@@ -73,6 +74,6 @@ func (err *ServerError) Unwrap() (unwrapped error) {
 func WrapServerError(err error, resp *http.Response) (wrapped *ServerError) {
 	return &ServerError{
 		Err:        err,
-		ServerName: resp.Header.Get(HdrNameServer),
+		ServerName: resp.Header.Get(httphdr.Server),
 	}
 }

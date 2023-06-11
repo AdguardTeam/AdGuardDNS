@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"syscall"
 )
 
 // ListenConfig is the interface that allows controlling options of connections
@@ -18,23 +19,43 @@ type ListenConfig interface {
 	ListenPacket(ctx context.Context, network, address string) (c net.PacketConn, err error)
 }
 
+// defaultCtrlConf is the default control config.  By default, don't alter
+// anything.  defaultCtrlConf must not be mutated.
+var defaultCtrlConf = &ControlConfig{
+	RcvBufSize: 0,
+	SndBufSize: 0,
+}
+
 // DefaultListenConfig returns the default [ListenConfig] used by the servers in
 // this module except for the plain-DNS ones, which use
-// [DefaultListenConfigWithOOB].
-func DefaultListenConfig() (lc ListenConfig) {
+// [DefaultListenConfigWithOOB].  If conf is nil, a default configuration is
+// used.
+func DefaultListenConfig(conf *ControlConfig) (lc ListenConfig) {
+	if conf == nil {
+		conf = defaultCtrlConf
+	}
+
 	return &net.ListenConfig{
-		Control: defaultListenControl,
+		Control: func(_, _ string, c syscall.RawConn) (err error) {
+			return listenControlWithSO(conf, c)
+		},
 	}
 }
 
 // DefaultListenConfigWithOOB returns the default [ListenConfig] used by the
 // plain-DNS servers in this module.  The resulting ListenConfig sets additional
 // socket flags and processes the control-messages of connections created with
-// ListenPacket.
-func DefaultListenConfigWithOOB() (lc ListenConfig) {
+// ListenPacket.  If conf is nil, a default configuration is used.
+func DefaultListenConfigWithOOB(conf *ControlConfig) (lc ListenConfig) {
+	if conf == nil {
+		conf = defaultCtrlConf
+	}
+
 	return &listenConfigOOB{
 		ListenConfig: net.ListenConfig{
-			Control: defaultListenControl,
+			Control: func(_, _ string, c syscall.RawConn) (err error) {
+				return listenControlWithSO(conf, c)
+			},
 		},
 	}
 }
@@ -70,4 +91,15 @@ func (lc *listenConfigOOB) ListenPacket(
 	}
 
 	return wrapPacketConn(c), nil
+}
+
+// ControlConfig is the configuration of socket options.
+type ControlConfig struct {
+	// RcvBufSize defines the size of socket receive buffer in bytes.  Default
+	// is zero (uses system settings).
+	RcvBufSize int
+
+	// SndBufSize defines the size of socket send buffer in bytes.  Default is
+	// zero (uses system settings).
+	SndBufSize int
 }

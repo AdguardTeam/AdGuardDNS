@@ -51,7 +51,7 @@ func TestSessionPacketConn(t *testing.T) {
 }
 
 func testSessionPacketConn(t *testing.T, proto, addr string, dstIP net.IP) (isTimeout bool) {
-	lc := netext.DefaultListenConfigWithOOB()
+	lc := netext.DefaultListenConfigWithOOB(nil)
 	require.NotNil(t, lc)
 
 	c, err := lc.ListenPacket(context.Background(), proto, addr)

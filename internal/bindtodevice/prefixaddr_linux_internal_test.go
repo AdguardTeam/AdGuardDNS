@@ -3,6 +3,7 @@
 package bindtodevice
 
 import (
+	"fmt"
 	"net/netip"
 	"testing"
 
@@ -11,16 +12,42 @@ import (
 
 func TestPrefixAddr(t *testing.T) {
 	const (
-		wantStr = "1.2.3.0:56789/24"
+		port    = 56789
 		network = "tcp"
 	)
 
-	pa := &prefixNetAddr{
-		prefix:  netip.MustParsePrefix("1.2.3.0/24"),
-		network: network,
-		port:    56789,
-	}
+	testCases := []struct {
+		in   *prefixNetAddr
+		want string
+		name string
+	}{{
+		in: &prefixNetAddr{
+			prefix:  testSubnetIPv4,
+			network: network,
+			port:    port,
+		},
+		want: fmt.Sprintf(
+			"%s/%d",
+			netip.AddrPortFrom(testSubnetIPv4.Addr(), port), testSubnetIPv4.Bits(),
+		),
+		name: "ipv4",
+	}, {
+		in: &prefixNetAddr{
+			prefix:  testSubnetIPv6,
+			network: network,
+			port:    port,
+		},
+		want: fmt.Sprintf(
+			"%s/%d",
+			netip.AddrPortFrom(testSubnetIPv6.Addr(), port), testSubnetIPv6.Bits(),
+		),
+		name: "ipv6",
+	}}
 
-	assert.Equal(t, wantStr, pa.String())
-	assert.Equal(t, network, pa.Network())
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.in.String())
+			assert.Equal(t, network, tc.in.Network())
+		})
+	}
 }

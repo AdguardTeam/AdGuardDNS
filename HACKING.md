@@ -1,1 +1,1 @@
-See Adguard Home [`HACKING.md`](https://github.com/AdguardTeam/AdGuardHome/blob/master/HACKING.md). 
+See the [Adguard Code Guidelines](https://github.com/AdguardTeam/CodeGuidelines/).

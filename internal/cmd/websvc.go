@@ -13,6 +13,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
@@ -413,8 +414,8 @@ func (f *staticFile) toInternal() (file *websvc.StaticFile, err error) {
 
 	// Check Content-Type here as opposed to in validate, because we need
 	// all keys to be canonicalized first.
-	if file.Headers.Get(agdhttp.HdrNameContentType) == "" {
-		return nil, errors.Error("content: " + agdhttp.HdrNameContentType + " header is required")
+	if file.Headers.Get(httphdr.ContentType) == "" {
+		return nil, errors.Error("content: " + httphdr.ContentType + " header is required")
 	}
 
 	return file, nil

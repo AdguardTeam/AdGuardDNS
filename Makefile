@@ -59,6 +59,9 @@ go-gen:
 	cd ./internal/agd/   && "$(GO.MACRO)" run ./country_generate.go
 	cd ./internal/geoip/ && "$(GO.MACRO)" run ./asntops_generate.go
 
+	cd ./internal/profiledb/internal/filecachepb/ &&\
+		protoc --go_opt=paths=source_relative --go_out=. ./filecache.proto
+
 go-check: go-tools go-lint go-test
 
 # A quick check to make sure that all operating systems relevant to the

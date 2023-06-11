@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/AdguardTeam/golibs/errors"
@@ -25,25 +24,25 @@ func (h *Handler) refresh(ctx context.Context, shouldReport bool) (err error) {
 		return nil
 	}
 
-	var useFallbacks uint64
-	lastFailed := atomic.LoadInt64(&h.lastFailedHealthcheck)
+	var useFallbacks bool
+	lastFailed := h.lastFailedHealthcheck.Load()
 	shouldReturnToMain := time.Since(time.Unix(lastFailed, 0)) >= h.hcBackoff
 	if !shouldReturnToMain {
 		// Make sure that useFallbacks is left true if the main upstream is
 		// still in the backoff mode.
-		useFallbacks = 1
+		useFallbacks = true
 		log.Debug("forward: healthcheck: in backoff, will not return to main on success")
 	}
 
 	err = h.healthcheck(ctx)
 	if err != nil {
-		atomic.StoreInt64(&h.lastFailedHealthcheck, time.Now().Unix())
-		useFallbacks = 1
+		h.lastFailedHealthcheck.Store(time.Now().Unix())
+		useFallbacks = true
 	}
 
-	statusChanged := atomic.CompareAndSwapUint64(&h.useFallbacks, 1-useFallbacks, useFallbacks)
+	statusChanged := h.useFallbacks.CompareAndSwap(!useFallbacks, useFallbacks)
 	if statusChanged || shouldReport {
-		h.setUpstreamStatus(useFallbacks == 0)
+		h.setUpstreamStatus(!useFallbacks)
 	}
 
 	return errors.Annotate(err, "forward: %w")

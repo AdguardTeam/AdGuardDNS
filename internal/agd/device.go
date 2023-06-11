@@ -12,16 +12,24 @@ import (
 // Devices
 
 // Device is a device of a device attached to a profile.
+//
+// NOTE: Do not change fields of this structure without incrementing
+// [internal/profiledb/internal.FileCacheVersion].
 type Device struct {
 	// ID is the unique ID of the device.
 	ID DeviceID
 
-	// LinkedIP, when non-nil, allows AdGuard DNS to identify a device by its IP
-	// address when it can only use plain DNS.
-	LinkedIP *netip.Addr
+	// LinkedIP, when non-empty, allows AdGuard DNS to identify a device by its
+	// IP address when it can only use plain DNS.
+	LinkedIP netip.Addr
 
 	// Name is the human-readable name of the device.
 	Name DeviceName
+
+	// DedicatedIPs are the destination (server) IP-addresses dedicated to this
+	// device, if any.  A device can use one of these addresses as a DNS server
+	// address for AdGuard DNS to recognize it.
+	DedicatedIPs []netip.Addr
 
 	// FilteringEnabled defines whether queries from the device should be
 	// filtered in any way at all.

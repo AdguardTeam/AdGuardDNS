@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/stretchr/testify/assert"
@@ -78,7 +79,7 @@ func TestParentalProtectionSchedule_Contains(t *testing.T) {
 
 			time.Saturday: agd.ZeroLengthDayRange(),
 		},
-		TimeZone: time.UTC,
+		TimeZone: agdtime.UTC(),
 	}
 
 	// allDaySchedule, 00:00:00 to 23:59:59.
@@ -95,7 +96,7 @@ func TestParentalProtectionSchedule_Contains(t *testing.T) {
 
 			time.Saturday: agd.ZeroLengthDayRange(),
 		},
-		TimeZone: time.UTC,
+		TimeZone: agdtime.UTC(),
 	}
 
 	testCases := []struct {

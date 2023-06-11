@@ -12,104 +12,98 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// newListenConfig returns a [net.ListenConfig] that can bind to a network
-// interface (device) by its name.
-func newListenConfig(devName string) (lc *net.ListenConfig) {
-	c := &net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) (err error) {
-			return listenControl(devName, network, address, c)
-		},
-	}
+// setSockOptFunc is a function that sets a socket option on fd.
+type setSockOptFunc func(fd int) (err error)
 
-	return c
+// newIntSetSockOptFunc returns an integer socket-option function with the given
+// parameters.
+func newIntSetSockOptFunc(name string, lvl, opt, val int) (o setSockOptFunc) {
+	return func(fd int) (err error) {
+		opErr := unix.SetsockoptInt(fd, lvl, opt, val)
+
+		return errors.Annotate(opErr, "setting %s: %w", name)
+	}
 }
 
-// listenControl is used as a [net.ListenConfig.Control] function to set
-// additional socket options, including SO_BINDTODEVICE.
-func listenControl(devName, network, _ string, c syscall.RawConn) (err error) {
-	var ctrlFunc func(fd uintptr, devName string) (err error)
+// newStringSetSockOptFunc returns a string socket-option function with the
+// given parameters.
+func newStringSetSockOptFunc(name string, lvl, opt int, val string) (o setSockOptFunc) {
+	return func(fd int) (err error) {
+		opErr := unix.SetsockoptString(fd, lvl, opt, val)
+
+		return errors.Annotate(opErr, "setting %s: %w", name)
+	}
+}
+
+// newListenConfig returns a [net.ListenConfig] that can bind to a network
+// interface (device) by its name.  ctrlConf must not be nil.
+func newListenConfig(devName string, ctrlConf *ControlConfig) (lc *net.ListenConfig) {
+	return &net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) (err error) {
+			return listenControlWithSO(ctrlConf, devName, network, address, c)
+		},
+	}
+}
+
+// listenControlWithSO is used as a [net.ListenConfig.Control] function to set
+// additional socket options.
+func listenControlWithSO(
+	ctrlConf *ControlConfig,
+	devName string,
+	network string,
+	_ string,
+	c syscall.RawConn,
+) (err error) {
+	opts := []setSockOptFunc{
+		newStringSetSockOptFunc("SO_BINDTODEVICE", unix.SOL_SOCKET, unix.SO_BINDTODEVICE, devName),
+		// Use SO_REUSEADDR as well, which is not technically necessary, to
+		// help with the situation of sockets hanging in CLOSE_WAIT for too
+		// long.
+		newIntSetSockOptFunc("SO_REUSEADDR", unix.SOL_SOCKET, unix.SO_REUSEADDR, 1),
+		newIntSetSockOptFunc("SO_REUSEPORT", unix.SOL_SOCKET, unix.SO_REUSEPORT, 1),
+	}
 
 	switch network {
 	case "tcp", "tcp4", "tcp6":
-		ctrlFunc = setTCPSockOpt
+		// Socket options for TCP connection already set.  Go on.
 	case "udp", "udp4", "udp6":
-		ctrlFunc = setUDPSockOpt
+		opts = append(
+			opts,
+			newIntSetSockOptFunc("IP_RECVORIGDSTADDR", unix.IPPROTO_IP, unix.IP_RECVORIGDSTADDR, 1),
+			newIntSetSockOptFunc("IP_FREEBIND", unix.IPPROTO_IP, unix.IP_FREEBIND, 1),
+			newIntSetSockOptFunc("IPV6_RECVORIGDSTADDR", unix.IPPROTO_IPV6, unix.IPV6_RECVORIGDSTADDR, 1),
+			newIntSetSockOptFunc("IPV6_FREEBIND", unix.IPPROTO_IPV6, unix.IPV6_FREEBIND, 1),
+		)
 	default:
 		return fmt.Errorf("bad network %q", network)
 	}
 
+	if ctrlConf.SndBufSize > 0 {
+		opts = append(
+			opts,
+			newIntSetSockOptFunc("SO_SNDBUF", unix.SOL_SOCKET, unix.SO_SNDBUF, ctrlConf.SndBufSize),
+		)
+	}
+
+	if ctrlConf.RcvBufSize > 0 {
+		opts = append(
+			opts,
+			newIntSetSockOptFunc("SO_RCVBUF", unix.SOL_SOCKET, unix.SO_RCVBUF, ctrlConf.RcvBufSize),
+		)
+	}
+
 	var opErr error
 	err = c.Control(func(fd uintptr) {
-		opErr = ctrlFunc(fd, devName)
+		d := int(fd)
+		for _, opt := range opts {
+			opErr = opt(d)
+			if opErr != nil {
+				return
+			}
+		}
 	})
 
 	return errors.WithDeferred(opErr, err)
-}
-
-// setTCPSockOpt sets the SO_BINDTODEVICE and other socket options for a TCP
-// connection.
-func setTCPSockOpt(fd uintptr, devName string) (err error) {
-	defer func() { err = errors.Annotate(err, "setting tcp opts: %w") }()
-
-	fdInt := int(fd)
-	err = unix.SetsockoptString(fdInt, unix.SOL_SOCKET, unix.SO_BINDTODEVICE, devName)
-	if err != nil {
-		return fmt.Errorf("setting SO_BINDTODEVICE: %w", err)
-	}
-
-	err = unix.SetsockoptInt(fdInt, unix.SOL_SOCKET, unix.SO_REUSEPORT, 1)
-	if err != nil {
-		return fmt.Errorf("setting SO_REUSEPORT: %w", err)
-	}
-
-	return nil
-}
-
-// setUDPSockOpt sets the SO_BINDTODEVICE and other socket options for a UDP
-// connection.
-func setUDPSockOpt(fd uintptr, devName string) (err error) {
-	defer func() { err = errors.Annotate(err, "setting udp opts: %w") }()
-
-	fdInt := int(fd)
-	err = unix.SetsockoptString(fdInt, unix.SOL_SOCKET, unix.SO_BINDTODEVICE, devName)
-	if err != nil {
-		return fmt.Errorf("setting SO_BINDTODEVICE: %w", err)
-	}
-
-	intOpts := []struct {
-		name  string
-		level int
-		opt   int
-	}{{
-		name:  "SO_REUSEPORT",
-		level: unix.SOL_SOCKET,
-		opt:   unix.SO_REUSEPORT,
-	}, {
-		name:  "IP_RECVORIGDSTADDR",
-		level: unix.IPPROTO_IP,
-		opt:   unix.IP_RECVORIGDSTADDR,
-	}, {
-		name:  "IP_FREEBIND",
-		level: unix.IPPROTO_IP,
-		opt:   unix.IP_FREEBIND,
-	}, {
-		name:  "IPV6_RECVORIGDSTADDR",
-		level: unix.IPPROTO_IPV6,
-		opt:   unix.IPV6_RECVORIGDSTADDR,
-	}, {
-		name:  "IPV6_FREEBIND",
-		level: unix.IPPROTO_IPV6,
-		opt:   unix.IPV6_FREEBIND,
-	}}
-
-	for _, o := range intOpts {
-		err = unix.SetsockoptInt(fdInt, o.level, o.opt, 1)
-		if err != nil {
-			return fmt.Errorf("setting %s: %w", o.name, err)
-		}
-	}
-
-	return nil
 }
 
 // readPacketSession is a helper that reads a packet-session data from a UDP
@@ -165,8 +159,11 @@ func sockAddrData(sockAddr unix.Sockaddr) (origDstAddr *net.UDPAddr, respOOB []b
 			Port: sockAddr.Port,
 		}
 
+		// Set both addresses to make sure that users receive the correct source
+		// IP address even when virtual interfaces are involved.
 		pktInfo := &unix.Inet4Pktinfo{
-			Addr: sockAddr.Addr,
+			Addr:     sockAddr.Addr,
+			Spec_dst: sockAddr.Addr,
 		}
 
 		respOOB = unix.PktInfo4(pktInfo)

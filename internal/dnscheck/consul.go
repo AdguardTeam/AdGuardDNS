@@ -17,6 +17,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
@@ -303,8 +304,8 @@ func (cc *Consul) serveCheckTest(ctx context.Context, w http.ResponseWriter, r *
 	}
 
 	h := w.Header()
-	h.Set(agdhttp.HdrNameContentType, agdhttp.HdrValApplicationJSON)
-	h.Set(agdhttp.HdrNameAccessControlAllowOrigin, agdhttp.HdrValWildcard)
+	h.Set(httphdr.ContentType, agdhttp.HdrValApplicationJSON)
+	h.Set(httphdr.AccessControlAllowOrigin, agdhttp.HdrValWildcard)
 
 	err = json.NewEncoder(w).Encode(inf)
 	if err != nil {

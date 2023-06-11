@@ -13,6 +13,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
+	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
 )
@@ -47,10 +48,10 @@ func linkedIPHandler(
 
 		// Set the X-Forwarded-For header to a nil value to make sure that
 		// the proxy doesn't add it automatically.
-		hdr["X-Forwarded-For"] = nil
+		hdr[httphdr.XForwardedFor] = nil
 
 		// Make sure that all requests are marked with our user agent.
-		hdr.Set(agdhttp.HdrNameUserAgent, agdhttp.UserAgent())
+		hdr.Set(httphdr.UserAgent, agdhttp.UserAgent())
 	}
 
 	// Use largely the same transport as http.DefaultTransport, but with a
@@ -75,10 +76,10 @@ func linkedIPHandler(
 
 	// Delete the Server header value from the upstream.
 	modifyResponse := func(r *http.Response) (err error) {
-		r.Header.Del(agdhttp.HdrNameServer)
+		r.Header.Del(httphdr.Server)
 
 		// Make sure that this URL can be used from the web page.
-		r.Header.Set(agdhttp.HdrNameAccessControlAllowOrigin, agdhttp.HdrValWildcard)
+		r.Header.Set(httphdr.AccessControlAllowOrigin, agdhttp.HdrValWildcard)
 
 		return nil
 	}
@@ -111,7 +112,7 @@ var _ http.Handler = (*linkedIPProxy)(nil)
 func (prx *linkedIPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Set the Server header here, so that all 404 and 500 responses carry it.
 	respHdr := w.Header()
-	respHdr.Set(agdhttp.HdrNameServer, agdhttp.UserAgent())
+	respHdr.Set(httphdr.Server, agdhttp.UserAgent())
 
 	m, p, rAddr := r.Method, r.URL.Path, r.RemoteAddr
 	optlog.Debug3("websvc: starting req %s %s from %s", m, p, rAddr)
@@ -124,9 +125,9 @@ func (prx *linkedIPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		// Remove all proxy headers before sending the request to proxy.
 		hdr := r.Header
-		hdr.Del("Forwarded")
-		hdr.Del("True-Client-IP")
-		hdr.Del("X-Real-IP")
+		hdr.Del(httphdr.Forwarded)
+		hdr.Del(httphdr.TrueClientIP)
+		hdr.Del(httphdr.XRealIP)
 
 		// Set the real IP.
 		ip, err := netutil.SplitHost(rAddr)
@@ -141,12 +142,12 @@ func (prx *linkedIPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		hdr.Set("CF-Connecting-IP", ip)
+		hdr.Set(httphdr.CFConnectingIP, ip)
 
 		// Set the request ID.
 		reqID := agd.NewRequestID()
 		r = r.WithContext(agd.WithRequestID(r.Context(), reqID))
-		hdr.Set(agdhttp.HdrNameXRequestID, string(reqID))
+		hdr.Set(httphdr.XRequestID, string(reqID))
 
 		log.Debug("%s: proxying %s %s: req %s", prx.logPrefix, m, p, reqID)
 

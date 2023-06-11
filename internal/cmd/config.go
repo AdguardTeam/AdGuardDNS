@@ -61,6 +61,13 @@ type configuration struct {
 	// ConnectivityCheck is the connectivity check configuration.
 	ConnectivityCheck *connCheckConfig `yaml:"connectivity_check"`
 
+	// InterfaceListeners is the configuration for the network interface
+	// listeners and their common parameters.
+	InterfaceListeners *interfaceListenersConfig `yaml:"interface_listeners"`
+
+	// Network is the configuration for network listeners.
+	Network *network `yaml:"network"`
+
 	// AdditionalMetricsInfo is extra information, which is exposed by metrics.
 	AdditionalMetricsInfo additionalInfo `yaml:"additional_metrics_info"`
 
@@ -140,6 +147,12 @@ func (c *configuration) validate() (err error) {
 	}, {
 		validate: c.ConnectivityCheck.validate,
 		name:     "connectivity_check",
+	}, {
+		validate: c.InterfaceListeners.validate,
+		name:     "interface_listeners",
+	}, {
+		validate: c.Network.validate,
+		name:     "network",
 	}, {
 		validate: c.AdditionalMetricsInfo.validate,
 		name:     "additional_metrics_info",

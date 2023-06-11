@@ -46,8 +46,8 @@ func TestService_Wrap_deviceID(t *testing.T) {
 		proto:        agd.ProtoDoT,
 	}, {
 		name:         "tls_device_id",
-		cliSrvName:   "dev.dns.example.com",
-		wantDeviceID: "dev",
+		cliSrvName:   testDeviceID + ".dns.example.com",
+		wantDeviceID: testDeviceID,
 		wantErrMsg:   "",
 		wildcards:    []string{"*.dns.example.com"},
 		proto:        agd.ProtoDoT,
@@ -61,7 +61,7 @@ func TestService_Wrap_deviceID(t *testing.T) {
 		proto:     agd.ProtoDoT,
 	}, {
 		name:         "tls_deep_subdomain",
-		cliSrvName:   "abc.def.dns.example.com",
+		cliSrvName:   "abc." + testDeviceID + ".dns.example.com",
 		wantDeviceID: "",
 		wantErrMsg:   "",
 		wildcards:    []string{"*.dns.example.com"},
@@ -79,8 +79,8 @@ func TestService_Wrap_deviceID(t *testing.T) {
 		proto:     agd.ProtoDoT,
 	}, {
 		name:         "quic_device_id",
-		cliSrvName:   "dev.dns.example.com",
-		wantDeviceID: "dev",
+		cliSrvName:   testDeviceID + ".dns.example.com",
+		wantDeviceID: testDeviceID,
 		wantErrMsg:   "",
 		wildcards:    []string{"*.dns.example.com"},
 		proto:        agd.ProtoDoQ,
@@ -93,8 +93,8 @@ func TestService_Wrap_deviceID(t *testing.T) {
 		proto:        agd.ProtoDoT,
 	}, {
 		name:         "tls_device_id_subdomain_wildcard",
-		cliSrvName:   "dev.sub.dns.example.com",
-		wantDeviceID: "dev",
+		cliSrvName:   testDeviceID + ".sub.dns.example.com",
+		wantDeviceID: testDeviceID,
 		wantErrMsg:   "",
 		wildcards: []string{
 			"*.dns.example.com",
@@ -135,13 +135,13 @@ func TestService_Wrap_deviceIDHTTPS(t *testing.T) {
 		wantErrMsg:   "",
 	}, {
 		name:         "device_id",
-		path:         "/dns-query/cli",
-		wantDeviceID: "cli",
+		path:         "/dns-query/" + testDeviceID,
+		wantDeviceID: testDeviceID,
 		wantErrMsg:   "",
 	}, {
 		name:         "device_id_slash",
-		path:         "/dns-query/cli/",
-		wantDeviceID: "cli",
+		path:         "/dns-query/" + testDeviceID + "/",
+		wantDeviceID: testDeviceID,
 		wantErrMsg:   "",
 	}, {
 		name:         "bad_url",
@@ -150,9 +150,9 @@ func TestService_Wrap_deviceIDHTTPS(t *testing.T) {
 		wantErrMsg:   `http url device id check: bad path "/foo"`,
 	}, {
 		name:         "extra",
-		path:         "/dns-query/cli/foo",
+		path:         "/dns-query/" + testDeviceID + "/foo",
 		wantDeviceID: "",
-		wantErrMsg: `http url device id check: bad path "/dns-query/cli/foo": ` +
+		wantErrMsg: `http url device id check: bad path "/dns-query/` + testDeviceID + `/foo": ` +
 			`extra parts`,
 	}, {
 		name:         "bad_device_id",
@@ -184,11 +184,9 @@ func TestService_Wrap_deviceIDHTTPS(t *testing.T) {
 	}
 
 	t.Run("domain_name", func(t *testing.T) {
-		const want = "dev"
-
 		u := &url.URL{
 			Scheme: "https",
-			Host:   want + ".dns.example.com",
+			Host:   testDeviceID + ".dns.example.com",
 			Path:   "/dns-query",
 		}
 
@@ -204,7 +202,7 @@ func TestService_Wrap_deviceIDHTTPS(t *testing.T) {
 		deviceID, err := deviceIDFromContext(ctx, proto, []string{"*.dns.example.com"})
 		require.NoError(t, err)
 
-		assert.Equal(t, agd.DeviceID(want), deviceID)
+		assert.Equal(t, agd.DeviceID(testDeviceID), deviceID)
 	})
 }
 

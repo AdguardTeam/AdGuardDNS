@@ -45,6 +45,8 @@ func TestServerTLS_integration_queryTLS(t *testing.T) {
 }
 
 func TestServerTLS_integration_msgIgnore(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name          string
 		buf           []byte
@@ -88,7 +90,10 @@ func TestServerTLS_integration_msgIgnore(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
 			h := dnsservertest.DefaultHandler()
 			addr := dnsservertest.RunTLSServer(t, h, tlsConfig)

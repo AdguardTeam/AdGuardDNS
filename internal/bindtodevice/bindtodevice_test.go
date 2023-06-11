@@ -1,6 +1,16 @@
 package bindtodevice_test
 
-import "github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
+import (
+	"net/netip"
+	"testing"
+
+	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
+	"github.com/AdguardTeam/golibs/testutil"
+)
+
+func TestMain(m *testing.M) {
+	testutil.DiscardLogOutput(m)
+}
 
 // Common interface listener IDs for tests
 const (
@@ -18,3 +28,6 @@ const (
 
 // testIfaceName is the common network interface name for tests.
 const testIfaceName = "not_a_real_iface0"
+
+// testSubnetIPv4 is a common subnet for tests.
+var testSubnetIPv4 = netip.MustParsePrefix("1.2.3.0/24")

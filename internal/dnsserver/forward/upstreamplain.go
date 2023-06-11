@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 	"github.com/miekg/dns"
 )
 
-// Network is a enumeration of networks UpstreamPlain supports
+// Network is a enumeration of networks UpstreamPlain supports.
 type Network string
 
 const (
@@ -72,11 +73,21 @@ type UpstreamPlain struct {
 // type check
 var _ Upstream = (*UpstreamPlain)(nil)
 
-// NewUpstreamPlain creates and initializes a new instance of UpstreamPlain.
-func NewUpstreamPlain(addr netip.AddrPort, network Network) (ups *UpstreamPlain) {
+// UpstreamPlainConfig is the configuration structure for a plain-DNS upstream.
+type UpstreamPlainConfig struct {
+	// Network is the network to use for this upstream.
+	Network Network
+
+	// Address is the address of the upstream DNS server.
+	Address netip.AddrPort
+}
+
+// NewUpstreamPlain returns a new properly initialized *UpstreamPlain.  c must
+// not be nil.
+func NewUpstreamPlain(c *UpstreamPlainConfig) (ups *UpstreamPlain) {
 	ups = &UpstreamPlain{
-		addr:    addr,
-		network: network,
+		addr:    c.Address,
+		network: c.Network,
 	}
 
 	ups.connsPoolUDP = pool.NewPool(poolMaxCapacity, makeConnsPoolFactory(ups, NetworkUDP))
@@ -127,33 +138,39 @@ func (u *UpstreamPlain) String() (str string) {
 	return fmt.Sprintf("%s://%s", u.network, u.addr)
 }
 
-// exchangeUDP attempts to send the DNS request over UDP. It returns a
-// fallbackToTCP flag to signal if we should fallback to using TCP instead.
-// this may happen if the response received over UDP was truncated and
+// exchangeUDP attempts to send the DNS request over UDP.  It returns a
+// fallbackToTCP flag to signal if the caller should fallback to using TCP
+// instead.  This may happen if the response received over UDP was truncated and
 // TCP is enabled for this upstream or if UDP is disabled.
 func (u *UpstreamPlain) exchangeUDP(
 	ctx context.Context,
 	req *dns.Msg,
 ) (fallbackToTCP bool, resp *dns.Msg, err error) {
 	if u.network == NetworkTCP {
-		// fallback to TCP immediately.
+		// Fallback to TCP immediately.
 		return true, nil, nil
 	}
 
 	resp, err = u.exchangeNet(ctx, req, NetworkUDP)
 	if err != nil {
-		// error means that the upstream is dead, no need to fallback to TCP.
-		return false, resp, err
+		// The network error always causes the subsequent query attempt using
+		// fresh UDP connection, so if it happened again, the upstream is likely
+		// dead and using TCP appears meaningless.  See [exchangeNet].
+		//
+		// Thus, non-network errors are considered being related to the
+		// response.  It may also happen the received response is intended for
+		// another timeouted request sent from the same source port, but falling
+		// back to TCP in this case shouldn't hurt.
+		fallbackToTCP = !isExpectedConnErr(err)
+
+		return fallbackToTCP, resp, err
 	}
 
-	// If the response is truncated and we can use TCP, make sure that we'll
-	// fallback to TCP.  We also fallback to TCP if we received a response with
-	// the wrong ID (it may happen with the servers under heavy load).
-	if (resp.Truncated || resp.Id != req.Id) && u.network != NetworkUDP {
-		fallbackToTCP = true
-	}
+	// Also, fallback to TCP if the received response is truncated and the
+	// upstream isn't UDP-only.
+	fallbackToTCP = u.network != NetworkUDP && resp != nil && resp.Truncated
 
-	return fallbackToTCP, resp, err
+	return fallbackToTCP, resp, nil
 }
 
 // exchangeNet sends a DNS query using the specified network (either TCP or UDP).
@@ -203,24 +220,35 @@ func (u *UpstreamPlain) exchangeNet(
 	return resp, err
 }
 
-// validateResponse checks if the response is valid for the original query. For
-// instance, it is possible to receive a response to a different query, and we
-// must be sure that we received what was expected.
-func (u *UpstreamPlain) validateResponse(req, resp *dns.Msg) (err error) {
+// validatePlainResponse returns an error if the response is not valid for the
+// original request.  This is required because we might receive a response to a
+// different query, e.g. when the server is under heavy load.
+func validatePlainResponse(req, resp *dns.Msg) (err error) {
 	if req.Id != resp.Id {
 		return dns.ErrId
 	}
 
-	if len(resp.Question) != 1 {
-		return ErrQuestion
+	if qlen := len(resp.Question); qlen != 1 {
+		return fmt.Errorf("%w: only 1 question allowed; got %d", ErrQuestion, qlen)
 	}
 
-	if req.Question[0].Name != resp.Question[0].Name {
-		return ErrQuestion
+	reqQ, respQ := req.Question[0], resp.Question[0]
+
+	if reqQ.Qtype != respQ.Qtype {
+		return fmt.Errorf("%w: mismatched type %s", ErrQuestion, dns.Type(respQ.Qtype))
+	}
+
+	// Compare the names case-insensitively, just like CoreDNS does.
+	if !strings.EqualFold(reqQ.Name, respQ.Name) {
+		return fmt.Errorf("%w: mismatched name %q", ErrQuestion, respQ.Name)
 	}
 
 	return nil
 }
+
+// defaultUDPTimeout is the default timeout for waiting a valid DNS message or
+// network error.
+const defaultUDPTimeout = 1 * time.Minute
 
 // processConn writes the query to the connection and then reads the response
 // from it.  We might be dealing with an idle dead connection so if we get
@@ -236,7 +264,7 @@ func (u *UpstreamPlain) processConn(
 	req *dns.Msg,
 	buf []byte,
 	bufLen int,
-) (msg *dns.Msg, err error) {
+) (resp *dns.Msg, err error) {
 	// Make sure that we return the connection to the pool in the end or close
 	// if there was any error.
 	defer func() {
@@ -248,7 +276,12 @@ func (u *UpstreamPlain) processConn(
 	}()
 
 	// Prepare a context with a deadline if needed.
-	if deadline, ok := ctx.Deadline(); ok {
+	deadline, ok := ctx.Deadline()
+	if !ok && network == NetworkUDP {
+		deadline, ok = time.Now().Add(defaultUDPTimeout), true
+	}
+
+	if ok {
 		err = conn.SetDeadline(deadline)
 		if err != nil {
 			return nil, fmt.Errorf("setting deadline: %w", err)
@@ -261,19 +294,28 @@ func (u *UpstreamPlain) processConn(
 		return nil, fmt.Errorf("writing request: %w", err)
 	}
 
-	var resp *dns.Msg
+	return u.readValidMsg(req, network, conn, buf)
+}
+
+// readValidMsg reads the response from conn to buf, parses and validates it.
+func (u *UpstreamPlain) readValidMsg(
+	req *dns.Msg,
+	network Network,
+	conn net.Conn,
+	buf []byte,
+) (resp *dns.Msg, err error) {
 	resp, err = u.readMsg(network, conn, buf)
 	if err != nil {
-		// Error is already wrapped.
+		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
 	}
 
-	err = u.validateResponse(req, resp)
+	err = validatePlainResponse(req, resp)
 	if err != nil {
-		return nil, fmt.Errorf("validating response: %w", err)
+		return resp, fmt.Errorf("validating %s response: %w", network, err)
 	}
 
-	return resp, err
+	return resp, nil
 }
 
 // readMsg reads the response from the specified connection and parses it.
@@ -302,7 +344,8 @@ func (u *UpstreamPlain) readMsg(network Network, conn net.Conn, buf []byte) (*dn
 	if n < minDNSMessageSize {
 		return nil, fmt.Errorf("invalid msg: %w", dns.ErrShortRead)
 	}
-	ret := new(dns.Msg)
+
+	ret := &dns.Msg{}
 	err = ret.Unpack(buf)
 	if err != nil {
 		return nil, fmt.Errorf("unpacking msg: %w", err)

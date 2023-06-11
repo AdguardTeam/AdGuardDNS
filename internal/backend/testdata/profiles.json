@@ -50,18 +50,23 @@
         {
           "id": "6d2ac775",
           "name": "Device 2",
+          "linked_ip": null,
           "filtering_enabled": true
         },
         {
           "id": "94d4c481",
           "name": "Device 3",
+          "linked_ip": "",
+          "dedicated_ips": [
+            "1.2.3.4"
+          ],
           "filtering_enabled": true
         },
         {
           "id": "ada436e3",
           "name": "Device 4",
-          "filtering_enabled": true,
-          "linked_ip": "1.2.3.4"
+          "linked_ip": "1.2.3.4",
+          "filtering_enabled": true
         }
       ],
       "parental": {

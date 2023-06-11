@@ -8,6 +8,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/backend"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
+	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
@@ -76,7 +77,7 @@ func setupBackend(
 	envs *environments,
 	sigHdlr signalHandler,
 	errColl agd.ErrorCollector,
-) (profDB *agd.DefaultProfileDB, rec *billstat.RuntimeRecorder, err error) {
+) (profDB *profiledb.Default, rec *billstat.RuntimeRecorder, err error) {
 	profStrgConf, billStatConf := conf.toInternal(envs, errColl)
 	rec = billstat.NewRuntimeRecorder(&billstat.RuntimeRecorderConfig{
 		Uploader: backend.NewBillStat(billStatConf),
@@ -103,7 +104,7 @@ func setupBackend(
 	sigHdlr.add(billStatRefr)
 
 	profStrg := backend.NewProfileStorage(profStrgConf)
-	profDB, err = agd.NewDefaultProfileDB(
+	profDB, err = profiledb.New(
 		profStrg,
 		conf.FullRefreshIvl.Duration,
 		envs.ProfilesCachePath,

@@ -8,6 +8,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
@@ -51,8 +52,8 @@ func (c *filtersConfig) toInternal(
 	errColl agd.ErrorCollector,
 	resolver agdnet.Resolver,
 	envs *environments,
-	safeBrowsing *filter.HashPrefix,
-	adultBlocking *filter.HashPrefix,
+	safeBrowsing *hashprefix.Filter,
+	adultBlocking *hashprefix.Filter,
 ) (conf *filter.DefaultStorageConfig) {
 	return &filter.DefaultStorageConfig{
 		FilterIndexURL:            netutil.CloneURL(&envs.FilterIndexURL.URL),

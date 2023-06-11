@@ -42,13 +42,11 @@ var remoteIP = netip.MustParseAddr("1.2.3.4")
 func TestMiddleware_Wrap_noECS(t *testing.T) {
 	aReq := dnsservertest.NewReq(reqHostname, dns.TypeA, dns.ClassINET)
 	cnameReq := dnsservertest.NewReq(reqHostname, dns.TypeCNAME, dns.ClassINET)
-	cnameAns := dnsservertest.RRSection{
-		RRs: []dns.RR{dnsservertest.NewCNAME(reqHostname, defaultTTL, reqCNAME)},
-		Sec: dnsservertest.SectionAnswer,
+	cnameAns := dnsservertest.SectionAnswer{
+		dnsservertest.NewCNAME(reqHostname, defaultTTL, reqCNAME),
 	}
-	soaNS := dnsservertest.RRSection{
-		RRs: []dns.RR{dnsservertest.NewSOA(reqHostname, defaultTTL, reqNS1, reqNS2)},
-		Sec: dnsservertest.SectionNs,
+	soaNS := dnsservertest.SectionNs{
+		dnsservertest.NewSOA(reqHostname, defaultTTL, reqNS1, reqNS2),
 	}
 
 	const N = 5
@@ -60,8 +58,8 @@ func TestMiddleware_Wrap_noECS(t *testing.T) {
 		wantTTL    uint32
 	}{{
 		req: aReq,
-		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.RRSection{
-			RRs: []dns.RR{dnsservertest.NewA(reqHostname, defaultTTL, net.IP{1, 2, 3, 4})},
+		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
+			dnsservertest.NewA(reqHostname, defaultTTL, net.IP{1, 2, 3, 4}),
 		}),
 		name:       "simple_a",
 		wantNumReq: 1,
@@ -92,9 +90,8 @@ func TestMiddleware_Wrap_noECS(t *testing.T) {
 		wantTTL:    defaultTTL,
 	}, {
 		req: aReq,
-		resp: dnsservertest.NewResp(dns.RcodeNameError, aReq, dnsservertest.RRSection{
-			RRs: []dns.RR{dnsservertest.NewNS(reqHostname, defaultTTL, reqNS1)},
-			Sec: dnsservertest.SectionNs,
+		resp: dnsservertest.NewResp(dns.RcodeNameError, aReq, dnsservertest.SectionNs{
+			dnsservertest.NewNS(reqHostname, defaultTTL, reqNS1),
 		}),
 		name: "non_authoritative_nxdomain",
 		// TODO(ameshkov): Consider https://datatracker.ietf.org/doc/html/rfc2308#section-3.
@@ -114,16 +111,16 @@ func TestMiddleware_Wrap_noECS(t *testing.T) {
 		wantTTL:    ecscache.ServFailMaxCacheTTL,
 	}, {
 		req: cnameReq,
-		resp: dnsservertest.NewResp(dns.RcodeSuccess, cnameReq, dnsservertest.RRSection{
-			RRs: []dns.RR{dnsservertest.NewCNAME(reqHostname, defaultTTL, reqCNAME)},
+		resp: dnsservertest.NewResp(dns.RcodeSuccess, cnameReq, dnsservertest.SectionAnswer{
+			dnsservertest.NewCNAME(reqHostname, defaultTTL, reqCNAME),
 		}),
 		name:       "simple_cname_ans",
 		wantNumReq: 1,
 		wantTTL:    defaultTTL,
 	}, {
 		req: aReq,
-		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.RRSection{
-			RRs: []dns.RR{dnsservertest.NewA(reqHostname, 0, net.IP{1, 2, 3, 4})},
+		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
+			dnsservertest.NewA(reqHostname, 0, net.IP{1, 2, 3, 4}),
 		}),
 		name:       "expired_one",
 		wantNumReq: N,
@@ -270,14 +267,12 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 			resp := dnsservertest.NewResp(
 				dns.RcodeSuccess,
 				aReq,
-				dnsservertest.RRSection{
-					RRs: []dns.RR{dnsservertest.NewA(reqHostname, defaultTTL, net.IP{1, 2, 3, 4})},
-					Sec: dnsservertest.SectionAnswer,
-				},
-				dnsservertest.RRSection{
-					RRs: []dns.RR{tc.respECS},
-					Sec: dnsservertest.SectionExtra,
-				},
+				dnsservertest.SectionAnswer{dnsservertest.NewA(
+					reqHostname,
+					defaultTTL,
+					net.IP{1, 2, 3, 4},
+				)},
+				dnsservertest.SectionExtra{tc.respECS},
 			)
 
 			numReq := 0
@@ -337,13 +332,12 @@ func TestMiddleware_Wrap_ecsOrder(t *testing.T) {
 	newResp := func(t *testing.T, req *dns.Msg, answer, extra dns.RR) (resp *dns.Msg) {
 		t.Helper()
 
-		return dnsservertest.NewResp(dns.RcodeSuccess, req, dnsservertest.RRSection{
-			RRs: []dns.RR{answer},
-			Sec: dnsservertest.SectionAnswer,
-		}, dnsservertest.RRSection{
-			RRs: []dns.RR{extra},
-			Sec: dnsservertest.SectionExtra,
-		})
+		return dnsservertest.NewResp(
+			dns.RcodeSuccess,
+			req,
+			dnsservertest.SectionAnswer{answer},
+			dnsservertest.SectionExtra{extra},
+		)
 	}
 
 	reqNoECS := dnsservertest.NewReq(reqHostname, dns.TypeA, dns.ClassINET)

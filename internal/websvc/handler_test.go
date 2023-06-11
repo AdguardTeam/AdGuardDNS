@@ -10,6 +10,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
+	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,7 +34,7 @@ func TestService_ServeHTTP(t *testing.T) {
 		"/favicon.ico": {
 			Content: []byte{},
 			Headers: http.Header{
-				agdhttp.HdrNameContentType: []string{"image/x-icon"},
+				httphdr.ContentType: []string{"image/x-icon"},
 			},
 		},
 	}
@@ -62,8 +63,8 @@ func TestService_ServeHTTP(t *testing.T) {
 
 	// Static content path with headers.
 	h := http.Header{
-		agdhttp.HdrNameContentType: []string{"image/x-icon"},
-		agdhttp.HdrNameServer:      []string{"AdGuardDNS/"},
+		httphdr.ContentType: []string{"image/x-icon"},
+		httphdr.Server:      []string{"AdGuardDNS/"},
 	}
 	assertResponseWithHeaders(t, svc, "/favicon.ico", http.StatusOK, h)
 
@@ -96,7 +97,7 @@ func assertResponse(
 	svc.ServeHTTP(rw, r)
 
 	assert.Equal(t, statusCode, rw.Code)
-	assert.Equal(t, agdhttp.UserAgent(), rw.Header().Get(agdhttp.HdrNameServer))
+	assert.Equal(t, agdhttp.UserAgent(), rw.Header().Get(httphdr.Server))
 
 	return rw
 }

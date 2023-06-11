@@ -5,6 +5,7 @@ package bindtodevice
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"sync"
 	"time"
@@ -19,32 +20,38 @@ import (
 // are used in module dnsserver to make the bind-to-device logic work in
 // DNS-over-UDP.
 type chanPacketConn struct {
-	closeOnce *sync.Once
-	sessions  chan *packetSession
-	laddr     net.Addr
+	// mu protects sessions (against closure) and isClosed.
+	mu       *sync.Mutex
+	sessions chan *packetSession
+
+	writeRequests chan *packetConnWriteReq
 
 	// deadlineMu protects readDeadline and writeDeadline.
 	deadlineMu    *sync.RWMutex
 	readDeadline  time.Time
 	writeDeadline time.Time
 
-	writeRequests chan *packetConnWriteReq
+	laddr    net.Addr
+	subnet   netip.Prefix
+	isClosed bool
 }
 
 // newChanPacketConn returns a new properly initialized *chanPacketConn.
 func newChanPacketConn(
 	sessions chan *packetSession,
+	subnet netip.Prefix,
 	writeRequests chan *packetConnWriteReq,
 	laddr net.Addr,
 ) (c *chanPacketConn) {
 	return &chanPacketConn{
-		closeOnce: &sync.Once{},
-		sessions:  sessions,
-		laddr:     laddr,
+		mu:            &sync.Mutex{},
+		sessions:      sessions,
+		writeRequests: writeRequests,
 
 		deadlineMu: &sync.RWMutex{},
 
-		writeRequests: writeRequests,
+		laddr:  laddr,
+		subnet: subnet,
 	}
 }
 
@@ -70,15 +77,15 @@ var _ netext.SessionPacketConn = (*chanPacketConn)(nil)
 // Close implements the [netext.SessionPacketConn] interface for
 // *chanPacketConn.
 func (c *chanPacketConn) Close() (err error) {
-	closedNow := false
-	c.closeOnce.Do(func() {
-		close(c.sessions)
-		closedNow = true
-	})
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	if !closedNow {
+	if c.isClosed {
 		return wrapConnError(tnChanPConn, "Close", c.laddr, net.ErrClosed)
 	}
+
+	close(c.sessions)
+	c.isClosed = true
 
 	return nil
 }
@@ -288,4 +295,19 @@ func sendWithTimer[T any](ch chan<- T, v T, timerCh <-chan time.Time) (err error
 	case <-timerCh:
 		return os.ErrDeadlineExceeded
 	}
+}
+
+// send is a helper method to send a session to the packet connection's channel.
+// ok is false if the listener is closed.
+func (c *chanPacketConn) send(sess *packetSession) (ok bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.isClosed {
+		return false
+	}
+
+	c.sessions <- sess
+
+	return true
 }

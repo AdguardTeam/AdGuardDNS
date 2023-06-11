@@ -38,20 +38,6 @@ import (
 // queries to the specified upstreams.  It also implements [io.Closer], allowing
 // resource reuse.
 type Handler struct {
-	// lastFailedHealthcheck shows the last time of failed healthcheck.
-	//
-	// It is of type int64 to be accessed by package atomic.  The field is
-	// arranged for 64-bit alignment on the first position.
-	lastFailedHealthcheck int64
-
-	// useFallbacks is not zero if the main upstream server failed health check
-	// probes and therefore the fallback upstream servers should be used for
-	// resolving.
-	//
-	// It is of type uint64 to be accessed by package atomic.  The field is
-	// arranged for 64-bit alignment on the second position.
-	useFallbacks uint64
-
 	// metrics is a listener for the handler events.
 	metrics MetricsListener
 
@@ -65,12 +51,21 @@ type Handler struct {
 	// fallbacks is a list of fallback DNS servers.
 	fallbacks []Upstream
 
+	// lastFailedHealthcheck contains the Unix time of the last time of failed
+	// healthcheck.
+	lastFailedHealthcheck atomic.Int64
+
 	// timeout specifies the query timeout for upstreams and fallbacks.
 	timeout time.Duration
 
 	// hcBackoffTime specifies the delay before returning to the main upstream
 	// after failed healthcheck probe.
 	hcBackoff time.Duration
+
+	// useFallbacks is true if the main upstream server failed health check
+	// probes and therefore the fallback upstream servers should be used for
+	// resolving.
+	useFallbacks atomic.Bool
 }
 
 // ErrNoResponse is returned from Handler's methods when the desired response
@@ -113,14 +108,21 @@ type HandlerConfig struct {
 	// upstream until this time has passed.  If the healthcheck is still
 	// performed, each failed check advances the backoff.
 	HealthcheckBackoffDuration time.Duration
+
+	// HealthcheckInitDuration is the time duration for initial upstream
+	// healthcheck.
+	HealthcheckInitDuration time.Duration
 }
 
 // NewHandler initializes a new instance of Handler.  It also performs a health
-// check afterwards if initialHealthcheck is true.  Note, that this handler only
-// support plain DNS upstreams.  c must not be nil.
-func NewHandler(c *HandlerConfig, initialHealthcheck bool) (h *Handler) {
+// check afterwards if c.HealthcheckInitDuration is not zero.  Note, that this
+// handler only support plain DNS upstreams.  c must not be nil.
+func NewHandler(c *HandlerConfig) (h *Handler) {
 	h = &Handler{
-		upstream:     NewUpstreamPlain(c.Address, c.Network),
+		upstream: NewUpstreamPlain(&UpstreamPlainConfig{
+			Network: c.Network,
+			Address: c.Address,
+		}),
 		hcDomainTmpl: c.HealthcheckDomainTmpl,
 		timeout:      c.Timeout,
 		hcBackoff:    c.HealthcheckBackoffDuration,
@@ -134,13 +136,19 @@ func NewHandler(c *HandlerConfig, initialHealthcheck bool) (h *Handler) {
 
 	h.fallbacks = make([]Upstream, len(c.FallbackAddresses))
 	for i, addr := range c.FallbackAddresses {
-		h.fallbacks[i] = NewUpstreamPlain(addr, NetworkAny)
+		h.fallbacks[i] = NewUpstreamPlain(&UpstreamPlainConfig{
+			Network: NetworkAny,
+			Address: addr,
+		})
 	}
 
-	if initialHealthcheck {
+	if c.HealthcheckInitDuration > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), c.HealthcheckInitDuration)
+		defer cancel()
+
 		// Ignore the error since it's considered non-critical and also should
 		// have been logged already.
-		_ = h.refresh(context.Background(), true)
+		_ = h.refresh(ctx, true)
 	}
 
 	return h
@@ -176,7 +184,7 @@ func (h *Handler) ServeDNS(
 ) (err error) {
 	defer func() { err = annotate(err, h.upstream) }()
 
-	useFallbacks := atomic.LoadUint64(&h.useFallbacks) != 0
+	useFallbacks := h.useFallbacks.Load()
 	var resp *dns.Msg
 	if !useFallbacks {
 		resp, err = h.exchange(ctx, h.upstream, req)

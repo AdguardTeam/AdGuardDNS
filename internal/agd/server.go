@@ -102,8 +102,6 @@ type Server struct {
 // ServerBindData are the socket binding data for a server.  Either AddrPort or
 // ListenConfig with Address must be set.
 //
-// TODO(a.garipov): Add support for ListenConfig in the config file.
-//
 // TODO(a.garipov): Consider turning this into a sum type.
 //
 // TODO(a.garipov): Consider renaming this and the one in websvc to something

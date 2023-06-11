@@ -16,6 +16,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
@@ -85,7 +86,7 @@ type ServerHTTPS struct {
 	h3Server *http3.Server
 
 	// quicListener is a listener that we use to serve DoH3 requests.
-	quicListener quic.EarlyListener
+	quicListener *quic.EarlyListener
 
 	conf ConfigHTTPS
 }
@@ -98,7 +99,7 @@ func NewServerHTTPS(conf ConfigHTTPS) (s *ServerHTTPS) {
 	if conf.ListenConfig == nil {
 		// Do not enable OOB here, because ListenPacket is only used by HTTP/3,
 		// and quic-go sets the necessary flags.
-		conf.ListenConfig = netext.DefaultListenConfig()
+		conf.ListenConfig = netext.DefaultListenConfig(nil)
 	}
 
 	s = &ServerHTTPS{
@@ -289,7 +290,7 @@ func (s *ServerHTTPS) serveHTTPS(ctx context.Context, hs *http.Server, l net.Lis
 }
 
 // serveH3 is launched in a worker goroutine and serves HTTP/3 requests.
-func (s *ServerHTTPS) serveH3(ctx context.Context, hs *http3.Server, ql quic.EarlyListener) {
+func (s *ServerHTTPS) serveH3(ctx context.Context, hs *http3.Server, ql *quic.EarlyListener) {
 	defer s.wg.Done()
 
 	// Do not recover from panics here since if this goroutine panics, the
@@ -441,10 +442,10 @@ func (h *httpHandler) writeResponse(
 	switch ct {
 	case MimeTypeDoH:
 		buf, err = resp.Pack()
-		w.Header().Set("Content-Type", MimeTypeDoH)
+		w.Header().Set(httphdr.ContentType, MimeTypeDoH)
 	case MimeTypeJSON:
 		buf, err = dnsMsgToJSON(resp)
-		w.Header().Set("Content-Type", MimeTypeJSON)
+		w.Header().Set(httphdr.ContentType, MimeTypeJSON)
 	default:
 		return fmt.Errorf("invalid content type: %s", ct)
 	}
@@ -458,8 +459,8 @@ func (h *httpHandler) writeResponse(
 	// lifetime (see Section 4.2 of [RFC7234]) so that the DoH client is
 	// more likely to use fresh DNS data.
 	maxAge := minimalTTL(resp)
-	w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%f", maxAge.Seconds()))
-	w.Header().Set("Content-Length", strconv.Itoa(len(buf)))
+	w.Header().Set(httphdr.CacheControl, fmt.Sprintf("max-age=%f", maxAge.Seconds()))
+	w.Header().Set(httphdr.ContentLength, strconv.Itoa(len(buf)))
 	w.WriteHeader(http.StatusOK)
 
 	// Write the actual response

@@ -14,7 +14,7 @@ import (
 
 func TestChanPacketConn_Close(t *testing.T) {
 	sessions := make(chan *packetSession)
-	c := newChanPacketConn(sessions, nil, testLAddr)
+	c := newChanPacketConn(sessions, testSubnetIPv4, nil, testLAddr)
 	err := c.Close()
 	assert.NoError(t, err)
 
@@ -23,14 +23,14 @@ func TestChanPacketConn_Close(t *testing.T) {
 }
 
 func TestChanPacketConn_LocalAddr(t *testing.T) {
-	c := newChanPacketConn(nil, nil, testLAddr)
+	c := newChanPacketConn(nil, testSubnetIPv4, nil, testLAddr)
 	got := c.LocalAddr()
 	assert.Equal(t, testLAddr, got)
 }
 
 func TestChanPacketConn_ReadFromSession(t *testing.T) {
 	sessions := make(chan *packetSession, 1)
-	c := newChanPacketConn(sessions, nil, testLAddr)
+	c := newChanPacketConn(sessions, testSubnetIPv4, nil, testLAddr)
 
 	body := []byte("hello")
 	bodyLen := len(body)
@@ -79,7 +79,7 @@ func TestChanPacketConn_ReadFromSession(t *testing.T) {
 func TestChanPacketConn_WriteToSession(t *testing.T) {
 	sessions := make(chan *packetSession, 1)
 	writes := make(chan *packetConnWriteReq, 1)
-	c := newChanPacketConn(sessions, writes, testLAddr)
+	c := newChanPacketConn(sessions, testSubnetIPv4, writes, testLAddr)
 
 	body := []byte("hello")
 	bodyLen := len(body)
@@ -148,7 +148,7 @@ func checkWriteReqAndRespond(
 }
 
 func TestChanPacketConn_deadlines(t *testing.T) {
-	c := newChanPacketConn(nil, nil, testLAddr)
+	c := newChanPacketConn(nil, testSubnetIPv4, nil, testLAddr)
 	deadline := time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	testCases := []struct {

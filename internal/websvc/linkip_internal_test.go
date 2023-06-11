@@ -12,6 +12,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
+	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,7 +23,7 @@ func TestLinkedIPProxy_ServeHTTP(t *testing.T) {
 	upstream := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		pt := testutil.PanicT{}
 
-		rid := r.Header.Get(agdhttp.HdrNameXRequestID)
+		rid := r.Header.Get(httphdr.XRequestID)
 		require.NotEmpty(pt, rid)
 
 		numReq.Add(1)
@@ -103,7 +104,7 @@ func TestLinkedIPProxy_ServeHTTP(t *testing.T) {
 			assert.Equal(t, prev+tc.diff, numReq.Load(), "req was not expected")
 
 			assert.Equal(t, tc.wantCode, rw.Code)
-			assert.Equal(t, expectedUserAgent, rw.Header().Get(agdhttp.HdrNameServer))
+			assert.Equal(t, expectedUserAgent, rw.Header().Get(httphdr.Server))
 		})
 	}
 }

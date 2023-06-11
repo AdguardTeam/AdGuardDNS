@@ -34,8 +34,8 @@ type environments struct {
 	YoutubeSafeSearchURL     *agdhttp.URL `env:"YOUTUBE_SAFE_SEARCH_URL,notEmpty"`
 	RuleStatURL              *agdhttp.URL `env:"RULESTAT_URL"`
 
-	ConfPath          string `env:"CONFIG_PATH" envDefault:"./config.yml"`
-	DNSDBPath         string `env:"DNSDB_PATH" envDefault:"./dnsdb.bolt"`
+	ConfPath          string `env:"CONFIG_PATH" envDefault:"./config.yaml"`
+	DNSDBPath         string `env:"DNSDB_PATH"`
 	FilterCachePath   string `env:"FILTER_CACHE_PATH" envDefault:"./filters/"`
 	ProfilesCachePath string `env:"PROFILES_CACHE_PATH" envDefault:"./profilecache.json"`
 	GeoIPASNPath      string `env:"GEOIP_ASN_PATH" envDefault:"./asn.mmdb"`

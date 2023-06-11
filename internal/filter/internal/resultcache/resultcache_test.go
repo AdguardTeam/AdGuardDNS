@@ -11,8 +11,8 @@ import (
 
 // Common keys for tests.
 var (
-	testKey  = resultcache.DefaultKey("example.com", dns.TypeA, true)
-	otherKey = resultcache.DefaultKey("example.org", dns.TypeAAAA, false)
+	testKey  = resultcache.DefaultKey("example.com", dns.TypeA, dns.ClassINET, true)
+	otherKey = resultcache.DefaultKey("example.org", dns.TypeAAAA, dns.ClassINET, false)
 )
 
 // val is the common value for tests.

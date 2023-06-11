@@ -14,7 +14,7 @@
 /github-mirror/
 AdGuardDNS
 asn.mmdb
-config.yml
+config.yaml
 country.mmdb
 dnsdb.bolt
 querylog.jsonl

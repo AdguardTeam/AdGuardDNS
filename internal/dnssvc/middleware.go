@@ -3,6 +3,7 @@ package dnssvc
 import (
 	"context"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -11,6 +12,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/miekg/dns"
+	"golang.org/x/exp/slices"
 )
 
 // Middlewares
@@ -52,30 +54,58 @@ func (mh *svcHandler) ServeDNS(
 	optlog.Debug2("processing request %q from %s", reqID, raddr)
 	defer optlog.Debug2("finished processing request %q from %s", reqID, raddr)
 
-	// Assume that the cache is always hot and that we can always send the
-	// request and filter it out along with the response later if we need
-	// it.
+	reqInfo := agd.MustRequestInfoFromContext(ctx)
+	flt := mh.svc.fltStrg.FilterFromContext(ctx, reqInfo)
+
+	modReq, reqRes, elapsedReq := mh.svc.filterRequest(ctx, req, flt, reqInfo)
+
 	nwrw := makeNonWriter(rw)
-	err = mh.next.ServeDNS(ctx, nwrw, req)
+	if modReq != nil {
+		// Modified request is set only if the request was modified by a CNAME
+		// rewrite rule, so resolve the request as if it was for the rewritten
+		// name.
+
+		// Clone the request informaton and replace the host name with the
+		// rewritten one, since the request information from current context
+		// must only be accessed for reading, see [agd.RequestInfo].  Shallow
+		// copy is enough, because we only change the [agd.RequestInfo.Host]
+		// field, which is a string.
+		modReqInfo := &agd.RequestInfo{}
+		*modReqInfo = *reqInfo
+		modReqInfo.Host = strings.ToLower(strings.TrimSuffix(modReq.Question[0].Name, "."))
+
+		modReqCtx := agd.ContextWithRequestInfo(ctx, modReqInfo)
+
+		optlog.Debug2(
+			"dnssvc: request for %q rewritten to %q by CNAME rewrite rule",
+			reqInfo.Host,
+			modReqInfo.Host,
+		)
+
+		err = mh.next.ServeDNS(modReqCtx, nwrw, modReq)
+	} else {
+		err = mh.next.ServeDNS(ctx, nwrw, req)
+	}
 	if err != nil {
 		return err
 	}
 
-	ri := agd.MustRequestInfoFromContext(ctx)
 	origResp := nwrw.Msg()
-	reqRes, respRes := mh.svc.filterQuery(ctx, req, origResp, ri)
+	respRes, elapsedResp := mh.svc.filterResponse(ctx, req, origResp, flt, reqInfo, modReq)
+
+	mh.svc.reportMetrics(reqInfo, reqRes, respRes, elapsedReq+elapsedResp)
 
 	if isDebug {
 		return mh.svc.writeDebugResponse(ctx, rw, req, origResp, reqRes, respRes)
 	}
 
-	resp, err := writeFilteredResp(ctx, ri, rw, req, origResp, reqRes, respRes)
+	resp, err := writeFilteredResp(ctx, reqInfo, rw, req, origResp, reqRes, respRes)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return err
 	}
 
-	mh.svc.recordQueryInfo(ctx, req, resp, origResp, ri, reqRes, respRes)
+	mh.svc.recordQueryInfo(ctx, req, resp, origResp, reqInfo, reqRes, respRes)
 
 	return nil
 }
@@ -91,31 +121,73 @@ func makeNonWriter(rw dnsserver.ResponseWriter) (nwrw *dnsserver.NonWriterRespon
 	return dnsserver.NewNonWriterResponseWriter(rw.LocalAddr(), rw.RemoteAddr())
 }
 
-// filterQuery is a wrapper for f.FilterRequest and f.FilterResponse that treats
-// filtering errors non-critical.  It also records filtering metrics.
-func (svc *Service) filterQuery(
+// rewrittenRequest returns a request from res in case it's a CNAME rewrite, and
+// returns nil otherwise.  Note that the returned message is always a request
+// since any other rewrite rule type turns into response.
+func rewrittenRequest(res filter.Result) (req *dns.Msg) {
+	if res, ok := res.(*filter.ResultModified); ok && !res.Msg.Response {
+		return res.Msg
+	}
+
+	return nil
+}
+
+// filterRequest applies f to req and returns the result of filtering.  If the
+// result is the CNAME rewrite, it also returns the modified request to resolve.
+// It also returns the time elapsed on filtering.
+func (svc *Service) filterRequest(
 	ctx context.Context,
 	req *dns.Msg,
-	origResp *dns.Msg,
+	f filter.Interface,
 	ri *agd.RequestInfo,
-) (reqRes, respRes filter.Result) {
+) (modReq *dns.Msg, reqRes filter.Result, elapsed time.Duration) {
 	start := time.Now()
-	defer func() {
-		svc.reportMetrics(ri, reqRes, respRes, time.Since(start))
-	}()
-
-	f := svc.fltStrg.FilterFromContext(ctx, ri)
 	reqRes, err := f.FilterRequest(ctx, req, ri)
 	if err != nil {
 		svc.reportf(ctx, "filtering request: %w", err)
 	}
 
-	respRes, err = f.FilterResponse(ctx, origResp, ri)
-	if err != nil {
-		svc.reportf(ctx, "dnssvc: filtering original response: %w", err)
+	// Consider this operation related to filtering and account the elapsed
+	// time.
+	modReq = rewrittenRequest(reqRes)
+
+	return modReq, reqRes, time.Since(start)
+}
+
+// filterResponse applies f to resp and returns the result of filtering.  If
+// origReq has a different question name than resp, the request assumed being
+// CNAME-rewritten and no filtering performed on resp, the CNAME is prepended to
+// resp answer section instead.  It also returns the time elapsed on filtering.
+func (svc *Service) filterResponse(
+	ctx context.Context,
+	req *dns.Msg,
+	resp *dns.Msg,
+	f filter.Interface,
+	ri *agd.RequestInfo,
+	modReq *dns.Msg,
+) (respRes filter.Result, elapsed time.Duration) {
+	start := time.Now()
+
+	if modReq != nil {
+		// Return the request name to its original state, since it was
+		// previously rewritten by CNAME rewrite rule.
+		resp.Question[0] = req.Question[0]
+
+		// Prepend the CNAME answer to the response and don't filter it.
+		var rr dns.RR = ri.Messages.NewAnswerCNAME(req, modReq.Question[0].Name)
+		resp.Answer = slices.Insert(resp.Answer, 0, rr)
+
+		// Also consider this operation related to filtering and account the
+		// elapsed time.
+		return nil, time.Since(start)
 	}
 
-	return reqRes, respRes
+	respRes, err := f.FilterResponse(ctx, resp, ri)
+	if err != nil {
+		svc.reportf(ctx, "filtering response: %w", err)
+	}
+
+	return respRes, time.Since(start)
 }
 
 // reportMetrics extracts filtering metrics data from the context and reports it
@@ -139,7 +211,7 @@ func (svc *Service) reportMetrics(
 	metrics.DNSSvcRequestByCountryTotal.WithLabelValues(cont, ctry).Inc()
 	metrics.DNSSvcRequestByASNTotal.WithLabelValues(ctry, asn).Inc()
 
-	id, _, blocked := filteringData(reqRes, respRes)
+	id, _, isBlocked := filteringData(reqRes, respRes)
 	metrics.DNSSvcRequestByFilterTotal.WithLabelValues(
 		string(id),
 		metrics.BoolString(ri.Profile == nil),
@@ -149,19 +221,7 @@ func (svc *Service) reportMetrics(
 	metrics.DNSSvcUsersCountUpdate(ri.RemoteIP)
 
 	if svc.researchMetrics {
-		anonymous := ri.Profile == nil
-		filteringEnabled := ri.FilteringGroup != nil &&
-			ri.FilteringGroup.RuleListsEnabled &&
-			len(ri.FilteringGroup.RuleListIDs) > 0
-
-		metrics.ReportResearchMetrics(
-			anonymous,
-			filteringEnabled,
-			asn,
-			ctry,
-			string(id),
-			blocked,
-		)
+		metrics.ReportResearchMetrics(ri, id, isBlocked)
 	}
 }
 

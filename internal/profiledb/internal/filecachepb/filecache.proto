@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package profiledb;
+
+option go_package = "./filecachepb";
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+message FileCache {
+  google.protobuf.Timestamp sync_time = 1;
+  repeated Profile profiles = 2;
+  repeated Device devices = 3;
+  int32 version = 4;
+}
+
+message Profile {
+  ParentalProtectionSettings parental = 1;
+  oneof blocking_mode {
+    BlockingModeCustomIP blocking_mode_custom_ip = 2;
+    BlockingModeNXDOMAIN blocking_mode_nxdomain = 3;
+    BlockingModeNullIP blocking_mode_null_ip = 4;
+    BlockingModeREFUSED blocking_mode_refused = 5;
+  }
+  string profile_id = 6;
+  google.protobuf.Timestamp update_time = 7;
+  repeated string device_ids = 8;
+  repeated string rule_list_ids = 9;
+  repeated string custom_rules = 10;
+  google.protobuf.Duration filtered_response_ttl = 11;
+  bool filtering_enabled = 12;
+  bool safe_browsing_enabled = 13;
+  bool rule_lists_enabled = 14;
+  bool query_log_enabled = 15;
+  bool deleted = 16;
+  bool block_private_relay = 17;
+  bool block_firefox_canary = 18;
+}
+
+message ParentalProtectionSettings {
+  ParentalProtectionSchedule schedule = 1;
+  repeated string blocked_services = 2;
+  bool enabled = 3;
+  bool block_adult = 4;
+  bool general_safe_search = 5;
+  bool youtube_safe_search = 6;
+}
+
+message ParentalProtectionSchedule {
+  string time_zone = 1;
+  DayRange mon = 2;
+  DayRange tue = 3;
+  DayRange wed = 4;
+  DayRange thu = 5;
+  DayRange fri = 6;
+  DayRange sat = 7;
+  DayRange sun = 8;
+}
+
+message DayRange {
+  uint32 start = 1;
+  uint32 end = 2;
+}
+
+message BlockingModeCustomIP {
+  bytes ipv4 = 1;
+  bytes ipv6 = 2;
+}
+
+message BlockingModeNXDOMAIN {}
+
+message BlockingModeNullIP {}
+
+message BlockingModeREFUSED {}
+
+message Device {
+  string device_id = 1;
+  bytes linked_ip = 2;
+  string device_name = 3;
+  repeated bytes dedicated_ips = 4;
+  bool filtering_enabled = 5;
+}

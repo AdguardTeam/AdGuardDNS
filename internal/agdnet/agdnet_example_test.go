@@ -7,14 +7,18 @@ import (
 )
 
 func ExampleAndroidMetricDomainReplacement() {
+	printResult := func(input string) {
+		fmt.Printf("%-42q: %q\n", input, agdnet.AndroidMetricDomainReplacement(input))
+	}
+
 	anAndroidDomain := "12345678-dnsotls-ds.metric.gstatic.com."
-	fmt.Printf("%-42q: %q\n", anAndroidDomain, agdnet.AndroidMetricDomainReplacement(anAndroidDomain))
+	printResult(anAndroidDomain)
 
 	anAndroidDomain = "123456-dnsohttps-ds.metric.gstatic.com."
-	fmt.Printf("%-42q: %q\n", anAndroidDomain, agdnet.AndroidMetricDomainReplacement(anAndroidDomain))
+	printResult(anAndroidDomain)
 
 	notAndroidDomain := "example.com"
-	fmt.Printf("%-42q: %q\n", notAndroidDomain, agdnet.AndroidMetricDomainReplacement(notAndroidDomain))
+	printResult(notAndroidDomain)
 
 	// Output:
 	// "12345678-dnsotls-ds.metric.gstatic.com." : "00000000-dnsotls-ds.metric.gstatic.com."

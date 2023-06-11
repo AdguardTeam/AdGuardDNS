@@ -35,7 +35,7 @@ set -f -u
 go_version="$( "${GO:-go}" version )"
 readonly go_version
 
-go_min_version='go1.20.2'
+go_min_version='go1.20.5'
 go_version_msg="
 warning: your go version (${go_version}) is different from the recommended minimal one (${go_min_version}).
 if you have the version installed, please set the GO environment variable.
@@ -80,6 +80,13 @@ esac
 #
 #   *  Package golang.org/x/net/context has been moved into stdlib.
 #
+# NOTE: For AdGuard DNS, there are the following exceptions:
+#
+#   *  internal/profiledb/internal/filecachepb/filecache.pb.go: a file generated
+#      by the protobuf compiler.
+#
+#   *  internal/profiledb/internal/filecachepb/unsafe.go: a “safe” unsafe helper
+#      to prevent excessive allocations.
 blocklist_imports() {
 	git grep\
 		-e '[[:space:]]"errors"$'\
@@ -91,6 +98,8 @@ blocklist_imports() {
 		-e '[[:space:]]"golang.org/x/net/context"$'\
 		-n\
 		-- '*.go'\
+		':!internal/profiledb/internal/filecachepb/filecache.pb.go'\
+		':!internal/profiledb/internal/filecachepb/unsafe.go'\
 		| sed -e 's/^\([^[:space:]]\+\)\(.*\)$/\1 blocked import:\2/'\
 		|| exit 0
 }
@@ -158,7 +167,8 @@ run_linter "$GO" vet ./... "$dnssrvmod"
 
 run_linter govulncheck ./... "$dnssrvmod"
 
-run_linter gocyclo --over 10 .
+# NOTE: For AdGuard DNS, ignore the generated protobuf file.
+run_linter gocyclo --ignore '\.pb\.go$' --over 10 .
 
 run_linter ineffassign ./... "$dnssrvmod"
 
@@ -174,7 +184,28 @@ run_linter nilness ./... "$dnssrvmod"
 
 # Do not use fieldalignment on $dnssrvmod, because ameshkov likes to place
 # struct fields in an order that he considers more readable.
-run_linter fieldalignment ./...
+#
+# TODO(a.garipov): Remove the loop once golang/go#60509 is fixed.
+(
+	run_linter fieldalignment ./main.go
+
+	set +f
+	for d in ./internal/*/ ./internal/*/*/ ./internal/*/*/*/
+	do
+		case "$d"
+		in
+		(*/testdata/*|\
+			./internal/dnsserver/*|\
+			./internal/profiledb/internal/filecachepb/|\
+			./internal/tools/)
+			continue
+			;;
+		(*)
+			run_linter fieldalignment "$d"
+			;;
+		esac
+	done
+)
 
 run_linter -e shadow --strict ./... "$dnssrvmod"
 

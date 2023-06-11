@@ -173,12 +173,6 @@ func TestService_Start(t *testing.T) {
 			Name:    "test_group",
 			Servers: []*agd.Server{srv},
 		}},
-		Upstream: &agd.Upstream{
-			Server: netip.MustParseAddrPort("8.8.8.8:53"),
-			FallbackServers: []netip.AddrPort{
-				netip.MustParseAddrPort("1.1.1.1:53"),
-			},
-		},
 	}
 
 	svc, err := dnssvc.New(c)
@@ -246,12 +240,6 @@ func TestNew(t *testing.T) {
 			Name:    "test_group",
 			Servers: srvs,
 		}},
-		Upstream: &agd.Upstream{
-			Server: netip.MustParseAddrPort("8.8.8.8:53"),
-			FallbackServers: []netip.AddrPort{
-				netip.MustParseAddrPort("1.1.1.1:53"),
-			},
-		},
 	}
 
 	svc, err := dnssvc.New(c)

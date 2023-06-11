@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/stringutil"
@@ -19,6 +20,7 @@ type serverGroups []*serverGroup
 // service.  srvGrps is assumed to be valid.
 func (srvGrps serverGroups) toInternal(
 	messages *dnsmsg.Constructor,
+	btdMgr *bindtodevice.Manager,
 	fltGrps map[agd.FilteringGroupID]*agd.FilteringGroup,
 ) (svcSrvGrps []*agd.ServerGroup, err error) {
 	svcSrvGrps = make([]*agd.ServerGroup, len(srvGrps))
@@ -42,7 +44,7 @@ func (srvGrps serverGroups) toInternal(
 			FilteringGroup: fltGrpID,
 		}
 
-		svcSrvGrps[i].Servers, err = g.Servers.toInternal(tlsConf)
+		svcSrvGrps[i].Servers, err = g.Servers.toInternal(tlsConf, btdMgr)
 		if err != nil {
 			return nil, fmt.Errorf("server group %q: %w", g.Name, err)
 		}

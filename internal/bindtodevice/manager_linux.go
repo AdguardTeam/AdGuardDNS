@@ -18,6 +18,7 @@ import (
 
 // Manager creates individual listeners and dispatches connections to them.
 type Manager struct {
+	interfaces     InterfaceStorage
 	closeOnce      *sync.Once
 	ifaceListeners map[ID]*interfaceListener
 	errColl        agd.ErrorCollector
@@ -28,6 +29,7 @@ type Manager struct {
 // NewManager returns a new manager of interface listeners.
 func NewManager(c *ManagerConfig) (m *Manager) {
 	return &Manager{
+		interfaces:     c.InterfaceStorage,
 		closeOnce:      &sync.Once{},
 		ifaceListeners: map[ID]*interfaceListener{},
 		errColl:        c.ErrColl,
@@ -36,11 +38,24 @@ func NewManager(c *ManagerConfig) (m *Manager) {
 	}
 }
 
-// Add creates a new interface-listener record in m.
+// defaultCtrlConf is the default control config.  By default, don't alter
+// anything.  defaultCtrlConf must not be mutated.
+var defaultCtrlConf = &ControlConfig{
+	RcvBufSize: 0,
+	SndBufSize: 0,
+}
+
+// Add creates a new interface-listener record in m.  If conf is nil, a default
+// configuration is used.
 //
 // Add must not be called after Start is called.
-func (m *Manager) Add(id ID, ifaceName string, port uint16) (err error) {
+func (m *Manager) Add(id ID, ifaceName string, port uint16, conf *ControlConfig) (err error) {
 	defer func() { err = errors.Annotate(err, "adding interface listener with id %q: %w", id) }()
+
+	_, err = m.interfaces.InterfaceByName(ifaceName)
+	if err != nil {
+		return fmt.Errorf("looking up interface %q: %w", ifaceName, err)
+	}
 
 	validateDup := func(lsnrID ID, lsnr *interfaceListener) (lsnrErr error) {
 		lsnrIfaceName, lsnrPort := lsnr.ifaceName, lsnr.port
@@ -71,11 +86,15 @@ func (m *Manager) Add(id ID, ifaceName string, port uint16) (err error) {
 		return err
 	}
 
+	if conf == nil {
+		conf = defaultCtrlConf
+	}
+
 	m.ifaceListeners[id] = &interfaceListener{
-		channels:      &chanIndex{},
+		conns:         &connIndex{},
 		writeRequests: make(chan *packetConnWriteReq, m.chanBufSize),
 		done:          m.done,
-		listenConf:    newListenConfig(ifaceName),
+		listenConf:    newListenConfig(ifaceName, conf),
 		errColl:       m.errColl,
 		ifaceName:     ifaceName,
 		port:          port,
@@ -90,53 +109,96 @@ func (m *Manager) Add(id ID, ifaceName string, port uint16) (err error) {
 //
 // ListenConfig must not be called after Start is called.
 func (m *Manager) ListenConfig(id ID, subnet netip.Prefix) (c netext.ListenConfig, err error) {
-	if masked := subnet.Masked(); subnet != masked {
-		return nil, fmt.Errorf(
-			"subnet %s for interface listener %q not masked (expected %s)",
+	defer func() {
+		err = errors.Annotate(
+			err,
+			"creating listen config for subnet %s and listener with id %q: %w",
 			subnet,
 			id,
-			masked,
 		)
-	}
-
+	}()
 	l, ok := m.ifaceListeners[id]
 	if !ok {
-		return nil, fmt.Errorf("no listener for interface %q", id)
+		return nil, errors.Error("no interface listener found")
 	}
 
-	connCh := make(chan net.Conn, m.chanBufSize)
-	err = l.channels.addListenerChannel(subnet, connCh)
+	err = m.validateIfaceSubnet(l.ifaceName, subnet)
 	if err != nil {
-		return nil, fmt.Errorf("adding tcp conn channel: %w", err)
+		// Don't wrap the error, because it's informative enough as is.
+		return nil, err
+	}
+
+	lsnrCh := make(chan net.Conn, m.chanBufSize)
+	lsnr := newChanListener(lsnrCh, subnet, &prefixNetAddr{
+		prefix:  subnet,
+		network: "tcp",
+		port:    l.port,
+	})
+
+	err = l.conns.addListener(lsnr)
+	if err != nil {
+		return nil, fmt.Errorf("adding tcp conn: %w", err)
 	}
 
 	sessCh := make(chan *packetSession, m.chanBufSize)
-	err = l.channels.addPacketConnChannel(subnet, sessCh)
+	pConn := newChanPacketConn(sessCh, subnet, l.writeRequests, &prefixNetAddr{
+		prefix:  subnet,
+		network: "udp",
+		port:    l.port,
+	})
+
+	err = l.conns.addPacketConn(pConn)
 	if err != nil {
 		// Technically shouldn't happen, since [chanIndex.addListenerChannel]
 		// has already checked for duplicates.
-		return nil, fmt.Errorf("adding udp conn channel: %w", err)
+		return nil, fmt.Errorf("adding udp conn: %w", err)
 	}
 
 	return &chanListenConfig{
-		packetConn: newChanPacketConn(sessCh, l.writeRequests, &prefixNetAddr{
-			prefix:  subnet,
-			network: "udp",
-			port:    l.port,
-		}),
-		listener: newChanListener(connCh, &prefixNetAddr{
-			prefix:  subnet,
-			network: "tcp",
-			port:    l.port,
-		}),
+		packetConn: pConn,
+		listener:   lsnr,
 	}, nil
+}
+
+// validateIfaceSubnet validates the interface with the name ifaceName exists
+// and that it can accept addresses from subnet.
+func (m *Manager) validateIfaceSubnet(ifaceName string, subnet netip.Prefix) (err error) {
+	if masked := subnet.Masked(); subnet != masked {
+		return fmt.Errorf("subnet not masked (expected %s)", masked)
+	}
+
+	iface, err := m.interfaces.InterfaceByName(ifaceName)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return err
+	}
+
+	ifaceSubnets, err := iface.Subnets()
+	if err != nil {
+		return fmt.Errorf("getting subnets: %w", err)
+	}
+
+	for _, s := range ifaceSubnets {
+		if s.Contains(subnet.Addr()) && s.Bits() <= subnet.Bits() {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("interface %s does not contain subnet %s", ifaceName, subnet)
 }
 
 // type check
 var _ agd.Service = (*Manager)(nil)
 
-// Start implements the [agd.Service] interface for *Manager.
+// Start implements the [agd.Service] interface for *Manager.  If m is nil,
+// Start returns nil, since this feature is optional.
+//
+// TODO(a.garipov): Consider an interface solution.
 func (m *Manager) Start() (err error) {
+	if m == nil {
+		return nil
+	}
+
 	numListen := 2 * len(m.ifaceListeners)
 	errCh := make(chan error, numListen)
 
@@ -162,10 +224,17 @@ func (m *Manager) Start() (err error) {
 	return nil
 }
 
-// Shutdown implements the [agd.Service] interface for *Manager.
+// Shutdown implements the [agd.Service] interface for *Manager.  If m is nil,
+// Shutdown returns nil, since this feature is optional.
+//
+// TODO(a.garipov): Consider an interface solution.
 //
 // TODO(a.garipov): Consider waiting for all sockets to close.
 func (m *Manager) Shutdown(_ context.Context) (err error) {
+	if m == nil {
+		return nil
+	}
+
 	closedNow := false
 	m.closeOnce.Do(func() {
 		close(m.done)

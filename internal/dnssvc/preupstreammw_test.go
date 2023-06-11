@@ -28,9 +28,8 @@ func TestPreUpstreamMwHandler_ServeDNS_withCache(t *testing.T) {
 	aReq := dnsservertest.NewReq(reqHostname, dns.TypeA, dns.ClassINET)
 	respIP := remoteIP.AsSlice()
 
-	resp := dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.RRSection{
-		RRs: []dns.RR{dnsservertest.NewA(reqHostname, defaultTTL, respIP)},
-		Sec: dnsservertest.SectionAnswer,
+	resp := dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
+		dnsservertest.NewA(reqHostname, defaultTTL, respIP),
 	})
 	ctx := agd.ContextWithRequestInfo(context.Background(), &agd.RequestInfo{
 		Host: aReq.Question[0].Name,
@@ -91,18 +90,9 @@ func TestPreUpstreamMwHandler_ServeDNS_withECSCache(t *testing.T) {
 
 	const ctry = agd.CountryAD
 
-	resp := dnsservertest.NewResp(
-		dns.RcodeSuccess,
-		aReq,
-		dnsservertest.RRSection{
-			RRs: []dns.RR{dnsservertest.NewA(
-				reqHostname,
-				defaultTTL,
-				net.IP{1, 2, 3, 4},
-			)},
-			Sec: dnsservertest.SectionAnswer,
-		},
-	)
+	resp := dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
+		dnsservertest.NewA(reqHostname, defaultTTL, net.IP{1, 2, 3, 4}),
+	})
 
 	numReq := 0
 	handler := dnsserver.HandlerFunc(
@@ -176,7 +166,15 @@ func TestPreUpstreamMwHandler_ServeDNS_androidMetric(t *testing.T) {
 	ctx = dnsserver.ContextWithStartTime(ctx, time.Now())
 	ctx = agd.ContextWithRequestInfo(ctx, &agd.RequestInfo{})
 
+	ipA := net.IP{1, 2, 3, 4}
+	ipB := net.IP{1, 2, 3, 5}
+
 	const ttl = 100
+
+	const (
+		httpsDomain = "-dnsohttps-ds.metric.gstatic.com."
+		tlsDomain   = "-dnsotls-ds.metric.gstatic.com."
+	)
 
 	testCases := []struct {
 		name     string
@@ -191,49 +189,28 @@ func TestPreUpstreamMwHandler_ServeDNS_androidMetric(t *testing.T) {
 		wantName: "example.com.",
 		wantAns:  nil,
 	}, {
-		name: "android-tls-metric",
-		req: dnsservertest.CreateMessage(
-			"12345678-dnsotls-ds.metric.gstatic.com.",
-			dns.TypeA,
-		),
+		name:     "android-tls-metric",
+		req:      dnsservertest.CreateMessage("12345678"+tlsDomain, dns.TypeA),
 		resp:     resp,
-		wantName: "00000000-dnsotls-ds.metric.gstatic.com.",
+		wantName: "00000000" + tlsDomain,
 		wantAns:  nil,
 	}, {
-		name: "android-https-metric",
-		req: dnsservertest.CreateMessage(
-			"123456-dnsohttps-ds.metric.gstatic.com.",
-			dns.TypeA,
-		),
+		name:     "android-https-metric",
+		req:      dnsservertest.CreateMessage("123456"+httpsDomain, dns.TypeA),
 		resp:     resp,
-		wantName: "000000-dnsohttps-ds.metric.gstatic.com.",
+		wantName: "000000" + httpsDomain,
 		wantAns:  nil,
 	}, {
 		name: "multiple_answers_metric",
-		req: dnsservertest.CreateMessage(
-			"123456-dnsohttps-ds.metric.gstatic.com.",
-			dns.TypeA,
-		),
-		resp: dnsservertest.NewResp(
-			dns.RcodeSuccess,
-			req,
-			dnsservertest.RRSection{
-				RRs: []dns.RR{dnsservertest.NewA(
-					"123456-dnsohttps-ds.metric.gstatic.com.",
-					ttl,
-					net.IP{1, 2, 3, 4},
-				), dnsservertest.NewA(
-					"654321-dnsohttps-ds.metric.gstatic.com.",
-					ttl,
-					net.IP{1, 2, 3, 5},
-				)},
-				Sec: dnsservertest.SectionAnswer,
-			},
-		),
-		wantName: "000000-dnsohttps-ds.metric.gstatic.com.",
+		req:  dnsservertest.CreateMessage("123456"+httpsDomain, dns.TypeA),
+		resp: dnsservertest.NewResp(dns.RcodeSuccess, req, dnsservertest.SectionAnswer{
+			dnsservertest.NewA("123456"+httpsDomain, ttl, ipA),
+			dnsservertest.NewA("654321"+httpsDomain, ttl, ipB),
+		}),
+		wantName: "000000" + httpsDomain,
 		wantAns: []dns.RR{
-			dnsservertest.NewA("123456-dnsohttps-ds.metric.gstatic.com.", ttl, net.IP{1, 2, 3, 4}),
-			dnsservertest.NewA("123456-dnsohttps-ds.metric.gstatic.com.", ttl, net.IP{1, 2, 3, 5}),
+			dnsservertest.NewA("123456"+httpsDomain, ttl, ipA),
+			dnsservertest.NewA("123456"+httpsDomain, ttl, ipB),
 		},
 	}}
 
@@ -248,6 +225,7 @@ func TestPreUpstreamMwHandler_ServeDNS_androidMetric(t *testing.T) {
 
 				return rw.WriteMsg(ctx, req, tc.resp)
 			})
+
 			h := mw.Wrap(handler)
 
 			rw := dnsserver.NewNonWriterResponseWriter(nil, testRAddr)

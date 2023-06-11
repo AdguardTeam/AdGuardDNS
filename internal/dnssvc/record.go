@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -68,7 +69,14 @@ func (svc *Service) recordQueryInfo(
 
 	var respCtry agd.Country
 	if !respIP.IsUnspecified() {
-		respCtry = svc.country(ctx, ri.Host, respIP)
+		host := ri.Host
+		if modReq := rewrittenRequest(reqRes); modReq != nil {
+			// If the request was modified by CNAME rule, the actual result
+			// belongs to the hostname from that CNAME.
+			host = strings.TrimSuffix(modReq.Question[0].Name, ".")
+		}
+
+		respCtry = svc.country(ctx, host, respIP)
 	}
 
 	q := req.Question[0]

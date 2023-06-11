@@ -17,7 +17,7 @@ import (
 
 // interfaceListener contains information about a single interface listener.
 type interfaceListener struct {
-	channels      *chanIndex
+	conns         *connIndex
 	writeRequests chan *packetConnWriteReq
 	done          chan unit
 	listenConf    *net.ListenConfig
@@ -64,14 +64,16 @@ func (l *interfaceListener) listenTCP(errCh chan<- error) {
 		}
 
 		laddr := netutil.NetAddrToAddrPort(conn.LocalAddr())
-		ch := l.channels.listenerChannel(laddr.Addr())
-		if ch == nil {
+		lsnr := l.conns.listener(laddr.Addr())
+		if lsnr == nil {
 			log.Info("%s: no channel for laddr %s", logPrefix, laddr)
 
 			continue
 		}
 
-		ch <- conn
+		if !lsnr.send(conn) {
+			log.Info("%s: channel for laddr %s is closed", logPrefix, laddr)
+		}
 	}
 }
 
@@ -120,14 +122,16 @@ func (l *interfaceListener) listenUDP(errCh chan<- error) {
 		}
 
 		laddr := sess.laddr.AddrPort().Addr()
-		ch := l.channels.packetConnChannel(laddr)
-		if ch == nil {
+		chanPConn := l.conns.packetConn(laddr)
+		if chanPConn == nil {
 			log.Info("%s: no channel for laddr %s", logPrefix, laddr)
 
 			continue
 		}
 
-		ch <- sess
+		if !chanPConn.send(sess) {
+			log.Info("%s: channel for laddr %s is closed", logPrefix, laddr)
+		}
 	}
 }
 

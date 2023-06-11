@@ -79,9 +79,9 @@ func isReportable(err error) (ok bool) {
 	} else if errors.As(err, &dnsWErr) {
 		switch dnsWErr.Protocol {
 		case "tcp":
-			return isReportableTCP(dnsWErr.Err)
+			return isReportableWriteTCP(dnsWErr.Err)
 		case "udp":
-			return isReportableUDP(dnsWErr.Err)
+			return isReportableWriteUDP(dnsWErr.Err)
 		default:
 			return true
 		}
@@ -102,25 +102,28 @@ func isReportableNetwork(err error) (ok bool) {
 	return errors.As(err, &netErr) && !netErr.Timeout()
 }
 
-// isReportableTCP returns true if err is a TCP or TLS error that should be
+// isReportableWriteTCP returns true if err is a TCP or TLS error that should be
 // reported.
-func isReportableTCP(err error) (ok bool) {
+func isReportableWriteTCP(err error) (ok bool) {
 	if isConnectionBreak(err) {
 		return false
 	}
 
-	// Ignore the TLS errors that are probably caused by a network error and
-	// errors about protocol versions.
+	// Ignore the TLS errors that are probably caused by a network error, a
+	// record overflow attempt, and errors about protocol versions.
+	//
+	// See also AGDNS-1520.
 	//
 	// TODO(a.garipov): Propose exporting these from crypto/tls.
 	errStr := err.Error()
 
 	return !strings.Contains(errStr, "bad record MAC") &&
-		!strings.Contains(errStr, "protocol version not supported")
+		!strings.Contains(errStr, "protocol version not supported") &&
+		!strings.Contains(errStr, "local error: tls: record overflow")
 }
 
-// isReportableUDP returns true if err is a UDP error that should be reported.
-func isReportableUDP(err error) (ok bool) {
+// isReportableWriteUDP returns true if err is a UDP error that should be reported.
+func isReportableWriteUDP(err error) (ok bool) {
 	switch {
 	case
 		errors.Is(err, io.EOF),

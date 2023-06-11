@@ -17,6 +17,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -182,8 +183,8 @@ func prepareConf(t testing.TB) (c *filter.DefaultStorageConfig) {
 		FilterIndexURL:            fltsURL,
 		GeneralSafeSearchRulesURL: ssURL,
 		YoutubeSafeSearchRulesURL: ssURL,
-		SafeBrowsing:              &filter.HashPrefix{},
-		AdultBlocking:             &filter.HashPrefix{},
+		SafeBrowsing:              &hashprefix.Filter{},
+		AdultBlocking:             &hashprefix.Filter{},
 		Now:                       time.Now,
 		ErrColl:                   nil,
 		Resolver:                  nil,

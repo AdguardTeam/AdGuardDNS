@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/golibs/httphdr"
 )
 
 // Client is a wrapper around http.Client.
@@ -85,15 +86,15 @@ func (c *Client) do(
 	}
 
 	if contentType != "" {
-		req.Header.Set(HdrNameContentType, contentType)
+		req.Header.Set(httphdr.ContentType, contentType)
 	}
 
 	reqID, ok := agd.RequestIDFromContext(ctx)
 	if ok {
-		req.Header.Set(HdrNameXRequestID, string(reqID))
+		req.Header.Set(httphdr.XRequestID, string(reqID))
 	}
 
-	req.Header.Set(HdrNameUserAgent, c.userAgent)
+	req.Header.Set(httphdr.UserAgent, c.userAgent)
 
 	resp, err = c.http.Do(req)
 	if err != nil && resp != nil && resp.Header != nil {

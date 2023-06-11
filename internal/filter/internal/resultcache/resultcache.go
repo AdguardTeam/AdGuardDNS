@@ -83,7 +83,7 @@ var hashSeed = maphash.MakeSeed()
 
 // DefaultKey produces a cache key based on host, qt, and isAns using the
 // default algorithm.
-func DefaultKey(host string, qt dnsmsg.RRType, isAns bool) (k Key) {
+func DefaultKey(host string, qt dnsmsg.RRType, cl dnsmsg.Class, isAns bool) (k Key) {
 	// Use maphash explicitly instead of using a key structure to reduce
 	// allocations and optimize interface conversion up the stack.
 	h := &maphash.Hash{}
@@ -92,9 +92,10 @@ func DefaultKey(host string, qt dnsmsg.RRType, isAns bool) (k Key) {
 	_, _ = h.WriteString(host)
 
 	// Save on allocations by reusing a buffer.
-	var buf [3]byte
+	var buf [5]byte
 	binary.LittleEndian.PutUint16(buf[:2], qt)
-	buf[2] = mathutil.BoolToNumber[byte](isAns)
+	binary.LittleEndian.PutUint16(buf[2:4], cl)
+	buf[4] = mathutil.BoolToNumber[byte](isAns)
 
 	_, _ = h.Write(buf[:])
 

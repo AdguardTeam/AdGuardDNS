@@ -15,6 +15,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/httphdr"
 	"go.etcd.io/bbolt"
 )
 
@@ -38,7 +39,7 @@ func (db *Bolt) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h := w.Header()
-	h.Add(agdhttp.HdrNameContentType, agdhttp.HdrValTextCSV)
+	h.Add(httphdr.ContentType, agdhttp.HdrValTextCSV)
 
 	if dbPath == "" {
 		// No data.
@@ -47,10 +48,10 @@ func (db *Bolt) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.Set(agdhttp.HdrNameTrailer, agdhttp.HdrNameXError)
+	h.Set(httphdr.Trailer, httphdr.XError)
 	defer func() {
 		if err != nil {
-			h.Set(agdhttp.HdrNameXError, err.Error())
+			h.Set(httphdr.XError, err.Error())
 			agd.Collectf(ctx, db.errColl, "dnsdb: http handler error: %w", err)
 		}
 	}()
@@ -59,8 +60,8 @@ func (db *Bolt) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var rw io.Writer = w
 	// TODO(a.garipov): Consider parsing the quality value.
-	if strings.Contains(r.Header.Get(agdhttp.HdrNameAcceptEncoding), "gzip") {
-		h.Set(agdhttp.HdrNameContentEncoding, "gzip")
+	if strings.Contains(r.Header.Get(httphdr.AcceptEncoding), "gzip") {
+		h.Set(httphdr.ContentEncoding, "gzip")
 		gw := gzip.NewWriter(w)
 		defer func() { err = errors.WithDeferred(err, gw.Close()) }()
 

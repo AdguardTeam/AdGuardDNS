@@ -12,20 +12,6 @@ import (
 
 // Common Constants, Functions And Types
 
-// HTTP header name constants.
-const (
-	HdrNameAcceptEncoding           = "Accept-Encoding"
-	HdrNameAccessControlAllowOrigin = "Access-Control-Allow-Origin"
-	HdrNameContentType              = "Content-Type"
-	HdrNameContentEncoding          = "Content-Encoding"
-	HdrNameServer                   = "Server"
-	HdrNameTrailer                  = "Trailer"
-	HdrNameUserAgent                = "User-Agent"
-
-	HdrNameXError     = "X-Error"
-	HdrNameXRequestID = "X-Request-Id"
-)
-
 // HTTP header value constants.
 const (
 	HdrValApplicationJSON = "application/json"

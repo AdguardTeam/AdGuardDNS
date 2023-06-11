@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slices"
+	"golang.org/x/sys/unix"
 )
 
 // TestInterfaceEnvVarName is the environment variable name the presence and
@@ -88,7 +90,7 @@ func TestListenControl(t *testing.T) {
 	}
 
 	ifaceName := iface.Name
-	lc := newListenConfig(ifaceName)
+	lc := newListenConfig(ifaceName, &ControlConfig{})
 	require.NotNil(t, lc)
 
 	t.Run("tcp", func(t *testing.T) {
@@ -379,4 +381,82 @@ func closestIP(t testing.TB, n *net.IPNet, ip net.IP) (closest net.IP) {
 	t.Fatalf("neither %s nor %s are in %s", nextAddr, prevAddr, ipNet)
 
 	return nil
+}
+
+func TestListenControlWithSO(t *testing.T) {
+	const (
+		sndBufSize = 10000
+		rcvBufSize = 20000
+	)
+
+	iface, _ := InterfaceForTests(t)
+	if iface == nil {
+		t.Skipf("test %s skipped: please set env var %s", t.Name(), TestInterfaceEnvVarName)
+	}
+
+	ifaceName := iface.Name
+	lc := newListenConfig(
+		ifaceName,
+		&ControlConfig{
+			RcvBufSize: rcvBufSize,
+			SndBufSize: sndBufSize,
+		},
+	)
+	require.NotNil(t, lc)
+
+	type syscallConner interface {
+		SyscallConn() (c syscall.RawConn, err error)
+	}
+
+	t.Run("udp", func(t *testing.T) {
+		c, err := lc.ListenPacket(context.Background(), "udp", "0.0.0.0:0")
+		require.NoError(t, err)
+		require.NotNil(t, c)
+		require.Implements(t, (*syscallConner)(nil), c)
+
+		sc, err := c.(syscallConner).SyscallConn()
+		require.NoError(t, err)
+
+		err = sc.Control(func(fd uintptr) {
+			val, opErr := unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_SNDBUF)
+			require.NoError(t, opErr)
+
+			assert.Equal(t, sndBufSize*2, val)
+		})
+		require.NoError(t, err)
+
+		err = sc.Control(func(fd uintptr) {
+			val, opErr := unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_RCVBUF)
+			require.NoError(t, opErr)
+
+			assert.Equal(t, rcvBufSize*2, val)
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("tcp", func(t *testing.T) {
+		c, err := lc.Listen(context.Background(), "tcp", "0.0.0.0:0")
+		require.NoError(t, err)
+		require.NotNil(t, c)
+		require.Implements(t, (*syscallConner)(nil), c)
+
+		sc, err := c.(syscallConner).SyscallConn()
+		require.NoError(t, err)
+
+		err = sc.Control(func(fd uintptr) {
+			val, opErr := unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_SNDBUF)
+			require.NoError(t, opErr)
+
+			assert.Equal(t, sndBufSize*2, val)
+		})
+		require.NoError(t, err)
+
+		err = sc.Control(func(fd uintptr) {
+			val, opErr := unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_RCVBUF)
+			require.NoError(t, opErr)
+
+			assert.Equal(t, rcvBufSize*2, val)
+		})
+		require.NoError(t, err)
+	})
 }

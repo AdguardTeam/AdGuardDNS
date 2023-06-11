@@ -20,7 +20,7 @@ func ExampleNewHandler() {
 				FallbackAddresses: []netip.AddrPort{
 					netip.MustParseAddrPort("1.1.1.1:53"),
 				},
-			}, false),
+			}),
 		},
 	}
 

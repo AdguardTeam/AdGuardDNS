@@ -6,9 +6,11 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
@@ -33,18 +35,32 @@ type upstreamConfig struct {
 }
 
 // toInternal converts c to the data storage configuration for the DNS server.
-func (c *upstreamConfig) toInternal() (conf *agd.Upstream, err error) {
-	net, addrPort, err := splitUpstreamURL(c.Server)
+func (c *upstreamConfig) toInternal() (fwdConf *forward.HandlerConfig, err error) {
+	network, addrPort, err := splitUpstreamURL(c.Server)
 	if err != nil {
 		return nil, err
 	}
 
-	return &agd.Upstream{
-		Server:          addrPort,
-		Network:         net,
-		FallbackServers: c.FallbackServers,
-		Timeout:         c.Timeout.Duration,
-	}, nil
+	fallbacks := c.FallbackServers
+	metricsListener := prometheus.NewForwardMetricsListener(len(fallbacks) + 1)
+
+	var hcInit time.Duration
+	if c.Healthcheck.Enabled {
+		hcInit = c.Healthcheck.Timeout.Duration
+	}
+
+	fwdConf = &forward.HandlerConfig{
+		Address:                    addrPort,
+		Network:                    network,
+		MetricsListener:            metricsListener,
+		HealthcheckDomainTmpl:      c.Healthcheck.DomainTmpl,
+		FallbackAddresses:          c.FallbackServers,
+		Timeout:                    c.Timeout.Duration,
+		HealthcheckBackoffDuration: c.Healthcheck.BackoffDuration.Duration,
+		HealthcheckInitDuration:    hcInit,
+	}
+
+	return fwdConf, nil
 }
 
 // validate returns an error if the upstream configuration is invalid.

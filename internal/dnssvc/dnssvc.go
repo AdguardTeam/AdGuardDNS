@@ -11,6 +11,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
+	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
@@ -20,6 +21,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
 	"github.com/AdguardTeam/golibs/errors"
@@ -38,15 +40,22 @@ type Config struct {
 	// messages for this DNS service.
 	Messages *dnsmsg.Constructor
 
-	// SafeBrowsing is the safe browsing TXT server.
-	SafeBrowsing *filter.SafeBrowsingServer
+	// ControlConf is the configuration of socket options.
+	ControlConf *netext.ControlConfig
+
+	// ConnLimiter, if not nil, is used to limit the number of simultaneously
+	// active stream-connections.
+	ConnLimiter *connlimiter.Limiter
+
+	// SafeBrowsing is the safe browsing TXT hash matcher.
+	SafeBrowsing filter.HashMatcher
 
 	// BillStat is used to collect billing statistics.
 	BillStat billstat.Recorder
 
 	// ProfileDB is the AdGuard DNS profile database used to fetch data about
 	// profiles, devices, and so on.
-	ProfileDB agd.ProfileDB
+	ProfileDB profiledb.Interface
 
 	// DNSCheck is used by clients to check if they use AdGuard DNS.
 	DNSCheck dnscheck.Interface
@@ -75,14 +84,11 @@ type Config struct {
 	// rule lists.
 	RuleStat rulestat.Interface
 
-	// Upstream defines the upstream server and the group of fallback servers.
-	Upstream *agd.Upstream
-
 	// NewListener, when set, is used instead of the package-level function
 	// NewListener when creating a DNS listener.
 	//
 	// TODO(a.garipov): The handler and service logic should really not be
-	// internwined in this way.  See AGDNS-1327.
+	// intertwined in this way.  See AGDNS-1327.
 	NewListener NewListenerFunc
 
 	// Handler is used as the main DNS handler instead of a simple forwarder.
@@ -170,9 +176,9 @@ func New(c *Config) (svc *Service, err error) {
 		dnsHdlr := dnsserver.WithMiddlewares(
 			handler,
 			&preServiceMw{
-				messages: c.Messages,
-				filter:   c.SafeBrowsing,
-				checker:  c.DNSCheck,
+				messages:    c.Messages,
+				hashMatcher: c.SafeBrowsing,
+				checker:     c.DNSCheck,
 			},
 			svc,
 		)
@@ -475,8 +481,13 @@ func newServers(
 
 			name := listenerName(s.Name, addr, s.Protocol)
 
+			lc := bindData.ListenConfig
+			if lc == nil {
+				lc = newListenConfig(c.ControlConf, c.ConnLimiter, s.Protocol)
+			}
+
 			var l Listener
-			l, err = newListener(s, name, addr, h, c.NonDNS, c.ErrColl, bindData.ListenConfig)
+			l, err = newListener(s, name, addr, h, c.NonDNS, c.ErrColl, lc)
 			if err != nil {
 				return nil, fmt.Errorf("server %q: %w", s.Name, err)
 			}
@@ -495,4 +506,27 @@ func newServers(
 	}
 
 	return servers, nil
+}
+
+// newListenConfig returns the netext.ListenConfig used by the plain-DNS
+// servers.  The resulting ListenConfig sets additional socket flags and
+// processes the control messages of connections created with ListenPacket.
+// Additionally, if l is not nil, it is used to limit the number of
+// simultaneously active stream-connections.
+func newListenConfig(
+	ctrlConf *netext.ControlConfig,
+	l *connlimiter.Limiter,
+	p agd.Protocol,
+) (lc netext.ListenConfig) {
+	if p == agd.ProtoDNS {
+		lc = netext.DefaultListenConfigWithOOB(ctrlConf)
+	} else {
+		lc = netext.DefaultListenConfig(ctrlConf)
+	}
+
+	if l != nil {
+		lc = connlimiter.NewListenConfig(lc, l)
+	}
+
+	return lc
 }

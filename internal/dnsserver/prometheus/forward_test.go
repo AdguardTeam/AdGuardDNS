@@ -24,7 +24,7 @@ func TestForwardMetricsListener_integration_request(t *testing.T) {
 		Address:         netip.MustParseAddrPort(addr),
 		Network:         forward.NetworkAny,
 		MetricsListener: prometheus.NewForwardMetricsListener(0),
-	}, true)
+	})
 
 	// Prepare a test DNS message and call the handler's ServeDNS function.
 	// It will then call the metrics listener and prom metrics should be

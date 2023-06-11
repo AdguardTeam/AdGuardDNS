@@ -6,8 +6,11 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
+	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/consul"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
+	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 )
@@ -18,6 +21,10 @@ import (
 type rateLimitConfig struct {
 	// AllowList is the allowlist of clients.
 	Allowlist *allowListConfig `yaml:"allowlist"`
+
+	// ConnectionLimit is the configuration for the limits on stream
+	// connections.
+	ConnectionLimit *connLimitConfig `yaml:"connection_limit"`
 
 	// Rate limit options for IPv4 addresses.
 	IPv4 *rateLimitOptions `yaml:"ipv4"`
@@ -97,10 +104,16 @@ func (c *rateLimitConfig) toInternal(al ratelimit.Allowlist) (conf *ratelimit.Ba
 
 // validate returns an error if the safe rate limiting configuration is invalid.
 func (c *rateLimitConfig) validate() (err error) {
-	if c == nil {
+	switch {
+	case c == nil:
 		return errNilConfig
-	} else if c.Allowlist == nil {
+	case c.Allowlist == nil:
 		return fmt.Errorf("allowlist: %w", errNilConfig)
+	}
+
+	err = c.ConnectionLimit.validate()
+	if err != nil {
+		return fmt.Errorf("connection_limit: %w", err)
 	}
 
 	err = c.IPv4.validate()
@@ -129,16 +142,16 @@ func setupRateLimiter(
 	consulAllowlist *url.URL,
 	sigHdlr signalHandler,
 	errColl agd.ErrorCollector,
-) (rateLimiter *ratelimit.BackOff, err error) {
+) (rateLimiter *ratelimit.BackOff, connLimiter *connlimiter.Limiter, err error) {
 	allowSubnets, err := agdnet.ParseSubnets(conf.Allowlist.List...)
 	if err != nil {
-		return nil, fmt.Errorf("parsing allowlist subnets: %w", err)
+		return nil, nil, fmt.Errorf("parsing allowlist subnets: %w", err)
 	}
 
 	allowlist := ratelimit.NewDynamicAllowlist(allowSubnets, nil)
 	refresher, err := consul.NewAllowlistRefresher(allowlist, consulAllowlist)
 	if err != nil {
-		return nil, fmt.Errorf("creating allowlist refresher: %w", err)
+		return nil, nil, fmt.Errorf("creating allowlist refresher: %w", err)
 	}
 
 	refr := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
@@ -152,10 +165,67 @@ func setupRateLimiter(
 	})
 	err = refr.Start()
 	if err != nil {
-		return nil, fmt.Errorf("starting allowlist refresher: %w", err)
+		return nil, nil, fmt.Errorf("starting allowlist refresher: %w", err)
 	}
 
 	sigHdlr.add(refr)
 
-	return ratelimit.NewBackOff(conf.toInternal(allowlist)), nil
+	return ratelimit.NewBackOff(conf.toInternal(allowlist)), conf.ConnectionLimit.toInternal(), nil
+}
+
+// connLimitConfig is the configuration structure for the stream-connection
+// limiter.
+type connLimitConfig struct {
+	// Stop is the point at which the limiter stops accepting new connections.
+	// Once the number of active connections reaches this limit, new connections
+	// wait for the number to decrease below Resume.
+	//
+	// Stop must be greater than zero and greater than or equal to Resume.
+	Stop uint64 `yaml:"stop"`
+
+	// Resume is the point at which the limiter starts accepting new connections
+	// again.
+	//
+	// Resume must be greater than zero and less than or equal to Stop.
+	Resume uint64 `yaml:"resume"`
+
+	// Enabled, if true, enables stream-connection limiting.
+	Enabled bool `yaml:"enabled"`
+}
+
+// toInternal converts c to the connection limiter to use.  c is assumed to be
+// valid.
+func (c *connLimitConfig) toInternal() (l *connlimiter.Limiter) {
+	if !c.Enabled {
+		return nil
+	}
+
+	l, err := connlimiter.New(&connlimiter.Config{
+		Stop:   c.Stop,
+		Resume: c.Resume,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	metrics.ConnLimiterLimits.WithLabelValues("stop").Set(float64(c.Stop))
+	metrics.ConnLimiterLimits.WithLabelValues("resume").Set(float64(c.Resume))
+
+	return l
+}
+
+// validate returns an error if the connection limit configuration is invalid.
+func (c *connLimitConfig) validate() (err error) {
+	switch {
+	case c == nil:
+		return errNilConfig
+	case !c.Enabled:
+		return nil
+	case c.Stop == 0:
+		return newMustBePositiveError("stop", c.Stop)
+	case c.Resume > c.Stop:
+		return errors.Error("resume: must be less than or equal to stop")
+	default:
+		return nil
+	}
 }

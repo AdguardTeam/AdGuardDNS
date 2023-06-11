@@ -5,50 +5,14 @@ package filter
 
 import (
 	"context"
-	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
-	"github.com/c2h5oh/datasize"
-	"github.com/miekg/dns"
 )
 
-// Common Constants, Functions, and Types
-
-// maxFilterSize is the maximum size of downloaded filters.
-//
-// TODO(ameshkov): Consider making configurable.
-const maxFilterSize = 256 * int64(datasize.MB)
-
-// defaultFilterRefreshTimeout is the default timeout to use when fetching
-// filter lists data.
-//
-// TODO(a.garipov): Consider making timeouts where they are used configurable.
-const defaultFilterRefreshTimeout = 180 * time.Second
-
-// defaultResolveTimeout is the default timeout for resolving hosts for safe
-// search and safe browsing filters.
-//
-// TODO(ameshkov): Consider making configurable.
-const defaultResolveTimeout = 1 * time.Second
-
 // Interface is the DNS request and response filter interface.
-type Interface interface {
-	// FilterRequest filters the DNS request for the provided client.  All
-	// parameters must be non-nil.  req must have exactly one question.  If a is
-	// nil, the request doesn't match any of the rules.
-	FilterRequest(ctx context.Context, req *dns.Msg, ri *agd.RequestInfo) (r Result, err error)
+type Interface = internal.Interface
 
-	// FilterResponse filters the DNS response for the provided client.  All
-	// parameters must be non-nil.  If a is nil, the response doesn't match any
-	// of the rules.
-	FilterResponse(ctx context.Context, resp *dns.Msg, ri *agd.RequestInfo) (r Result, err error)
-
-	// Close closes the filter and frees resources associated with it.
-	Close() (err error)
-}
-
-// Filtering Result Aliases
+// Filtering result aliases
 
 // Result is a sum type of all possible filtering actions.  See the following
 // types as implementations:
@@ -69,3 +33,17 @@ type ResultBlocked = internal.ResultBlocked
 // ResultModified means that this request or response was rewritten or modified
 // by a rewrite rule within the given filter list.
 type ResultModified = internal.ResultModified
+
+// Hash matching for safe-browsing and adult-content blocking
+
+// HashMatcher is the interface for a safe-browsing and adult-blocking hash
+// matcher, which is used to respond to a TXT query based on the domain name.
+type HashMatcher interface {
+	MatchByPrefix(ctx context.Context, host string) (hashes []string, matched bool, err error)
+}
+
+// Default safe-browsing host suffixes.
+const (
+	GeneralTXTSuffix       = ".sb.dns.adguard.com"
+	AdultBlockingTXTSuffix = ".pc.dns.adguard.com"
+)

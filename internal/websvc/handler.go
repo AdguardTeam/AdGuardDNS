@@ -10,6 +10,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/log"
 	"golang.org/x/sys/unix"
 )
@@ -22,7 +23,7 @@ var _ http.Handler = (*Service)(nil)
 // ServeHTTP implements the http.Handler interface for *Service.
 func (svc *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	respHdr := w.Header()
-	respHdr.Set(agdhttp.HdrNameServer, agdhttp.UserAgent())
+	respHdr.Set(httphdr.Server, agdhttp.UserAgent())
 
 	m, p, rAddr := r.Method, r.URL.Path, r.RemoteAddr
 	optlog.Debug3("websvc: starting req %s %s from %s", m, p, rAddr)
@@ -57,7 +58,7 @@ func (svc *Service) processRec(
 		action = "writing 404"
 		if len(svc.error404) != 0 {
 			body = svc.error404
-			respHdr.Set(agdhttp.HdrNameContentType, agdhttp.HdrValTextHTML)
+			respHdr.Set(httphdr.ContentType, agdhttp.HdrValTextHTML)
 		}
 
 		metrics.WebSvcError404RequestsTotal.Inc()
@@ -65,7 +66,7 @@ func (svc *Service) processRec(
 		action = "writing 500"
 		if len(svc.error500) != 0 {
 			body = svc.error500
-			respHdr.Set(agdhttp.HdrNameContentType, agdhttp.HdrValTextHTML)
+			respHdr.Set(httphdr.ContentType, agdhttp.HdrValTextHTML)
 		}
 
 		metrics.WebSvcError500RequestsTotal.Inc()
@@ -114,7 +115,7 @@ func (svc *Service) serveHTTP(w http.ResponseWriter, r *http.Request) {
 func safeBrowsingHandler(name string, blockPage []byte) (h http.Handler) {
 	f := func(w http.ResponseWriter, r *http.Request) {
 		hdr := w.Header()
-		hdr.Set(agdhttp.HdrNameServer, agdhttp.UserAgent())
+		hdr.Set(httphdr.Server, agdhttp.UserAgent())
 
 		switch r.URL.Path {
 		case "/favicon.ico":
@@ -125,7 +126,7 @@ func safeBrowsingHandler(name string, blockPage []byte) (h http.Handler) {
 			// the predefined response instead.
 			serveRobotsDisallow(hdr, w, name)
 		default:
-			hdr.Set(agdhttp.HdrNameContentType, agdhttp.HdrValTextHTML)
+			hdr.Set(httphdr.ContentType, agdhttp.HdrValTextHTML)
 
 			_, err := w.Write(blockPage)
 			if err != nil {
@@ -186,7 +187,7 @@ type StaticFile struct {
 
 // serveRobotsDisallow writes predefined disallow-all response.
 func serveRobotsDisallow(hdr http.Header, w http.ResponseWriter, name string) {
-	hdr.Set(agdhttp.HdrNameContentType, agdhttp.HdrValTextPlain)
+	hdr.Set(httphdr.ContentType, agdhttp.HdrValTextPlain)
 
 	_, err := io.WriteString(w, agdhttp.RobotsDisallowAll)
 	if err != nil {

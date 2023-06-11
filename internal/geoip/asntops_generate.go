@@ -11,6 +11,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/log"
 )
 
@@ -22,7 +23,7 @@ func main() {
 	req, err := http.NewRequest(http.MethodGet, countriesASNURL, nil)
 	check(err)
 
-	req.Header.Add("User-Agent", agdhttp.UserAgent())
+	req.Header.Add(httphdr.UserAgent, agdhttp.UserAgent())
 
 	resp, err := c.Do(req)
 	check(err)

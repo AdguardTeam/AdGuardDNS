@@ -308,7 +308,7 @@ func BenchmarkServeQUIC(b *testing.B) {
 	}
 
 	// Open QUIC session
-	sess, err := quic.DialAddr(addr.String(), tlsConfig, nil)
+	sess, err := quic.DialAddr(context.Background(), addr.String(), tlsConfig, nil)
 	require.NoError(b, err)
 	defer func() {
 		err = sess.CloseWithError(0, "")
