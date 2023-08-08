@@ -49,9 +49,9 @@ readonly go count_flags shuffle_flags timeout_flags
 # TODO(a.garipov): Remove the dnsserver stuff once it is separated.
 "$go" test\
 	"$count_flags"\
-	"$shuffle_flags"\
 	"$race_flags"\
+	"$shuffle_flags"\
 	"$timeout_flags"\
-	"$x_flags"\
 	"$v_flags"\
+	"$x_flags"\
 	./... github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/...

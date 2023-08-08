@@ -67,7 +67,8 @@ func TestSentryErrorCollector(t *testing.T) {
 	const devID = "dev1234"
 	const fltGrpID = "fg1234"
 	const profID = "prof1234"
-	const reqID = "req5678"
+
+	reqID := agd.NewRequestID()
 
 	ctx := context.Background()
 	ctx = agd.ContextWithRequestInfo(ctx, &agd.RequestInfo{
@@ -103,7 +104,7 @@ func TestSentryErrorCollector(t *testing.T) {
 		"device_id":          devID,
 		"filtering_group_id": fltGrpID,
 		"profile_id":         profID,
-		"request_id":         reqID,
+		"request_id":         reqID.String(),
 	}
 	assert.Equal(t, wantTags, gotTags)
 }

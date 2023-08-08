@@ -7,7 +7,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
-	"github.com/google/renameio"
+	renameio "github.com/google/renameio/v2"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -47,6 +47,17 @@ func (s *Storage) Load() (c *internal.FileCache, err error) {
 	err = proto.Unmarshal(b, fc)
 	if err != nil {
 		return nil, fmt.Errorf("decoding protobuf: %w", err)
+	}
+
+	if fc.Version != internal.FileCacheVersion {
+		// Do not decode protobuf file contents in case it probably has
+		// unexpected structure.
+		return nil, fmt.Errorf(
+			"%w: version %d is different from %d",
+			internal.CacheVersionError,
+			fc.Version,
+			internal.FileCacheVersion,
+		)
 	}
 
 	return toInternal(fc)

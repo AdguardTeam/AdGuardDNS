@@ -45,7 +45,7 @@ const (
 // bits set to zero.
 //
 // TODO(a.garipov): Consider merging with resetCountrySubnets.
-func resetTopASNSubnets(r *maxminddb.Reader) (ipv4, ipv6 asnSubnets, err error) {
+func (f *File) resetTopASNSubnets(r *maxminddb.Reader) (ipv4, ipv6 asnSubnets, err error) {
 	ipv4, ipv6 = asnSubnets{}, asnSubnets{}
 
 	nets := r.Networks(maxminddb.SkipAliasedNetworks)
@@ -56,7 +56,7 @@ func resetTopASNSubnets(r *maxminddb.Reader) (ipv4, ipv6 asnSubnets, err error) 
 		if err != nil {
 			// Don't wrap the error, because it's informative enough as is.
 			return nil, nil, err
-		} else if _, ok := allTopASNs[asn]; !ok {
+		} else if _, ok := f.allTopASNs[asn]; !ok {
 			continue
 		}
 
@@ -154,6 +154,10 @@ func applyTopASNSubnetHacks(subnets asnSubnets, fam netutil.AddrFamily) {
 		// indeed not available in their network unless this network is used in
 		// the ECS option.
 		subnets[25159] = netip.MustParsePrefix("178.176.72.0/24")
+		// We need special handling for the Bangladesh ISP "Dot internet" as
+		// otherwise it receives bad IP addresses for Tiktok domains that aren't
+		// working for its customers. See AGDNS-1593 for details.
+		subnets[134732] = netip.MustParsePrefix("37.111.192.0/24")
 		desiredLength = desiredIPv4SubnetLength
 	case netutil.AddrFamilyIPv6:
 		// TODO(a.garipov): Add more if we find them.

@@ -33,27 +33,27 @@ func main() {
 	check(err)
 	defer log.OnCloserError(out, log.ERROR)
 
-	countryTopASNs := map[agd.Country][]agd.ASN{}
-	err = json.NewDecoder(resp.Body).Decode(&countryTopASNs)
+	defaultCountryTopASNs := map[agd.Country][]agd.ASN{}
+	err = json.NewDecoder(resp.Body).Decode(&defaultCountryTopASNs)
 	check(err)
 
-	allTopASNs := map[agd.ASN]struct{}{}
-	for _, asns := range countryTopASNs {
+	defaultTopASNs := map[agd.ASN]struct{}{}
+	for _, asns := range defaultCountryTopASNs {
 		for _, asn := range asns {
 			if asn != 0 {
-				allTopASNs[asn] = struct{}{}
+				defaultTopASNs[asn] = struct{}{}
 			}
 		}
 	}
 
 	type templateData struct {
-		AllTopASNs     map[agd.ASN]struct{}
-		CountryTopASNs map[agd.Country][]agd.ASN
+		DefaultTopASNs        map[agd.ASN]struct{}
+		DefaultCountryTopASNs map[agd.Country][]agd.ASN
 	}
 
 	tmplData := &templateData{
-		AllTopASNs:     allTopASNs,
-		CountryTopASNs: countryTopASNs,
+		DefaultTopASNs:        defaultTopASNs,
+		DefaultCountryTopASNs: defaultCountryTopASNs,
 	}
 
 	tmpl, err := template.New("main").Parse(tmplStr)
@@ -74,16 +74,16 @@ package geoip
 
 import "github.com/AdguardTeam/AdGuardDNS/internal/agd"
 
-// allTopASNs contains all specially handled ASNs.
-var allTopASNs = map[agd.ASN]struct{}{
-{{- range $asn, $_ := .AllTopASNs }}
+// DefaultTopASNs contains all specially handled ASNs.
+var DefaultTopASNs = map[agd.ASN]struct{}{
+{{- range $asn, $_ := .DefaultTopASNs }}
 	{{ printf "%-7s {}," ( printf "%d:" $asn ) }}
 {{- end }}
 }
 
-// countryTopASNs is a mapping of a country to their top ASNs.
-var countryTopASNs = map[agd.Country]agd.ASN{
-{{- range $ctry, $ASNs := .CountryTopASNs }}
+// DefaultCountryTopASNs is a mapping of a country to their top ASNs.
+var DefaultCountryTopASNs = map[agd.Country]agd.ASN{
+{{- range $ctry, $ASNs := .DefaultCountryTopASNs }}
 {{- if gt (len $ASNs) 0 }}
 	agd.Country{{ $ctry }}: {{ index $ASNs 0 }},
 {{- else }}

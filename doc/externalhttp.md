@@ -14,30 +14,50 @@ document should set the `Server` header in their replies.
 
 ##  Contents
 
- *  [Backend And Linked IP Service](#backend)
-     *  [`GET /dns_api/v1/settings`](#backend-get-v1-settings)
-     *  [`POST /dns_api/v1/settings`](#backend-post-v1-devices_activity)
-     *  [Proxied Linked IP and Dynamic DNS (DDNS) Endpoints](#backend-linkip)
+ *  [Backend Billing Statistics](#backend-billstat)
+ *  [Backend Profiles Service](#backend-profiles)
  *  [Consul Key-Value Storage](#consul)
  *  [Filtering](#filters)
      *  [Blocked Services](#filters-blocked-services)
      *  [Filtering Rule Lists](#filters-lists)
      *  [Safe Search](#filters-safe-search)
+ *  [Proxied Linked IP and Dynamic DNS (DDNS) Endpoints](#backend-linkip)
  *  [Rule Statistics Service](#rulestat)
 
 
 
-##  <a href="#backend" id="backend" name="backend">Backend And Linked IP Service</a>
+##  <a href="#backend-billstat" id="backend-billstat" name="backend-billstat">Backend Billing Statistics</a>
 
-This is the service to which the [`BACKEND_ENDPOINT`][env-backend] environment
-variable points.  This service must provide two endpoints:
+This is the service to which the [`BILLSTAT_URL`][env-billstat_url] environment
+variable points.  This service must provide one endpoint:
+`POST /dns_api/v1/devices_activity`, it must respond with a `200 OK` response
+code and accept a JSON document in the following format:
+
+```json
+{
+  "devices": [
+    {
+      "client_country": "AU",
+      "device_id": "abcd1234",
+      "time_ms": 1624443079309,
+      "asn": 1234,
+      "queries": 1000,
+      "proto": 1
+    }
+  ]
+}
+```
+
+[env-billstat_url]: environment.md#BILLSTAT_URL
 
 
 
-   ###  <a href="#backend-get-v1-settings" id="backend-get-v1-settings" name="backend-get-v1-settings">`GET /dns_api/v1/settings`</a>
+##  <a href="#backend-profiles" id="backend-profiles" name="backend-profiles">Backend Profiles Service</a>
 
-This endpoint must respond with a `200 OK` response code and a JSON document in
-the following format:
+This is the service to which the [`PROFILES_URL`][env-profiles_url] environment
+variable points.  This service must provide one endpoint:
+`GET /dns_api/v1/settings`, it must respond with a `200 OK` response code and
+accept a JSON document in the following format:
 
 ```json
 {
@@ -108,43 +128,7 @@ the following format:
 }
 ```
 
-
-
-   ###  <a href="#backend-post-v1-devices_activity" id="backend-post-v1-devices_activity" name="backend-post-v1-devices_activity">`POST /dns_api/v1/devices_activity`</a>
-
-This endpoint must respond with a `200 OK` response code and accept a JSON
-document in the following format:
-
-```json
-{
-  "devices": [
-    {
-      "client_country": "AU",
-      "device_id": "abcd1234",
-      "time_ms": 1624443079309,
-      "asn": 1234,
-      "queries": 1000,
-      "proto": 1
-    }
-  ]
-}
-```
-
-
-   ###  <a href="#backend-linkip" id="backend-linkip" name="backend-linkip">Proxied Linked IP and Dynamic DNS (DDNS) Endpoints</a>
-
-The same service defined by the [`BACKEND_ENDPOINT`][env-backend] environment
-variable should define the following endpoints:
-
- *  `GET  /linkip/{device_id}/{encrypted}/status`;
- *  `GET  /linkip/{device_id}/{encrypted}`;
- *  `POST /ddns/{device_id}/{encrypted}/{domain}`;
- *  `POST /linkip/{device_id}/{encrypted}`.
-
-The AdGuard DNS proxy will add the `CF-Connecting-IP` header with the IP address
-of the original client as well as set the `User-Agent` header to its own value.
-
-[env-backend]: environment.md#BACKEND_ENDPOINT
+[env-profiles_url]: environment.md#PROFILES_URL
 
 
 
@@ -192,7 +176,7 @@ format:
       "id": "my_filter",
       "rules": [
         "||example.com^",
-        "||example.net^",
+        "||example.net^"
       ]
     }
   ]
@@ -252,6 +236,23 @@ code and filtering rule lists with [`$dnsrewrite`][rules-dnsrewrite] rules for
 
 
 
+##  <a href="#backend-linkip" id="backend-linkip" name="backend-linkip">Proxied Linked IP and Dynamic DNS (DDNS) Endpoints</a>
+
+The service defined by the [`LINKED_IP_TARGET_URL`][env-linked_ip_target_url]
+environment variable should define the following endpoints:
+
+ *  `GET  /linkip/{device_id}/{encrypted}/status`;
+ *  `GET  /linkip/{device_id}/{encrypted}`;
+ *  `POST /ddns/{device_id}/{encrypted}/{domain}`;
+ *  `POST /linkip/{device_id}/{encrypted}`.
+
+The AdGuard DNS proxy will add the `CF-Connecting-IP` header with the IP address
+of the original client as well as set the `User-Agent` header to its own value.
+
+[env-linked_ip_target_url]: environment.md#LINKED_IP_TARGET_URL
+
+
+
 ##  <a href="#rulestat" id="rulestat" name="rulestat">Rule Statistics Service</a>
 
 This endpoint, defined by [`RULESTAT_URL`][env-rulestat], must respond with a
@@ -263,7 +264,7 @@ This endpoint, defined by [`RULESTAT_URL`][env-rulestat], must respond with a
     {
       "15": {
         "||example.com^": 1234,
-        "||example.net^": 5678,
+        "||example.net^": 5678
       }
     }
   ]

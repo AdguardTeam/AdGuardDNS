@@ -67,17 +67,16 @@ func (c *webConfig) toInternal(
 	}
 
 	conf = &websvc.Config{
-		LinkedIPBackendURL: netutil.CloneURL(&envs.BackendEndpoint.URL),
-		DNSCheck:           dnsCk,
-		ErrColl:            errColl,
-		Timeout:            c.Timeout.Duration,
+		DNSCheck: dnsCk,
+		ErrColl:  errColl,
+		Timeout:  c.Timeout.Duration,
 	}
 
 	if c.RootRedirectURL != nil {
 		conf.RootRedirectURL = netutil.CloneURL(&c.RootRedirectURL.URL)
 	}
 
-	conf.LinkedIP, err = c.LinkedIP.toInternal()
+	conf.LinkedIP, err = c.LinkedIP.toInternal(envs.LinkedIPTargetURL)
 	if err != nil {
 		return nil, fmt.Errorf("converting linked_ip: %w", err)
 	}
@@ -179,7 +178,9 @@ type linkedIPServer struct {
 
 // toInternal converts s to a linkedIP server configuration.  s is assumed to be
 // valid.
-func (s *linkedIPServer) toInternal() (srv *websvc.LinkedIPServer, err error) {
+func (s *linkedIPServer) toInternal(
+	targetURL *agdhttp.URL,
+) (srv *websvc.LinkedIPServer, err error) {
 	if s == nil {
 		return nil, nil
 	}
@@ -189,6 +190,12 @@ func (s *linkedIPServer) toInternal() (srv *websvc.LinkedIPServer, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("converting bind: %w", err)
 	}
+
+	if targetURL == nil {
+		return nil, fmt.Errorf("env variable LINKED_IP_TARGET_URL must be set for using linked_ip")
+	}
+
+	srv.TargetURL = netutil.CloneURL(&targetURL.URL)
 
 	return srv, nil
 }

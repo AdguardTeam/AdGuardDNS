@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/url"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
@@ -20,12 +20,9 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/serviceblock"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
-	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/bluele/gcache"
 )
-
-// Filter storage
 
 // Storage is a storage for filters.
 type Storage interface {
@@ -42,19 +39,15 @@ type Storage interface {
 // based on rule lists, custom filters of profiles, safe browsing, and safe
 // search ones.
 type DefaultStorage struct {
+	// refr is the helper entity containing the refreshable part of the index
+	// refresh and caching logic.
+	refr *internal.Refreshable
+
 	// mu protects ruleLists.
 	mu *sync.RWMutex
 
-	// URL is the URL of the filtering rule index document.  See filterIndexResp
-	// and related types.
-	url *url.URL
-
-	// http is the HTTP client used to update the rule list filters from the
-	// index.
-	http *agdhttp.Client
-
 	// ruleLists are the filter list ID to a rule list filter map.
-	ruleLists map[agd.FilterListID]*rulelist.Refreshable
+	ruleLists filteringRuleLists
 
 	// services is the service blocking filter.
 	services *serviceblock.Filter
@@ -64,6 +57,9 @@ type DefaultStorage struct {
 
 	// adultBlocking is the adult content blocking safe browsing filter.
 	adultBlocking *hashprefix.Filter
+
+	// newRegDomains is the newly registered domains filter.
+	newRegDomains *hashprefix.Filter
 
 	// genSafeSearch is the general safe search filter.
 	genSafeSearch *safesearch.Filter
@@ -93,9 +89,24 @@ type DefaultStorage struct {
 	// filtering results.
 	ruleListCacheSize int
 
+	// maxRuleListSize is the maximum size in bytes of the downloadable
+	// rule-list content.
+	maxRuleListSize int64
+
 	// useRuleListCache, if true, enables rule list cache.
 	useRuleListCache bool
 }
+
+// filteringRuleLists is convenient alias for an ID to filter mapping.
+type filteringRuleLists = map[agd.FilterListID]*rulelist.Refreshable
+
+// Filenames for filter indexes.
+//
+// TODO(ameshkov): Consider making configurable.
+const (
+	ruleListIndexFilename = "filters.json"
+	serviceIndexFilename  = "services.json"
+)
 
 // DefaultStorageConfig contains configuration for a filter storage based on
 // rule lists.
@@ -121,6 +132,10 @@ type DefaultStorageConfig struct {
 	// AdultBlocking is the configuration for the adult content blocking safe
 	// browsing filter.  It must not be nil.
 	AdultBlocking *hashprefix.Filter
+
+	// NewRegDomains is the configuration for the newly registered domains safe
+	// browsing filter.  It must not be nil.
+	NewRegDomains *hashprefix.Filter
 
 	// Now is a function that returns current time.
 	Now func() (now time.Time)
@@ -153,49 +168,84 @@ type DefaultStorageConfig struct {
 
 	// RefreshIvl is the refresh interval for this storage.  It defines how
 	// often the filter rule lists are updated from the index.
+	//
+	// TODO(a.garipov): This value is used both for refreshes and for filter
+	// staleness, which can cause issues.  Consider splitting the two.
 	RefreshIvl time.Duration
 
 	// UseRuleListCache, if true, enables rule list cache.
 	UseRuleListCache bool
+
+	// MaxRuleListSize is the maximum size in bytes of the downloadable
+	// rule-list content.
+	MaxRuleListSize int64
 }
 
 // NewDefaultStorage returns a new filter storage.  c must not be nil.
 func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage, err error) {
 	genSafeSearch := safesearch.New(&safesearch.Config{
-		List: &agd.FilterList{
-			URL:        c.GeneralSafeSearchRulesURL,
-			ID:         agd.FilterListIDGeneralSafeSearch,
-			RefreshIvl: c.RefreshIvl,
+		Refreshable: &internal.RefreshableConfig{
+			URL:       c.GeneralSafeSearchRulesURL,
+			ID:        agd.FilterListIDGeneralSafeSearch,
+			CachePath: filepath.Join(c.CacheDir, string(agd.FilterListIDGeneralSafeSearch)),
+			Staleness: c.RefreshIvl,
+			// TODO(ameshkov): Consider making configurable.
+			Timeout: internal.DefaultFilterRefreshTimeout,
+			MaxSize: c.MaxRuleListSize,
 		},
 		Resolver:  c.Resolver,
 		ErrColl:   c.ErrColl,
-		CacheDir:  c.CacheDir,
 		CacheTTL:  c.SafeSearchCacheTTL,
 		CacheSize: c.SafeSearchCacheSize,
 	})
 
 	ytSafeSearch := safesearch.New(&safesearch.Config{
-		List: &agd.FilterList{
-			URL:        c.YoutubeSafeSearchRulesURL,
-			ID:         agd.FilterListIDYoutubeSafeSearch,
-			RefreshIvl: c.RefreshIvl,
+		Refreshable: &internal.RefreshableConfig{
+			URL:       c.YoutubeSafeSearchRulesURL,
+			ID:        agd.FilterListIDYoutubeSafeSearch,
+			CachePath: filepath.Join(c.CacheDir, string(agd.FilterListIDYoutubeSafeSearch)),
+			Staleness: c.RefreshIvl,
+			// TODO(ameshkov): Consider making configurable.
+			Timeout: internal.DefaultFilterRefreshTimeout,
+			MaxSize: c.MaxRuleListSize,
 		},
 		Resolver:  c.Resolver,
 		ErrColl:   c.ErrColl,
-		CacheDir:  c.CacheDir,
 		CacheTTL:  c.SafeSearchCacheTTL,
 		CacheSize: c.SafeSearchCacheSize,
 	})
 
+	ruleListIdxRefr := internal.NewRefreshable(&internal.RefreshableConfig{
+		URL: c.FilterIndexURL,
+		// TODO(a.garipov): Consider adding special IDs for indexes.
+		ID:        "rule_list_index",
+		CachePath: filepath.Join(c.CacheDir, ruleListIndexFilename),
+		Staleness: c.RefreshIvl,
+		// TODO(ameshkov): Consider making configurable.
+		Timeout: internal.DefaultFilterRefreshTimeout,
+		// TODO(a.garipov): Consider using a different limit here.
+		MaxSize: c.MaxRuleListSize,
+	})
+
+	svcIdxRefr := internal.NewRefreshable(&internal.RefreshableConfig{
+		URL: c.BlockedServiceIndexURL,
+		// TODO(a.garipov): Consider adding special IDs for indexes.
+		ID:        "blocked_service_index",
+		CachePath: filepath.Join(c.CacheDir, serviceIndexFilename),
+		Staleness: c.RefreshIvl,
+		// TODO(ameshkov): Consider making configurable.
+		Timeout: internal.DefaultFilterRefreshTimeout,
+		// TODO(a.garipov): Consider using a different limit here.
+		MaxSize: c.MaxRuleListSize,
+	})
+
 	s = &DefaultStorage{
-		mu:  &sync.RWMutex{},
-		url: c.FilterIndexURL,
-		http: agdhttp.NewClient(&agdhttp.ClientConfig{
-			Timeout: internal.DefaultFilterRefreshTimeout,
-		}),
-		services:      serviceblock.New(c.BlockedServiceIndexURL, c.ErrColl),
+		refr:          ruleListIdxRefr,
+		mu:            &sync.RWMutex{},
+		services:      serviceblock.New(svcIdxRefr, c.ErrColl),
 		safeBrowsing:  c.SafeBrowsing,
 		adultBlocking: c.AdultBlocking,
+		newRegDomains: c.NewRegDomains,
 		genSafeSearch: genSafeSearch,
 		ytSafeSearch:  ytSafeSearch,
 		now:           c.Now,
@@ -208,6 +258,7 @@ func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage, err error) {
 		refreshIvl:        c.RefreshIvl,
 		ruleListCacheSize: c.RuleListCacheSize,
 		useRuleListCache:  c.UseRuleListCache,
+		maxRuleListSize:   c.MaxRuleListSize,
 	}
 
 	err = s.refresh(context.Background(), true)
@@ -234,7 +285,7 @@ func (s *DefaultStorage) FilterFromContext(ctx context.Context, ri *agd.RequestI
 		c.RuleLists = s.filters(g.RuleListIDs)
 	}
 
-	c.SafeBrowsing, c.AdultBlocking = s.safeBrowsingForGroup(g)
+	c.SafeBrowsing, c.AdultBlocking, c.NewRegisteredDomains = s.safeBrowsingForGroup(g)
 	c.GeneralSafeSearch, c.YouTubeSafeSearch = s.safeSearchForGroup(g)
 
 	return composite.New(c)
@@ -267,7 +318,7 @@ func (s *DefaultStorage) filterForProfile(ctx context.Context, ri *agd.RequestIn
 
 	c.ServiceLists = s.serviceFilters(ctx, p, parentalEnabled)
 
-	c.SafeBrowsing, c.AdultBlocking = s.safeBrowsingForProfile(p, parentalEnabled)
+	c.SafeBrowsing, c.AdultBlocking, c.NewRegisteredDomains = s.safeBrowsingForProfile(p, parentalEnabled)
 	c.GeneralSafeSearch, c.YouTubeSafeSearch = s.safeSearchForProfile(p, parentalEnabled)
 
 	return composite.New(c)
@@ -302,16 +353,22 @@ func (s *DefaultStorage) pcBySchedule(sch *agd.ParentalProtectionSchedule) (ok b
 func (s *DefaultStorage) safeBrowsingForProfile(
 	p *agd.Profile,
 	parentalEnabled bool,
-) (safeBrowsing, adultBlocking *hashprefix.Filter) {
-	if p.SafeBrowsingEnabled {
-		safeBrowsing = s.safeBrowsing
+) (safeBrowsing, adultBlocking, newRegDomains *hashprefix.Filter) {
+	if p.SafeBrowsing != nil && p.SafeBrowsing.Enabled {
+		if p.SafeBrowsing.BlockDangerousDomains {
+			safeBrowsing = s.safeBrowsing
+		}
+
+		if p.SafeBrowsing.BlockNewlyRegisteredDomains {
+			newRegDomains = s.newRegDomains
+		}
 	}
 
 	if parentalEnabled && p.Parental.BlockAdult {
 		adultBlocking = s.adultBlocking
 	}
 
-	return safeBrowsing, adultBlocking
+	return safeBrowsing, adultBlocking, newRegDomains
 }
 
 // safeSearchForProfile returns safe search filters based on the information in
@@ -339,16 +396,22 @@ func (s *DefaultStorage) safeSearchForProfile(
 // in the filtering group.  g must not be nil.
 func (s *DefaultStorage) safeBrowsingForGroup(
 	g *agd.FilteringGroup,
-) (safeBrowsing, adultBlocking *hashprefix.Filter) {
+) (safeBrowsing, adultBlocking, newRegDomains *hashprefix.Filter) {
 	if g.SafeBrowsingEnabled {
-		safeBrowsing = s.safeBrowsing
+		if g.BlockDangerousDomains {
+			safeBrowsing = s.safeBrowsing
+		}
+
+		if g.BlockNewlyRegisteredDomains {
+			newRegDomains = s.newRegDomains
+		}
 	}
 
 	if g.ParentalEnabled && g.BlockAdult {
 		adultBlocking = s.adultBlocking
 	}
 
-	return safeBrowsing, adultBlocking
+	return safeBrowsing, adultBlocking, newRegDomains
 }
 
 // safeSearchForGroup returns safe search filters based on the information in
@@ -414,9 +477,7 @@ func (s *DefaultStorage) Refresh(ctx context.Context) (err error) {
 // refreshes the index from the index URL and updates all rule list filters, as
 // well as the service filters.
 func (s *DefaultStorage) refresh(ctx context.Context, acceptStale bool) (err error) {
-	log.Info("%s: requesting %s", strgLogPrefix, s.url)
-
-	resp, err := s.loadIndex(ctx)
+	resp, err := s.loadIndex(ctx, acceptStale)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return err
@@ -424,50 +485,18 @@ func (s *DefaultStorage) refresh(ctx context.Context, acceptStale bool) (err err
 
 	log.Info("%s: got %d filters from index", strgLogPrefix, len(resp.Filters))
 
-	fls := resp.toInternal(ctx, s.errColl, s.refreshIvl)
+	fls := resp.toInternal(ctx, s.errColl)
 
 	log.Info("%s: got %d filter lists from index after validations", strgLogPrefix, len(fls))
 
-	ruleLists := make(map[agd.FilterListID]*rulelist.Refreshable, len(resp.Filters))
+	ruleLists := make(filteringRuleLists, len(resp.Filters))
 	for _, fl := range fls {
-		if _, ok := ruleLists[fl.ID]; ok {
-			agd.Collectf(ctx, s.errColl, "%s: duplicated id %q", strgLogPrefix, fl.ID)
-
-			continue
-		}
-
-		fltIDStr := string(fl.ID)
-		rl := rulelist.NewRefreshable(
-			fl,
-			s.cacheDir,
-			s.ruleListCacheSize,
-			s.useRuleListCache,
-		)
-		err = rl.Refresh(ctx, acceptStale)
-		if err == nil {
-			ruleLists[fl.ID] = rl
-
-			metrics.FilterUpdatedStatus.WithLabelValues(fltIDStr).Set(1)
-			metrics.FilterUpdatedTime.WithLabelValues(fltIDStr).SetToCurrentTime()
-			metrics.FilterRulesTotal.WithLabelValues(fltIDStr).Set(float64(rl.RulesCount()))
-
-			continue
-		}
-
-		agd.Collectf(ctx, s.errColl, "%s: refreshing %q: %w", strgLogPrefix, fl.ID, err)
-		metrics.FilterUpdatedStatus.WithLabelValues(fltIDStr).Set(0)
-
-		// If we can't get the new filter, and there is an old version of the
-		// same rule list, use it.
-		rls := s.filters([]agd.FilterListID{fl.ID})
-		if len(rls) > 0 {
-			ruleLists[fl.ID] = rls[0]
-		}
+		s.addRuleList(ctx, ruleLists, fl, acceptStale)
 	}
 
 	log.Info("%s: got %d filter lists from index after compilation", strgLogPrefix, len(ruleLists))
 
-	err = s.services.Refresh(ctx, s.ruleListCacheSize, s.useRuleListCache)
+	err = s.services.Refresh(ctx, s.ruleListCacheSize, s.useRuleListCache, acceptStale)
 	if err != nil {
 		const errFmt = "refreshing blocked services: %w"
 		agd.Collectf(ctx, s.errColl, errFmt, err)
@@ -490,90 +519,80 @@ func (s *DefaultStorage) refresh(ctx context.Context, acceptStale bool) (err err
 	return nil
 }
 
+// addRuleList adds the data from fl to ruleLists and handles all validations
+// and errors.
+func (s *DefaultStorage) addRuleList(
+	ctx context.Context,
+	ruleLists filteringRuleLists,
+	fl *filterIndexFilterData,
+	acceptStale bool,
+) {
+	if _, ok := ruleLists[fl.id]; ok {
+		agd.Collectf(ctx, s.errColl, "%s: duplicated id %q", strgLogPrefix, fl.id)
+
+		return
+	}
+
+	fltIDStr := string(fl.id)
+	rl := rulelist.NewRefreshable(
+		&internal.RefreshableConfig{
+			URL:       fl.url,
+			ID:        fl.id,
+			CachePath: filepath.Join(s.cacheDir, fltIDStr),
+			Staleness: s.refreshIvl,
+			// TODO(ameshkov): Consider making configurable.
+			Timeout: internal.DefaultFilterRefreshTimeout,
+			MaxSize: s.maxRuleListSize,
+		},
+		s.ruleListCacheSize,
+		s.useRuleListCache,
+	)
+	err := rl.Refresh(ctx, acceptStale)
+	if err == nil {
+		ruleLists[fl.id] = rl
+
+		metrics.FilterUpdatedStatus.WithLabelValues(fltIDStr).Set(1)
+		metrics.FilterUpdatedTime.WithLabelValues(fltIDStr).SetToCurrentTime()
+		metrics.FilterRulesTotal.WithLabelValues(fltIDStr).Set(float64(rl.RulesCount()))
+
+		return
+	}
+
+	agd.Collectf(ctx, s.errColl, "%s: refreshing %q: %w", strgLogPrefix, fl.id, err)
+	metrics.FilterUpdatedStatus.WithLabelValues(fltIDStr).Set(0)
+
+	// If we can't get the new filter, and there is an old version of the same
+	// rule list, use it.
+	rls := s.filters([]agd.FilterListID{fl.id})
+	if len(rls) > 0 {
+		ruleLists[fl.id] = rls[0]
+	}
+}
+
 // loadIndex fetches, decodes, and returns the filter list index data of the
 // storage.
-func (s *DefaultStorage) loadIndex(ctx context.Context) (resp *filterIndexResp, err error) {
-	defer func() { err = errors.Annotate(err, "loading filter index from %q: %w", s.url) }()
-
-	httpResp, err := s.http.Get(ctx, s.url)
+func (s *DefaultStorage) loadIndex(
+	ctx context.Context,
+	acceptStale bool,
+) (resp *filterIndexResp, err error) {
+	text, err := s.refr.Refresh(ctx, acceptStale)
 	if err != nil {
-		return nil, fmt.Errorf("requesting: %w", err)
-	}
-	defer func() { err = errors.WithDeferred(err, httpResp.Body.Close()) }()
-
-	err = agdhttp.CheckStatus(httpResp, http.StatusOK)
-	if err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		return nil, err
+		return nil, fmt.Errorf("loading index: %w", err)
 	}
 
 	resp = &filterIndexResp{}
-	err = json.NewDecoder(httpResp.Body).Decode(resp)
+	err = json.NewDecoder(strings.NewReader(text)).Decode(resp)
 	if err != nil {
 		return nil, fmt.Errorf("decoding: %w", err)
 	}
-
-	log.Debug("%s: loaded index with %d filters", strgLogPrefix, len(resp.Filters))
 
 	return resp, nil
 }
 
 // setRuleLists replaces the storage's rule lists.
-func (s *DefaultStorage) setRuleLists(ruleLists map[agd.FilterListID]*rulelist.Refreshable) {
+func (s *DefaultStorage) setRuleLists(ruleLists filteringRuleLists) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.ruleLists = ruleLists
-}
-
-// filterIndexResp is the struct for the JSON response from a filter index API.
-type filterIndexResp struct {
-	Filters []*filterIndexRespFilter `json:"filters"`
-}
-
-// toInternal converts the filters from the index to []*agd.FilterList.
-func (r *filterIndexResp) toInternal(
-	ctx context.Context,
-	errColl agd.ErrorCollector,
-	refreshIvl time.Duration,
-) (fls []*agd.FilterList) {
-	fls = make([]*agd.FilterList, 0, len(r.Filters))
-	for _, rf := range r.Filters {
-		id, err := agd.NewFilterListID(rf.ID)
-		if err != nil {
-			agd.Collectf(ctx, errColl, "%s: validating id %q: %w", strgLogPrefix, rf.ID, err)
-
-			continue
-		}
-
-		var u *url.URL
-		u, err = agdhttp.ParseHTTPURL(rf.DownloadURL)
-		if err != nil {
-			agd.Collectf(
-				ctx,
-				errColl,
-				"%s: validating url %q: %w",
-				strgLogPrefix,
-				rf.DownloadURL,
-				err,
-			)
-
-			continue
-		}
-
-		fls = append(fls, &agd.FilterList{
-			URL:        u,
-			ID:         id,
-			RefreshIvl: refreshIvl,
-		})
-	}
-
-	return fls
-}
-
-// filterIndexRespFilter is the struct for a filter from the JSON response from
-// a filter index API.
-type filterIndexRespFilter struct {
-	DownloadURL string `json:"downloadUrl"`
-	ID          string `json:"filterId"`
 }

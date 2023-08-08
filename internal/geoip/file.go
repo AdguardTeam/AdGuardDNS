@@ -20,6 +20,14 @@ import (
 
 // FileConfig is the file-based GeoIP configuration structure.
 type FileConfig struct {
+	// AllTopASNs contains all subnets from CountryTopASNs.  While scanning the
+	// statistics data file this list is used as a dictionary to check if the
+	// current ASN included in CountryTopASNs.
+	AllTopASNs map[agd.ASN]struct{}
+
+	// CountryTopASNs is a mapping of a country to their top ASNs.
+	CountryTopASNs map[agd.Country]agd.ASN
+
 	// ASNPath is the path to the GeoIP database of ASNs.
 	ASNPath string
 
@@ -37,6 +45,9 @@ type FileConfig struct {
 
 // File is a file implementation of [geoip.Interface].
 type File struct {
+	allTopASNs     map[agd.ASN]struct{}
+	countryTopASNs map[agd.Country]agd.ASN
+
 	// mu protects asn, country, country subnet maps, and caches against
 	// simultaneous access during a refresh.
 	mu *sync.RWMutex
@@ -80,6 +91,9 @@ func NewFile(c *FileConfig) (f *File, err error) {
 
 		ipCacheSize:   c.IPCacheSize,
 		hostCacheSize: c.HostCacheSize,
+
+		allTopASNs:     c.AllTopASNs,
+		countryTopASNs: c.CountryTopASNs,
 	}
 
 	// TODO(a.garipov): Consider adding software module ID into the contexts and
@@ -138,8 +152,6 @@ func (f *File) SubnetByLocation(
 	asn agd.ASN,
 	fam netutil.AddrFamily,
 ) (n netip.Prefix, err error) {
-	// TODO(a.garipov): Thoroughly cover with tests.
-
 	var topASNSubnets asnSubnets
 	var ctrySubnets countrySubnets
 
@@ -160,7 +172,7 @@ func (f *File) SubnetByLocation(
 	var ok bool
 	if n, ok = topASNSubnets[asn]; ok {
 		return n, nil
-	} else if asn, ok = countryTopASNs[c]; ok {
+	} else if asn, ok = f.countryTopASNs[c]; ok {
 		// Technically, if there is an entry in countryTopASNs then that entry
 		// also always exists in topASNSubnets, but let's be defensive about it.
 		if n, ok = topASNSubnets[asn]; ok {
@@ -350,7 +362,7 @@ func (f *File) Refresh(_ context.Context) (err error) {
 		defer wg.Done()
 
 		var ipv4, ipv6 asnSubnets
-		ipv4, ipv6, asnErr = resetTopASNSubnets(asn)
+		ipv4, ipv6, asnErr = f.resetTopASNSubnets(asn)
 
 		if asnErr != nil {
 			metrics.GeoIPUpdateStatus.WithLabelValues(f.asnPath).Set(0)

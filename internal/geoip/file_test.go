@@ -13,10 +13,12 @@ import (
 
 func TestFile_Data_cityDB(t *testing.T) {
 	conf := &geoip.FileConfig{
-		ASNPath:       asnPath,
-		CountryPath:   cityPath,
-		HostCacheSize: 0,
-		IPCacheSize:   1,
+		ASNPath:        asnPath,
+		CountryPath:    cityPath,
+		HostCacheSize:  0,
+		IPCacheSize:    1,
+		AllTopASNs:     allTopASNs,
+		CountryTopASNs: countryTopASNs,
 	}
 
 	g, err := geoip.NewFile(conf)
@@ -37,10 +39,12 @@ func TestFile_Data_cityDB(t *testing.T) {
 
 func TestFile_Data_countryDB(t *testing.T) {
 	conf := &geoip.FileConfig{
-		ASNPath:       asnPath,
-		CountryPath:   countryPath,
-		HostCacheSize: 0,
-		IPCacheSize:   1,
+		ASNPath:        asnPath,
+		CountryPath:    countryPath,
+		HostCacheSize:  0,
+		IPCacheSize:    1,
+		AllTopASNs:     allTopASNs,
+		CountryTopASNs: countryTopASNs,
 	}
 
 	g, err := geoip.NewFile(conf)
@@ -61,10 +65,12 @@ func TestFile_Data_countryDB(t *testing.T) {
 
 func TestFile_Data_hostCache(t *testing.T) {
 	conf := &geoip.FileConfig{
-		ASNPath:       asnPath,
-		CountryPath:   cityPath,
-		HostCacheSize: 1,
-		IPCacheSize:   1,
+		ASNPath:        asnPath,
+		CountryPath:    cityPath,
+		HostCacheSize:  1,
+		IPCacheSize:    1,
+		AllTopASNs:     allTopASNs,
+		CountryTopASNs: countryTopASNs,
 	}
 
 	g, err := geoip.NewFile(conf)
@@ -88,25 +94,63 @@ func TestFile_Data_hostCache(t *testing.T) {
 
 func TestFile_SubnetByLocation(t *testing.T) {
 	conf := &geoip.FileConfig{
-		ASNPath:       asnPath,
-		CountryPath:   cityPath,
-		HostCacheSize: 0,
-		IPCacheSize:   1,
+		ASNPath:        asnPath,
+		CountryPath:    cityPath,
+		HostCacheSize:  0,
+		IPCacheSize:    1,
+		AllTopASNs:     allTopASNs,
+		CountryTopASNs: countryTopASNs,
 	}
 
-	g, err := geoip.NewFile(conf)
-	require.NoError(t, err)
+	g, cErr := geoip.NewFile(conf)
+	require.NoError(t, cErr)
 
-	// TODO(a.garipov): Actually test ASN queries once we have the data.
-	gotIPv4Subnet, err := g.SubnetByLocation(testIPv4SubnetCtry, 0, netutil.AddrFamilyIPv4)
-	require.NoError(t, err)
+	testCases := []struct {
+		name    string
+		country agd.Country
+		want    netip.Prefix
+		asn     agd.ASN
+		fam     netutil.AddrFamily
+	}{{
+		name:    "by_asn",
+		country: testIPv4SubnetCtry,
+		asn:     countryTopASNs[testIPv4SubnetCtry],
+		fam:     netutil.AddrFamilyIPv4,
+		want:    testIPv4CountrySubnet,
+	}, {
+		name:    "from_top_countries_v4",
+		country: testIPv4SubnetCtry,
+		asn:     0,
+		fam:     netutil.AddrFamilyIPv4,
+		want:    testIPv4CountrySubnet,
+	}, {
+		name:    "from_top_countries_v6",
+		country: testIPv6SubnetCtry,
+		asn:     0,
+		fam:     netutil.AddrFamilyIPv6,
+		want:    testIPv6CountrySubnet,
+	}, {
+		name:    "from_countries_dict",
+		country: agd.CountryBT,
+		asn:     0,
+		fam:     netutil.AddrFamilyIPv4,
+		want:    netip.MustParsePrefix("67.43.156.0/24"),
+	}, {
+		name:    "not_found",
+		country: agd.CountryFR,
+		asn:     0,
+		fam:     netutil.AddrFamilyIPv4,
+		want:    netutil.ZeroPrefix(netutil.AddrFamilyIPv4),
+	}}
 
-	assert.Equal(t, testIPv4CountrySubnet, gotIPv4Subnet)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrySubnet, err := g.SubnetByLocation(tc.country, tc.asn, tc.fam)
+			require.NoError(t, err)
 
-	gotIPv6Subnet, err := g.SubnetByLocation(testIPv6SubnetCtry, 0, netutil.AddrFamilyIPv6)
-	require.NoError(t, err)
-
-	assert.Equal(t, testIPv6CountrySubnet, gotIPv6Subnet)
+			assert.Equal(t, tc.want, ctrySubnet)
+		})
+	}
 }
 
 var locSink *agd.Location
@@ -115,10 +159,12 @@ var errSink error
 
 func BenchmarkFile_Data(b *testing.B) {
 	conf := &geoip.FileConfig{
-		ASNPath:       asnPath,
-		CountryPath:   cityPath,
-		HostCacheSize: 0,
-		IPCacheSize:   1,
+		ASNPath:        asnPath,
+		CountryPath:    cityPath,
+		HostCacheSize:  0,
+		IPCacheSize:    1,
+		AllTopASNs:     geoip.DefaultTopASNs,
+		CountryTopASNs: geoip.DefaultCountryTopASNs,
 	}
 
 	g, err := geoip.NewFile(conf)
@@ -166,10 +212,12 @@ var fileSink *geoip.File
 
 func BenchmarkNewFile(b *testing.B) {
 	conf := &geoip.FileConfig{
-		ASNPath:       asnPath,
-		CountryPath:   cityPath,
-		HostCacheSize: 0,
-		IPCacheSize:   1,
+		ASNPath:        asnPath,
+		CountryPath:    cityPath,
+		HostCacheSize:  0,
+		IPCacheSize:    1,
+		AllTopASNs:     geoip.DefaultTopASNs,
+		CountryTopASNs: geoip.DefaultCountryTopASNs,
 	}
 
 	b.ReportAllocs()

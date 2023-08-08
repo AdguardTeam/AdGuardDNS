@@ -50,7 +50,7 @@ func RequestIDFromContext(ctx context.Context) (id RequestID, ok bool) {
 	const key = ctxKeyReqID
 	v := ctx.Value(key)
 	if v == nil {
-		return "", false
+		return RequestID{}, false
 	}
 
 	id, ok = v.(RequestID)
@@ -95,13 +95,13 @@ type RequestInfo struct {
 	// Server is the name of the server which handles this request.
 	Server ServerName
 
-	// ID is the unique ID of the request.  It is resurfaced here to optimize
-	// context lookups.
-	ID RequestID
-
 	// Host is the lowercased, non-FQDN version of the hostname from the
 	// question of the request.
 	Host string
+
+	// ID is the unique ID of the request.  It is resurfaced here to optimize
+	// context lookups.
+	ID RequestID
 
 	// QType is the type of question for this request.
 	QType dnsmsg.RRType

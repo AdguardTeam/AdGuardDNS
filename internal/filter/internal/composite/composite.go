@@ -24,8 +24,9 @@ import (
 // An empty composite filter is a filter that always returns a nil filtering
 // result.
 type Filter struct {
-	safeBrowsing  *hashprefix.Filter
-	adultBlocking *hashprefix.Filter
+	safeBrowsing         *hashprefix.Filter
+	newRegisteredDomains *hashprefix.Filter
+	adultBlocking        *hashprefix.Filter
 
 	genSafeSearch *safesearch.Filter
 	ytSafeSearch  *safesearch.Filter
@@ -49,6 +50,10 @@ type Config struct {
 
 	// AdultBlocking is the adult-content filter to apply, if any.
 	AdultBlocking *hashprefix.Filter
+
+	// NewRegisteredDomains is the newly registered domains filter to apply, if
+	// any.
+	NewRegisteredDomains *hashprefix.Filter
 
 	// GeneralSafeSearch is the general safe-search filter to apply, if any.
 	GeneralSafeSearch *safesearch.Filter
@@ -76,13 +81,14 @@ func New(c *Config) (f *Filter) {
 	}
 
 	return &Filter{
-		safeBrowsing:  c.SafeBrowsing,
-		adultBlocking: c.AdultBlocking,
-		genSafeSearch: c.GeneralSafeSearch,
-		ytSafeSearch:  c.YouTubeSafeSearch,
-		custom:        c.Custom,
-		ruleLists:     c.RuleLists,
-		svcLists:      c.ServiceLists,
+		safeBrowsing:         c.SafeBrowsing,
+		adultBlocking:        c.AdultBlocking,
+		genSafeSearch:        c.GeneralSafeSearch,
+		ytSafeSearch:         c.YouTubeSafeSearch,
+		custom:               c.Custom,
+		ruleLists:            c.RuleLists,
+		svcLists:             c.ServiceLists,
+		newRegisteredDomains: c.NewRegisteredDomains,
 	}
 }
 
@@ -143,6 +149,9 @@ func (f *Filter) FilterRequest(
 	}, {
 		filter: nullify(f.ytSafeSearch),
 		id:     agd.FilterListIDYoutubeSafeSearch,
+	}, {
+		filter: nullify(f.newRegisteredDomains),
+		id:     agd.FilterListIDNewRegDomains,
 	}}
 
 	for _, rf := range reqFilters {
@@ -179,7 +188,7 @@ func nullify[T *safesearch.Filter | *hashprefix.Filter](flt T) (fr internal.Requ
 // returns the action created from the filter list network rule with the highest
 // priority.  If f is empty, it returns nil with no error.
 func (f *Filter) FilterResponse(
-	ctx context.Context,
+	_ context.Context,
 	resp *dns.Msg,
 	ri *agd.RequestInfo,
 ) (r internal.Result, err error) {
@@ -188,6 +197,13 @@ func (f *Filter) FilterResponse(
 	}
 
 	for _, ans := range resp.Answer {
+		if rr, ok := ans.(*dns.HTTPS); ok {
+			r = f.filterHTTPSRecords(rr, ri, resp)
+			if r != nil {
+				return r, nil
+			}
+		}
+
 		host, rrType, ok := parseRespAnswer(ans)
 		if !ok {
 			continue
@@ -200,6 +216,45 @@ func (f *Filter) FilterResponse(
 	}
 
 	return r, nil
+}
+
+// filterHTTPSRecords filters HTTPS answers information through all rule list
+// filters of the composite filter.
+func (f *Filter) filterHTTPSRecords(
+	rr *dns.HTTPS,
+	ri *agd.RequestInfo,
+	resp *dns.Msg,
+) (r internal.Result) {
+	for _, kv := range rr.Value {
+		switch kv.Key() {
+		case dns.SVCB_IPV4HINT, dns.SVCB_IPV6HINT:
+			r = f.filterSVCBHint(kv.String(), ri, resp)
+			if r != nil {
+				return r
+			}
+		default:
+			// Go on.
+		}
+	}
+
+	return nil
+}
+
+// filterSVCBHint filters SVCB hint information through all rule list filters of
+// the composite filter.
+func (f *Filter) filterSVCBHint(
+	hint string,
+	ri *agd.RequestInfo,
+	resp *dns.Msg,
+) (r internal.Result) {
+	for _, s := range strings.Split(hint, ",") {
+		r = f.filterWithRuleLists(ri, s, dns.TypeHTTPS, resp, true)
+		if r != nil {
+			return r
+		}
+	}
+
+	return nil
 }
 
 // parseRespAnswer parses hostname and rrType from the answer if there are any.
@@ -226,6 +281,7 @@ func (f *Filter) isEmpty() (ok bool) {
 			f.genSafeSearch == nil &&
 			f.ytSafeSearch == nil &&
 			f.custom == nil &&
+			f.newRegisteredDomains == nil &&
 			len(f.ruleLists) == 0 &&
 			len(f.svcLists) == 0)
 }

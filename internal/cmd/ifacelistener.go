@@ -2,9 +2,9 @@ package cmd
 
 import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdmaps"
 	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/mapsutil"
 )
 
 // Network interface listener configuration
@@ -35,7 +35,7 @@ func (c *interfaceListenersConfig) toInternal(
 		ChannelBufferSize: c.ChannelBufferSize,
 	})
 
-	err = agdmaps.OrderedRangeError(
+	err = mapsutil.OrderedRangeError(
 		c.List,
 		func(id bindtodevice.ID, l *interfaceListener) (addErr error) {
 			return errors.Annotate(m.Add(id, l.Interface, l.Port, ctrlConf), "adding listener %q: %w", id)
@@ -67,7 +67,7 @@ func (c *interfaceListenersConfig) validate() (err error) {
 		// Go on.
 	}
 
-	err = agdmaps.OrderedRangeError(
+	err = mapsutil.OrderedRangeError(
 		c.List,
 		func(id bindtodevice.ID, l *interfaceListener) (lsnrErr error) {
 			return errors.Annotate(l.validate(), "interface %q: %w", id)

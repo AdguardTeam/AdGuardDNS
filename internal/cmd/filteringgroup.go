@@ -71,6 +71,14 @@ type fltGrpParental struct {
 type fltGrpSafeBrowsing struct {
 	// Enabled shows if the general safe browsing filtering should be enforced.
 	Enabled bool `yaml:"enabled"`
+
+	// BlockDangerousDomains shows whether the dangerous domains safe browsing
+	// filtering should be enforced.
+	BlockDangerousDomains bool `yaml:"block_dangerous_domains"`
+
+	// BlockNewlyRegisteredDomains shows whether the newly registered domains
+	// safe browsing filtering should be enforced.
+	BlockNewlyRegisteredDomains bool `yaml:"block_newly_registered_domains"`
 }
 
 // validate returns an error if the filtering group is invalid.
@@ -128,16 +136,18 @@ func (groups filteringGroups) toInternal(
 
 		id := agd.FilteringGroupID(g.ID)
 		fltGrps[id] = &agd.FilteringGroup{
-			ID:                  id,
-			RuleListsEnabled:    g.RuleLists.Enabled,
-			RuleListIDs:         filterIDs,
-			ParentalEnabled:     g.Parental.Enabled,
-			BlockAdult:          g.Parental.BlockAdult,
-			SafeBrowsingEnabled: g.SafeBrowsing.Enabled,
-			GeneralSafeSearch:   g.Parental.GeneralSafeSearch,
-			YoutubeSafeSearch:   g.Parental.YoutubeSafeSearch,
-			BlockPrivateRelay:   g.BlockPrivateRelay,
-			BlockFirefoxCanary:  g.BlockFirefoxCanary,
+			ID:                          id,
+			RuleListsEnabled:            g.RuleLists.Enabled,
+			RuleListIDs:                 filterIDs,
+			ParentalEnabled:             g.Parental.Enabled,
+			BlockAdult:                  g.Parental.BlockAdult,
+			SafeBrowsingEnabled:         g.SafeBrowsing.Enabled,
+			BlockDangerousDomains:       g.SafeBrowsing.BlockDangerousDomains,
+			BlockNewlyRegisteredDomains: g.SafeBrowsing.BlockNewlyRegisteredDomains,
+			GeneralSafeSearch:           g.Parental.GeneralSafeSearch,
+			YoutubeSafeSearch:           g.Parental.YoutubeSafeSearch,
+			BlockPrivateRelay:           g.BlockPrivateRelay,
+			BlockFirefoxCanary:          g.BlockFirefoxCanary,
 		}
 	}
 

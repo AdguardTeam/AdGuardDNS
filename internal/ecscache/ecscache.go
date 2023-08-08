@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
@@ -35,6 +36,12 @@ type Middleware struct {
 
 	// cacheReqPool is a pool of cache requests.
 	cacheReqPool *sync.Pool
+
+	// cacheMinTTL is the minimum supported TTL for cache items.
+	cacheMinTTL time.Duration
+
+	// useTTLOverride shows if the TTL overrides logic should be used.
+	useTTLOverride bool
 }
 
 // MiddlewareConfig is the configuration structure for NewMiddleware.
@@ -43,6 +50,9 @@ type MiddlewareConfig struct {
 	// not be nil.
 	GeoIP geoip.Interface
 
+	// MinTTL is the minimum supported TTL for cache items.
+	MinTTL time.Duration
+
 	// Size is the number of entities to hold in the cache for hosts that don't
 	// support ECS.  It must be greater than zero.
 	Size int
@@ -50,15 +60,20 @@ type MiddlewareConfig struct {
 	// ECSSize is the number of entities to hold in the cache for hosts that
 	// support ECS.  It must be greater than zero.
 	ECSSize int
+
+	// UseTTLOverride shows if the TTL overrides logic should be used.
+	UseTTLOverride bool
 }
 
 // NewMiddleware initializes a new ECS-aware LRU caching middleware.  c must not
 // be nil.
 func NewMiddleware(c *MiddlewareConfig) (m *Middleware) {
 	return &Middleware{
-		cache:    gcache.New(c.Size).LRU().Build(),
-		ecsCache: gcache.New(c.ECSSize).LRU().Build(),
-		geoIP:    c.GeoIP,
+		cache:          gcache.New(c.Size).LRU().Build(),
+		ecsCache:       gcache.New(c.ECSSize).LRU().Build(),
+		cacheMinTTL:    c.MinTTL,
+		useTTLOverride: c.UseTTLOverride,
+		geoIP:          c.GeoIP,
 		cacheReqPool: &sync.Pool{
 			New: func() (req any) {
 				return &cacheRequest{}

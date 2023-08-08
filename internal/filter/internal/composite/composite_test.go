@@ -5,7 +5,6 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -371,9 +370,13 @@ func TestFilter_FilterRequest_safeSearch(t *testing.T) {
 	const fltListID = agd.FilterListIDGeneralSafeSearch
 
 	gen := safesearch.New(&safesearch.Config{
-		List: &agd.FilterList{
-			URL: srvURL,
-			ID:  fltListID,
+		Refreshable: &internal.RefreshableConfig{
+			URL:       srvURL,
+			ID:        fltListID,
+			CachePath: cachePath,
+			Staleness: filtertest.Staleness,
+			Timeout:   filtertest.Timeout,
+			MaxSize:   filtertest.FilterMaxSize,
 		},
 		Resolver: &agdtest.Resolver{
 			OnLookupIP: func(
@@ -389,7 +392,6 @@ func TestFilter_FilterRequest_safeSearch(t *testing.T) {
 				panic("not implemented")
 			},
 		},
-		CacheDir:  filepath.Dir(cachePath),
 		CacheTTL:  1 * time.Minute,
 		CacheSize: 100,
 	})
@@ -451,12 +453,14 @@ func TestFilter_FilterResponse(t *testing.T) {
 
 	const (
 		blockedCNAME   = filtertest.ReqHost
+		passedIPv4Str  = "1.1.1.1"
 		blockedIPv4Str = "1.2.3.4"
 		blockedIPv6Str = "1234::cdef"
 		blockRules     = blockedCNAME + "\n" + blockedIPv4Str + "\n" + blockedIPv6Str + "\n"
 	)
 
 	var (
+		passedIPv4  net.IP = netip.MustParseAddr(passedIPv4Str).AsSlice()
 		blockedIPv4 net.IP = netip.MustParseAddr(blockedIPv4Str).AsSlice()
 		blockedIPv6 net.IP = netip.MustParseAddr(blockedIPv6Str).AsSlice()
 	)
@@ -475,6 +479,14 @@ func TestFilter_FilterResponse(t *testing.T) {
 		respAns  dnsservertest.SectionAnswer
 		qType    dnsmsg.RRType
 	}{{
+		name:     "pass",
+		reqFQDN:  filtertest.ReqFQDN,
+		wantRule: "",
+		respAns: dnsservertest.SectionAnswer{
+			dnsservertest.NewA(filtertest.ReqFQDN, ttl, passedIPv4),
+		},
+		qType: dns.TypeA,
+	}, {
 		name:     "cname",
 		reqFQDN:  cnameReqFQDN,
 		wantRule: filtertest.ReqHost,
@@ -499,6 +511,43 @@ func TestFilter_FilterResponse(t *testing.T) {
 			dnsservertest.NewAAAA(filtertest.ReqFQDN, ttl, blockedIPv6),
 		},
 		qType: dns.TypeAAAA,
+	}, {
+		name:     "ipv4hint",
+		reqFQDN:  filtertest.ReqFQDN,
+		wantRule: blockedIPv4Str,
+		respAns: dnsservertest.SectionAnswer{
+			dnsservertest.NewHTTPS(filtertest.ReqFQDN, ttl, []net.IP{blockedIPv4}, []net.IP{}),
+		},
+		qType: dns.TypeHTTPS,
+	}, {
+		name:     "ipv6hint",
+		reqFQDN:  filtertest.ReqFQDN,
+		wantRule: blockedIPv6Str,
+		respAns: dnsservertest.SectionAnswer{
+			dnsservertest.NewHTTPS(filtertest.ReqFQDN, ttl, []net.IP{}, []net.IP{blockedIPv6}),
+		},
+		qType: dns.TypeHTTPS,
+	}, {
+		name:     "ipv4_ipv6_hints",
+		reqFQDN:  filtertest.ReqFQDN,
+		wantRule: blockedIPv4Str,
+		respAns: dnsservertest.SectionAnswer{
+			dnsservertest.NewHTTPS(
+				filtertest.ReqFQDN,
+				ttl,
+				[]net.IP{blockedIPv4},
+				[]net.IP{blockedIPv6},
+			),
+		},
+		qType: dns.TypeHTTPS,
+	}, {
+		name:     "pass_hints",
+		reqFQDN:  filtertest.ReqFQDN,
+		wantRule: "",
+		respAns: dnsservertest.SectionAnswer{
+			dnsservertest.NewHTTPS(filtertest.ReqFQDN, ttl, []net.IP{passedIPv4}, []net.IP{}),
+		},
+		qType: dns.TypeHTTPS,
 	}}
 
 	for _, tc := range testCases {
@@ -510,6 +559,12 @@ func TestFilter_FilterResponse(t *testing.T) {
 			resp := dnsservertest.NewResp(dns.RcodeSuccess, req, tc.respAns)
 			res, err := f.FilterResponse(ctx, resp, ri)
 			require.NoError(t, err)
+
+			if tc.wantRule == "" {
+				assert.Nil(t, res)
+
+				return
+			}
 
 			want := &internal.ResultBlocked{
 				List: testFltListID1,

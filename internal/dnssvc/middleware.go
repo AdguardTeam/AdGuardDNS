@@ -93,7 +93,7 @@ func (mh *svcHandler) ServeDNS(
 	origResp := nwrw.Msg()
 	respRes, elapsedResp := mh.svc.filterResponse(ctx, req, origResp, flt, reqInfo, modReq)
 
-	mh.svc.reportMetrics(reqInfo, reqRes, respRes, elapsedReq+elapsedResp)
+	mh.svc.reportMetrics(reqInfo, reqRes, respRes, origResp, elapsedReq+elapsedResp)
 
 	if isDebug {
 		return mh.svc.writeDebugResponse(ctx, rw, req, origResp, reqRes, respRes)
@@ -196,6 +196,7 @@ func (svc *Service) reportMetrics(
 	ri *agd.RequestInfo,
 	reqRes filter.Result,
 	respRes filter.Result,
+	origResp *dns.Msg,
 	elapsedFiltering time.Duration,
 ) {
 	var ctry, cont string
@@ -221,7 +222,7 @@ func (svc *Service) reportMetrics(
 	metrics.DNSSvcUsersCountUpdate(ri.RemoteIP)
 
 	if svc.researchMetrics {
-		metrics.ReportResearchMetrics(ri, id, isBlocked)
+		metrics.ReportResearch(ri, origResp, id, isBlocked, svc.researchLog)
 	}
 }
 

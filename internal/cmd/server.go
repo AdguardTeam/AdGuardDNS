@@ -204,17 +204,23 @@ func (s *server) bindData(
 
 	ifaces := s.BindInterfaces
 	bindData = make([]*agd.ServerBindData, 0, len(ifaces))
-	for i, iface := range s.BindInterfaces {
-		var lc netext.ListenConfig
-		lc, err = btdMgr.ListenConfig(iface.ID, iface.Subnet)
-		if err != nil {
-			return nil, fmt.Errorf("bind_interface at index %d: %w", i, err)
-		}
+	for i, iface := range ifaces {
+		address := string(iface.ID)
 
-		bindData = append(bindData, &agd.ServerBindData{
-			ListenConfig: lc,
-			Address:      string(iface.ID),
-		})
+		for j, subnet := range iface.Subnets {
+			var lc netext.ListenConfig
+			lc, err = btdMgr.ListenConfig(iface.ID, subnet)
+			if err != nil {
+				const errStr = "bind_interface at index %d: subnet at index %d: %w"
+
+				return nil, fmt.Errorf(errStr, i, j, err)
+			}
+
+			bindData = append(bindData, &agd.ServerBindData{
+				ListenConfig: lc,
+				Address:      address,
+			})
+		}
 	}
 
 	return bindData, nil
@@ -288,8 +294,8 @@ func (s *server) validateBindData() (err error) {
 
 // serverBindInterface contains the data for a network interface binding.
 type serverBindInterface struct {
-	ID     bindtodevice.ID `yaml:"id"`
-	Subnet netip.Prefix    `yaml:"subnet"`
+	ID      bindtodevice.ID `yaml:"id"`
+	Subnets []netip.Prefix  `yaml:"subnets"`
 }
 
 // validate returns an error if the network interface binding configuration is
@@ -300,9 +306,26 @@ func (c *serverBindInterface) validate() (err error) {
 		return errNilConfig
 	case c.ID == "":
 		return errors.Error("no id")
-	case !c.Subnet.IsValid():
-		return errors.Error("bad subnet")
+	case len(c.Subnets) == 0:
+		return errors.Error("no subnets")
 	default:
-		return nil
+		// Go on.
 	}
+
+	set := map[netip.Prefix]struct{}{}
+
+	for i, subnet := range c.Subnets {
+		if !subnet.IsValid() {
+			return fmt.Errorf("bad subnet at index %d", i)
+		}
+
+		_, ok := set[subnet]
+		if ok {
+			return fmt.Errorf("duplicate subnet %s at index %d", subnet, i)
+		}
+
+		set[subnet] = struct{}{}
+	}
+
+	return nil
 }

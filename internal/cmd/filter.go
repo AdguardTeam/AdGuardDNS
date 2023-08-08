@@ -11,6 +11,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/timeutil"
+	"github.com/c2h5oh/datasize"
 )
 
 // Filters configuration
@@ -18,16 +19,15 @@ import (
 // filtersConfig contains the configuration for the filter lists and filtering
 // storage to be used.
 type filtersConfig struct {
+	// RuleListCache is the cache settings for the filtering rule-list.
+	RuleListCache *fltRuleListCache `yaml:"rule_list_cache"`
+
 	// CustomFilterCacheSize is the size of the LRU cache of compiled filtering
 	// engines for profiles with custom filtering rules.
 	CustomFilterCacheSize int `yaml:"custom_filter_cache_size"`
 
 	// SafeSearchCacheSize is the size of the LRU cache of safe-search results.
 	SafeSearchCacheSize int `yaml:"safe_search_cache_size"`
-
-	// RuleListCacheSize defines the size of the LRU cache of rule-list
-	// filtering results.
-	RuleListCacheSize int `yaml:"rule_list_cache_size"`
 
 	// ResponseTTL is the TTL to set for DNS responses to requests for filtered
 	// domains.
@@ -42,8 +42,8 @@ type filtersConfig struct {
 	// 30s timeout.
 	RefreshTimeout timeutil.Duration `yaml:"refresh_timeout"`
 
-	// UseRuleListCache, if true, enables rule list cache.
-	UseRuleListCache bool `yaml:"use_rule_list_cache"`
+	// MaxSize is the maximum size of the downloadable filtering rule-list.
+	MaxSize datasize.ByteSize `yaml:"max_size"`
 }
 
 // toInternal converts c to the filter storage configuration for the DNS server.
@@ -54,6 +54,7 @@ func (c *filtersConfig) toInternal(
 	envs *environments,
 	safeBrowsing *hashprefix.Filter,
 	adultBlocking *hashprefix.Filter,
+	newRegDomains *hashprefix.Filter,
 ) (conf *filter.DefaultStorageConfig) {
 	return &filter.DefaultStorageConfig{
 		FilterIndexURL:            netutil.CloneURL(&envs.FilterIndexURL.URL),
@@ -62,6 +63,7 @@ func (c *filtersConfig) toInternal(
 		YoutubeSafeSearchRulesURL: netutil.CloneURL(&envs.YoutubeSafeSearchURL.URL),
 		SafeBrowsing:              safeBrowsing,
 		AdultBlocking:             adultBlocking,
+		NewRegDomains:             newRegDomains,
 		Now:                       time.Now,
 		ErrColl:                   errColl,
 		Resolver:                  resolver,
@@ -70,9 +72,10 @@ func (c *filtersConfig) toInternal(
 		SafeSearchCacheSize:       c.SafeSearchCacheSize,
 		// TODO(a.garipov): Consider making this configurable.
 		SafeSearchCacheTTL: 1 * time.Hour,
-		RuleListCacheSize:  c.RuleListCacheSize,
+		RuleListCacheSize:  c.RuleListCache.Size,
 		RefreshIvl:         c.RefreshIvl.Duration,
-		UseRuleListCache:   c.UseRuleListCache,
+		UseRuleListCache:   c.RuleListCache.Enabled,
+		MaxRuleListSize:    int64(c.MaxSize.Bytes()),
 	}
 }
 
@@ -83,14 +86,43 @@ func (c *filtersConfig) validate() (err error) {
 		return errNilConfig
 	case c.SafeSearchCacheSize <= 0:
 		return newMustBePositiveError("safe_search_cache_size", c.SafeSearchCacheSize)
-	case c.RuleListCacheSize <= 0:
-		return newMustBePositiveError("rule_list_cache_size", c.RuleListCacheSize)
 	case c.ResponseTTL.Duration <= 0:
 		return newMustBePositiveError("response_ttl", c.ResponseTTL)
 	case c.RefreshIvl.Duration <= 0:
 		return newMustBePositiveError("refresh_interval", c.RefreshIvl)
 	case c.RefreshTimeout.Duration <= 0:
 		return newMustBePositiveError("refresh_timeout", c.RefreshTimeout)
+	case c.MaxSize <= 0:
+		return newMustBePositiveError("max_size", c.MaxSize)
+	default:
+		// Go on.
+	}
+
+	err = c.RuleListCache.validate()
+	if err != nil {
+		return fmt.Errorf("rule_list_cache: %w", err)
+	}
+
+	return nil
+}
+
+// fltRuleListCache contains filtering rule-list cache configuration.
+type fltRuleListCache struct {
+	// Size defines the size of the LRU cache of rule-list filtering results.
+	Size int `yaml:"size"`
+
+	// Enabled shows if the rule-list cache is enabled.  If it is false, the
+	// rest of the settings are ignored.
+	Enabled bool `yaml:"enabled"`
+}
+
+// validate returns an error if the rule-list cache configuration is invalid.
+func (c *fltRuleListCache) validate() (err error) {
+	switch {
+	case c == nil:
+		return errNilConfig
+	case c.Size <= 0:
+		return newMustBePositiveError("size", c.Size)
 	default:
 		return nil
 	}

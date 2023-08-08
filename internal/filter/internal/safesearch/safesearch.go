@@ -32,18 +32,15 @@ type Filter struct {
 
 // Config contains configuration for the safe-search filter.
 type Config struct {
-	// List is the filtering-rule list used to filter requests.
-	List *agd.FilterList
+	// Refreshable is the configuration of the refreshable filter-list within
+	// the safe-search filter.
+	Refreshable *internal.RefreshableConfig
 
 	// Resolver is used to resolve the IP addresses of replacement hosts.
 	Resolver agdnet.Resolver
 
 	// ErrColl is used to report errors of replacement-host resolving.
 	ErrColl agd.ErrorCollector
-
-	// CacheDir is the path to the directory where the cached filter files are
-	// put.  The directory must exist.
-	CacheDir string
 
 	// CacheTTL is the time to live of the result cache-items.
 	//
@@ -57,15 +54,13 @@ type Config struct {
 // New returns a new safe-search filter.  c must not be nil.  The initial
 // refresh should be called explicitly if necessary.
 func New(c *Config) (f *Filter) {
-	id := c.List.ID
-
 	return &Filter{
 		resCache: resultcache.New[*internal.ResultModified](c.CacheSize),
 		// Don't use the rule list cache, since safeSearch already has its own.
-		flt:      rulelist.NewRefreshable(c.List, c.CacheDir, 0, false),
+		flt:      rulelist.NewRefreshable(c.Refreshable, 0, false),
 		resolver: c.Resolver,
 		errColl:  c.ErrColl,
-		id:       id,
+		id:       c.Refreshable.ID,
 	}
 }
 

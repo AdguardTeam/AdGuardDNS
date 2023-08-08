@@ -17,9 +17,6 @@ import (
 
 // safeBrowsingConfig is the configuration for one of the safe browsing filters.
 type safeBrowsingConfig struct {
-	// URL is the URL used to update the filter.
-	URL *agdhttp.URL `yaml:"url"`
-
 	// BlockHost is the hostname with which to respond to any requests that
 	// match the filter.
 	//
@@ -43,7 +40,9 @@ func (c *safeBrowsingConfig) toInternal(
 	errColl agd.ErrorCollector,
 	resolver agdnet.Resolver,
 	id agd.FilterListID,
+	url *agdhttp.URL,
 	cacheDir string,
+	maxSize int64,
 ) (fltConf *hashprefix.FilterConfig, err error) {
 	hashes, err := hashprefix.NewStorage("")
 	if err != nil {
@@ -52,7 +51,7 @@ func (c *safeBrowsingConfig) toInternal(
 
 	return &hashprefix.FilterConfig{
 		Hashes:          hashes,
-		URL:             netutil.CloneURL(&c.URL.URL),
+		URL:             netutil.CloneURL(&url.URL),
 		ErrColl:         errColl,
 		Resolver:        resolver,
 		ID:              id,
@@ -61,6 +60,7 @@ func (c *safeBrowsingConfig) toInternal(
 		Staleness:       c.RefreshIvl.Duration,
 		CacheTTL:        c.CacheTTL.Duration,
 		CacheSize:       c.CacheSize,
+		MaxSize:         maxSize,
 	}, nil
 }
 
@@ -70,8 +70,6 @@ func (c *safeBrowsingConfig) validate() (err error) {
 	switch {
 	case c == nil:
 		return errNilConfig
-	case c.URL == nil:
-		return errors.Error("no url")
 	case c.BlockHost == "":
 		return errors.Error("no block_host")
 	case c.CacheSize <= 0:
@@ -91,11 +89,13 @@ func setupHashPrefixFilter(
 	conf *safeBrowsingConfig,
 	resolver *agdnet.CachingResolver,
 	id agd.FilterListID,
+	url *agdhttp.URL,
 	cachePath string,
+	maxSize int64,
 	sigHdlr signalHandler,
 	errColl agd.ErrorCollector,
 ) (strg *hashprefix.Storage, flt *hashprefix.Filter, err error) {
-	fltConf, err := conf.toInternal(errColl, resolver, id, cachePath)
+	fltConf, err := conf.toInternal(errColl, resolver, id, url, cachePath, maxSize)
 	if err != nil {
 		return nil, nil, fmt.Errorf("configuring hash prefix filter %s: %w", id, err)
 	}

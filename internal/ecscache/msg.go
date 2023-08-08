@@ -2,13 +2,11 @@ package ecscache
 
 import (
 	"fmt"
-	"math"
 	"net"
 	"net/netip"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
-	"github.com/AdguardTeam/golibs/mathutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 )
@@ -219,56 +217,4 @@ func isCacheableNOERROR(resp *dns.Msg) (ok bool) {
 	}
 
 	return false
-}
-
-// ServFailMaxCacheTTL is the maximum time-to-live value for caching
-// SERVFAIL responses in seconds.  It's consistent with the upper constraint
-// of 5 minutes given by RFC 2308.
-//
-// See https://datatracker.ietf.org/doc/html/rfc2308#section-7.1.
-const ServFailMaxCacheTTL = 30
-
-// findLowestTTL gets the lowest TTL among all DNS message's RRs.
-func findLowestTTL(msg *dns.Msg) (ttl uint32) {
-	// Use the maximum value as a guard value.  If the inner loop is entered,
-	// it's going to be rewritten with an actual TTL value that is lower than
-	// MaxUint32.  If the inner loop isn't entered, catch that and return zero.
-	ttl = math.MaxUint32
-	for _, rrs := range [][]dns.RR{msg.Answer, msg.Ns, msg.Extra} {
-		for _, rr := range rrs {
-			ttl = getTTLIfLower(rr, ttl)
-			if ttl == 0 {
-				return 0
-			}
-		}
-	}
-
-	switch {
-	case msg.Rcode == dns.RcodeServerFailure && ttl > ServFailMaxCacheTTL:
-		return ServFailMaxCacheTTL
-	case ttl == math.MaxUint32:
-		return 0
-	default:
-		return ttl
-	}
-}
-
-// getTTLIfLower is a helper function that checks the TTL of the specified RR
-// and returns it if it's lower than the one passed in the arguments.
-func getTTLIfLower(r dns.RR, ttl uint32) (res uint32) {
-	switch r := r.(type) {
-	case *dns.OPT:
-		// Don't even consider the OPT RRs TTL.
-		return ttl
-	case *dns.SOA:
-		if r.Minttl > 0 && r.Minttl < ttl {
-			// Per RFC 2308, the TTL of a SOA RR is the minimum of SOA.MINIMUM
-			// field and the header's value.
-			ttl = r.Minttl
-		}
-	default:
-		// Go on.
-	}
-
-	return mathutil.Min(r.Header().Ttl, ttl)
 }

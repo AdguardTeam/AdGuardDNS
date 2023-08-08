@@ -168,7 +168,7 @@ func tagsFromCtx(ctx context.Context) (tags sentryTags) {
 	var reqID agd.RequestID
 	if ri, ok := agd.RequestInfoFromContext(ctx); ok {
 		tags["filtering_group_id"] = string(ri.FilteringGroup.ID)
-		tags["request_id"] = string(ri.ID)
+		tags["request_id"] = ri.ID.String()
 
 		if p := ri.Profile; p != nil {
 			tags["profile_id"] = string(p.ID)
@@ -179,7 +179,7 @@ func tagsFromCtx(ctx context.Context) (tags sentryTags) {
 	} else if reqID, ok = agd.RequestIDFromContext(ctx); ok {
 		// This context could be from the part of the pipeline where the request
 		// ID hasn't yet been resurfaced.
-		tags["request_id"] = string(reqID)
+		tags["request_id"] = reqID.String()
 	}
 
 	if si, ok := dnsserver.ServerInfoFromContext(ctx); ok {

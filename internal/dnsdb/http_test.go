@@ -1,13 +1,14 @@
 package dnsdb_test
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 
@@ -22,23 +23,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newTmpBolt creates a *dnsdb.Bolt with temporary DB file.
-func newTmpBolt(t *testing.T) (db *dnsdb.Bolt) {
-	tmpFile, err := os.CreateTemp(t.TempDir(), "*")
-	require.NoError(t, err)
-
-	conf := &dnsdb.BoltConfig{
-		ErrColl: &agdtest.ErrorCollector{
-			OnCollect: func(_ context.Context, _ error) { panic("not implemented") },
-		},
-		Path: tmpFile.Name(),
-	}
-
-	return dnsdb.NewBolt(conf)
-}
-
-func TestBolt_ServeHTTP(t *testing.T) {
+func TestDefault_ServeHTTP(t *testing.T) {
 	const dname = "some-domain.name"
+	testIP := net.IP{1, 2, 3, 4}
 
 	successHdr := http.Header{
 		httphdr.ContentType:     []string{agdhttp.HdrValTextCSV},
@@ -47,21 +34,27 @@ func TestBolt_ServeHTTP(t *testing.T) {
 	}
 
 	newMsg := func(rcode int, name string, qtype uint16) (m *dns.Msg) {
-		return dnsservertest.NewResp(rcode, dnsservertest.NewReq(name, qtype, dns.ClassINET))
+		return dnsservertest.NewResp(
+			rcode,
+			dnsservertest.NewReq(name, qtype, dns.ClassINET),
+			dnsservertest.SectionAnswer{
+				dnsservertest.NewA(dname, 0, testIP),
+			},
+		)
 	}
 
 	testCases := []struct {
 		name     string
 		msgs     []*dns.Msg
 		wantHdr  http.Header
-		wantResp []byte
+		wantResp [][]byte
 	}{{
 		name: "single",
 		msgs: []*dns.Msg{
 			newMsg(dns.RcodeSuccess, dname, dns.TypeA),
 		},
 		wantHdr:  successHdr,
-		wantResp: []byte(dname + `,A,NOERROR,,1` + "\n"),
+		wantResp: [][]byte{[]byte(dname + `,A,NOERROR,` + testIP.String() + `,1`)},
 	}, {
 		name: "existing",
 		msgs: []*dns.Msg{
@@ -69,7 +62,7 @@ func TestBolt_ServeHTTP(t *testing.T) {
 			newMsg(dns.RcodeSuccess, dname, dns.TypeA),
 		},
 		wantHdr:  successHdr,
-		wantResp: []byte(dname + `,A,NOERROR,,2` + "\n"),
+		wantResp: [][]byte{[]byte(dname + `,A,NOERROR,` + testIP.String() + `,2`)},
 	}, {
 		name: "different",
 		msgs: []*dns.Msg{
@@ -77,8 +70,10 @@ func TestBolt_ServeHTTP(t *testing.T) {
 			newMsg(dns.RcodeSuccess, "sub."+dname, dns.TypeA),
 		},
 		wantHdr: successHdr,
-		wantResp: []byte(dname + `,A,NOERROR,,1` + "\n" +
-			"sub." + dname + `,A,NOERROR,,1` + "\n"),
+		wantResp: [][]byte{
+			[]byte("sub." + dname + `,A,NOERROR,` + testIP.String() + `,1`),
+			[]byte(dname + `,A,NOERROR,` + testIP.String() + `,1`),
+		},
 	}, {
 		name: "non-recordable",
 		msgs: []*dns.Msg{
@@ -90,15 +85,12 @@ func TestBolt_ServeHTTP(t *testing.T) {
 			newMsg(dns.RcodeSuccess, dname+"-dnsotls-ds.metric.gstatic.com.", dns.TypeA),
 		},
 		wantHdr:  successHdr,
-		wantResp: []byte{},
+		wantResp: [][]byte{},
 	}}
 
-	recordAndRefresh := func(
+	record := func(
 		t *testing.T,
-		db interface {
-			dnsdb.Interface
-			agd.Refresher
-		},
+		db dnsdb.Interface,
 		msgs []*dns.Msg,
 	) {
 		t.Helper()
@@ -111,9 +103,6 @@ func TestBolt_ServeHTTP(t *testing.T) {
 				// See [dnssvc.initMw.newRequestInfo].
 				Host: strings.TrimSuffix(m.Question[0].Name, "."),
 			})
-
-			err := db.Refresh(context.Background())
-			require.NoError(t, err)
 		}
 	}
 
@@ -125,11 +114,16 @@ func TestBolt_ServeHTTP(t *testing.T) {
 	r.Header.Add(httphdr.AcceptEncoding, "gzip")
 
 	for _, tc := range testCases {
-		db := newTmpBolt(t)
+		db := dnsdb.New(&dnsdb.DefaultConfig{
+			ErrColl: &agdtest.ErrorCollector{
+				OnCollect: func(_ context.Context, _ error) { panic("not implemented") },
+			},
+			MaxSize: 100,
+		})
 		rw := httptest.NewRecorder()
 
 		t.Run(tc.name, func(t *testing.T) {
-			recordAndRefresh(t, db, tc.msgs)
+			record(t, db, tc.msgs)
 
 			db.ServeHTTP(rw, r)
 			require.Equal(t, http.StatusOK, rw.Code)
@@ -143,25 +137,8 @@ func TestBolt_ServeHTTP(t *testing.T) {
 			decResp, err = io.ReadAll(gzipr)
 			require.NoError(t, err)
 
-			assert.Equal(t, tc.wantResp, decResp)
+			lines := bytes.Split(decResp, []byte("\n"))
+			assert.ElementsMatch(t, tc.wantResp, lines[:len(lines)-1])
 		})
 	}
-
-	t.Run("bad_db_path", func(t *testing.T) {
-		db := dnsdb.NewBolt(&dnsdb.BoltConfig{
-			Path: "bad/path",
-			ErrColl: &agdtest.ErrorCollector{
-				OnCollect: func(ctx context.Context, err error) { panic("not implemented") },
-			},
-		})
-
-		w := httptest.NewRecorder()
-
-		db.ServeHTTP(w, r)
-		assert.Equal(
-			t,
-			"opening boltdb: opening file: open bad/path: no such file or directory\n",
-			w.Body.String(),
-		)
-	})
 }

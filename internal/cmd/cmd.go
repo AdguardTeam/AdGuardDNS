@@ -5,10 +5,8 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"os"
 	"runtime"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
@@ -32,9 +30,7 @@ import (
 func Main() {
 	// Initial Configuration
 
-	//lint:ignore SA1019 According to ameshkov, using a non-cryptographically
-	//secure RNG is fine for things such as random upstream selection.
-	rand.Seed(time.Now().UnixNano())
+	agd.InitRequestID()
 
 	// Log only to stdout and let users decide how to process it.
 	log.SetOutput(os.Stdout)
@@ -93,11 +89,17 @@ func Main() {
 	err = os.MkdirAll(envs.FilterCachePath, agd.DefaultDirPerm)
 	check(err)
 
+	// TODO(ameshkov): Consider making a separated max_size config for
+	// safe-browsing and adult-blocking filters.
+	maxFilterSize := int64(c.Filters.MaxSize.Bytes())
+
 	safeBrowsingHashes, safeBrowsingFilter, err := setupHashPrefixFilter(
 		c.SafeBrowsing,
 		filteringResolver,
 		agd.FilterListIDSafeBrowsing,
+		envs.SafeBrowsingURL,
 		envs.FilterCachePath,
+		maxFilterSize,
 		sigHdlr,
 		errColl,
 	)
@@ -107,7 +109,22 @@ func Main() {
 		c.AdultBlocking,
 		filteringResolver,
 		agd.FilterListIDAdultBlocking,
+		envs.AdultBlockingURL,
 		envs.FilterCachePath,
+		maxFilterSize,
+		sigHdlr,
+		errColl,
+	)
+	check(err)
+
+	_, newRegDomainsFilter, err := setupHashPrefixFilter(
+		// Reuse general safe browsing filter configuration.
+		c.SafeBrowsing,
+		filteringResolver,
+		agd.FilterListIDNewRegDomains,
+		envs.NewRegDomainsURL,
+		envs.FilterCachePath,
+		maxFilterSize,
 		sigHdlr,
 		errColl,
 	)
@@ -121,6 +138,7 @@ func Main() {
 		envs,
 		safeBrowsingFilter,
 		adultBlockingFilter,
+		newRegDomainsFilter,
 	)
 
 	fltRefrTimeout := c.Filters.RefreshTimeout.Duration
@@ -174,8 +192,7 @@ func Main() {
 
 	// DNSDB
 
-	dnsDB, err := envs.buildDNSDB(sigHdlr, errColl)
-	check(err)
+	dnsDB := c.DNSDB.toInternal(errColl)
 
 	// Filtering-rule statistics
 
@@ -222,28 +239,31 @@ func Main() {
 	}
 
 	dnsConf := &dnssvc.Config{
-		Messages:        messages,
-		SafeBrowsing:    hashprefix.NewMatcher(hashStorages),
-		BillStat:        billStatRec,
-		ProfileDB:       profDB,
-		DNSCheck:        dnsCk,
-		NonDNS:          webSvc,
-		DNSDB:           dnsDB,
-		ErrColl:         errColl,
-		FilterStorage:   fltStrg,
-		GeoIP:           geoIP,
-		Handler:         handler,
-		QueryLog:        c.buildQueryLog(envs),
-		RuleStat:        ruleStat,
-		RateLimit:       rateLimiter,
-		ConnLimiter:     connLimiter,
-		FilteringGroups: fltGroups,
-		ServerGroups:    srvGrps,
-		CacheSize:       c.Cache.Size,
-		ECSCacheSize:    c.Cache.ECSSize,
-		UseECSCache:     c.Cache.Type == cacheTypeECS,
-		ResearchMetrics: bool(envs.ResearchMetrics),
-		ControlConf:     ctrlConf,
+		Messages:            messages,
+		SafeBrowsing:        hashprefix.NewMatcher(hashStorages),
+		BillStat:            billStatRec,
+		ProfileDB:           profDB,
+		DNSCheck:            dnsCk,
+		NonDNS:              webSvc,
+		DNSDB:               dnsDB,
+		ErrColl:             errColl,
+		FilterStorage:       fltStrg,
+		GeoIP:               geoIP,
+		Handler:             handler,
+		QueryLog:            c.buildQueryLog(envs),
+		RuleStat:            ruleStat,
+		RateLimit:           rateLimiter,
+		ConnLimiter:         connLimiter,
+		FilteringGroups:     fltGroups,
+		ServerGroups:        srvGrps,
+		CacheSize:           c.Cache.Size,
+		ECSCacheSize:        c.Cache.ECSSize,
+		CacheMinTTL:         c.Cache.TTLOverride.Min.Duration,
+		UseCacheTTLOverride: c.Cache.TTLOverride.Enabled,
+		UseECSCache:         c.Cache.Type == cacheTypeECS,
+		ResearchMetrics:     bool(envs.ResearchMetrics),
+		ResearchLogs:        bool(envs.ResearchLogs),
+		ControlConf:         ctrlConf,
 	}
 
 	dnsSvc, err := dnssvc.New(dnsConf)

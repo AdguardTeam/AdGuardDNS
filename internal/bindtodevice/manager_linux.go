@@ -10,10 +10,10 @@ import (
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdmaps"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/mapsutil"
 )
 
 // Manager creates individual listeners and dispatches connections to them.
@@ -80,7 +80,7 @@ func (m *Manager) Add(id ID, ifaceName string, port uint16, conf *ControlConfig)
 		return nil
 	}
 
-	err = agdmaps.OrderedRangeError(m.ifaceListeners, validateDup)
+	err = mapsutil.OrderedRangeError(m.ifaceListeners, validateDup)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return err

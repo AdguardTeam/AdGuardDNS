@@ -26,10 +26,6 @@ type Config struct {
 	// LinkedIP is the optional linked IP web server.
 	LinkedIP *LinkedIPServer
 
-	// LinkedIPBackendURL is the URL to which linked IP API requests are
-	// proxied.
-	LinkedIPBackendURL *url.URL
-
 	// RootRedirectURL is the URL to which root HTTP requests are redirected.
 	// If not set, these requests are responded with a 404 page.
 	RootRedirectURL *url.URL
@@ -62,6 +58,9 @@ type Config struct {
 
 // LinkedIPServer is the linked IP server configuration.
 type LinkedIPServer struct {
+	// TargetURL is the URL to which linked IP API requests are proxied.
+	TargetURL *url.URL
+
 	// Bind are the addresses on which to serve the linked IP API.
 	Bind []*BindData
 }
@@ -128,10 +127,10 @@ func New(c *Config) (svc *Service) {
 		svc.rootRedirectURL = c.RootRedirectURL.String()
 	}
 
-	if l := c.LinkedIP; l != nil {
+	if l := c.LinkedIP; l != nil && l.TargetURL != nil {
 		for _, b := range l.Bind {
 			addr := b.Address.String()
-			h := linkedIPHandler(c.LinkedIPBackendURL, c.ErrColl, addr, c.Timeout)
+			h := linkedIPHandler(l.TargetURL, c.ErrColl, addr, c.Timeout)
 			errLog := log.StdLog(fmt.Sprintf("websvc: linked ip: %s", addr), log.DEBUG)
 			svc.linkedIP = append(svc.linkedIP, &http.Server{
 				Addr:              addr,

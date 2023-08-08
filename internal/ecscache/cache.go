@@ -140,7 +140,7 @@ func (mw *Middleware) toCacheKey(cr *cacheRequest, respIsECSDependent bool) (key
 // set saves resp to the cache if it's cacheable.  If msg cannot be cached, it
 // is ignored.
 func (mw *Middleware) set(resp *dns.Msg, cr *cacheRequest, respIsECSDependent bool) {
-	ttl := findLowestTTL(resp)
+	ttl := dnsmsg.FindLowestTTL(resp)
 	if ttl == 0 || !isCacheable(resp) {
 		return
 	}
@@ -150,10 +150,17 @@ func (mw *Middleware) set(resp *dns.Msg, cr *cacheRequest, respIsECSDependent bo
 		cache = mw.ecsCache
 	}
 
+	exp := time.Duration(ttl) * time.Second
+	if mw.useTTLOverride && resp.Rcode != dns.RcodeServerFailure {
+		// TODO(d.kolyshev): Use built-in max in go 1.21.
+		exp = mathutil.Max(exp, mw.cacheMinTTL)
+		dnsmsg.SetMinTTL(resp, uint32(exp.Seconds()))
+	}
+
 	key := mw.toCacheKey(cr, respIsECSDependent)
 	item := toCacheItem(resp, cr.host)
 
-	err := cache.SetWithExpire(key, item, time.Duration(ttl)*time.Second)
+	err := cache.SetWithExpire(key, item, exp)
 	if err != nil {
 		// Shouldn't happen, since we don't set a serialization function.
 		panic(fmt.Errorf("ecs-cache: setting cache item: %w", err))
@@ -187,7 +194,7 @@ func toCacheItem(msg *dns.Msg, host string) (item *cacheItem) {
 func fromCacheItem(item *cacheItem, req *dns.Msg, reqDO bool) (msg *dns.Msg) {
 	// Update the TTL depending on when the item was cached.  If it's already
 	// expired, update TTL to 0.
-	newTTL := findLowestTTL(item.msg)
+	newTTL := dnsmsg.FindLowestTTL(item.msg)
 	if timeLeft := time.Duration(newTTL)*time.Second - time.Since(item.when); timeLeft > 0 {
 		newTTL = uint32(roundDiv(timeLeft, time.Second))
 	} else {

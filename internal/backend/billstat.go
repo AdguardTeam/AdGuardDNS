@@ -10,9 +10,9 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdmaps"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/mapsutil"
 )
 
 // Billing Statistics Uploader
@@ -114,7 +114,7 @@ type v1DevicesActivityReqDevice struct {
 // devices activity HTTP API.
 func billStatRecsToReq(records billstat.Records) (devices []*v1DevicesActivityReqDevice) {
 	devices = make([]*v1DevicesActivityReqDevice, 0, len(records))
-	agdmaps.OrderedRange(records, func(id agd.DeviceID, rec *billstat.Record) (cont bool) {
+	mapsutil.OrderedRange(records, func(id agd.DeviceID, rec *billstat.Record) (cont bool) {
 		devices = append(devices, &v1DevicesActivityReqDevice{
 			ClientCountry: rec.Country,
 			DeviceID:      id,

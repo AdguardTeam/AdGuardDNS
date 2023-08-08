@@ -168,6 +168,30 @@ func NewAAAA(name string, ttl uint32, aaaa net.IP) (rr dns.RR) {
 	}
 }
 
+// NewHTTPS constructs the new resource record of type HTTPS with IPv4 and IPv6
+// hint records from provided v4Hint and v6Hint parameters.
+//
+// TODO(d.kolyshev): Add "alpn" and other SVCB key-value pairs.
+func NewHTTPS(name string, ttl uint32, v4Hint, v6Hint []net.IP) (rr dns.RR) {
+	svcb := dns.SVCB{
+		Hdr: dns.RR_Header{
+			Name:   dns.Fqdn(name),
+			Rrtype: dns.TypeHTTPS,
+			Class:  dns.ClassINET,
+			Ttl:    ttl,
+		},
+		Target: dns.Fqdn(name),
+		Value: []dns.SVCBKeyValue{
+			&dns.SVCBIPv4Hint{Hint: v4Hint},
+			&dns.SVCBIPv6Hint{Hint: v6Hint},
+		},
+	}
+
+	return &dns.HTTPS{
+		SVCB: svcb,
+	}
+}
+
 // NewSOA constructs the new resource record of type SOA.
 func NewSOA(name string, ttl uint32, ns, mbox string) (rr dns.RR) {
 	return &dns.SOA{

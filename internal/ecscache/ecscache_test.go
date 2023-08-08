@@ -49,10 +49,13 @@ func TestMiddleware_Wrap_noECS(t *testing.T) {
 		dnsservertest.NewSOA(reqHostname, defaultTTL, reqNS1, reqNS2),
 	}
 
+	testTTL := 60 * time.Second
+
 	const N = 5
 	testCases := []struct {
 		req        *dns.Msg
 		resp       *dns.Msg
+		minTTL     *time.Duration
 		name       string
 		wantNumReq int
 		wantTTL    uint32
@@ -64,30 +67,35 @@ func TestMiddleware_Wrap_noECS(t *testing.T) {
 		name:       "simple_a",
 		wantNumReq: 1,
 		wantTTL:    defaultTTL,
+		minTTL:     nil,
 	}, {
 		req:        aReq,
 		resp:       dnsservertest.NewResp(dns.RcodeSuccess, aReq),
 		name:       "empty_answer",
 		wantNumReq: N,
 		wantTTL:    0,
+		minTTL:     nil,
 	}, {
 		req:        aReq,
 		resp:       dnsservertest.NewResp(dns.RcodeSuccess, aReq, soaNS),
 		name:       "authoritative_nodata",
 		wantNumReq: 1,
 		wantTTL:    defaultTTL,
+		minTTL:     nil,
 	}, {
 		req:        aReq,
 		resp:       dnsservertest.NewResp(dns.RcodeSuccess, aReq, cnameAns, soaNS),
 		name:       "nodata_with_cname",
 		wantNumReq: 1,
 		wantTTL:    defaultTTL,
+		minTTL:     nil,
 	}, {
 		req:        aReq,
 		resp:       dnsservertest.NewResp(dns.RcodeSuccess, aReq, cnameAns),
 		name:       "nodata_with_cname_no_soa",
 		wantNumReq: N,
 		wantTTL:    defaultTTL,
+		minTTL:     nil,
 	}, {
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeNameError, aReq, dnsservertest.SectionNs{
@@ -97,18 +105,21 @@ func TestMiddleware_Wrap_noECS(t *testing.T) {
 		// TODO(ameshkov): Consider https://datatracker.ietf.org/doc/html/rfc2308#section-3.
 		wantNumReq: 1,
 		wantTTL:    0,
+		minTTL:     nil,
 	}, {
 		req:        aReq,
 		resp:       dnsservertest.NewResp(dns.RcodeNameError, aReq, soaNS),
 		name:       "authoritative_nxdomain",
 		wantNumReq: 1,
 		wantTTL:    defaultTTL,
+		minTTL:     nil,
 	}, {
 		req:        aReq,
 		resp:       dnsservertest.NewResp(dns.RcodeServerFailure, aReq),
 		name:       "simple_server_failure",
 		wantNumReq: 1,
-		wantTTL:    ecscache.ServFailMaxCacheTTL,
+		wantTTL:    dnsmsg.ServFailMaxCacheTTL,
+		minTTL:     nil,
 	}, {
 		req: cnameReq,
 		resp: dnsservertest.NewResp(dns.RcodeSuccess, cnameReq, dnsservertest.SectionAnswer{
@@ -117,6 +128,7 @@ func TestMiddleware_Wrap_noECS(t *testing.T) {
 		name:       "simple_cname_ans",
 		wantNumReq: 1,
 		wantTTL:    defaultTTL,
+		minTTL:     nil,
 	}, {
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
@@ -125,12 +137,50 @@ func TestMiddleware_Wrap_noECS(t *testing.T) {
 		name:       "expired_one",
 		wantNumReq: N,
 		wantTTL:    0,
+		minTTL:     nil,
+	}, {
+		req: aReq,
+		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
+			dnsservertest.NewA(reqHostname, 10, net.IP{1, 2, 3, 4}),
+		}),
+		name:       "override_ttl_ok",
+		wantNumReq: 1,
+		minTTL:     &testTTL,
+		wantTTL:    uint32(testTTL.Seconds()),
+	}, {
+		req: aReq,
+		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
+			dnsservertest.NewA(reqHostname, 1000, net.IP{1, 2, 3, 4}),
+		}),
+		name:       "override_ttl_max",
+		wantNumReq: 1,
+		minTTL:     &testTTL,
+		wantTTL:    1000,
+	}, {
+		req: aReq,
+		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
+			dnsservertest.NewA(reqHostname, 0, net.IP{1, 2, 3, 4}),
+		}),
+		name:       "override_ttl_zero",
+		wantNumReq: N,
+		minTTL:     &testTTL,
+		wantTTL:    0,
+	}, {
+		req: aReq,
+		resp: dnsservertest.NewResp(dns.RcodeServerFailure, aReq, dnsservertest.SectionAnswer{
+			dnsservertest.NewA(reqHostname, dnsmsg.ServFailMaxCacheTTL, net.IP{1, 2, 3, 4}),
+		}),
+		name:       "override_ttl_servfail",
+		wantNumReq: 1,
+		minTTL:     nil,
+		wantTTL:    dnsmsg.ServFailMaxCacheTTL,
 	}, {
 		req:        aReq,
 		resp:       dnsservertest.NewResp(dns.RcodeNotImplemented, aReq, soaNS),
 		name:       "unexpected_response",
 		wantNumReq: N,
 		wantTTL:    0,
+		minTTL:     nil,
 	}}
 
 	for _, tc := range testCases {
@@ -144,11 +194,18 @@ func TestMiddleware_Wrap_noECS(t *testing.T) {
 				},
 			)
 
+			var minTTL time.Duration
+			if tc.minTTL != nil {
+				minTTL = *tc.minTTL
+			}
+
 			withCache := newWithCache(
 				t,
 				handler,
 				agd.CountryNone,
 				netutil.ZeroPrefix(netutil.AddrFamilyIPv4),
+				minTTL,
+				tc.minTTL != nil,
 			)
 			ri := &agd.RequestInfo{
 				Host:     tc.req.Question[0].Name,
@@ -284,7 +341,7 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 				},
 			)
 
-			withCache := newWithCache(t, handler, ctry, tc.ctrySubnet)
+			withCache := newWithCache(t, handler, ctry, tc.ctrySubnet, 0, false)
 			ri := &agd.RequestInfo{
 				Location: &agd.Location{
 					Country: ctry,
@@ -493,7 +550,7 @@ func TestMiddleware_Wrap_ecsOrder(t *testing.T) {
 	}}
 
 	for _, tc := range testCases {
-		withCache := newWithCache(t, handler, ctry, ctrySubnet)
+		withCache := newWithCache(t, handler, ctry, ctrySubnet, 0, false)
 
 		t.Run(tc.name, func(t *testing.T) {
 			for i, req := range tc.sequence {
@@ -554,6 +611,8 @@ func newWithCache(
 	h dnsserver.Handler,
 	wantCtry agd.Country,
 	geoIPNet netip.Prefix,
+	minTTL time.Duration,
+	useTTLOverride bool,
 ) (wrapped dnsserver.Handler) {
 	t.Helper()
 
@@ -578,9 +637,11 @@ func newWithCache(
 	return dnsserver.WithMiddlewares(
 		h,
 		ecscache.NewMiddleware(&ecscache.MiddlewareConfig{
-			GeoIP:   geoIP,
-			Size:    100,
-			ECSSize: 100,
+			GeoIP:          geoIP,
+			Size:           100,
+			ECSSize:        100,
+			MinTTL:         minTTL,
+			UseTTLOverride: useTTLOverride,
 		}),
 	)
 }

@@ -21,6 +21,7 @@ const (
 	hdrNameRuleListID  = "rule-list-id"
 	hdrNameRule        = "rule"
 	hdrNameClientIP    = "client-ip"
+	hdrNameServerIP    = "server-ip"
 	hdrNameDeviceID    = "device-id"
 	hdrNameProfileID   = "profile-id"
 	hdrNameCountry     = "country"
@@ -53,6 +54,15 @@ func (svc *Service) writeDebugResponse(
 	err = svc.messages.AppendDebugExtra(debugReq, resp, cliIP.String())
 	if err != nil {
 		return fmt.Errorf("adding %s extra: %w", hdrNameClientIP, err)
+	}
+
+	lAddr := rw.LocalAddr()
+	localIP, _ := netutil.IPAndPortFromAddr(lAddr)
+
+	setQuestionName(debugReq, "", hdrNameServerIP)
+	err = svc.messages.AppendDebugExtra(debugReq, resp, localIP.String())
+	if err != nil {
+		return fmt.Errorf("adding %s extra: %w", hdrNameServerIP, err)
 	}
 
 	err = svc.appendDebugExtraFromContext(ctx, debugReq, resp)

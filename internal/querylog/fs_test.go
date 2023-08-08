@@ -34,10 +34,14 @@ func TestFileSystem_Write(t *testing.T) {
 	b, err := io.ReadAll(f)
 	require.NoError(t, err)
 
-	rep := strings.NewReplacer(" ", "", "\n", "")
+	rep := strings.NewReplacer(
+		" ", "",
+		"\n", "",
+		"REQID", testRequestID.String(),
+	)
 	want := rep.Replace(`
 {
-  "u":"req1234",
+  "u":"REQID",
   "b":"prof1234",
   "i":"dev1234",
   "c":"RU",
@@ -69,10 +73,14 @@ func TestFileSystem_Write(t *testing.T) {
 		b, err = io.ReadAll(f)
 		require.NoError(t, err)
 
-		rep = strings.NewReplacer(" ", "", "\n", "")
+		rep = strings.NewReplacer(
+			" ", "",
+			"\n", "",
+			"REQID", testRequestID.String(),
+		)
 		want = rep.Replace(`
 {
-  "u":"req1234",
+  "u":"REQID",
   "b":"prof1234",
   "i":"dev1234",
   "c":"RU",

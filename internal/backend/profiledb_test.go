@@ -114,6 +114,12 @@ func testProfileResp(t *testing.T) (resp *profiledb.StorageResponse) {
 		YoutubeSafeSearch: false,
 	}
 
+	wantSafeBrowsing := &agd.SafeBrowsingSettings{
+		Enabled:                     true,
+		BlockDangerousDomains:       true,
+		BlockNewlyRegisteredDomains: false,
+	}
+
 	wantLinkedIP := netip.AddrFrom4([4]byte{1, 2, 3, 4})
 
 	wantBlockingMode := dnsmsg.BlockingModeCodec{
@@ -139,7 +145,7 @@ func testProfileResp(t *testing.T) (resp *profiledb.StorageResponse) {
 			RuleListIDs:         []agd.FilterListID{"1"},
 			CustomRules:         nil,
 			FilteredResponseTTL: 10 * time.Second,
-			SafeBrowsingEnabled: true,
+			SafeBrowsing:        wantSafeBrowsing,
 			RuleListsEnabled:    true,
 			FilteringEnabled:    true,
 			QueryLogEnabled:     true,
@@ -160,7 +166,7 @@ func testProfileResp(t *testing.T) (resp *profiledb.StorageResponse) {
 			RuleListIDs:         []agd.FilterListID{"1"},
 			CustomRules:         []agd.FilterRuleText{"||example.org^"},
 			FilteredResponseTTL: 3600 * time.Second,
-			SafeBrowsingEnabled: true,
+			SafeBrowsing:        wantSafeBrowsing,
 			RuleListsEnabled:    true,
 			FilteringEnabled:    true,
 			QueryLogEnabled:     true,

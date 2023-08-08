@@ -102,4 +102,10 @@ then
 	"$go" env
 fi
 
-"$go" build --ldflags="$ldflags" "$race_flags" --trimpath "$o_flags" "$v_flags" "$x_flags"
+"$go" build\
+	--ldflags="$ldflags"\
+	"$race_flags"\
+	--trimpath\
+	"$o_flags"\
+	"$v_flags"\
+	"$x_flags"

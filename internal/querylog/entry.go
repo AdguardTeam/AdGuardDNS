@@ -22,9 +22,6 @@ type Entry struct {
 	// Time is the time of receiving the request in milliseconds.
 	Time time.Time
 
-	// RequestID is the ID of the request.
-	RequestID agd.RequestID
-
 	// ProfileID is the detected profile ID, if any.
 	ProfileID agd.ProfileID
 
@@ -40,6 +37,9 @@ type Entry struct {
 
 	// DomainFQDN is the fully-qualified name of the requested resource.
 	DomainFQDN string
+
+	// RequestID is the ID of the request.
+	RequestID agd.RequestID
 
 	// ClientASN is the detected autonomous system number of the client's IP
 	// address, if any.
@@ -134,7 +134,7 @@ type jsonlEntry struct {
 	// RequestID is the ID of the request.
 	//
 	// The short name "u" stands for "unique".
-	RequestID agd.RequestID `json:"u"`
+	RequestID string `json:"u"`
 
 	// ProfileID is the detected profile ID, if any.
 	//

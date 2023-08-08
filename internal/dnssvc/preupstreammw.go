@@ -3,6 +3,7 @@ package dnssvc
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
@@ -23,11 +24,13 @@ import (
 // preUpstreamMw is a middleware that prepares records for caching and upstream
 // handling as well as records anonymous DNS statistics.
 type preUpstreamMw struct {
-	db           dnsdb.Interface
-	geoIP        geoip.Interface
-	cacheSize    int
-	ecsCacheSize int
-	useECSCache  bool
+	db                  dnsdb.Interface
+	geoIP               geoip.Interface
+	cacheMinTTL         time.Duration
+	cacheSize           int
+	ecsCacheSize        int
+	useECSCache         bool
+	useCacheTTLOverride bool
 }
 
 // type check
@@ -41,14 +44,18 @@ func (mw *preUpstreamMw) Wrap(h dnsserver.Handler) (wrapped dnsserver.Handler) {
 		var cacheMw dnsserver.Middleware
 		if mw.useECSCache {
 			cacheMw = ecscache.NewMiddleware(&ecscache.MiddlewareConfig{
-				GeoIP:   mw.geoIP,
-				Size:    mw.cacheSize,
-				ECSSize: mw.ecsCacheSize,
+				GeoIP:          mw.geoIP,
+				Size:           mw.cacheSize,
+				ECSSize:        mw.ecsCacheSize,
+				MinTTL:         mw.cacheMinTTL,
+				UseTTLOverride: mw.useCacheTTLOverride,
 			})
 		} else {
 			cacheMw = cache.NewMiddleware(&cache.MiddlewareConfig{
 				MetricsListener: &prometheus.CacheMetricsListener{},
 				Size:            mw.cacheSize,
+				MinTTL:          mw.cacheMinTTL,
+				UseTTLOverride:  mw.useCacheTTLOverride,
 			})
 		}
 

@@ -137,7 +137,16 @@ func isUserAssigned(s string) (ok bool) {
 		return false
 	}
 
-	return s == "AA" || s == "OO" || s == "ZZ" || s[0] == 'X' || (s[0] == 'Q' && s[1] >= 'M')
+	if s[0] == 'X' || (s[0] == 'Q' && s[1] >= 'M') {
+		return true
+	}
+
+	switch s {
+	case "AA", "OO", "ZZ":
+		return true
+	default:
+		return false
+	}
 }
 `
 

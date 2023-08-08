@@ -98,8 +98,14 @@ func isInvalidRandomIDRune(r rune) (ok bool) {
 
 // isValidRandomIDRune returns true if r is a valid random ID rune.
 func isValidRandomIDRune(r rune) (ok bool) {
-	return (r >= 'a' && r <= 'z') ||
-		(r >= 'A' && r <= 'Z') ||
-		(r >= '0' && r <= '9') ||
-		r == '-'
+	switch {
+	case
+		r >= 'a' && r <= 'z',
+		r >= 'A' && r <= 'Z',
+		r >= '0' && r <= '9',
+		r == '-':
+		return true
+	default:
+		return false
+	}
 }

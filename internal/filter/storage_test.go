@@ -15,6 +15,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
@@ -159,8 +160,8 @@ func TestStorage_FilterFromContext_customAllow(t *testing.T) {
 		ID:              agd.FilterListIDSafeBrowsing,
 		CachePath:       tmpFile.Name(),
 		ReplacementHost: safeBrowsingSafeHost,
-		Staleness:       1 * time.Hour,
-		CacheTTL:        10 * time.Second,
+		Staleness:       filtertest.Staleness,
+		CacheTTL:        filtertest.CacheTTL,
 		CacheSize:       100,
 	})
 	require.NoError(t, err)
@@ -176,9 +177,13 @@ func TestStorage_FilterFromContext_customAllow(t *testing.T) {
 		Parental: &agd.ParentalProtectionSettings{
 			Enabled: true,
 		},
-		ID:                  "prof1234",
-		FilteringEnabled:    true,
-		SafeBrowsingEnabled: true,
+		ID:               "prof1234",
+		FilteringEnabled: true,
+		SafeBrowsing: &agd.SafeBrowsingSettings{
+			Enabled:                     true,
+			BlockDangerousDomains:       true,
+			BlockNewlyRegisteredDomains: false,
+		},
 		CustomRules: []agd.FilterRuleText{
 			safeBrowsingAllowRule,
 		},
@@ -252,8 +257,8 @@ func TestStorage_FilterFromContext_schedule(t *testing.T) {
 		ID:              agd.FilterListIDAdultBlocking,
 		CachePath:       tmpFile.Name(),
 		ReplacementHost: safeBrowsingSafeHost,
-		Staleness:       1 * time.Hour,
-		CacheTTL:        10 * time.Second,
+		Staleness:       filtertest.Staleness,
+		CacheTTL:        filtertest.CacheTTL,
 		CacheSize:       100,
 	})
 	require.NoError(t, err)
@@ -754,8 +759,8 @@ func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
 		ID:              agd.FilterListIDSafeBrowsing,
 		CachePath:       cachePath,
 		ReplacementHost: safeBrowsingSafeHost,
-		Staleness:       1 * time.Hour,
-		CacheTTL:        10 * time.Second,
+		Staleness:       filtertest.Staleness,
+		CacheTTL:        filtertest.CacheTTL,
 		CacheSize:       100,
 	})
 	require.NoError(t, err)
@@ -767,10 +772,12 @@ func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
 	require.NoError(t, err)
 
 	g := &agd.FilteringGroup{
-		ID:                  "default",
-		RuleListIDs:         []agd.FilterListID{},
-		ParentalEnabled:     true,
-		SafeBrowsingEnabled: true,
+		ID:                          "default",
+		RuleListIDs:                 []agd.FilterListID{},
+		ParentalEnabled:             true,
+		SafeBrowsingEnabled:         true,
+		BlockDangerousDomains:       true,
+		BlockNewlyRegisteredDomains: true,
 	}
 
 	// Test

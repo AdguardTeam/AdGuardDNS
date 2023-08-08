@@ -12,7 +12,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
-	"github.com/google/renameio"
+	renameio "github.com/google/renameio/v2"
 )
 
 // Storage is the file-cache storage that encodes data using JSON.
@@ -57,6 +57,15 @@ func (s *Storage) Load() (c *internal.FileCache, err error) {
 		log.Info("%s: file not present", logPrefix)
 
 		return nil, nil
+	}
+
+	if data.Version != internal.FileCacheVersion {
+		return nil, fmt.Errorf(
+			"%w: version %d is different from %d",
+			internal.CacheVersionError,
+			data.Version,
+			internal.FileCacheVersion,
+		)
 	}
 
 	return &internal.FileCache{

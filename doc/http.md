@@ -110,7 +110,7 @@ The `protocol` field can have one of the following values:
 
 The linked IP and Dynamic DNS (DDNS, DynDNS) HTTP proxy.  If the [linked
 IP configuration][conf-web-linked_ip] is not empty, the following queries are
-either processed or proxied to [`BACKEND_ENDPOINT`][env-backend].
+either processed or proxied to [`LINKED_IP_TARGET_URL`][env-linked_ip_target_url].
 
  *  `GET  /robots.txt`: a special response is served, see below;
  *  `GET  /linkip/{device_id}/{encrypted}/status`: proxied;
@@ -128,7 +128,7 @@ Disallow: /
 The [static content](#static-content) is not served on the linked IP addresses.
 
 [conf-web-linked_ip]: configuration.md#web-linked_ip
-[env-backend]:        environment.md#BACKEND_ENDPOINT
+[env-linked_ip_target_url]: environment.md#LINKED_IP_TARGET_URL
 
 
 

@@ -36,22 +36,14 @@ func linkedIPHandler(
 ) (h http.Handler) {
 	logPrefix := fmt.Sprintf("websvc: linked ip proxy %s", name)
 
-	// Use a custom Director to make sure we send the correct Host header and
-	// don't send anything besides the path.
-	//
-	// TODO(a.garipov): Use the Go 1.20 [httputil.ReverseProxy.Rewrite] API?
-	director := func(r *http.Request) {
-		r.URL.Scheme = apiURL.Scheme
-		r.Host, r.URL.Host = apiURL.Host, apiURL.Host
-
-		hdr := r.Header
-
-		// Set the X-Forwarded-For header to a nil value to make sure that
-		// the proxy doesn't add it automatically.
-		hdr[httphdr.XForwardedFor] = nil
+	// Use a Rewrite func to make sure we send the correct Host header and don't
+	// send anything besides the path.
+	rewrite := func(r *httputil.ProxyRequest) {
+		r.SetURL(apiURL)
+		r.Out.Host = apiURL.Host
 
 		// Make sure that all requests are marked with our user agent.
-		hdr.Set(httphdr.UserAgent, agdhttp.UserAgent())
+		r.Out.Header.Set(httphdr.UserAgent, agdhttp.UserAgent())
 	}
 
 	// Use largely the same transport as http.DefaultTransport, but with a
@@ -94,7 +86,7 @@ func linkedIPHandler(
 
 	return &linkedIPProxy{
 		httpProxy: &httputil.ReverseProxy{
-			Director:       director,
+			Rewrite:        rewrite,
 			Transport:      transport,
 			ErrorLog:       log.StdLog(logPrefix, log.DEBUG),
 			ModifyResponse: modifyResponse,
@@ -147,7 +139,7 @@ func (prx *linkedIPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Set the request ID.
 		reqID := agd.NewRequestID()
 		r = r.WithContext(agd.WithRequestID(r.Context(), reqID))
-		hdr.Set(httphdr.XRequestID, string(reqID))
+		hdr.Set(httphdr.XRequestID, reqID.String())
 
 		log.Debug("%s: proxying %s %s: req %s", prx.logPrefix, m, p, reqID)
 

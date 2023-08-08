@@ -48,6 +48,7 @@ func TestService_writeDebugResponse(t *testing.T) {
 	)
 
 	clientIPStr := testClientIP.String()
+	serverIPStr := testServerAddr.String()
 	testCases := []struct {
 		name      string
 		ri        *agd.RequestInfo
@@ -61,6 +62,7 @@ func TestService_writeDebugResponse(t *testing.T) {
 		respRes: nil,
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
+			{"server-ip.adguard-dns.com.", serverIPStr},
 			{"resp.res-type.adguard-dns.com.", "normal"},
 		}),
 	}, {
@@ -70,6 +72,7 @@ func TestService_writeDebugResponse(t *testing.T) {
 		respRes: nil,
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
+			{"server-ip.adguard-dns.com.", serverIPStr},
 			{"req.res-type.adguard-dns.com.", "blocked"},
 			{"req.rule.adguard-dns.com.", "||example.com^"},
 			{"req.rule-list-id.adguard-dns.com.", "fl1"},
@@ -81,6 +84,7 @@ func TestService_writeDebugResponse(t *testing.T) {
 		respRes: &filter.ResultBlocked{List: fltListID2, Rule: blockRule},
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
+			{"server-ip.adguard-dns.com.", serverIPStr},
 			{"resp.res-type.adguard-dns.com.", "blocked"},
 			{"resp.rule.adguard-dns.com.", "||example.com^"},
 			{"resp.rule-list-id.adguard-dns.com.", "fl2"},
@@ -92,6 +96,7 @@ func TestService_writeDebugResponse(t *testing.T) {
 		respRes: nil,
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
+			{"server-ip.adguard-dns.com.", serverIPStr},
 			{"req.res-type.adguard-dns.com.", "allowed"},
 			{"req.rule.adguard-dns.com.", ""},
 			{"req.rule-list-id.adguard-dns.com.", ""},
@@ -103,6 +108,7 @@ func TestService_writeDebugResponse(t *testing.T) {
 		respRes: &filter.ResultAllowed{},
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
+			{"server-ip.adguard-dns.com.", serverIPStr},
 			{"resp.res-type.adguard-dns.com.", "allowed"},
 			{"resp.rule.adguard-dns.com.", ""},
 			{"resp.rule-list-id.adguard-dns.com.", ""},
@@ -116,6 +122,7 @@ func TestService_writeDebugResponse(t *testing.T) {
 		respRes: nil,
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
+			{"server-ip.adguard-dns.com.", serverIPStr},
 			{"req.res-type.adguard-dns.com.", "modified"},
 			{"req.rule.adguard-dns.com.", "||example.com^$dnsrewrite=REFUSED"},
 			{"req.rule-list-id.adguard-dns.com.", ""},
@@ -127,6 +134,7 @@ func TestService_writeDebugResponse(t *testing.T) {
 		respRes: nil,
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
+			{"server-ip.adguard-dns.com.", serverIPStr},
 			{"device-id.adguard-dns.com.", testDeviceID},
 			{"resp.res-type.adguard-dns.com.", "normal"},
 		}),
@@ -139,6 +147,7 @@ func TestService_writeDebugResponse(t *testing.T) {
 		respRes: nil,
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
+			{"server-ip.adguard-dns.com.", serverIPStr},
 			{"profile-id.adguard-dns.com.", testProfileID},
 			{"resp.res-type.adguard-dns.com.", "normal"},
 		}),
@@ -149,6 +158,7 @@ func TestService_writeDebugResponse(t *testing.T) {
 		respRes: nil,
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
+			{"server-ip.adguard-dns.com.", serverIPStr},
 			{"country.adguard-dns.com.", string(agd.CountryAD)},
 			{"asn.adguard-dns.com.", "0"},
 			{"resp.res-type.adguard-dns.com.", "normal"},
@@ -162,6 +172,7 @@ func TestService_writeDebugResponse(t *testing.T) {
 		respRes: nil,
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
+			{"server-ip.adguard-dns.com.", serverIPStr},
 			{"country.adguard-dns.com.", string(agd.CountryAD)},
 			{"asn.adguard-dns.com.", "0"},
 			{"subdivision.adguard-dns.com.", "CA"},
@@ -171,7 +182,7 @@ func TestService_writeDebugResponse(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			rw := dnsserver.NewNonWriterResponseWriter(nil, testRAddr)
+			rw := dnsserver.NewNonWriterResponseWriter(testLocalAddr, testRAddr)
 
 			ctx := agd.ContextWithRequestInfo(context.Background(), tc.ri)
 

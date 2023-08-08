@@ -237,6 +237,12 @@ func (db *Default) loadFileCache() (err error) {
 
 	c, err := db.cache.Load()
 	if err != nil {
+		if errors.Is(err, internal.CacheVersionError) {
+			log.Info("%s: %s", logPrefix, err)
+
+			return nil
+		}
+
 		// Don't wrap the error, because it's informative enough as is.
 		return err
 	} else if c == nil {
@@ -255,16 +261,7 @@ func (db *Default) loadFileCache() (err error) {
 		time.Since(start),
 	)
 
-	if c.Version != internal.FileCacheVersion {
-		log.Info(
-			"%s: version %d is different from %d",
-			logPrefix,
-			c.Version,
-			internal.FileCacheVersion,
-		)
-
-		return nil
-	} else if profNum == 0 || devNum == 0 {
+	if profNum == 0 || devNum == 0 {
 		log.Info("%s: empty", logPrefix)
 
 		return nil

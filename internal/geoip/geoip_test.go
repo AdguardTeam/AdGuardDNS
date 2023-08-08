@@ -25,7 +25,21 @@ const (
 	testOtherHost = "other.example.com"
 )
 
-// Test data.  See [ASN], [city], and [country] testing datum.
+// Test ASN data.
+var (
+	countryTopASNs = map[agd.Country]agd.ASN{
+		agd.CountryAU: 1221,
+		agd.CountryJP: 2516,
+		agd.CountryUS: 7922,
+	}
+	allTopASNs = map[agd.ASN]struct{}{
+		countryTopASNs[agd.CountryAU]: {},
+		countryTopASNs[agd.CountryJP]: {},
+		countryTopASNs[agd.CountryUS]: {},
+	}
+)
+
+// Test queries data.  See [ASN], [city], and [country] testing datum.
 //
 // [ASN]: https://github.com/maxmind/MaxMind-DB/blob/2bf1713b3b5adcb022cf4bb77eb0689beaadcfef/source-data/GeoLite2-ASN-Test.json
 // [city]: https://github.com/maxmind/MaxMind-DB/blob/2bf1713b3b5adcb022cf4bb77eb0689beaadcfef/source-data/GeoIP2-City-Test.json
@@ -55,11 +69,5 @@ var testIPWithCountry = netip.MustParseAddr("2001:218::")
 // Subnets for CountrySubnet tests.
 var (
 	testIPv4CountrySubnet = netip.MustParsePrefix("76.128.0.0/24")
-
-	// TODO(a.garipov): Either find a better subnet and country that don't
-	// trigger the ASN optimizations or just remove this one completely.
-	//
-	// testIPv6CountrySubnet = netip.MustParsePrefix("2001:218::/32")
-
 	testIPv6CountrySubnet = netip.MustParsePrefix("240f::/56")
 )

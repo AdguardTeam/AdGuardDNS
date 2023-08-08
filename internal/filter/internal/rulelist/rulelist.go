@@ -18,7 +18,7 @@ import (
 // newURLFilterID returns a new random ID for the urlfilter DNS engine to use.
 func newURLFilterID() (id int) {
 	// #nosec G404 -- Do not use cryptographically random ID generation, since
-	// these are only used in one place, internal/filter.compFilter.filterMsg,
+	// these are only used in ../composite/Filter.mustRuleListDataByURLFilterID
 	// and are not used in any security-sensitive context.
 	//
 	// Despite the fact that the type of integer filter list IDs in module

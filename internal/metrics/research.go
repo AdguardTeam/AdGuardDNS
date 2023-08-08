@@ -2,6 +2,8 @@ package metrics
 
 import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/golibs/log"
+	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/common/model"
@@ -45,12 +47,23 @@ var ResearchBlockedRequestsPerSubdivTotal = promauto.NewCounterVec(prometheus.Co
 		`subdivision from anonymous users.`,
 }, []string{"filter", "country", "subdivision"})
 
-// ReportResearchMetrics reports metrics to prometheus that we may need to
-// conduct researches.
-func ReportResearchMetrics(
+// ResearchResponseECH counts the number of DNS responses with a ECH config.
+var ResearchResponseECH = promauto.NewCounter(prometheus.CounterOpts{
+	Name:      "response_ech",
+	Namespace: namespace,
+	Subsystem: subsystemResearch,
+	Help:      `The number of DNS responses with a ECH config.`,
+})
+
+// ReportResearch reports metrics to prometheus that we may need to conduct
+// researches.  If researchLogs is true, this method may also write additional
+// INFO-level logs.
+func ReportResearch(
 	ri *agd.RequestInfo,
+	origResp *dns.Msg,
 	filterID agd.FilterListID,
 	blocked bool,
+	researchLogs bool,
 ) {
 	filteringEnabled := ri.FilteringGroup != nil &&
 		ri.FilteringGroup.RuleListsEnabled &&
@@ -85,6 +98,29 @@ func ReportResearchMetrics(
 	}
 
 	reportResearchRequest(ctry, subdiv)
+	reportResearchECH(ri, origResp, researchLogs)
+}
+
+// reportResearchECH checks if the response has ECH config and if it does,
+// reports to metrics and writes to log.
+func reportResearchECH(ri *agd.RequestInfo, origResp *dns.Msg, researchLogs bool) {
+	if origResp == nil || ri.QType != dns.TypeHTTPS {
+		return
+	}
+
+	for _, rr := range origResp.Answer {
+		if svcb, ok := rr.(*dns.HTTPS); ok {
+			for _, v := range svcb.Value {
+				if v.Key() == dns.SVCB_ECHCONFIG {
+					ResearchResponseECH.Inc()
+
+					if researchLogs {
+						log.Info("research: ech-enabled: %s", ri.Host)
+					}
+				}
+			}
+		}
+	}
 }
 
 // reportResearchBlocked reports on a blocked request to the research metrics.

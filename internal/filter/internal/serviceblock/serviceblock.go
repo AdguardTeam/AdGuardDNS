@@ -7,27 +7,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/url"
+	"strings"
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
-	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 )
 
 // Filter is a service-blocking filter that uses rule lists that it gets from an
 // index.
 type Filter struct {
-	// url is the URL from which the services are fetched.
-	url *url.URL
-
-	// http is the HTTP client used to refresh the filter.
-	http *agdhttp.Client
+	// refr is the helper entity containing the refreshable part of the index
+	// refresh and caching logic.
+	refr *internal.Refreshable
 
 	// mu protects services.
 	mu *sync.RWMutex
@@ -39,18 +34,16 @@ type Filter struct {
 	errColl agd.ErrorCollector
 }
 
-// serviceRuleLists is convenient alias for a ID to filter mapping.
+// serviceRuleLists is convenient alias for an ID to filter mapping.
 type serviceRuleLists = map[agd.BlockedServiceID]*rulelist.Immutable
 
 // New returns a fully initialized service blocker.
-func New(indexURL *url.URL, errColl agd.ErrorCollector) (f *Filter) {
+func New(refr *internal.Refreshable, errColl agd.ErrorCollector) (f *Filter) {
 	return &Filter{
-		url: indexURL,
-		http: agdhttp.NewClient(&agdhttp.ClientConfig{
-			Timeout: internal.DefaultFilterRefreshTimeout,
-		}),
-		mu:      &sync.RWMutex{},
-		errColl: errColl,
+		refr:     refr,
+		mu:       &sync.RWMutex{},
+		services: serviceRuleLists{},
+		errColl:  errColl,
 	}
 }
 
@@ -69,22 +62,23 @@ func (f *Filter) RuleLists(
 
 	for _, id := range ids {
 		rl := f.services[id]
-		if rl != nil {
+		if rl == nil {
+			log.Info("service filter: warning: no service with id %s", id)
+		} else {
 			rls = append(rls, rl)
-
-			continue
 		}
-
-		reportErr := fmt.Errorf("service filter: no service with id %s", id)
-		f.errColl.Collect(ctx, reportErr)
-		log.Info("warning: %s", reportErr)
 	}
 
 	return rls
 }
 
 // Refresh loads new service data from the index URL.
-func (f *Filter) Refresh(ctx context.Context, cacheSize int, useCache bool) (err error) {
+func (f *Filter) Refresh(
+	ctx context.Context,
+	cacheSize int,
+	useCache bool,
+	acceptStale bool,
+) (err error) {
 	fltIDStr := string(agd.FilterListIDBlockedService)
 	defer func() {
 		if err != nil {
@@ -92,7 +86,7 @@ func (f *Filter) Refresh(ctx context.Context, cacheSize int, useCache bool) (err
 		}
 	}()
 
-	resp, err := f.loadIndex(ctx)
+	resp, err := f.loadIndex(ctx, acceptStale)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return err
@@ -122,25 +116,16 @@ func (f *Filter) Refresh(ctx context.Context, cacheSize int, useCache bool) (err
 }
 
 // loadIndex fetches, decodes, and returns the blocked service index data.
-func (f *Filter) loadIndex(ctx context.Context) (resp *indexResp, err error) {
-	defer func() { err = errors.Annotate(err, "loading blocked service index from %q: %w", f.url) }()
-
-	httpResp, err := f.http.Get(ctx, f.url)
+func (f *Filter) loadIndex(ctx context.Context, acceptStale bool) (resp *indexResp, err error) {
+	text, err := f.refr.Refresh(ctx, acceptStale)
 	if err != nil {
-		return nil, fmt.Errorf("requesting: %w", err)
-	}
-	defer func() { err = errors.WithDeferred(err, httpResp.Body.Close()) }()
-
-	err = agdhttp.CheckStatus(httpResp, http.StatusOK)
-	if err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		return nil, err
+		return nil, fmt.Errorf("loading index: %w", err)
 	}
 
 	resp = &indexResp{}
-	err = json.NewDecoder(httpResp.Body).Decode(resp)
+	err = json.NewDecoder(strings.NewReader(text)).Decode(resp)
 	if err != nil {
-		return nil, agdhttp.WrapServerError(fmt.Errorf("decoding: %w", err), httpResp)
+		return nil, fmt.Errorf("decoding index: %w", err)
 	}
 
 	log.Debug("service filter: loaded index with %d blocked services", len(resp.BlockedServices))

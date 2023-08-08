@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/golibs/testutil"
@@ -20,12 +19,13 @@ import (
 // refrID is the ID of a [agd.FilterList] used for testing.
 const refrID = "test_id"
 
-func TestRefreshable_Refresh(t *testing.T) {
-	const (
-		defaultFileText = "||filefilter.example\n"
-		defaultURLText  = "||urlfilter.example\n"
-	)
+// Default texts for tests.
+const (
+	testFileText = "||filefilter.example\n"
+	testURLText  = "||urlfilter.example\n"
+)
 
+func TestRefreshable_Refresh(t *testing.T) {
 	testCases := []struct {
 		name         string
 		wantText     string
@@ -38,9 +38,9 @@ func TestRefreshable_Refresh(t *testing.T) {
 		useCacheFile bool
 	}{{
 		name:         "no_file",
-		wantText:     defaultURLText,
+		wantText:     testURLText,
 		wantErrMsg:   "",
-		srvText:      defaultURLText,
+		srvText:      testURLText,
 		staleness:    0,
 		srvCode:      http.StatusOK,
 		acceptStale:  true,
@@ -71,19 +71,19 @@ func TestRefreshable_Refresh(t *testing.T) {
 		useCacheFile: false,
 	}, {
 		name:         "file",
-		wantText:     defaultFileText,
+		wantText:     testFileText,
 		wantErrMsg:   "",
 		srvText:      "",
-		staleness:    1 * time.Hour,
+		staleness:    filtertest.Staleness,
 		srvCode:      0,
 		acceptStale:  true,
 		expectReq:    false,
 		useCacheFile: true,
 	}, {
 		name:         "file_stale",
-		wantText:     defaultURLText,
+		wantText:     testURLText,
 		wantErrMsg:   "",
-		srvText:      defaultURLText,
+		srvText:      testURLText,
 		staleness:    -1 * time.Hour,
 		srvCode:      http.StatusOK,
 		acceptStale:  false,
@@ -91,7 +91,7 @@ func TestRefreshable_Refresh(t *testing.T) {
 		useCacheFile: true,
 	}, {
 		name:         "file_stale_accept",
-		wantText:     defaultFileText,
+		wantText:     testFileText,
 		wantErrMsg:   "",
 		srvText:      "",
 		staleness:    -1 * time.Hour,
@@ -103,32 +103,25 @@ func TestRefreshable_Refresh(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			var err error
-
 			reqCh := make(chan struct{}, 1)
-			var cachePath string
 			realCachePath, srvURL := filtertest.PrepareRefreshable(t, reqCh, tc.srvText, tc.srvCode)
-			if tc.useCacheFile {
-				cachePath = realCachePath
+			cachePath := prepareCachePath(t, realCachePath, tc.useCacheFile)
 
-				err = os.WriteFile(cachePath, []byte(defaultFileText), 0o600)
-				require.NoError(t, err)
-			} else {
-				cachePath = filepath.Join(t.TempDir(), "does_not_exist")
+			c := &internal.RefreshableConfig{
+				URL:       srvURL,
+				ID:        refrID,
+				CachePath: cachePath,
+				Staleness: tc.staleness,
+				Timeout:   filtertest.Timeout,
+				MaxSize:   filtertest.FilterMaxSize,
 			}
 
-			fl := &agd.FilterList{
-				URL:        srvURL,
-				ID:         refrID,
-				RefreshIvl: tc.staleness,
-			}
-			f := internal.NewRefreshable(fl, cachePath)
+			f := internal.NewRefreshable(c)
 
 			ctx, cancel := context.WithTimeout(context.Background(), filtertest.Timeout)
 			t.Cleanup(cancel)
 
-			var gotText string
-			gotText, err = f.Refresh(ctx, tc.acceptStale)
+			gotText, err := f.Refresh(ctx, tc.acceptStale)
 			if tc.expectReq {
 				testutil.RequireReceive(t, reqCh, filtertest.Timeout)
 			}
@@ -145,21 +138,38 @@ func TestRefreshable_Refresh(t *testing.T) {
 	}
 }
 
+// prepareCachePath is a helper that either returns a non-existing file (if
+// useCacheFile is false) or prepares a cache file using realCachePath and
+// [testFileText].
+func prepareCachePath(t *testing.T, realCachePath string, useCacheFile bool) (cachePath string) {
+	t.Helper()
+
+	if !useCacheFile {
+		return filepath.Join(t.TempDir(), "does_not_exist")
+	}
+
+	err := os.WriteFile(realCachePath, []byte(testFileText), 0o600)
+	require.NoError(t, err)
+
+	return realCachePath
+}
+
 func TestRefreshable_Refresh_properStaleness(t *testing.T) {
-	const (
-		responseDur = time.Second / 5
-		staleness   = time.Hour
-	)
+	const responseDur = time.Second / 5
 
 	reqCh := make(chan struct{})
 	cachePath, addr := filtertest.PrepareRefreshable(t, reqCh, filtertest.BlockRule, http.StatusOK)
 
-	fl := &agd.FilterList{
-		URL:        addr,
-		ID:         refrID,
-		RefreshIvl: staleness,
+	c := &internal.RefreshableConfig{
+		URL:       addr,
+		ID:        refrID,
+		CachePath: cachePath,
+		Staleness: filtertest.Staleness,
+		Timeout:   filtertest.Timeout,
+		MaxSize:   filtertest.FilterMaxSize,
 	}
-	f := internal.NewRefreshable(fl, cachePath)
+
+	f := internal.NewRefreshable(c)
 
 	ctx, cancel := context.WithTimeout(context.Background(), filtertest.Timeout)
 	t.Cleanup(cancel)

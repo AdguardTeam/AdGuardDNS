@@ -5,7 +5,6 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
@@ -188,16 +187,16 @@ func TestUpstreamPlain_Exchange_fallbackSuccess(t *testing.T) {
 
 	// Prepare malformed responses.
 
-	badIDResp := dnsmsg.Clone(resp)
+	badIDResp := resp.Copy()
 	badIDResp.Id = ^req.Id
 
-	badQNumResp := dnsmsg.Clone(resp)
+	badQNumResp := resp.Copy()
 	badQNumResp.Question = append(badQNumResp.Question, req.Question[0])
 
-	badQnameResp := dnsmsg.Clone(resp)
+	badQnameResp := resp.Copy()
 	badQnameResp.Question[0].Name = badDomain
 
-	badQtypeResp := dnsmsg.Clone(resp)
+	badQtypeResp := resp.Copy()
 	badQtypeResp.Question[0].Qtype = dns.TypeMX
 
 	testCases := []struct {
@@ -218,9 +217,9 @@ func TestUpstreamPlain_Exchange_fallbackSuccess(t *testing.T) {
 	}}
 
 	for _, tc := range testCases {
-		clonedReq := dnsmsg.Clone(req)
-		badResp := dnsmsg.Clone(tc.udpResp)
-		goodResp := dnsmsg.Clone(resp)
+		clonedReq := req.Copy()
+		badResp := tc.udpResp.Copy()
+		goodResp := resp.Copy()
 
 		// Use only unbuffered channels to block until received and validated.
 		netCh := make(chan string)

@@ -54,7 +54,11 @@
       ],
       "FilteredResponseTTL": 10000000000,
       "FilteringEnabled": true,
-      "SafeBrowsingEnabled": true,
+      "SafeBrowsing": {
+        "Enabled": true,
+        "BlockDangerousDomains": true,
+        "BlockNewlyRegisteredDomains": false
+      },
       "RuleListsEnabled": true,
       "QueryLogEnabled": true,
       "Deleted": false,
@@ -73,5 +77,5 @@
       "FilteringEnabled": true
     }
   ],
-  "version": 6
+  "version": 7
 }

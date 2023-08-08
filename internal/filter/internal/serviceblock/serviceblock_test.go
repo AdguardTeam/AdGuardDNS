@@ -7,6 +7,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/serviceblock"
 	"github.com/AdguardTeam/golibs/testutil"
@@ -14,15 +15,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestMain(m *testing.M) {
+	testutil.DiscardLogOutput(m)
+}
+
 // Common blocked service IDs for tests.
 const (
-	testSvcID1 agd.BlockedServiceID = "svc_1"
-	testSvcID2 agd.BlockedServiceID = "svc_2"
+	testSvcID1          agd.BlockedServiceID = "svc_1"
+	testSvcID2          agd.BlockedServiceID = "svc_2"
+	testSvcIDNotPresent agd.BlockedServiceID = "svc_not_present"
 )
 
 // testData is a sample of a service index response.
 //
-// See https://github.com/atropnikov/HostlistsRegistry/blob/main/assets/services.json.
+// See https://github.com/AdguardTeam/HostlistsRegistry/blob/main/assets/services.json.
 const testData string = `{
   "blocked_services": [
     {
@@ -44,7 +50,7 @@ const testData string = `{
 
 func TestFilter(t *testing.T) {
 	reqCh := make(chan struct{}, 1)
-	_, srvURL := filtertest.PrepareRefreshable(t, reqCh, testData, http.StatusOK)
+	cachePath, srvURL := filtertest.PrepareRefreshable(t, reqCh, testData, http.StatusOK)
 
 	errColl := &agdtest.ErrorCollector{
 		OnCollect: func(ctx context.Context, err error) {
@@ -52,17 +58,34 @@ func TestFilter(t *testing.T) {
 		},
 	}
 
-	f := serviceblock.New(srvURL, errColl)
+	refr := internal.NewRefreshable(&internal.RefreshableConfig{
+		URL:       srvURL,
+		ID:        agd.FilterListIDBlockedService,
+		CachePath: cachePath,
+		Staleness: filtertest.Staleness,
+		Timeout:   filtertest.Timeout,
+		MaxSize:   filtertest.FilterMaxSize,
+	})
+
+	f := serviceblock.New(refr, errColl)
 
 	ctx := context.Background()
-	err := f.Refresh(ctx, 0, false)
+	err := f.Refresh(ctx, 0, false, false)
 	require.NoError(t, err)
 
 	testutil.RequireReceive(t, reqCh, filtertest.Timeout)
 
-	svcIDs := []agd.BlockedServiceID{testSvcID1, testSvcID2}
-	rls := f.RuleLists(ctx, svcIDs)
+	rls := f.RuleLists(ctx, []agd.BlockedServiceID{
+		testSvcID1,
+		testSvcID2,
+		testSvcIDNotPresent,
+	})
 	require.Len(t, rls, 2)
+
+	wantSvcIDs := []agd.BlockedServiceID{
+		testSvcID1,
+		testSvcID2,
+	}
 
 	gotFltIDs := make([]agd.FilterListID, 2)
 	gotSvcIDs := make([]agd.BlockedServiceID, 2)
@@ -70,5 +93,5 @@ func TestFilter(t *testing.T) {
 	gotFltIDs[1], gotSvcIDs[1] = rls[1].ID()
 	assert.Equal(t, agd.FilterListIDBlockedService, gotFltIDs[0])
 	assert.Equal(t, agd.FilterListIDBlockedService, gotFltIDs[1])
-	assert.ElementsMatch(t, svcIDs, gotSvcIDs)
+	assert.ElementsMatch(t, wantSvcIDs, gotSvcIDs)
 }

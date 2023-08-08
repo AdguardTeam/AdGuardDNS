@@ -6,24 +6,29 @@ sensitive configuration.  All other configuration is stored in the
 
 ##  Contents
 
- *  [`BACKEND_ENDPOINT`](#BACKEND_ENDPOINT)
+ *  [`ADULT_BLOCKING_URL`](#ADULT_BLOCKING_URL)
+ *  [`BILLSTAT_URL`](#BILLSTAT_URL)
  *  [`BLOCKED_SERVICE_INDEX_URL`](#BLOCKED_SERVICE_INDEX_URL)
  *  [`CONSUL_ALLOWLIST_URL`](#CONSUL_ALLOWLIST_URL)
  *  [`CONSUL_DNSCHECK_KV_URL`](#CONSUL_DNSCHECK_KV_URL)
  *  [`CONSUL_DNSCHECK_SESSION_URL`](#CONSUL_DNSCHECK_SESSION_URL)
  *  [`CONFIG_PATH`](#CONFIG_PATH)
- *  [`DNSDB_PATH`](#DNSDB_PATH)
  *  [`FILTER_INDEX_URL`](#FILTER_INDEX_URL)
  *  [`FILTER_CACHE_PATH`](#FILTER_CACHE_PATH)
- *  [`PROFILES_CACHE_PATH`](#PROFILES_CACHE_PATH)
  *  [`GENERAL_SAFE_SEARCH_URL`](#GENERAL_SAFE_SEARCH_URL)
  *  [`GEOIP_ASN_PATH` and `GEOIP_COUNTRY_PATH`](#GEOIP_ASN_PATH)
+ *  [`LINKED_IP_TARGET_URL`](#LINKED_IP_TARGET_URL)
  *  [`LISTEN_ADDR`](#LISTEN_ADDR)
  *  [`LISTEN_PORT`](#LISTEN_PORT)
  *  [`LOG_TIMESTAMP`](#LOG_TIMESTAMP)
+ *  [`NEW_REG_DOMAINS_URL`](#NEW_REG_DOMAINS_URL)
+ *  [`PROFILES_CACHE_PATH`](#PROFILES_CACHE_PATH)
+ *  [`PROFILES_URL`](#PROFILES_URL)
  *  [`QUERYLOG_PATH`](#QUERYLOG_PATH)
  *  [`RESEARCH_METRICS`](#RESEARCH_METRICS)
+ *  [`RESEARCH_LOGS`](#RESEARCH_LOGS)
  *  [`RULESTAT_URL`](#RULESTAT_URL)
+ *  [`SAFE_BROWSING_URL`](#SAFE_BROWSING_URL)
  *  [`SENTRY_DSN`](#SENTRY_DSN)
  *  [`SSL_KEY_LOG_FILE`](#SSL_KEY_LOG_FILE)
  *  [`VERBOSE`](#VERBOSE)
@@ -34,13 +39,23 @@ sensitive configuration.  All other configuration is stored in the
 
 
 
-##  <a href="#BACKEND_ENDPOINT" id="BACKEND_ENDPOINT" name="BACKEND_ENDPOINT">`BACKEND_ENDPOINT`</a>
+##  <a href="#ADULT_BLOCKING_URL" id="ADULT_BLOCKING_URL" name="ADULT_BLOCKING_URL">`ADULT_BLOCKING_URL`</a>
 
-The base backend URL to which API paths are appended.  The backend endpoints
-apart from the `/ddns/`and `/linkip/` ones must reply with a 200 status code on
-success.
+The URL of source list of rules for adult blocking filter.
 
 **Default:** No default value, the variable is **required.**
+
+
+
+##  <a href="#BILLSTAT_URL" id="BILLSTAT_URL" name="BILLSTAT_URL">`BILLSTAT_URL`</a>
+
+The base backend URL for backend billing statistics uploader API.  The backend
+endpoints must reply with a 200 status code on success.  See the [external HTTP
+API requirements section][ext-billstat]
+
+**Default:** No default value, the variable is **required.**
+
+[ext-billstat]: externalhttp.md#backend-billstat
 
 
 
@@ -101,54 +116,12 @@ for the DNS server checking.  If not specified, the
 
 
 
-##  <a href="#DNSDB_PATH" id="DNSDB_PATH" name="DNSDB_PATH">`DNSDB_PATH`</a>
-
-The path to the DNSDB BoltDB database.  If empty or unset, DNSDB statistics
-collection is disabled.
-
-**Default:** **Unset.**
-
-**Example:** `./dnsdb.bolt`.
-
-
-
 ##  <a href="#FILTER_CACHE_PATH" id="FILTER_CACHE_PATH" name="FILTER_CACHE_PATH">`FILTER_CACHE_PATH`</a>
 
-The path to the directory with the filter lists cache.
+The path to the directory used to store the cached version of all filters and
+filter indexes.
 
 **Default:** `./filters/`.
-
-
-
-##  <a href="#PROFILES_CACHE_PATH" id="PROFILES_CACHE_PATH" name="PROFILES_CACHE_PATH">`PROFILES_CACHE_PATH`</a>
-
-The path to the profile cache file:
-
- *  `none` means that the profile caching is disabled.
-
- *  A file with the extension `.pb` means that the profiles are cached in the
-    protobuf format.
-
-    Use the following command to inspect the cache, assuming that the version is
-    correct:
-
-    ```sh
-    protoc\
-        --decode\
-        profiledb.FileCache\
-        ./internal/profiledb/internal/filecachepb/filecache.proto\
-        < /path/to/profilecache.pb
-    ```
-
- *  A file with the extension `.json` means that the profiles are cached in the
-    JSON format.  This format is **deprecated** and is not recommended.
-
-The profile cache is read on start and is later updated on every
-[full refresh][conf-backend-full_refresh_interval].
-
-**Default:** `./profilecache.json`.
-
-[conf-backend-full_refresh_interval]: configuration.md#backend-full_refresh_interval
 
 
 
@@ -184,12 +157,16 @@ countries and continents respectively.
 
 
 
-##  <a href="#LOG_TIMESTAMP" id="LOG_TIMESTAMP" name="LOG_TIMESTAMP">`LOG_TIMESTAMP`</a>
+##  <a href="#LINKED_IP_TARGET_URL" id="LINKED_IP_TARGET_URL" name="LINKED_IP_TARGET_URL">`LINKED_IP_TARGET_URL`</a>
 
-If `1`, show timestamps in the plain text logs.  If `0`, don't show the
-timestamps.
+The target URL to which linked IP API requests are proxied.  In case [linked IP
+and dynamic DNS][conf-web-linked_ip] web server is configured, the variable is
+required.  See the [external HTTP API requirements section][ext-linked_ip].
 
-**Default:** `1`.
+**Default:** **Unset.**
+
+[conf-web-linked_ip]: configuration.md#web-linked_ip
+[ext-linked_ip]: externalhttp.md#backend-linkip
 
 
 
@@ -212,6 +189,68 @@ health check, Prometheus, `pprof`, and other endpoints.
 
 
 
+##  <a href="#LOG_TIMESTAMP" id="LOG_TIMESTAMP" name="LOG_TIMESTAMP">`LOG_TIMESTAMP`</a>
+
+If `1`, show timestamps in the plain text logs.  If `0`, don't show the
+timestamps.
+
+**Default:** `1`.
+
+
+
+##  <a href="#NEW_REG_DOMAINS_URL" id="NEW_REG_DOMAINS_URL" name="NEW_REG_DOMAINS_URL">`NEW_REG_DOMAINS_URL`</a>
+
+The URL of source list of rules for newly registered domains safe browsing
+filter.
+
+**Default:** No default value, the variable is **required.**
+
+
+
+##  <a href="#PROFILES_CACHE_PATH" id="PROFILES_CACHE_PATH" name="PROFILES_CACHE_PATH">`PROFILES_CACHE_PATH`</a>
+
+The path to the profile cache file:
+
+*  `none` means that the profile caching is disabled.
+
+*  A file with the extension `.pb` means that the profiles are cached in the
+   protobuf format.
+
+   Use the following command to inspect the cache, assuming that the version is
+   correct:
+
+   ```sh
+   protoc\
+       --decode\
+       profiledb.FileCache\
+       ./internal/profiledb/internal/filecachepb/filecache.proto\
+       < /path/to/profilecache.pb
+   ```
+
+*  A file with the extension `.json` means that the profiles are cached in the
+   JSON format.  This format is **deprecated** and is not recommended.
+
+The profile cache is read on start and is later updated on every
+[full refresh][conf-backend-full_refresh_interval].
+
+**Default:** `./profilecache.json`.
+
+[conf-backend-full_refresh_interval]: configuration.md#backend-full_refresh_interval
+
+
+
+##  <a href="#PROFILES_URL" id="PROFILES_URL" name="PROFILES_URL">`PROFILES_URL`</a>
+
+The base backend URL for profiles API.  The backend endpoints must reply with a
+200 status code on success.  See the [external HTTP API requirements
+section][ext-profiles].
+
+**Default:** No default value, the variable is **required.**
+
+[ext-profiles]: externalhttp.md#profiles-backend
+
+
+
 ##  <a href="#QUERYLOG_PATH" id="QUERYLOG_PATH" name="QUERYLOG_PATH">`QUERYLOG_PATH`</a>
 
 The path to the file into which the query log is going to be written.
@@ -229,6 +268,16 @@ If `1`, enable collection of a set of special prometheus metrics (prefix is
 
 
 
+##  <a href="#RESEARCH_LOGS" id="RESEARCH_LOGS" name="RESEARCH_LOGS">`RESEARCH_LOGS`</a>
+
+If `1`, enable logging of additional info that may be required for research
+purposes (prefix `research:`).  The log will only be written when
+`RESEARCH_METRICS` is also set to `1`.  If `0`, disable logging of this info.
+
+**Default:** `0`.
+
+
+
 ##  <a href="#RULESTAT_URL" id="RULESTAT_URL" name="RULESTAT_URL">`RULESTAT_URL`</a>
 
 The URL to send filtering rule list statistics to.  If empty or unset, the
@@ -240,6 +289,14 @@ requirements section][ext-rulestat] on the expected format of the response.
 **Example:** `https://stats.example.com/db`
 
 [ext-rulestat]: externalhttp.md#rulestat
+
+
+
+##  <a href="#SAFE_BROWSING_URL" id="SAFE_BROWSING_URL" name="SAFE_BROWSING_URL">`SAFE_BROWSING_URL`</a>
+
+The URL of source list of rules for dangerous domains safe browsing filter.
+
+**Default:** No default value, the variable is **required.**
 
 
 

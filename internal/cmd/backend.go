@@ -16,6 +16,9 @@ import (
 // Business Logic Backend Configuration
 
 // backendConfig is the backend module configuration.
+//
+// TODO(a.garipov): Reorganize this object as there is no longer the only one
+// backend environment variable anymore.
 type backendConfig struct {
 	// Timeout is the timeout for all outgoing HTTP requests.  Zero means no
 	// timeout.
@@ -32,23 +35,6 @@ type backendConfig struct {
 	// BillStatIvl defines how often AdGuard DNS sends the billing statistics to
 	// the backend.
 	BillStatIvl timeutil.Duration `yaml:"bill_stat_interval"`
-}
-
-// toInternal converts c to the data storage configuration for the DNS server.
-// c is assumed to be valid.
-func (c *backendConfig) toInternal(
-	envs *environments,
-	errColl agd.ErrorCollector,
-) (profStrg *backend.ProfileStorageConfig, billStat *backend.BillStatConfig) {
-	backendEndpoint := &envs.BackendEndpoint.URL
-
-	return &backend.ProfileStorageConfig{
-			BaseEndpoint: netutil.CloneURL(backendEndpoint),
-			Now:          time.Now,
-			ErrColl:      errColl,
-		}, &backend.BillStatConfig{
-			BaseEndpoint: netutil.CloneURL(backendEndpoint),
-		}
 }
 
 // validate returns an error if the backend configuration is invalid.
@@ -78,13 +64,40 @@ func setupBackend(
 	sigHdlr signalHandler,
 	errColl agd.ErrorCollector,
 ) (profDB *profiledb.Default, rec *billstat.RuntimeRecorder, err error) {
-	profStrgConf, billStatConf := conf.toInternal(envs, errColl)
+	rec, err = setupBillStat(conf, envs, sigHdlr, errColl)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return nil, nil, err
+	}
+
+	profDB, err = setupProfDB(conf, envs, sigHdlr, errColl)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return nil, nil, err
+	}
+
+	return profDB, rec, nil
+}
+
+// setupBillStat creates and returns a billing-statistics recorder as well as
+// starts and registers its refresher in the signal handler.
+func setupBillStat(
+	conf *backendConfig,
+	envs *environments,
+	sigHdlr signalHandler,
+	errColl agd.ErrorCollector,
+) (rec *billstat.RuntimeRecorder, err error) {
+	billStatConf := &backend.BillStatConfig{
+		BaseEndpoint: netutil.CloneURL(&envs.BillStatURL.URL),
+	}
+
 	rec = billstat.NewRuntimeRecorder(&billstat.RuntimeRecorderConfig{
 		Uploader: backend.NewBillStat(billStatConf),
 	})
 
 	refrIvl := conf.RefreshIvl.Duration
 	timeout := conf.Timeout.Duration
+
 	billStatRefr := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
 		Context: func() (ctx context.Context, cancel context.CancelFunc) {
 			return context.WithTimeout(context.Background(), timeout)
@@ -98,20 +111,36 @@ func setupBackend(
 	})
 	err = billStatRefr.Start()
 	if err != nil {
-		return nil, nil, fmt.Errorf("starting bill stat recorder refresher: %w", err)
+		return nil, fmt.Errorf("starting bill stat recorder refresher: %w", err)
 	}
 
 	sigHdlr.add(billStatRefr)
 
-	profStrg := backend.NewProfileStorage(profStrgConf)
-	profDB, err = profiledb.New(
-		profStrg,
-		conf.FullRefreshIvl.Duration,
-		envs.ProfilesCachePath,
-	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("creating default profile database: %w", err)
+	return rec, nil
+}
+
+// setupProfDB creates and returns a profile database as well as starts and
+// registers its refresher in the signal handler.
+func setupProfDB(
+	conf *backendConfig,
+	envs *environments,
+	sigHdlr signalHandler,
+	errColl agd.ErrorCollector,
+) (profDB *profiledb.Default, err error) {
+	profStrgConf := &backend.ProfileStorageConfig{
+		BaseEndpoint: netutil.CloneURL(&envs.ProfilesURL.URL),
+		Now:          time.Now,
+		ErrColl:      errColl,
 	}
+
+	profStrg := backend.NewProfileStorage(profStrgConf)
+	profDB, err = profiledb.New(profStrg, conf.FullRefreshIvl.Duration, envs.ProfilesCachePath)
+	if err != nil {
+		return nil, fmt.Errorf("creating default profile database: %w", err)
+	}
+
+	refrIvl := conf.RefreshIvl.Duration
+	timeout := conf.Timeout.Duration
 
 	profDBRefr := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
 		Context: func() (ctx context.Context, cancel context.CancelFunc) {
@@ -126,10 +155,10 @@ func setupBackend(
 	})
 	err = profDBRefr.Start()
 	if err != nil {
-		return nil, nil, fmt.Errorf("starting default profile database refresher: %w", err)
+		return nil, fmt.Errorf("starting default profile database refresher: %w", err)
 	}
 
 	sigHdlr.add(profDBRefr)
 
-	return profDB, rec, nil
+	return profDB, nil
 }

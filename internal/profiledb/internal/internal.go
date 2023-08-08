@@ -6,12 +6,17 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/golibs/errors"
 )
 
 // FileCacheVersion is the version of cached data structure.  It must be
 // manually incremented on every change in [agd.Device], [agd.Profile], and any
 // file-cache structures.
-const FileCacheVersion = 6
+const FileCacheVersion = 7
+
+// CacheVersionError is returned from [FileCacheStorage.Load] method if the
+// stored cache version doesn't match current [FileCacheVersion].
+const CacheVersionError errors.Error = "unsuitable cache version"
 
 // FileCache contains the data that is cached on the filesystem.
 type FileCache struct {

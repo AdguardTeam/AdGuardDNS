@@ -70,10 +70,14 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 		},
 		FilteredResponseTTL: 10 * time.Second,
 		FilteringEnabled:    true,
-		SafeBrowsingEnabled: true,
-		RuleListsEnabled:    true,
-		QueryLogEnabled:     true,
-		BlockPrivateRelay:   true,
-		BlockFirefoxCanary:  true,
+		SafeBrowsing: &agd.SafeBrowsingSettings{
+			Enabled:                     true,
+			BlockDangerousDomains:       true,
+			BlockNewlyRegisteredDomains: false,
+		},
+		RuleListsEnabled:   true,
+		QueryLogEnabled:    true,
+		BlockPrivateRelay:  true,
+		BlockFirefoxCanary: true,
 	}, dev
 }

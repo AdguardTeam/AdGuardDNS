@@ -11,6 +11,190 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
 
 
+##  AGDNS-1537 / Build 580
+
+ *  The optional property `bind_interfaces` of `server_groups.*.servers`
+    objects has been changed, property `subnet` is now an array and has been
+    ranamed to `subnets`.  So replace this:
+
+    ```yaml
+    bind_interfaces:
+      - id: 'dns'
+        subnet: '10.0.0.1/32'
+      - id: 'dns'
+        subnet: '10.0.0.2/32'
+      - id: 'dns'
+        subnet: '10.0.0.3/32'
+      - id: 'dns_secondary'
+        subnet: '10.0.0.1/32'
+    ```
+
+    with this:
+
+    ```yaml
+    bind_interfaces:
+      - id: 'dns'
+        subnets:
+          - '10.0.0.1/32'
+          - '10.0.0.2/32'
+          - '10.0.0.3/32'
+      - id: 'dns_secondary'
+        subnets:
+          - '10.0.0.1/32'
+    ```
+
+
+
+##  AGDNS-1537 / Build 566
+
+ *  The configuration property `filtering_groups.safe_browsing` has been changed,
+    new properties have been added: `block_dangerous_domains` and
+    `block_newly_registered_domains`.
+
+
+
+##  AGDNS-1580 / Build 562
+
+ *  The environment variable `DNSDB_PATH` has been removed.
+ *  New configuration `dnsdb` has been added, it has an enabled/disabled flag
+    and the property `max_size` which describes the maximum amount of records in
+    the in-memory buffer.  Example configuration:
+
+    ```yaml
+    dnsdb:
+        enabled: true
+        max_size: 500000
+    ```
+
+
+
+##  AGDNS-1537 / Build 559
+
+ *  Configuration properties `safe_browsing.url` and `adult_blocking.url` are
+    now removed.  Use newly added environment variables `ADULT_BLOCKING_URL` and
+    `SAFE_BROWSING_URL`.
+ *  New environment variable `NEW_REG_DOMAINS_URL` has been added, this is the
+    link to the source list of the newly registered domains.
+
+
+
+##  AGDNS-1567 / Build 557
+
+ *  The environment variable `BACKEND_ENDPOINT` was replaced with three
+    environment variables:
+
+     *  `LINKED_IP_TARGET_URL`: the target URL to which linked IP API requests
+        are proxied.
+     *  `PROFILES_URL`: the endpoint for profiles sync API.
+     *  `BILLSTAT_URL`: the endpoint for backend billing statistics uploader.
+
+
+
+##  AGDNS-1561 / Build 554
+
+ *  The `filters` object has a new property, `max_size`, which describes the
+    maximum size of the downloadable content for a rule-list in a human-readable
+    format.  Example configuration:
+
+    ```yaml
+    filters:
+        # …
+        max_size: 256MB
+    ```
+
+
+
+##  AGDNS-1561 / Build 550
+
+ *  Properties `so_sndbuf` and `so_rcvbuf` of object `network` have been changed.
+    Now they are in a human-readable format.  Example configuration:
+
+    ```yaml
+    network:
+        so_sndbuf: 2MB
+        so_rcvbuf: 0
+    ```
+
+ *  The object `filters` has been changed. Two properties,
+    `rule_list_cache_size` and `use_rule_list_cache` have been extracted to the
+    new object `rule_list_cache` and renamed to `size` and `enabled`.  So
+    replace this:
+
+    ```yaml
+    filters:
+        response_ttl: 5m
+        custom_filter_cache_size: 1024
+        safe_search_cache_size: 1024
+        rule_list_cache_size: 10000
+        refresh_interval: 1h
+        refresh_timeout: 5m
+        use_rule_list_cache: true
+    ```
+
+    with this:
+
+    ```yaml
+    filters:
+        response_ttl: 5m
+        custom_filter_cache_size: 1024
+        safe_search_cache_size: 1024
+        refresh_interval: 1h
+        refresh_timeout: 5m
+        rule_list_cache:
+            enabled: true
+            size: 10000
+    ```
+
+    Adjust the values, if necessary.
+
+
+
+##  AGDNS-1566 / Build 549
+
+ *  There is now a new env variable `RESEARCH_LOGS` that controls whether
+    logging of additional info for research purposes is enabled.  These log
+    records can be filtered out by `research:` prefix.  The default value is
+    `0`, i.e. additional logging is disabled.  The first thing that is logged
+    in this version is domains which responses have ECH config.  The log will
+    only be recorded when both `RESEARCH_LOGS` and `RESEARCH_METRICS` are set
+    to `1`.
+
+ *  Added a new research metric `dns_research_response_ech` that counts the
+    number of responses with a ECH configuration.
+
+
+
+##  AGDNS-1556 / Build 547
+
+ *  The object `cache` has a new property `ttl_override`.  It describes the TTL
+    override settings, such as the minimum TTL for cache items and the `enabled`
+    switch.  It overwrites the TTL from DNS response in case it's less than this
+    minimum value.  So replace this:
+
+    ```yaml
+    cache:
+        type: "simple"
+        size: 10000
+        ecs_size: 10000
+    ```
+
+    with this:
+
+    ```yaml
+    cache:
+        type: "simple"
+        size: 10000
+        ecs_size: 10000
+        ttl_override:
+            enabled: true
+            # The minimum duration of TTL for a cache item.
+            min: 60s
+    ```
+
+    Adjust the values, if necessary.
+
+
+
 ##  AGDNS-1498 / Build 527
 
  *  Object `ratelimit` has a new property, `connection_limit`, which allows

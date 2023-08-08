@@ -15,8 +15,8 @@ var (
 		Help:      "The number of rules loaded by filters.",
 	}, []string{"filter"})
 
-	// FilterUpdatedTime is a gauge with the last time when the filter was
-	// last time updated.
+	// FilterUpdatedTime is a gauge with the last time when the filter was last
+	// time updated.
 	FilterUpdatedTime = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name:      "updated_time",
 		Subsystem: subsystemFilter,
@@ -53,8 +53,8 @@ var (
 )
 
 var (
-	// hashPrefixFilterCacheSize is a gauge with the total count of records in the
-	// HashStorage cache. "filter" is either "yes" (the metric is for hostnames that support
+	// hashPrefixFilterCacheSize is a gauge with the total count of records in
+	// the HashStorage cache.
 	hashPrefixFilterCacheSize = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name:      "hash_prefix_cache_size",
 		Subsystem: subsystemFilter,
@@ -62,16 +62,23 @@ var (
 		Help:      "The total number of items in the HashPrefixFilter cache.",
 	}, []string{"filter"})
 
-	// HashPrefixFilterSafeBrowsingCacheSize is the gauge with the total number of items in
-	// the cache for domain names for SafeBrowsing filter.
+	// HashPrefixFilterSafeBrowsingCacheSize is the gauge with the total number
+	// of items in the cache for domain names for safe browsing filter.
 	HashPrefixFilterSafeBrowsingCacheSize = hashPrefixFilterCacheSize.With(prometheus.Labels{
 		"filter": "safe_browsing",
 	})
 
-	// HashPrefixFilterAdultBlockingCacheSize is the gauge with the total number of items in
-	// the cache for domain names for AdultBlocking filter.
+	// HashPrefixFilterAdultBlockingCacheSize is the gauge with the total number
+	// of items in the cache for domain names for adult blocking filter.
 	HashPrefixFilterAdultBlockingCacheSize = hashPrefixFilterCacheSize.With(prometheus.Labels{
 		"filter": "adult_blocking",
+	})
+
+	// HashPrefixFilterNewRegDomainsCacheSize is the gauge with the total number
+	// of items in the cache for domain names for safe browsing newly registered
+	// domains filter.
+	HashPrefixFilterNewRegDomainsCacheSize = hashPrefixFilterCacheSize.With(prometheus.Labels{
+		"filter": "newly_registered_domains",
 	})
 
 	// hashPrefixFilterCacheLookups is a counter with the total number of host
@@ -85,30 +92,44 @@ var (
 	}, []string{"hit", "filter"})
 
 	// HashPrefixFilterCacheSafeBrowsingHits is a counter with the total number
-	// of SafeBrowsing filter cache hits.
+	// of safe browsing filter cache hits.
 	HashPrefixFilterCacheSafeBrowsingHits = hashPrefixFilterCacheLookups.With(prometheus.Labels{
 		"hit":    "1",
 		"filter": "safe_browsing",
 	})
 
 	// HashPrefixFilterCacheSafeBrowsingMisses is a counter with the total number
-	// of  SafeBrowsing filter cache misses.
+	// of safe browsing filter cache misses.
 	HashPrefixFilterCacheSafeBrowsingMisses = hashPrefixFilterCacheLookups.With(prometheus.Labels{
 		"hit":    "0",
 		"filter": "safe_browsing",
 	})
 
 	// HashPrefixFilterCacheAdultBlockingHits is a counter with the total number
-	// of AdultBlocking filter cache hits.
+	// of adult blocking filter cache hits.
 	HashPrefixFilterCacheAdultBlockingHits = hashPrefixFilterCacheLookups.With(prometheus.Labels{
 		"hit":    "1",
 		"filter": "adult_blocking",
 	})
 
 	// HashPrefixFilterCacheAdultBlockingMisses is a counter with the total number
-	// of AdultBlocking filter cache misses.
+	// of adult blocking filter cache misses.
 	HashPrefixFilterCacheAdultBlockingMisses = hashPrefixFilterCacheLookups.With(prometheus.Labels{
 		"hit":    "0",
 		"filter": "adult_blocking",
+	})
+
+	// HashPrefixFilterCacheNewRegDomainsHits is a counter with the total number
+	// of newly registered domains filter cache hits.
+	HashPrefixFilterCacheNewRegDomainsHits = hashPrefixFilterCacheLookups.With(prometheus.Labels{
+		"hit":    "1",
+		"filter": "newly_registered_domains",
+	})
+
+	// HashPrefixFilterCacheNewRegDomainsMisses is a counter with the total
+	// number of newly registered domains filter cache misses.
+	HashPrefixFilterCacheNewRegDomainsMisses = hashPrefixFilterCacheLookups.With(prometheus.Labels{
+		"hit":    "0",
+		"filter": "newly_registered_domains",
 	})
 )

@@ -174,7 +174,7 @@ func (mw *initMw) addProfile(
 		return err
 	}
 
-	optlog.Debug2("init mw: got device id %q and ip %s", id, ri.RemoteIP)
+	optlog.Debug3("init mw: got device id %q, raddr %s, and laddr %s", id, ri.RemoteIP, localIP)
 
 	prof, dev, byWhat, err := mw.profile(ctx, localIP, ri.RemoteIP, id)
 	if err != nil {

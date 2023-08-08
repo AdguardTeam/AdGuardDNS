@@ -3,7 +3,7 @@
 # This comment is used to simplify checking local copies of the script.  Bump
 # this number every time a significant change is made to this script.
 #
-# AdGuard-Project-Version: 3
+# AdGuard-Project-Version: 5
 
 verbose="${VERBOSE:-0}"
 readonly verbose
@@ -35,7 +35,7 @@ set -f -u
 go_version="$( "${GO:-go}" version )"
 readonly go_version
 
-go_min_version='go1.20.5'
+go_min_version='go1.20.7'
 go_version_msg="
 warning: your go version (${go_version}) is different from the recommended minimal one (${go_min_version}).
 if you have the version installed, please set the GO environment variable.
@@ -80,13 +80,17 @@ esac
 #
 #   *  Package golang.org/x/net/context has been moved into stdlib.
 #
-# NOTE: For AdGuard DNS, there are the following exceptions:
+# Currently, the only standard exception are files generated from protobuf
+# schemas, which use package reflect.  If your project needs more exceptions,
+# add and document them.
 #
-#   *  internal/profiledb/internal/filecachepb/filecache.pb.go: a file generated
-#      by the protobuf compiler.
+# NOTE: For AdGuard DNS, there are the following exceptions:
 #
 #   *  internal/profiledb/internal/filecachepb/unsafe.go: a “safe” unsafe helper
 #      to prevent excessive allocations.
+#
+# TODO(a.garipov): Add deprecated packages golang.org/x/exp/maps and
+# golang.org/x/exp/slices once all projects switch to Go 1.21.
 blocklist_imports() {
 	git grep\
 		-e '[[:space:]]"errors"$'\
@@ -98,7 +102,7 @@ blocklist_imports() {
 		-e '[[:space:]]"golang.org/x/net/context"$'\
 		-n\
 		-- '*.go'\
-		':!internal/profiledb/internal/filecachepb/filecache.pb.go'\
+		':!*.pb.go'\
 		':!internal/profiledb/internal/filecachepb/unsafe.go'\
 		| sed -e 's/^\([^[:space:]]\+\)\(.*\)$/\1 blocked import:\2/'\
 		|| exit 0
@@ -110,6 +114,7 @@ method_const() {
 	git grep -F\
 		-e '"DELETE"'\
 		-e '"GET"'\
+		-e '"PATCH"'\
 		-e '"POST"'\
 		-e '"PUT"'\
 		-n\
@@ -145,6 +150,8 @@ underscores() {
 	fi
 }
 
+# TODO(a.garipov): Add an analyzer to look for `fallthrough`, `goto`, and `new`?
+
 
 
 # Checks
@@ -169,6 +176,46 @@ run_linter govulncheck ./... "$dnssrvmod"
 
 # NOTE: For AdGuard DNS, ignore the generated protobuf file.
 run_linter gocyclo --ignore '\.pb\.go$' --over 10 .
+
+# TODO(a.garipov): Enable for all.
+run_linter gocognit --over 10\
+	./internal/agd/\
+	./internal/agdhttp/\
+	./internal/agdio/\
+	./internal/agdnet/\
+	./internal/agdtest/\
+	./internal/agdtime/\
+	./internal/billstat/\
+	./internal/bindtodevice/\
+	./internal/connlimiter/\
+	./internal/consul/\
+	./internal/debugsvc/\
+	./internal/dnscheck/\
+	./internal/dnsdb/\
+	./internal/dnsserver/cache/\
+	./internal/dnsserver/dnsservertest/\
+	./internal/dnsserver/forward/\
+	./internal/dnsserver/netext/\
+	./internal/dnsserver/pool/\
+	./internal/dnsserver/prometheus/\
+	./internal/dnsserver/querylog/\
+	./internal/dnsserver/ratelimit/\
+	./internal/errcoll/\
+	./internal/filter/internal/custom/\
+	./internal/filter/internal/filtertest/\
+	./internal/filter/internal/resultcache/\
+	./internal/filter/internal/rulelist/\
+	./internal/filter/internal/safesearch/\
+	./internal/filter/internal/serviceblock/\
+	./internal/geoip/\
+	./internal/optlog/\
+	./internal/profiledb/internal/filecachejson/\
+	./internal/profiledb/internal/profiledbtest/\
+	./internal/querylog/\
+	./internal/rulestat/\
+	./internal/tools/\
+	./internal/websvc/\
+	;
 
 run_linter ineffassign ./... "$dnssrvmod"
 

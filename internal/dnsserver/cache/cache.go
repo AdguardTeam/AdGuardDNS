@@ -14,17 +14,26 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/mathutil"
 	"github.com/bluele/gcache"
 	"github.com/miekg/dns"
 )
 
 // Middleware is a simple DNS caching middleware with no ECS support.
+//
+// TODO(a.garipov): Extract cache logic to golibs.
 type Middleware struct {
 	// metrics is a listener for the middleware events.
 	metrics MetricsListener
 
 	// cache is the underlying LRU cache.
 	cache gcache.Cache
+
+	// cacheMinTTL is the minimum supported TTL for cache items.
+	cacheMinTTL time.Duration
+
+	// useTTLOverride shows if the TTL overrides logic should be used.
+	useTTLOverride bool
 }
 
 // MiddlewareConfig is the configuration structure for NewMiddleware.
@@ -37,6 +46,12 @@ type MiddlewareConfig struct {
 	// Size is the number of entities to hold in the cache.  It must be greater
 	// than zero.
 	Size int
+
+	// MinTTL is the minimum supported TTL for cache items.
+	MinTTL time.Duration
+
+	// UseTTLOverride shows if the TTL overrides logic should be used.
+	UseTTLOverride bool
 }
 
 // NewMiddleware initializes a new LRU caching middleware.  c must not be nil.
@@ -49,8 +64,10 @@ func NewMiddleware(c *MiddlewareConfig) (m *Middleware) {
 	}
 
 	return &Middleware{
-		metrics: metrics,
-		cache:   gcache.New(c.Size).LRU().Build(),
+		metrics:        metrics,
+		cache:          gcache.New(c.Size).LRU().Build(),
+		cacheMinTTL:    c.MinTTL,
+		useTTLOverride: c.UseTTLOverride,
 	}
 }
 
@@ -128,15 +145,22 @@ func (m *Middleware) set(msg *dns.Msg) (err error) {
 		return nil
 	}
 
-	ttl := m.findLowestTTL(msg)
+	ttl := findLowestTTL(msg)
 	if ttl == 0 || !isCacheable(msg) {
 		return nil
+	}
+
+	exp := time.Duration(ttl) * time.Second
+	if m.useTTLOverride && msg.Rcode != dns.RcodeServerFailure {
+		// TODO(d.kolyshev): Use built-in max in go 1.21.
+		exp = mathutil.Max(exp, m.cacheMinTTL)
+		setMinTTL(msg, uint32(exp.Seconds()))
 	}
 
 	key := toCacheKey(msg)
 	i := m.toCacheItem(msg)
 
-	return m.cache.SetWithExpire(key, i, time.Duration(ttl)*time.Second)
+	return m.cache.SetWithExpire(key, i, exp)
 }
 
 // toCacheKey returns the cache key for msg.  msg must have one question record.
@@ -236,8 +260,19 @@ func isCacheableNOERROR(resp *dns.Msg) (ok bool) {
 	return false
 }
 
+// setMinTTL overrides TTL values of all answer records according to the min
+// TTL.
+func setMinTTL(r *dns.Msg, minTTL uint32) {
+	for _, rr := range r.Answer {
+		h := rr.Header()
+
+		// TODO(d.kolyshev): Use built-in max in go 1.21.
+		h.Ttl = mathutil.Max(h.Ttl, minTTL)
+	}
+}
+
 // findLowestTTL gets the lowest TTL among all DNS message's RRs.
-func (m *Middleware) findLowestTTL(msg *dns.Msg) (ttl uint32) {
+func findLowestTTL(msg *dns.Msg) (ttl uint32) {
 	// servFailMaxCacheTTL is the maximum time-to-live value for caching
 	// SERVFAIL responses in seconds.  It's consistent with the upper constraint
 	// of 5 minutes given by the RFC 2308.
@@ -321,7 +356,7 @@ func (m *Middleware) fromCacheItem(item cacheItem, req *dns.Msg) (msg *dns.Msg) 
 
 	// Update all the TTL of all depending on when the item was cached.  If it's
 	// already expired, update TTL to 0.
-	newTTL := m.findLowestTTL(item.msg)
+	newTTL := findLowestTTL(item.msg)
 	if timeLeft := math.Round(float64(newTTL) - time.Since(item.when).Seconds()); timeLeft > 0 {
 		newTTL = uint32(timeLeft)
 	}

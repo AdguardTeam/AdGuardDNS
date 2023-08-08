@@ -30,6 +30,9 @@ type configuration struct {
 	// Upstream is the configuration of upstream servers for the DNS servers.
 	Upstream *upstreamConfig `yaml:"upstream"`
 
+	// DNSDB is the configuration of DNSDB buffer.
+	DNSDB *dnsDBConfig `yaml:"dnsdb"`
+
 	// Backend is the AdGuard HTTP backend service configuration.  See the
 	// environments type for more backend parameters.
 	Backend *backendConfig `yaml:"backend"`
@@ -114,6 +117,9 @@ func (c *configuration) validate() (err error) {
 	}, {
 		validate: c.Cache.validate,
 		name:     "cache",
+	}, {
+		validate: c.DNSDB.validate,
+		name:     "dnsdb",
 	}, {
 		validate: c.Backend.validate,
 		name:     "backend",

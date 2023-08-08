@@ -3,7 +3,6 @@ package forward
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"strconv"
 	"strings"
 	"time"
@@ -74,9 +73,7 @@ const randomPlaceholder = "${RANDOM}"
 func (h *Handler) healthcheck(ctx context.Context) (err error) {
 	domain := h.hcDomainTmpl
 	if strings.Contains(domain, randomPlaceholder) {
-		// #nosec G404 -- We don't need a real random for generating randomized
-		// domain names here.
-		randStr := strconv.FormatUint(rand.Uint64(), 16)
+		randStr := strconv.FormatUint(h.rand.Uint64(), 16)
 		domain = strings.ReplaceAll(domain, randomPlaceholder, randStr)
 	}
 

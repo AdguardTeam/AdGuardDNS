@@ -4,11 +4,10 @@ import (
 	"context"
 	"net/http"
 	"net/netip"
-	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/golibs/testutil"
@@ -82,12 +81,13 @@ func TestRefreshable_ID(t *testing.T) {
 func TestRefreshable_Refresh(t *testing.T) {
 	cachePath, srvURL := filtertest.PrepareRefreshable(t, nil, testBlockRule, http.StatusOK)
 	rl := rulelist.NewRefreshable(
-		&agd.FilterList{
-			URL:        srvURL,
-			ID:         testFltListID,
-			RefreshIvl: 1 * time.Hour,
+		&internal.RefreshableConfig{
+			URL:       srvURL,
+			ID:        testFltListID,
+			CachePath: cachePath,
+			Staleness: filtertest.Staleness,
+			MaxSize:   filtertest.FilterMaxSize,
 		},
-		filepath.Dir(cachePath),
 		100,
 		true,
 	)

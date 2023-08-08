@@ -9,12 +9,13 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
+	"github.com/AdguardTeam/golibs/testutil/fakenet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestListenConfig(t *testing.T) {
-	pc := &agdtest.PacketConn{
+	pc := &fakenet.PacketConn{
 		OnClose:            func() (err error) { panic("not implemented") },
 		OnLocalAddr:        func() (laddr net.Addr) { panic("not implemented") },
 		OnReadFrom:         func(b []byte) (n int, addr net.Addr, err error) { panic("not implemented") },
@@ -24,7 +25,7 @@ func TestListenConfig(t *testing.T) {
 		OnWriteTo:          func(b []byte, addr net.Addr) (n int, err error) { panic("not implemented") },
 	}
 
-	lsnr := &agdtest.Listener{
+	lsnr := &fakenet.Listener{
 		OnAccept: func() (c net.Conn, err error) { panic("not implemented") },
 		OnAddr:   func() (addr net.Addr) { panic("not implemented") },
 		OnClose:  func() (err error) { return nil },

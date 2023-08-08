@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdmaps"
+	"github.com/AdguardTeam/golibs/mapsutil"
 	"github.com/prometheus/common/model"
 )
 
@@ -14,7 +14,7 @@ type additionalInfo map[string]string
 
 // validateAdditionalInfo return an error is the section is invalid.
 func (c additionalInfo) validate() (err error) {
-	return agdmaps.OrderedRangeError(c, func(k, _ string) (keyErr error) {
+	return mapsutil.OrderedRangeError(c, func(k, _ string) (keyErr error) {
 		if model.LabelName(k).IsValid() {
 			return nil
 		}

@@ -17,6 +17,10 @@ var (
 	testClientAddr     = testClientAddrPort.Addr()
 
 	testServerAddr = netip.MustParseAddr("5.6.7.8")
+	testLocalAddr  = &net.TCPAddr{
+		IP:   testServerAddr.AsSlice(),
+		Port: 54321,
+	}
 )
 
 // testDeviceID is the common device ID for tests

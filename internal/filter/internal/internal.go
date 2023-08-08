@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/c2h5oh/datasize"
 	"github.com/miekg/dns"
 )
 
@@ -29,13 +28,8 @@ type Interface interface {
 	FilterResponse(ctx context.Context, resp *dns.Msg, ri *agd.RequestInfo) (r Result, err error)
 }
 
-// maxFilterSize is the maximum size of downloaded filters.
-const maxFilterSize = 256 * int64(datasize.MB)
-
 // DefaultFilterRefreshTimeout is the default timeout to use when fetching
 // filter lists data.
-//
-// TODO(a.garipov): Consider making timeouts where they are used configurable.
 const DefaultFilterRefreshTimeout = 3 * time.Minute
 
 // DefaultResolveTimeout is the default timeout for resolving hosts for

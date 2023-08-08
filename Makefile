@@ -10,7 +10,7 @@
 #
 # AdGuard-Project-Version: 2
 
-# Don't name these macros "GO" etc., because GNU Make apparenly makes
+# Don't name these macros "GO" etc., because GNU Make apparently makes
 # them exported environment variables with the literal value of
 # "${GO:-go}" and so on, which is not what we need.  Use a dot in the
 # name to make sure that users don't have an environment variable with

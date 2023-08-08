@@ -16,6 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/c2h5oh/datasize"
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,8 +36,18 @@ const ReqFQDN = ReqHost + "."
 // ServerName is the common server name for filtering tests.
 const ServerName = "testServer/1.0"
 
+// CacheTTL is the common long cache-TTL for filtering tests.
+const CacheTTL = 1 * time.Hour
+
+// Staleness is the common long staleness for filtering tests.
+const Staleness = 1 * time.Hour
+
 // Timeout is the common timeout for filtering tests.
 const Timeout = 1 * time.Second
+
+// FilterMaxSize is the maximum size of the downloadable rule-list for filtering
+// tests.
+const FilterMaxSize = 640 * int64(datasize.KB)
 
 // PrepareRefreshable launches an HTTP server serving the given text and code,
 // as well as creates a cache file.  If code is zero, the server isn't started.

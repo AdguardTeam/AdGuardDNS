@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
@@ -110,11 +111,21 @@ type Config struct {
 
 	// CacheSize is the size of the DNS cache for domain names that don't
 	// support ECS.
+	//
+	// TODO(a.garipov): Extract this and following fields to cache configuration
+	// struct.
 	CacheSize int
 
 	// ECSCacheSize is the size of the DNS cache for domain names that support
 	// ECS.
 	ECSCacheSize int
+
+	// CacheMinTTL is the minimum supported TTL for cache items.  This setting
+	// is used when UseCacheTTLOverride set to true.
+	CacheMinTTL time.Duration
+
+	// UseCacheTTLOverride shows if the TTL overrides logic should be used.
+	UseCacheTTLOverride bool
 
 	// UseECSCache shows if the EDNS Client Subnet (ECS) aware cache should be
 	// used.
@@ -124,6 +135,12 @@ type Config struct {
 	// This is a set of metrics that we may need temporary, so its collection is
 	// controlled by a separate setting.
 	ResearchMetrics bool
+
+	// ResearchLogs controls whether logging of additional info for research
+	// purposes is enabled.  These logs may be overly verbose and are only
+	// required temporary, that's why it's controlled by a separate setting.
+	// This setting will only be used when ResearchMetrics is also set to true.
+	ResearchLogs bool
 }
 
 // New returns a new DNS service.
@@ -143,11 +160,13 @@ func New(c *Config) (svc *Service, err error) {
 	// Configure the pre-upstream middleware common for all servers of all
 	// groups.
 	preUps := &preUpstreamMw{
-		db:           c.DNSDB,
-		geoIP:        c.GeoIP,
-		cacheSize:    c.CacheSize,
-		ecsCacheSize: c.ECSCacheSize,
-		useECSCache:  c.UseECSCache,
+		db:                  c.DNSDB,
+		geoIP:               c.GeoIP,
+		cacheSize:           c.CacheSize,
+		ecsCacheSize:        c.ECSCacheSize,
+		useECSCache:         c.UseECSCache,
+		cacheMinTTL:         c.CacheMinTTL,
+		useCacheTTLOverride: c.UseCacheTTLOverride,
 	}
 	handler = preUps.Wrap(handler)
 
@@ -163,6 +182,7 @@ func New(c *Config) (svc *Service, err error) {
 		ruleStat:        c.RuleStat,
 		groups:          groups,
 		researchMetrics: c.ResearchMetrics,
+		researchLog:     c.ResearchLogs,
 	}
 
 	for i, srvGrp := range c.ServerGroups {
@@ -216,15 +236,23 @@ var _ agd.Service = (*Service)(nil)
 
 // Service is the main DNS service of AdGuard DNS.
 type Service struct {
-	messages        *dnsmsg.Constructor
-	billStat        billstat.Recorder
-	errColl         agd.ErrorCollector
-	fltStrg         filter.Storage
-	geoIP           geoip.Interface
-	queryLog        querylog.Interface
-	ruleStat        rulestat.Interface
-	groups          []*serverGroup
+	messages *dnsmsg.Constructor
+	billStat billstat.Recorder
+	errColl  agd.ErrorCollector
+	fltStrg  filter.Storage
+	geoIP    geoip.Interface
+	queryLog querylog.Interface
+	ruleStat rulestat.Interface
+	groups   []*serverGroup
+
+	// researchMetrics enables reporting metrics that may be needed for research
+	// purposes.
 	researchMetrics bool
+
+	// researchLog enables logging of additional information that may be needed
+	// for research purposes.  It will only be used when researchMetrics is set
+	// to true.
+	researchLog bool
 }
 
 // mustStartListener starts l and panics on any error.

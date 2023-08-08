@@ -78,7 +78,7 @@ func (l *FileSystem) Write(_ context.Context, e *Entry) (err error) {
 
 	c, id, r := resultData(e.RequestResult, e.ResponseResult)
 	*entBuf.ent = jsonlEntry{
-		RequestID:       e.RequestID,
+		RequestID:       e.RequestID.String(),
 		ProfileID:       e.ProfileID,
 		DeviceID:        e.DeviceID,
 		ClientCountry:   e.ClientCountry,

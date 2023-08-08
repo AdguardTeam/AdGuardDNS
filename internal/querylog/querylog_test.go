@@ -15,7 +15,8 @@ func TestMain(m *testing.M) {
 	testutil.DiscardLogOutput(m)
 }
 
-// Helpers
+// testRequestID is the common request ID for tests.
+var testRequestID = agd.NewRequestID()
 
 // testEntry returns an entry for tests.
 func testEntry() (e *querylog.Entry) {
@@ -26,7 +27,7 @@ func testEntry() (e *querylog.Entry) {
 		},
 		ResponseResult:  nil,
 		Time:            time.Unix(123, 0),
-		RequestID:       "req1234",
+		RequestID:       testRequestID,
 		ProfileID:       "prof1234",
 		DeviceID:        "dev1234",
 		ClientCountry:   agd.CountryRU,

@@ -2,28 +2,10 @@ package agd
 
 import (
 	"fmt"
-	"net/url"
-	"time"
 	"unicode/utf8"
 
 	"github.com/AdguardTeam/golibs/errors"
 )
-
-// Filter Lists
-
-// FilterList is a list of filter rules.
-type FilterList struct {
-	// URL is the URL used to refresh the filter.
-	URL *url.URL
-
-	// ID is the unique ID of this filter.  It will also be used to create the
-	// cache file.
-	ID FilterListID
-
-	// RefreshIvl is the interval that defines how often a filter should be
-	// refreshed.  It is also used to check if the cached file is fresh enough.
-	RefreshIvl time.Duration
-}
 
 // FilterListID is the ID of a filter list.  It is an opaque string.
 type FilterListID string
@@ -50,6 +32,10 @@ const (
 	// FilterListIDSafeBrowsing is the special shared filter list ID used when
 	// a request was filtered by the safe browsing filter.
 	FilterListIDSafeBrowsing FilterListID = "safe_browsing"
+
+	// FilterListIDNewRegDomains is the special shared filter list ID used when
+	// a request was filtered by the newly registered domains filter.
+	FilterListIDNewRegDomains FilterListID = "newly_registered_domains"
 
 	// FilterListIDGeneralSafeSearch is the shared filter list ID used when
 	// a request was modified by the general safe search filter.
@@ -134,6 +120,14 @@ type FilteringGroup struct {
 	// SafeBrowsingEnabled shows whether the general safe browsing filtering
 	// should be enforced.
 	SafeBrowsingEnabled bool
+
+	// BlockDangerousDomains shows whether the dangerous domains safe browsing
+	// filtering should be enforced.
+	BlockDangerousDomains bool
+
+	// BlockNewlyRegisteredDomains shows whether the newly registered domains
+	// safe browsing filtering should be enforced.
+	BlockNewlyRegisteredDomains bool
 
 	// GeneralSafeSearch shows whether the general safe search filtering should
 	// be enforced.

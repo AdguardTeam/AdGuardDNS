@@ -16,6 +16,5 @@ AdGuardDNS
 asn.mmdb
 config.yaml
 country.mmdb
-dnsdb.bolt
 querylog.jsonl
 profilecache.json

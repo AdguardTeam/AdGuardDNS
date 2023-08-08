@@ -15,6 +15,7 @@ configuration file with comments.
  *  [Cache](#cache)
  *  [Upstream](#upstream)
      *  [Healthcheck](#upstream-healthcheck)
+ *  [DNSDB](#dnsdb)
  *  [Backend](#backend)
  *  [Query log](#query_log)
  *  [GeoIP database](#geoip)
@@ -242,6 +243,25 @@ The `cache` object has the following properties:
 
     **Example:** `10000`.
 
+ *  <a href="#cache-ttl_override" id="cache-ttl_override" name="cache-ttl_override">`ttl_override`</a>:
+    The object describes cache TTL override mechanics.  It has the following
+    properties:
+
+     *  <a href="cache-ttl_override-enabled">`enabled`</a>:
+        If true, the TTL overrides are enabled.
+
+     *  <a href="cache-ttl_override-min">`min`</a>:
+        The minimum duration for TTL for cache items of both caches, with and
+        without ECS support.  The recommended value is `60s`.
+
+    **Property example:**
+
+    ```yaml
+    'ttl_override':
+        'enabled': true
+        'min': 60s
+    ```
+
 
 
 ##  <a href="#upstream" id="upstream" name="upstream">Upstream</a>
@@ -317,6 +337,24 @@ connection to the main upstream as restored, and requests are routed back to it.
     response.
 
     **Example:** `${RANDOM}.neverssl.com`.
+
+
+
+##  <a href="#dnsdb" id="dnsdb" name="dnsdb">DNSDB</a>
+
+The `DNSDB` object has the following properties:
+
+ *  <a href="#dnsdb-enabled" id="dnsdb-enabled" name="dnsdb-enabled">`enabled`</a>:
+    If true, the DNSDB memory buffer is enabled.
+
+    **Example:** `true`.
+
+ *  <a href="#dnsdb-max_size" id="dnsdb-max_size" name="dnsdb-max_size">`max_size`</a>:
+    The maximum number of records in the in-memory buffer.  The record key is a
+    combination of the target hostname from the question and the resource-record
+    type of the question or the answer.
+
+    **Example:** `500000`.
 
 
 
@@ -635,11 +673,6 @@ The `filters` object has the following properties:
 
     **Example:** `1024`.
 
- *  <a href="#filters-rule_list_cache_size" id="filters-rule_list_cache_size" name="filters-rule_list_cache_size">`rule_list_cache_size`</a>:
-    The size of the LRU cache of the rule-list filtering results.
-
-    **Example:** `10000`.
-
  *  <a href="#filters-refresh_interval" id="filters-refresh_interval" name="filters-refresh_interval">`refresh_interval`</a>:
     How often AdGuard DNS refreshes the rule-list filters from the filter index,
     as well as the blocked services list from the [blocked list
@@ -654,11 +687,25 @@ The `filters` object has the following properties:
 
     **Example:** `5m`.
 
- *  <a href="#filters-use_rule_list_cache" id="filters-use_rule_list_cache" name="filters-use_rule_list_cache">`use_rule_list_cache`</a>:
-    If true, use the rule-list filtering result cache.  This cache is not used
-    for users' custom rules.
+ *  <a href="#filters-max_size" id="filters-max_size" name="filters-max_size">`max_size`</a>:
+    The maximum size of the downloadable content for a rule-list in a
+    human-readable format.
 
-    **Example:** `true`.
+    **Example:** `256MB`.
+
+ *  <a href="#filters-rule_list_cache" id="filters-rule_list_cache" name="filters-rule_list_cache">`rule_list_cache`</a>:
+    Rule lists cache settings.  It has the following properties:
+
+     *  <a href="#filters-rule_list_cache-enabled" id="filters-rule_list_cache-enabled" name="filters-rule_list_cache-enabled">`enabled`</a>:
+        If true, use the rule-list filtering result cache.  This cache is not
+        used for users' custom rules.
+
+        **Example:** `true`.
+
+     *  <a href="#filters-rule_list_cache-size" id="filters-rule_list_cache-size" name="filters-rule_list_cache-size">`rule_list_cache-size`</a>:
+        The size of the LRU cache of the rule-list filtering results.
+
+        **Example:** `10000`.
 
 [env-blocked_services]: environment.md#BLOCKED_SERVICE_INDEX_URL
 
@@ -721,6 +768,16 @@ The items of the `filtering_groups` array have the following properties:
      *  <a href="#fg-*-sb-enabled" id="fg-*-sb-enabled" name="fg-*-sb-enabled">`enabled`</a>:
         Shows if the general safe browsing filtering should be enforced.  If it
         is set to `false`, the rest of the settings are ignored.
+
+        **Example:** `true`.
+
+     *  <a href="#fg-*-sb-block_dangerous_domains" id="fg-*-sb-block_dangerous_domains" name="fg-*-sb-block_dangerous_domains">`block_dangerous_domains`</a>:
+        Shows if the dangerous domains filtering should be enforced.
+
+        **Example:** `true`.
+
+     *  <a href="#fg-*-sb-block_newly_registered_domains" id="fg-*-sb-block_newly_registered_domains" name="fg-*-sb-block_newly_registered_domains">`block_newly_registered_domains`</a>:
+        Shows if the newly registered domains filtering should be enforced.
 
         **Example:** `true`.
 
@@ -953,10 +1010,12 @@ The items of the `servers` array have the following properties:
 
     ```yaml
     'bind_interfaces':
-      - 'id': eth0_plain_dns'
-        'subnet': '172.17.0.0/16'
-      - 'id': eth0_plain_dns_secondary'
-        'subnet': '172.17.0.0/16'
+      - 'id': 'eth0_plain_dns'
+        'subnets':
+          - '172.17.0.0/16'
+      - 'id': 'eth0_plain_dns_secondary'
+        'subnets':
+          - '172.17.0.0/16'
     ```
 
  *  <a href="#sg-s-*-dnscrypt" id="sg-s-*-dnscrypt" name="sg-s-*-dnscrypt">`dnscrypt`</a>:
@@ -1017,20 +1076,20 @@ The `connectivity_check` object has the following properties:
 The `network` object has the following properties:
 
  *  <a href="#network-so_rcvbuf" id="network-so_rcvbuf" name="network-so_rcvbuf">`so_rcvbuf`</a>:
-    The size of socket receive buffer (`SO_RCVBUF`), in bytes.  Default is zero,
-    which means use the default system settings.
+    The size of socket receive buffer (`SO_RCVBUF`), in a human-readable format.
+    Default is zero, which means use the default system settings.
 
     See also [notes on these parameters](#recommended-buffers).
 
-    **Example:** `1048576`.
+    **Example:** `1MB`.
 
  *  <a href="#network-so_sndbuf" id="network-so_sndbuf" name="network-so_sndbuf">`so_sndbuf`</a>:
-    The size of socket send buffer (`SO_SNDBUF`), in bytes.  Default is zero,
-    which means use the default system settings.
+    The size of socket send buffer (`SO_SNDBUF`), in a human-readable format.
+    Default is zero, which means use the default system settings.
 
     See also [notes on these parameters](#recommended-buffers).
 
-    **Example:** `1048576`.
+    **Example:** `1MB`.
 
 
 

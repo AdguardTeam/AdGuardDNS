@@ -124,18 +124,9 @@ func (c *CachingResolver) resolve(
 	refrTime := time.Now()
 
 	// Don't resolve IP addresses.
-	ip := net.ParseIP(host)
+	ip := ipFromHost(host, fam)
 	if ip != nil {
-		ip4 := ip.To4()
-		if fam == netutil.AddrFamilyIPv4 && ip4 != nil {
-			ips = []net.IP{ip4}
-		} else if fam == netutil.AddrFamilyIPv6 && ip4 == nil {
-			ips = []net.IP{ip}
-		} else {
-			// Not the right kind of IP address.  Cache absence of IP addresses
-			// for this network forever.
-			ips = []net.IP{}
-		}
+		ips = []net.IP{ip}
 
 		// Set the refresh time to the maximum date that time.Duration allows to
 		// prevent this item from refreshing.
@@ -166,6 +157,24 @@ func (c *CachingResolver) resolve(
 	cache[host] = item
 
 	return item, nil
+}
+
+// ipFromHost returns a normalized IP address if host contains an IP address of
+// the given address family.
+func ipFromHost(host string, fam netutil.AddrFamily) (ip net.IP) {
+	ip = net.ParseIP(host)
+	if ip == nil {
+		return nil
+	}
+
+	ip4 := ip.To4()
+	if fam == netutil.AddrFamilyIPv4 && ip4 != nil {
+		return ip4
+	} else if fam == netutil.AddrFamilyIPv6 && ip4 == nil {
+		return ip
+	}
+
+	return nil
 }
 
 // isExpectedLookupError returns true if the error is an expected lookup error.

@@ -18,6 +18,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -35,9 +36,6 @@ const testDeviceName agd.DeviceName = "My Device"
 
 // testSvcID is the standard ID of the blocked service for tests.
 const testSvcID agd.BlockedServiceID = "service"
-
-// testRefreshIvl is the standard refresh interval for tests.
-const testRefreshIvl = 1 * time.Hour
 
 // Common constants.  Keep in sync with ./testdata/filter and
 // ./safesearchhost.csv.
@@ -185,16 +183,18 @@ func prepareConf(t testing.TB) (c *filter.DefaultStorageConfig) {
 		YoutubeSafeSearchRulesURL: ssURL,
 		SafeBrowsing:              &hashprefix.Filter{},
 		AdultBlocking:             &hashprefix.Filter{},
+		NewRegDomains:             &hashprefix.Filter{},
 		Now:                       time.Now,
 		ErrColl:                   nil,
 		Resolver:                  nil,
 		CacheDir:                  cacheDir,
 		CustomFilterCacheSize:     100,
 		SafeSearchCacheSize:       100,
-		SafeSearchCacheTTL:        1 * time.Hour,
+		SafeSearchCacheTTL:        filtertest.CacheTTL,
 		RuleListCacheSize:         100,
-		RefreshIvl:                testRefreshIvl,
+		RefreshIvl:                filtertest.Staleness,
 		UseRuleListCache:          false,
+		MaxRuleListSize:           filtertest.FilterMaxSize,
 	}
 }
 

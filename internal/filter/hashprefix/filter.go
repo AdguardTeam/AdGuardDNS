@@ -9,6 +9,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/resultcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
@@ -56,6 +57,9 @@ type FilterConfig struct {
 
 	// CacheSize is the size of the filter's result cache.
 	CacheSize int
+
+	// MaxSize is the maximum size in bytes of the downloadable rule-list.
+	MaxSize int64
 }
 
 // Filter is a filter that matches hosts by their hashes based on a
@@ -82,14 +86,15 @@ func NewFilter(c *FilterConfig) (f *Filter, err error) {
 		repHost:  c.ReplacementHost,
 	}
 
-	f.refr = internal.NewRefreshable(
-		&agd.FilterList{
-			ID:         id,
-			URL:        c.URL,
-			RefreshIvl: c.Staleness,
-		},
-		c.CachePath,
-	)
+	f.refr = internal.NewRefreshable(&internal.RefreshableConfig{
+		URL:       c.URL,
+		ID:        id,
+		CachePath: c.CachePath,
+		Staleness: c.Staleness,
+		// TODO(ameshkov): Consider making configurable.
+		Timeout: internal.DefaultFilterRefreshTimeout,
+		MaxSize: c.MaxSize,
+	})
 
 	err = f.refresh(context.Background(), true)
 	if err != nil {
@@ -124,8 +129,8 @@ func (f *Filter) FilterRequest(
 		return rm.CloneForReq(req), nil
 	}
 
-	fam := netutil.AddrFamilyFromRRType(qt)
-	if fam == netutil.AddrFamilyNone {
+	fam, ok := isFilterable(qt)
+	if !ok {
 		return nil, nil
 	}
 
@@ -148,17 +153,10 @@ func (f *Filter) FilterRequest(
 	ctx, cancel := context.WithTimeout(ctx, internal.DefaultResolveTimeout)
 	defer cancel()
 
-	var result *dns.Msg
-	ips, err := f.resolver.LookupIP(ctx, fam, f.repHost)
+	result, err := f.filteredResponse(ctx, req, ri, fam)
 	if err != nil {
-		agd.Collectf(ctx, f.errColl, "filter %s: resolving: %w", f.id, err)
-
-		result = ri.Messages.NewMsgSERVFAIL(req)
-	} else {
-		result, err = ri.Messages.NewIPRespMsg(req, ips...)
-		if err != nil {
-			return nil, fmt.Errorf("filter %s: creating modified result: %w", f.id, err)
-		}
+		// Don't wrap the error, because it's informative enough as is.
+		return nil, err
 	}
 
 	rm = &internal.ResultModified{
@@ -177,6 +175,58 @@ func (f *Filter) FilterRequest(
 	return rm, nil
 }
 
+// isFilterable returns true if the question type is filterable.  If the type is
+// filterable with a blocked page, fam is the address family for the IP
+// addresses of the blocked page; otherwise fam is [netutil.AddrFamilyNone].
+func isFilterable(qt dnsmsg.RRType) (fam netutil.AddrFamily, ok bool) {
+	if qt == dns.TypeHTTPS {
+		return netutil.AddrFamilyNone, true
+	}
+
+	fam = netutil.AddrFamilyFromRRType(qt)
+
+	return fam, fam != netutil.AddrFamilyNone
+}
+
+// filteredResponse returns a filtered response.
+func (f *Filter) filteredResponse(
+	ctx context.Context,
+	req *dns.Msg,
+	ri *agd.RequestInfo,
+	fam netutil.AddrFamily,
+) (resp *dns.Msg, err error) {
+	if fam == netutil.AddrFamilyNone {
+		// This is an HTTPS query.  For them, just return NODATA or other
+		// blocked response.  See AGDNS-1551.
+		//
+		// TODO(ameshkov): Consider putting the resolved IP addresses into hints
+		// to show the blocked page here as well.
+		resp, err = ri.Messages.NewBlockedRespMsg(req)
+		if err != nil {
+			return nil, fmt.Errorf("filter %s: creating blocked result: %w", f.id, err)
+		}
+
+		return resp, nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, internal.DefaultResolveTimeout)
+	defer cancel()
+
+	ips, err := f.resolver.LookupIP(ctx, fam, f.repHost)
+	if err != nil {
+		agd.Collectf(ctx, f.errColl, "filter %s: resolving: %w", f.id, err)
+
+		return ri.Messages.NewMsgSERVFAIL(req), nil
+	}
+
+	resp, err = ri.Messages.NewIPRespMsg(req, ips...)
+	if err != nil {
+		return nil, fmt.Errorf("filter %s: creating modified result: %w", f.id, err)
+	}
+
+	return resp, nil
+}
+
 // updateCacheSizeMetrics updates cache size metrics.
 func (f *Filter) updateCacheSizeMetrics(size int) {
 	switch id := f.id; id {
@@ -184,6 +234,8 @@ func (f *Filter) updateCacheSizeMetrics(size int) {
 		metrics.HashPrefixFilterSafeBrowsingCacheSize.Set(float64(size))
 	case agd.FilterListIDAdultBlocking:
 		metrics.HashPrefixFilterAdultBlockingCacheSize.Set(float64(size))
+	case agd.FilterListIDNewRegDomains:
+		metrics.HashPrefixFilterNewRegDomainsCacheSize.Set(float64(size))
 	default:
 		panic(fmt.Errorf("unsupported FilterListID %s", id))
 	}
@@ -199,6 +251,9 @@ func (f *Filter) updateCacheLookupsMetrics(hit bool) {
 	case agd.FilterListIDAdultBlocking:
 		hitsMetric = metrics.HashPrefixFilterCacheAdultBlockingHits
 		missesMetric = metrics.HashPrefixFilterCacheAdultBlockingMisses
+	case agd.FilterListIDNewRegDomains:
+		hitsMetric = metrics.HashPrefixFilterCacheNewRegDomainsHits
+		missesMetric = metrics.HashPrefixFilterCacheNewRegDomainsMisses
 	default:
 		panic(fmt.Errorf("unsupported filter list id %s", id))
 	}

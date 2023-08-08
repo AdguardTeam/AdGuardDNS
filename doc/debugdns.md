@@ -28,6 +28,7 @@ example.com.		17597	IN	A	93.184.216.34
 
 ;; ADDITIONAL SECTION:
 client-ip.adguard-dns.com. 10	CH	TXT	"127.0.0.1"
+server-ip.adguard-dns.com. 10	CH	TXT	"94.140.14.14"
 resp.res-type.adguard-dns.com. 10 CH TXT	"normal"
 
 ;; Query time: 26 msec
@@ -47,6 +48,15 @@ In the `ADDITIONAL SECTION`, the following debug information is returned:
 
     ```none
     client-ip.adguard-dns.com. 10	CH	TXT	"127.0.0.1"
+    ```
+
+ *  <a href="#additional-server-ip" id="additional-server-ip" name="additional-server-ip">`server-ip`</a>:
+    The IP address of the server.  The full name is `server-ip.adguard-dns.com`.
+
+    **Example:**
+
+    ```none
+    server-ip.adguard-dns.com. 10	CH	TXT	"127.0.0.1"
     ```
 
  *  <a href="#additional-device-id" id="additional-device-id" name="additional-device-id">`device-id`</a>:
@@ -87,7 +97,7 @@ In the `ADDITIONAL SECTION`, the following debug information is returned:
     ```none
     asn.adguard-dns.com.	10 CH	TXT	"1234"
     ```
- 
+
  *  <a href="#additional-subdivision" id="additional-subdivision" name="additional-subdivision">`subdivision`</a>:
     User's location subdivision code.  This field could be empty even if user's
     country code is present.  The full name is `subdivision.adguard-dns.com`.
@@ -142,7 +152,7 @@ response.
     Rule longer than 255 bytes:
 
     ```none
-    req.rule.adguard-dns.com. 0 CH TXT "||heregoesthefirstpartoftherule" 
+    req.rule.adguard-dns.com. 0 CH TXT "||heregoesthefirstpartoftherule"
     "heregoesthesecondpartoftherule"
     ```
 

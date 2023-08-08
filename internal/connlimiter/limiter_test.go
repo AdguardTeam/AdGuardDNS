@@ -6,11 +6,11 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/testutil/fakenet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,7 +36,7 @@ func TestLimiter(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	conn := &agdtest.Conn{
+	conn := &fakenet.Conn{
 		OnClose:     func() (err error) { return nil },
 		OnLocalAddr: func() (laddr net.Addr) { panic("not implemented") },
 		OnRead:      func(b []byte) (n int, err error) { panic("not implemented") },
@@ -52,7 +52,7 @@ func TestLimiter(t *testing.T) {
 		OnWrite:            func(b []byte) (n int, err error) { panic("not implemented") },
 	}
 
-	lsnr := &agdtest.Listener{
+	lsnr := &fakenet.Listener{
 		OnAccept: func() (c net.Conn, err error) { return conn, nil },
 		OnAddr: func() (addr net.Addr) {
 			return &net.TCPAddr{

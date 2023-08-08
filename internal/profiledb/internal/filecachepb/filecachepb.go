@@ -85,7 +85,7 @@ func (x *Profile) toInternal() (prof *agd.Profile, err error) {
 		CustomRules:         unsafelyConvertStrSlice[string, agd.FilterRuleText](x.CustomRules),
 		FilteredResponseTTL: x.FilteredResponseTtl.AsDuration(),
 		FilteringEnabled:    x.FilteringEnabled,
-		SafeBrowsingEnabled: x.SafeBrowsingEnabled,
+		SafeBrowsing:        x.SafeBrowsing.toInternal(),
 		RuleListsEnabled:    x.RuleListsEnabled,
 		QueryLogEnabled:     x.QueryLogEnabled,
 		Deleted:             x.Deleted,
@@ -240,6 +240,20 @@ func byteSlicesToIPs(data [][]byte) (ips []netip.Addr, err error) {
 	return ips, nil
 }
 
+// toInternal converts a protobuf safe browsing settings structure to an
+// internal one.
+func (x *SafeBrowsingSettings) toInternal() (s *agd.SafeBrowsingSettings) {
+	if x == nil {
+		return nil
+	}
+
+	return &agd.SafeBrowsingSettings{
+		Enabled:                     x.Enabled,
+		BlockDangerousDomains:       x.BlockDangerousDomains,
+		BlockNewlyRegisteredDomains: x.BlockNewlyRegisteredDomains,
+	}
+}
+
 // profilesToProtobuf converts a slice of profiles to protobuf structures.
 func profilesToProtobuf(profiles []*agd.Profile) (pbProfiles []*Profile) {
 	pbProfiles = make([]*Profile, 0, len(profiles))
@@ -254,7 +268,7 @@ func profilesToProtobuf(profiles []*agd.Profile) (pbProfiles []*Profile) {
 			CustomRules:         unsafelyConvertStrSlice[agd.FilterRuleText, string](p.CustomRules),
 			FilteredResponseTtl: durationpb.New(p.FilteredResponseTTL),
 			FilteringEnabled:    p.FilteringEnabled,
-			SafeBrowsingEnabled: p.SafeBrowsingEnabled,
+			SafeBrowsing:        safeBrowsingToProtobuf(p.SafeBrowsing),
 			RuleListsEnabled:    p.RuleListsEnabled,
 			QueryLogEnabled:     p.QueryLogEnabled,
 			Deleted:             p.Deleted,
@@ -385,4 +399,17 @@ func ipsToByteSlices(ips []netip.Addr) (data [][]byte) {
 	}
 
 	return data
+}
+
+// safeBrowsingToProtobuf converts safe browsing settings to protobuf structure.
+func safeBrowsingToProtobuf(s *agd.SafeBrowsingSettings) (sbSetts *SafeBrowsingSettings) {
+	if s == nil {
+		return nil
+	}
+
+	return &SafeBrowsingSettings{
+		Enabled:                     s.Enabled,
+		BlockDangerousDomains:       s.BlockDangerousDomains,
+		BlockNewlyRegisteredDomains: s.BlockNewlyRegisteredDomains,
+	}
 }

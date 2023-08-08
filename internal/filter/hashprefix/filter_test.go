@@ -49,9 +49,10 @@ func TestFilter_FilterRequest(t *testing.T) {
 		ID:              agd.FilterListIDAdultBlocking,
 		CachePath:       cachePath,
 		ReplacementHost: "repl.example",
-		Staleness:       1 * time.Minute,
-		CacheTTL:        1 * time.Minute,
+		Staleness:       filtertest.Staleness,
+		CacheTTL:        filtertest.CacheTTL,
 		CacheSize:       1,
+		MaxSize:         filtertest.FilterMaxSize,
 	})
 	require.NoError(t, err)
 
@@ -157,6 +158,30 @@ func TestFilter_FilterRequest(t *testing.T) {
 
 		assert.Nil(t, r)
 	})
+
+	t.Run("https", func(t *testing.T) {
+		req := dnsservertest.NewReq(dns.Fqdn(testHost), dns.TypeHTTPS, dns.ClassINET)
+		ri := &agd.RequestInfo{
+			Messages: messages,
+			Host:     testHost,
+			QType:    dns.TypeHTTPS,
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), filtertest.Timeout)
+		t.Cleanup(cancel)
+
+		var r internal.Result
+		r, err = f.FilterRequest(ctx, req, ri)
+		require.NoError(t, err)
+		require.NotNil(t, r)
+
+		m := testutil.RequireTypeAssert[*internal.ResultModified](t, r)
+		require.NotNil(t, m.Msg)
+		require.Len(t, m.Msg.Question, 1)
+
+		assert.Equal(t, m.Msg.Question[0].Qtype, dns.TypeHTTPS)
+		assert.Len(t, m.Msg.Answer, 0)
+	})
 }
 
 // newModifiedResult is a helper for creating modified results for tests.
@@ -203,9 +228,10 @@ func TestFilter_Refresh(t *testing.T) {
 		ID:              agd.FilterListIDAdultBlocking,
 		CachePath:       cachePath,
 		ReplacementHost: "",
-		Staleness:       1 * time.Minute,
-		CacheTTL:        1 * time.Minute,
+		Staleness:       filtertest.Staleness,
+		CacheTTL:        filtertest.CacheTTL,
 		CacheSize:       1,
+		MaxSize:         filtertest.FilterMaxSize,
 	})
 	require.NoError(t, err)
 
@@ -257,9 +283,10 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 		ID:              agd.FilterListIDAdultBlocking,
 		CachePath:       cachePath,
 		ReplacementHost: "repl.example",
-		Staleness:       1 * time.Minute,
-		CacheTTL:        1 * time.Minute,
+		Staleness:       filtertest.Staleness,
+		CacheTTL:        filtertest.CacheTTL,
 		CacheSize:       1,
+		MaxSize:         filtertest.FilterMaxSize,
 	}
 	f, err := hashprefix.NewFilter(fconf)
 	require.NoError(t, err)

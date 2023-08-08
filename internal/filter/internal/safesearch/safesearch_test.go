@@ -60,9 +60,13 @@ func TestFilter(t *testing.T) {
 	require.NoError(t, err)
 
 	f := safesearch.New(&safesearch.Config{
-		List: &agd.FilterList{
-			ID:  id,
-			URL: srvURL,
+		Refreshable: &internal.RefreshableConfig{
+			ID:        id,
+			URL:       srvURL,
+			CachePath: cachePath,
+			Staleness: filtertest.Staleness,
+			Timeout:   filtertest.Timeout,
+			MaxSize:   filtertest.FilterMaxSize,
 		},
 		Resolver: &agdtest.Resolver{
 			OnLookupIP: func(
@@ -85,7 +89,6 @@ func TestFilter(t *testing.T) {
 				panic("not implemented")
 			},
 		},
-		CacheDir:  filepath.Dir(cachePath),
 		CacheTTL:  1 * time.Minute,
 		CacheSize: 100,
 	})

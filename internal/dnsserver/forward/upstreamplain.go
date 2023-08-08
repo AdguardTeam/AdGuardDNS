@@ -159,7 +159,7 @@ func (u *UpstreamPlain) exchangeUDP(
 		//
 		// Thus, non-network errors are considered being related to the
 		// response.  It may also happen the received response is intended for
-		// another timeouted request sent from the same source port, but falling
+		// another timed out request sent from the same source port, but falling
 		// back to TCP in this case shouldn't hurt.
 		fallbackToTCP = !isExpectedConnErr(err)
 

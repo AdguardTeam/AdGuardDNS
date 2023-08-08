@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
-	"path/filepath"
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -32,21 +31,28 @@ type Refreshable struct {
 }
 
 // NewRefreshable returns a new refreshable DNS request and response filter
-// based on the provided rule list.  l must be non-nil.  The initial refresh
+// based on the provided rule list.  c must be non-nil.  The initial refresh
 // should be called explicitly if necessary.
 func NewRefreshable(
-	l *agd.FilterList,
-	fileCacheDir string,
+	c *internal.RefreshableConfig,
 	memCacheSize int,
 	useMemCache bool,
 ) (f *Refreshable) {
 	f = &Refreshable{
-		mu:   &sync.RWMutex{},
-		refr: internal.NewRefreshable(l, filepath.Join(fileCacheDir, string(l.ID))),
+		mu: &sync.RWMutex{},
+		refr: internal.NewRefreshable(&internal.RefreshableConfig{
+			URL:       c.URL,
+			ID:        c.ID,
+			CachePath: c.CachePath,
+			Staleness: c.Staleness,
+			// TODO(ameshkov): Consider making configurable.
+			Timeout: internal.DefaultFilterRefreshTimeout,
+			MaxSize: c.MaxSize,
+		}),
 	}
 
 	var err error
-	f.filter, err = newFilter("", l.ID, "", memCacheSize, useMemCache)
+	f.filter, err = newFilter("", c.ID, "", memCacheSize, useMemCache)
 	if err != nil {
 		// Should never happen, since text is empty.
 		panic(fmt.Errorf("unexpected filter error: %w", err))

@@ -216,7 +216,28 @@ type v1SettingsRespRuleLists struct {
 // v1SettingsRespSafeBrowsing is the structure for decoding the general safe
 // browsing filtering settings from the backend.
 type v1SettingsRespSafeBrowsing struct {
-	Enabled bool `json:"enabled"`
+	BlockDangerousDomains       *bool `json:"block_dangerous_domains"`
+	BlockNewlyRegisteredDomains bool  `json:"block_nrd"`
+	Enabled                     bool  `json:"enabled"`
+}
+
+// toInternal converts s to an [agd.SafeBrowsingSettings] instance.
+func (s *v1SettingsRespSafeBrowsing) toInternal() (res *agd.SafeBrowsingSettings) {
+	if s == nil {
+		return nil
+	}
+
+	// TODO(d.kolyshev): Don't make this migration after AGDNS-1537.
+	blockDangerDomains := s.Enabled
+	if s.BlockDangerousDomains != nil {
+		blockDangerDomains = *s.BlockDangerousDomains
+	}
+
+	return &agd.SafeBrowsingSettings{
+		Enabled:                     s.Enabled,
+		BlockDangerousDomains:       blockDangerDomains,
+		BlockNewlyRegisteredDomains: s.BlockNewlyRegisteredDomains,
+	}
 }
 
 // v1SettingsResp is the structure for decoding the response from the backend.
@@ -510,8 +531,6 @@ func (r *v1SettingsResp) toInternal(
 			// other validation errors.
 		}
 
-		sbEnabled := s.SafeBrowsing != nil && s.SafeBrowsing.Enabled
-
 		pr.Devices = append(pr.Devices, devices...)
 
 		pr.Profiles = append(pr.Profiles, &agd.Profile{
@@ -523,7 +542,7 @@ func (r *v1SettingsResp) toInternal(
 			RuleListIDs:         ruleLists,
 			CustomRules:         rules,
 			FilteredResponseTTL: fltRespTTL,
-			SafeBrowsingEnabled: sbEnabled,
+			SafeBrowsing:        s.SafeBrowsing.toInternal(),
 			RuleListsEnabled:    rlEnabled,
 			FilteringEnabled:    s.FilteringEnabled,
 			QueryLogEnabled:     s.QueryLogEnabled,

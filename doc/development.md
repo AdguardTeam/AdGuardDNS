@@ -216,9 +216,14 @@ curl 'https://raw.githubusercontent.com/maxmind/MaxMind-DB/main/test-data/GeoLit
 
 You'll need to supply the following:
 
- *  [`BACKEND_ENDPOINT`](#env-BACKEND_ENDPOINT)
+ *  [`ADULT_BLOCKING_URL`](#env-ADULT_BLOCKING_URL)
+ *  [`BILLSTAT_URL`](#env-BILLSTAT_URL)
  *  [`CONSUL_ALLOWLIST_URL`](#env-CONSUL_ALLOWLIST_URL)
  *  [`GENERAL_SAFE_SEARCH_URL`](#env-GENERAL_SAFE_SEARCH_URL)
+ *  [`LINKED_IP_TARGET_URL`](#env-LINKED_IP_TARGET_URL)
+ *  [`NEW_REG_DOMAINS_URL`](#env-NEW_REG_DOMAINS_URL)
+ *  [`PROFILES_URL`](#env-PROFILES_URL)
+ *  [`SAFE_BROWSING_URL`](#env-SAFE_BROWSING_URL)
  *  [`YOUTUBE_SAFE_SEARCH_URL`](#env-YOUTUBE_SAFE_SEARCH_URL)
 
 See the [external HTTP API documentation][externalhttp].
@@ -238,18 +243,22 @@ You may also need to remove `probe_ipv6` if your network does not support IPv6.
 
 ```sh
 env \
-    BACKEND_ENDPOINT='PUT BACKEND URL HERE' \
-    BLOCKED_SERVICE_INDEX_URL='https://atropnikov.github.io/HostlistsRegistry/assets/services.json'\
+    ADULT_BLOCKING_URL='https://raw.githubusercontent.com/ameshkov/PersonalFilters/master/adult_test.txt' \
+    BILLSTAT_URL='PUT BILLSTAT API BACKEND URL HERE' \
+    BLOCKED_SERVICE_INDEX_URL='https://adguardteam.github.io/HostlistsRegistry/assets/services.json'\
     CONSUL_ALLOWLIST_URL='PUT CONSUL ALLOWLIST URL HERE' \
     CONFIG_PATH='./config.yaml' \
-    DNSDB_PATH='./test/cache/dnsdb.bolt' \
-    FILTER_INDEX_URL='https://atropnikov.github.io/HostlistsRegistry/assets/filters.json' \
+    FILTER_INDEX_URL='https://adguardteam.github.io/HostlistsRegistry/assets/filters.json' \
     FILTER_CACHE_PATH='./test/cache' \
+    NEW_REG_DOMAINS_URL='PUT NEWLY REGISTERED DOMAINS FILTER URL HERE' \
     PROFILES_CACHE_PATH='./test/profilecache.json' \
+    PROFILES_URL='PUT PROFILES API BACKEND URL HERE' \
+    SAFE_BROWSING_URL='https://raw.githubusercontent.com/ameshkov/PersonalFilters/master/safebrowsing_test.txt' \
     GENERAL_SAFE_SEARCH_URL='https://adguardteam.github.io/HostlistsRegistry/assets/engines_safe_search.txt' \
     GEOIP_ASN_PATH='./test/GeoLite2-ASN-Test.mmdb' \
     GEOIP_COUNTRY_PATH='./test/GeoIP2-City-Test.mmdb' \
     QUERYLOG_PATH='./test/cache/querylog.jsonl' \
+    LINKED_IP_TARGET_URL='PUT LINKED IP TARGET URL HERE' \
     LISTEN_ADDR='127.0.0.1' \
     LISTEN_PORT='8081' \
     RULESTAT_URL='https://testchrome.adtidy.org/api/1.0/rulestats.html' \

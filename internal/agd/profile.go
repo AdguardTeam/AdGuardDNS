@@ -30,6 +30,13 @@ type Profile struct {
 	// [internal/profiledb/internal.FileCacheVersion].
 	Parental *ParentalProtectionSettings
 
+	// SafeBrowsing are the safe browsing settings for this profile.  They are
+	// ignored if FilteringEnabled is set to false.
+	//
+	// NOTE: Do not change fields of this structure without incrementing
+	// [internal/profiledb/internal.FileCacheVersion].
+	SafeBrowsing *SafeBrowsingSettings
+
 	// BlockingMode defines the way blocked responses are constructed.
 	//
 	// NOTE: Do not change fields of this structure without incrementing
@@ -84,14 +91,6 @@ type Profile struct {
 	// NOTE: Do not change fields of this structure without incrementing
 	// [internal/profiledb/internal.FileCacheVersion].
 	FilteringEnabled bool
-
-	// SafeBrowsingEnabled defines whether queries from devices of this profile
-	// should be filtered using the safe browsing filter.  Requires
-	// FilteringEnabled to be set to true.
-	//
-	// NOTE: Do not change fields of this structure without incrementing
-	// [internal/profiledb/internal.FileCacheVersion].
-	SafeBrowsingEnabled bool
 
 	// RuleListsEnabled defines whether queries from devices of this profile
 	// should be filtered using the filtering rule lists in RuleListIDs.
@@ -158,9 +157,12 @@ func NewProfileID(s string) (id ProfileID, err error) {
 // DayRange is a range within a single day.  Start and End are minutes from the
 // start of day, with 0 being 00:00:00.(0) and 1439, 23:59:59.(9).
 //
-// Additionally, if both Start and End are set to math.MaxUint16, the range is
-// a special zero-length range.  This is done to reduce the amount of pointers
-// and thus GC time.
+// Additionally, if both Start and End are set to [math.MaxUint16], the range is
+// a special zero-length range.  This is needed, because when both Start and End
+// are zero, such DayRange indicates one minute after midnight; as well as to
+// reduce the amount of pointers and thus GC time.
+//
+// TODO(a.garipov):  Refactor.  See AGDNS-1516.
 type DayRange struct {
 	Start uint16
 	End   uint16
@@ -259,6 +261,25 @@ type ParentalProtectionSettings struct {
 	// YoutubeSafeSearch tells if AdGuard DNS should enforce safe search on
 	// YouTube.
 	YoutubeSafeSearch bool
+}
+
+// SafeBrowsingSettings are the safe browsing settings of a profile.
+//
+// NOTE: Do not change fields of this structure without incrementing
+// [internal/profiledb/internal.FileCacheVersion].
+type SafeBrowsingSettings struct {
+	// Enabled defines whether queries from devices of this profile should be
+	// filtered using the safe browsing filter.  This must be true in order for
+	// all parameters below to work.
+	Enabled bool
+
+	// BlockDangerousDomains shows whether the dangerous domains safe browsing
+	// filtering should be enforced.
+	BlockDangerousDomains bool
+
+	// BlockNewlyRegisteredDomains shows whether the newly registered domains
+	// safe browsing filtering should be enforced.
+	BlockNewlyRegisteredDomains bool
 }
 
 // BlockedServiceID is the ID of a blocked service.  While these are usually

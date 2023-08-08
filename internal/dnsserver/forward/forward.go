@@ -23,7 +23,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math/rand"
 	"net"
 	"net/netip"
 	"sync/atomic"
@@ -32,6 +31,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/miekg/dns"
+	"golang.org/x/exp/rand"
 )
 
 // Handler is a struct that implements [dnsserver.Handler] and forwards DNS
@@ -43,6 +43,11 @@ type Handler struct {
 
 	// upstream is the main upstream where this handler forwards DNS queries.
 	upstream Upstream
+
+	// rand is a random-number generator that is not cryptographically secure
+	// and is used for randomized upstream selection and other non-sensitive
+	// tasks.
+	rand *rand.Rand
 
 	// hcDomainTmpl is the template for domains used to perform healthcheck
 	// requests.
@@ -123,10 +128,13 @@ func NewHandler(c *HandlerConfig) (h *Handler) {
 			Network: c.Network,
 			Address: c.Address,
 		}),
+		rand:         rand.New(&rand.LockedSource{}),
 		hcDomainTmpl: c.HealthcheckDomainTmpl,
 		timeout:      c.Timeout,
 		hcBackoff:    c.HealthcheckBackoffDuration,
 	}
+
+	h.rand.Seed(uint64(time.Now().UnixNano()))
 
 	if l := c.MetricsListener; l != nil {
 		h.metrics = l
@@ -196,9 +204,7 @@ func (h *Handler) ServeDNS(
 	}
 
 	if useFallbacks && len(h.fallbacks) > 0 {
-		// #nosec G404 -- We don't need a real random for a simple fallbacks
-		// rotation, we just need a simple fast pseudo-random.
-		i := rand.Intn(len(h.fallbacks))
+		i := h.rand.Intn(len(h.fallbacks))
 		f := h.fallbacks[i]
 		resp, err = h.exchange(ctx, f, req)
 	}

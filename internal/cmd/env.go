@@ -24,18 +24,22 @@ import (
 
 // environments represents the configuration that is kept in the environment.
 type environments struct {
-	BackendEndpoint          *agdhttp.URL `env:"BACKEND_ENDPOINT,notEmpty"`
+	AdultBlockingURL         *agdhttp.URL `env:"ADULT_BLOCKING_URL,notEmpty"`
+	BillStatURL              *agdhttp.URL `env:"BILLSTAT_URL,notEmpty"`
 	BlockedServiceIndexURL   *agdhttp.URL `env:"BLOCKED_SERVICE_INDEX_URL,notEmpty"`
 	ConsulAllowlistURL       *agdhttp.URL `env:"CONSUL_ALLOWLIST_URL,notEmpty"`
 	ConsulDNSCheckKVURL      *agdhttp.URL `env:"CONSUL_DNSCHECK_KV_URL"`
 	ConsulDNSCheckSessionURL *agdhttp.URL `env:"CONSUL_DNSCHECK_SESSION_URL"`
 	FilterIndexURL           *agdhttp.URL `env:"FILTER_INDEX_URL,notEmpty"`
 	GeneralSafeSearchURL     *agdhttp.URL `env:"GENERAL_SAFE_SEARCH_URL,notEmpty"`
-	YoutubeSafeSearchURL     *agdhttp.URL `env:"YOUTUBE_SAFE_SEARCH_URL,notEmpty"`
+	LinkedIPTargetURL        *agdhttp.URL `env:"LINKED_IP_TARGET_URL"`
+	NewRegDomainsURL         *agdhttp.URL `env:"NEW_REG_DOMAINS_URL,notEmpty"`
+	ProfilesURL              *agdhttp.URL `env:"PROFILES_URL,notEmpty"`
 	RuleStatURL              *agdhttp.URL `env:"RULESTAT_URL"`
+	SafeBrowsingURL          *agdhttp.URL `env:"SAFE_BROWSING_URL,notEmpty"`
+	YoutubeSafeSearchURL     *agdhttp.URL `env:"YOUTUBE_SAFE_SEARCH_URL,notEmpty"`
 
 	ConfPath          string `env:"CONFIG_PATH" envDefault:"./config.yaml"`
-	DNSDBPath         string `env:"DNSDB_PATH"`
 	FilterCachePath   string `env:"FILTER_CACHE_PATH" envDefault:"./filters/"`
 	ProfilesCachePath string `env:"PROFILES_CACHE_PATH" envDefault:"./profilecache.json"`
 	GeoIPASNPath      string `env:"GEOIP_ASN_PATH" envDefault:"./asn.mmdb"`
@@ -51,6 +55,7 @@ type environments struct {
 	LogTimestamp    strictBool `env:"LOG_TIMESTAMP" envDefault:"1"`
 	LogVerbose      strictBool `env:"VERBOSE" envDefault:"0"`
 	ResearchMetrics strictBool `env:"RESEARCH_METRICS" envDefault:"0"`
+	ResearchLogs    strictBool `env:"RESEARCH_LOGS" envDefault:"0"`
 }
 
 // readEnvs reads the configuration.
@@ -97,41 +102,6 @@ func (envs *environments) buildErrColl() (errColl agd.ErrorCollector, err error)
 	return errcoll.NewSentryErrorCollector(cli), nil
 }
 
-// buildDNSDB builds and returns an anonymous statistics collector and register
-// its refresher in sigHdlr, if needed.
-func (envs *environments) buildDNSDB(
-	sigHdlr signalHandler,
-	errColl agd.ErrorCollector,
-) (d dnsdb.Interface, err error) {
-	if envs.DNSDBPath == "" {
-		return dnsdb.Empty{}, nil
-	}
-
-	b := dnsdb.NewBolt(&dnsdb.BoltConfig{
-		Path:    envs.DNSDBPath,
-		ErrColl: errColl,
-	})
-
-	refr := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
-		Context:   ctxWithDefaultTimeout,
-		Refresher: b,
-		ErrColl:   errColl,
-		Name:      "dnsdb",
-		// TODO(ameshkov): Consider making configurable.
-		Interval:            15 * time.Minute,
-		RefreshOnShutdown:   true,
-		RoutineLogsAreDebug: false,
-	})
-	err = refr.Start()
-	if err != nil {
-		return nil, fmt.Errorf("starting dnsdb refresher: %w", err)
-	}
-
-	sigHdlr.add(refr)
-
-	return b, nil
-}
-
 // geoIP returns an GeoIP database implementation from environment.
 func (envs *environments) geoIP(
 	c *geoIPConfig,
@@ -139,10 +109,12 @@ func (envs *environments) geoIP(
 	log.Debug("using geoip files %q and %q", envs.GeoIPASNPath, envs.GeoIPCountryPath)
 
 	g, err = geoip.NewFile(&geoip.FileConfig{
-		ASNPath:       envs.GeoIPASNPath,
-		CountryPath:   envs.GeoIPCountryPath,
-		HostCacheSize: c.HostCacheSize,
-		IPCacheSize:   c.IPCacheSize,
+		ASNPath:        envs.GeoIPASNPath,
+		CountryPath:    envs.GeoIPCountryPath,
+		HostCacheSize:  c.HostCacheSize,
+		IPCacheSize:    c.IPCacheSize,
+		AllTopASNs:     geoip.DefaultTopASNs,
+		CountryTopASNs: geoip.DefaultCountryTopASNs,
 	})
 	if err != nil {
 		return nil, err

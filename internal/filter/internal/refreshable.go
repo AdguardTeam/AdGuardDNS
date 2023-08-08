@@ -18,45 +18,61 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/log"
-	"github.com/google/renameio"
+	renameio "github.com/google/renameio/v2"
 )
 
 // Refreshable contains entities common to filters that can refresh themselves
 // from a file and a URL.
 type Refreshable struct {
-	// http is the HTTP client used to refresh the filter.
-	http *agdhttp.Client
-
-	// url is the URL used to refresh the filter.
-	url *url.URL
-
-	// id is the filter list ID, if any.
-	id agd.FilterListID
-
-	// cachePath is the path to the file containing the cached filter rules.
+	http      *agdhttp.Client
+	url       *url.URL
+	id        agd.FilterListID
 	cachePath string
-
-	// staleness is the time after which a file is considered stale.
 	staleness time.Duration
+	maxSize   int64
 }
 
-// NewRefreshable returns a new refreshable filter.  All parameters must be
-// non-zero.
-func NewRefreshable(l *agd.FilterList, cachePath string) (f *Refreshable) {
+// RefreshableConfig is the configuration structure for a refreshable filter.
+type RefreshableConfig struct {
+	// URL is the URL used to refresh the filter.
+	URL *url.URL
+
+	// ID is the filter list ID for this filter.
+	ID agd.FilterListID
+
+	// CachePath is the path to the file containing the cached filter rules.
+	CachePath string
+
+	// Staleness is the time after which a file is considered stale.
+	Staleness time.Duration
+
+	// Timeout is the timeout for the HTTP client used by this refreshable
+	// filter.
+	Timeout time.Duration
+
+	// MaxSize is the maximum size in bytes of the downloadable filter content.
+	MaxSize int64
+}
+
+// NewRefreshable returns a new refreshable filter.  c must not be nil.
+func NewRefreshable(c *RefreshableConfig) (f *Refreshable) {
 	return &Refreshable{
 		http: agdhttp.NewClient(&agdhttp.ClientConfig{
-			Timeout: DefaultFilterRefreshTimeout,
+			Timeout: c.Timeout,
 		}),
-		url:       l.URL,
-		id:        l.ID,
-		cachePath: cachePath,
-		staleness: l.RefreshIvl,
+		url:       c.URL,
+		id:        c.ID,
+		cachePath: c.CachePath,
+		staleness: c.Staleness,
+		maxSize:   c.MaxSize,
 	}
 }
 
 // Refresh reloads the filter data.  If acceptStale is true, refresh doesn't try
 // to load the filter data from its URL when there is already a file in the
 // cache directory, regardless of its staleness.
+//
+// TODO(a.garipov): Consider making refresh return a reader instead of a string.
 func (f *Refreshable) Refresh(
 	ctx context.Context,
 	acceptStale bool,
@@ -77,6 +93,8 @@ func (f *Refreshable) Refresh(
 		if err != nil {
 			return "", fmt.Errorf("refreshing from url %q: %w", f.url, err)
 		}
+	} else {
+		log.Info("%s: using cached data from file %q", f.id, f.cachePath)
 	}
 
 	return text, nil
@@ -163,7 +181,7 @@ func (f *Refreshable) refreshFromURL(
 
 	b := &strings.Builder{}
 	mw := io.MultiWriter(b, tmpFile)
-	_, err = io.Copy(mw, agdio.LimitReader(resp.Body, maxFilterSize))
+	_, err = io.Copy(mw, agdio.LimitReader(resp.Body, f.maxSize))
 	if err != nil {
 		return "", agdhttp.WrapServerError(fmt.Errorf("reading into file: %w", err), resp)
 	}

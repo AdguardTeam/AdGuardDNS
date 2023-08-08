@@ -91,7 +91,7 @@ func (c *Client) do(
 
 	reqID, ok := agd.RequestIDFromContext(ctx)
 	if ok {
-		req.Header.Set(httphdr.XRequestID, string(reqID))
+		req.Header.Set(httphdr.XRequestID, reqID.String())
 	}
 
 	req.Header.Set(httphdr.UserAgent, c.userAgent)
