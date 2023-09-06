@@ -74,3 +74,10 @@ func ParseSubnets(strs ...string) (subnets []netip.Prefix, err error) {
 
 	return subnets, nil
 }
+
+// NormalizeDomain returns lowercased version of the host without the final dot.
+//
+// TODO(a.garipov): Move to golibs.
+func NormalizeDomain(fqdn string) (host string) {
+	return strings.ToLower(strings.TrimSuffix(fqdn, "."))
+}

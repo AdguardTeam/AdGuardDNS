@@ -86,10 +86,17 @@ var _ agd.Refresher = (*RuntimeRecorder)(nil)
 // uploads the currently available data and resets it.
 func (r *RuntimeRecorder) Refresh(ctx context.Context) (err error) {
 	records := r.resetRecords()
+
+	startTime := time.Now()
 	defer func() {
+		dur := time.Since(startTime).Seconds()
+		metrics.BillStatUploadDuration.Observe(dur)
+
 		if err != nil {
 			r.remergeRecords(records)
 			log.Info("billstat: refresh failed, records remerged")
+		} else {
+			metrics.BillStatUploadTimestamp.SetToCurrentTime()
 		}
 
 		metrics.SetStatusGauge(metrics.BillStatUploadStatus, err)
@@ -99,8 +106,6 @@ func (r *RuntimeRecorder) Refresh(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("uploading billstat records: %w", err)
 	}
-
-	metrics.BillStatUploadTimestamp.SetToCurrentTime()
 
 	return nil
 }

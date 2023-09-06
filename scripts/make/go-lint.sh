@@ -131,6 +131,7 @@ underscores() {
 		git ls-files '*_*.go'\
 			| grep -F\
 			-e '_generate.go'\
+			-e '_grpc.pb.go'\
 			-e '_linux.go'\
 			-e '_noreuseport.go'\
 			-e '_others.go'\
@@ -177,45 +178,62 @@ run_linter govulncheck ./... "$dnssrvmod"
 # NOTE: For AdGuard DNS, ignore the generated protobuf file.
 run_linter gocyclo --ignore '\.pb\.go$' --over 10 .
 
-# TODO(a.garipov): Enable for all.
-run_linter gocognit --over 10\
-	./internal/agd/\
-	./internal/agdhttp/\
-	./internal/agdio/\
-	./internal/agdnet/\
-	./internal/agdtest/\
-	./internal/agdtime/\
-	./internal/billstat/\
-	./internal/bindtodevice/\
-	./internal/connlimiter/\
-	./internal/consul/\
-	./internal/debugsvc/\
-	./internal/dnscheck/\
-	./internal/dnsdb/\
-	./internal/dnsserver/cache/\
-	./internal/dnsserver/dnsservertest/\
-	./internal/dnsserver/forward/\
-	./internal/dnsserver/netext/\
-	./internal/dnsserver/pool/\
-	./internal/dnsserver/prometheus/\
-	./internal/dnsserver/querylog/\
-	./internal/dnsserver/ratelimit/\
-	./internal/errcoll/\
-	./internal/filter/internal/custom/\
-	./internal/filter/internal/filtertest/\
-	./internal/filter/internal/resultcache/\
-	./internal/filter/internal/rulelist/\
-	./internal/filter/internal/safesearch/\
-	./internal/filter/internal/serviceblock/\
-	./internal/geoip/\
-	./internal/optlog/\
-	./internal/profiledb/internal/filecachejson/\
-	./internal/profiledb/internal/profiledbtest/\
-	./internal/querylog/\
-	./internal/rulestat/\
-	./internal/tools/\
-	./internal/websvc/\
-	;
+# TODO(a.garipov): Enable 10 for all.
+#
+# TODO(a.garipov): Redo once https://github.com/uudashr/gocognit/issues/22 is
+# fixed.
+gocognit_paths="\
+./internal/metrics 19
+./internal/filter/internal/composite/ 15
+./internal/ecscache 15
+./internal/backend/   14
+./internal/dnsserver/ 14
+./internal/dnsmsg/            11
+./internal/filter/hashprefix/ 11
+./internal/agd/                              10
+./internal/agdhttp/                          10
+./internal/agdio/                            10
+./internal/agdnet/                           10
+./internal/agdprotobuf/                      10
+./internal/agdtest/                          10
+./internal/agdtime/                          10
+./internal/billstat/                         10
+./internal/bindtodevice/                     10
+./internal/cmd/                              10
+./internal/connlimiter/                      10
+./internal/consul/                           10
+./internal/debugsvc/                         10
+./internal/dnscheck/                         10
+./internal/dnsdb/                            10
+./internal/dnsserver/cache/                  10
+./internal/dnsserver/dnsservertest/          10
+./internal/dnsserver/forward/                10
+./internal/dnsserver/netext/                 10
+./internal/dnsserver/pool/                   10
+./internal/dnsserver/prometheus/             10
+./internal/dnsserver/querylog/               10
+./internal/dnsserver/ratelimit/              10
+./internal/dnssvc/                           10
+./internal/errcoll/                          10
+./internal/filter/internal/custom/           10
+./internal/filter/internal/filtertest/       10
+./internal/filter/internal/resultcache/      10
+./internal/filter/internal/rulelist/         10
+./internal/filter/internal/safesearch/       10
+./internal/filter/internal/serviceblock/     10
+./internal/geoip/                            10
+./internal/optlog/                           10
+./internal/profiledb/internal/profiledbtest/ 10
+./internal/querylog/                         10
+./internal/rulestat/                         10
+./internal/tools/                            10
+./internal/websvc/                           10"
+readonly gocognit_paths
+
+echo "$gocognit_paths" | while read -r path max
+do
+	run_linter gocognit --over="$max" "$path"
+done
 
 run_linter ineffassign ./... "$dnssrvmod"
 
@@ -232,9 +250,11 @@ run_linter nilness ./... "$dnssrvmod"
 # Do not use fieldalignment on $dnssrvmod, because ameshkov likes to place
 # struct fields in an order that he considers more readable.
 #
-# TODO(a.garipov): Remove the loop once golang/go#60509 is fixed.
+# TODO(a.garipov): Remove the loop once golang/go#60509, golang/go#61574 are
+# fixed.
 (
 	run_linter fieldalignment ./main.go
+	run_linter -e shadow --strict ./main.go
 
 	set +f
 	for d in ./internal/*/ ./internal/*/*/ ./internal/*/*/*/
@@ -243,18 +263,20 @@ run_linter nilness ./... "$dnssrvmod"
 		in
 		(*/testdata/*|\
 			./internal/dnsserver/*|\
+			./internal/backendpb/|\
 			./internal/profiledb/internal/filecachepb/|\
 			./internal/tools/)
 			continue
 			;;
 		(*)
 			run_linter fieldalignment "$d"
+			run_linter -e shadow --strict "$d"
 			;;
 		esac
 	done
 )
 
-run_linter -e shadow --strict ./... "$dnssrvmod"
+run_linter -e shadow --strict "$dnssrvmod"
 
 run_linter gosec --quiet ./... "$dnssrvmod"
 

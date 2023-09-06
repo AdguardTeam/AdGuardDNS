@@ -12,6 +12,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -26,10 +27,9 @@ const (
 func TestPreUpstreamMwHandler_ServeDNS_withCache(t *testing.T) {
 	remoteIP := netip.MustParseAddr("1.2.3.4")
 	aReq := dnsservertest.NewReq(reqHostname, dns.TypeA, dns.ClassINET)
-	respIP := remoteIP.AsSlice()
 
 	resp := dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
-		dnsservertest.NewA(reqHostname, defaultTTL, respIP),
+		dnsservertest.NewA(reqHostname, defaultTTL, remoteIP),
 	})
 	ctx := agd.ContextWithRequestInfo(context.Background(), &agd.RequestInfo{
 		Host: aReq.Question[0].Name,
@@ -91,7 +91,7 @@ func TestPreUpstreamMwHandler_ServeDNS_withECSCache(t *testing.T) {
 	const ctry = agd.CountryAD
 
 	resp := dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
-		dnsservertest.NewA(reqHostname, defaultTTL, net.IP{1, 2, 3, 4}),
+		dnsservertest.NewA(reqHostname, defaultTTL, remoteIP),
 	})
 
 	numReq := 0
@@ -166,8 +166,8 @@ func TestPreUpstreamMwHandler_ServeDNS_androidMetric(t *testing.T) {
 	ctx = dnsserver.ContextWithStartTime(ctx, time.Now())
 	ctx = agd.ContextWithRequestInfo(ctx, &agd.RequestInfo{})
 
-	ipA := net.IP{1, 2, 3, 4}
-	ipB := net.IP{1, 2, 3, 5}
+	ipA := netip.MustParseAddr("1.2.3.4")
+	ipB := netip.MustParseAddr("1.2.3.5")
 
 	const ttl = 100
 
@@ -228,7 +228,7 @@ func TestPreUpstreamMwHandler_ServeDNS_androidMetric(t *testing.T) {
 
 			h := mw.Wrap(handler)
 
-			rw := dnsserver.NewNonWriterResponseWriter(nil, testRAddr)
+			rw := dnsserver.NewNonWriterResponseWriter(nil, dnssvctest.RemoteAddr)
 
 			err := h.ServeDNS(ctx, rw, tc.req)
 			require.NoError(t, err)

@@ -34,11 +34,11 @@ const testSafeIPStr = "1.2.3.4"
 
 // testIPOfEngineWithIP is the IP address of the safe version of
 // search-engine-ip.example.
-var testIPOfEngineWithIP net.IP = netip.MustParseAddr(testSafeIPStr).AsSlice()
+var testIPOfEngineWithIP = netip.MustParseAddr(testSafeIPStr)
 
 // testIPOfEngineWithDomain is the IP address of the safe version of
 // search-engine-domain.example.
-var testIPOfEngineWithDomain = net.IP{1, 2, 3, 5}
+var testIPOfEngineWithDomain = netip.MustParseAddr("1.2.3.5")
 
 // Common domain names for tests.
 const (
@@ -69,16 +69,16 @@ func TestFilter(t *testing.T) {
 			MaxSize:   filtertest.FilterMaxSize,
 		},
 		Resolver: &agdtest.Resolver{
-			OnLookupIP: func(
+			OnLookupNetIP: func(
 				_ context.Context,
 				_ netutil.AddrFamily,
 				host string,
-			) (ips []net.IP, err error) {
+			) (ips []netip.Addr, err error) {
 				switch host {
 				case testSafeIPStr:
-					return []net.IP{testIPOfEngineWithIP}, nil
+					return []netip.Addr{testIPOfEngineWithIP}, nil
 				case testSafeDomain:
-					return []net.IP{testIPOfEngineWithDomain}, nil
+					return []netip.Addr{testIPOfEngineWithDomain}, nil
 				default:
 					return nil, errors.Error("test resolver error")
 				}
@@ -145,7 +145,7 @@ func TestFilter(t *testing.T) {
 		assert.Equal(t, rm.Rule, agd.FilterRuleText(testEngineWithIP))
 
 		a := testutil.RequireTypeAssert[*dns.A](t, rm.Msg.Answer[0])
-		assert.Equal(t, testIPOfEngineWithIP, a.A)
+		assert.Equal(t, net.IP(testIPOfEngineWithIP.AsSlice()), a.A)
 
 		t.Run("cached", func(t *testing.T) {
 			newReq, newRI := newReq(t, testEngineWithIP, dns.TypeA)
@@ -180,7 +180,7 @@ func TestFilter(t *testing.T) {
 		assert.Equal(t, rm.Rule, agd.FilterRuleText(testEngineWithDomain))
 
 		a := testutil.RequireTypeAssert[*dns.A](t, rm.Msg.Answer[0])
-		assert.Equal(t, testIPOfEngineWithDomain, a.A)
+		assert.Equal(t, net.IP(testIPOfEngineWithDomain.AsSlice()), a.A)
 	})
 }
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"runtime"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/debugsvc"
@@ -15,6 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
@@ -160,6 +162,11 @@ func Main() {
 
 	sigHdlr.add(btdMgr)
 
+	// access
+
+	accessManager, err := access.New(c.Access.BlockedQuestionDomains, c.Access.BlockedClientSubnets)
+	check(err)
+
 	// Server groups
 
 	messages := dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, c.Filters.ResponseTTL.Duration)
@@ -239,6 +246,7 @@ func Main() {
 	}
 
 	dnsConf := &dnssvc.Config{
+		AccessManager:       accessManager,
 		Messages:            messages,
 		SafeBrowsing:        hashprefix.NewMatcher(hashStorages),
 		BillStat:            billStatRec,
@@ -326,6 +334,11 @@ func collectPanics(errColl agd.ErrorCollector) {
 	}
 
 	errColl.Collect(context.Background(), err)
+
+	errFlushColl, ok := errColl.(errcoll.ErrorFlushCollector)
+	if ok {
+		errFlushColl.Flush()
+	}
 
 	panic(v)
 }

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"strings"
 	"testing"
@@ -222,8 +223,8 @@ func TestConsul_Check(t *testing.T) {
 	conf := &dnscheck.ConsulConfig{
 		Messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, ttl*time.Second),
 		Domains:  []string{checkDomain},
-		IPv4:     []net.IP{{1, 2, 3, 4}},
-		IPv6:     []net.IP{net.ParseIP("1234::5678")},
+		IPv4:     []netip.Addr{netip.MustParseAddr("1.2.3.4")},
+		IPv6:     []netip.Addr{netip.MustParseAddr("1234::5678")},
 	}
 
 	dnsCk, err := dnscheck.NewConsul(conf)

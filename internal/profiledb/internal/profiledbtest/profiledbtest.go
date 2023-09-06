@@ -13,18 +13,12 @@ import (
 )
 
 // ProfileID is the profile ID for tests.
-//
-// Keep in sync with internal/profiledb/testdata/profiles.json.
 const ProfileID agd.ProfileID = "prof1234"
 
 // DeviceID is the profile ID for tests.
-//
-// Keep in sync with internal/profiledb/testdata/profiles.json.
 const DeviceID agd.DeviceID = "dev1234"
 
 // NewProfile returns the common profile and device for tests.
-//
-// Keep in sync with internal/profiledb/testdata/profiles.json.
 func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 	tb.Helper()
 

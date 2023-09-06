@@ -1,4 +1,4 @@
-package dnssvc
+package initial
 
 import (
 	"context"
@@ -13,30 +13,28 @@ import (
 	"github.com/miekg/dns"
 )
 
-// Handling For Special Purpose Requests
-//
 // TODO(a.garipov): Consider creating a new prefiltering package for this kind
 // of filtering-before-filtering.
 
 const (
-	// resolverArpaDomain is the non-FQDN version of the DNS Resolver
+	// ResolverARPADomain is the non-FQDN version of the DNS Resolver
 	// Special-Use domain pointing to itself.
 	//
 	// See https://www.ietf.org/archive/id/draft-ietf-add-ddr-07.html#section-8.
-	resolverArpaDomain = "resolver.arpa"
+	ResolverARPADomain = "resolver.arpa"
 
-	// ddrLabel is the leading label of the special domain name for DDR.
-	ddrLabel = "_dns"
+	// DDRLabel is the leading label of the special domain name for DDR.
+	DDRLabel = "_dns"
 
-	// ddrDomain is the non-FQDN version of the Discovery of Designated
+	// DDRDomain is the non-FQDN version of the Discovery of Designated
 	// Resolvers for querying the resolver with unknown or absent name.
-	ddrDomain = ddrLabel + "." + resolverArpaDomain
+	DDRDomain = DDRLabel + "." + ResolverARPADomain
 
-	// firefoxCanaryHost is the hostname that Firefox uses to check if it
+	// FirefoxCanaryHost is the hostname that Firefox uses to check if it
 	// should use its own DNS-over-HTTPS settings.
 	//
 	// See https://support.mozilla.org/en-US/kb/configuring-networks-disable-dns-over-https.
-	firefoxCanaryHost = "use-application-dns.net"
+	FirefoxCanaryHost = "use-application-dns.net"
 )
 
 // Hostnames that Apple devices use to check if Apple Private Relay can be
@@ -45,14 +43,14 @@ const (
 //
 // See https://developer.apple.com/support/prepare-your-network-for-icloud-private-relay.
 const (
-	applePrivateRelayMaskHost       = "mask.icloud.com"
-	applePrivateRelayMaskH2Host     = "mask-h2.icloud.com"
-	applePrivateRelayMaskCanaryHost = "mask-canary.icloud.com"
+	ApplePrivateRelayMaskHost       = "mask.icloud.com"
+	ApplePrivateRelayMaskH2Host     = "mask-h2.icloud.com"
+	ApplePrivateRelayMaskCanaryHost = "mask-canary.icloud.com"
 )
 
 // reqInfoSpecialHandler returns a handler that can handle a special-domain
 // query based on the request info, as well as the handler's name for debugging.
-func (mw *initMw) reqInfoSpecialHandler(
+func (mw *Middleware) reqInfoSpecialHandler(
 	ri *agd.RequestInfo,
 	cl dnsmsg.Class,
 ) (f reqInfoHandlerFunc, name string) {
@@ -62,7 +60,7 @@ func (mw *initMw) reqInfoSpecialHandler(
 
 	if mw.isDDRRequest(ri) {
 		return mw.handleDDR, "ddr"
-	} else if netutil.IsSubdomain(ri.Host, resolverArpaDomain) {
+	} else if netutil.IsSubdomain(ri.Host, ResolverARPADomain) {
 		// A badly formed resolver.arpa subdomain query.
 		return mw.handleBadResolverARPA, "bad_resolver_arpa"
 	}
@@ -86,7 +84,7 @@ type reqInfoHandlerFunc func(
 // ARPA if the requested host is a subdomain of resolver.arpa SUDN.
 //
 // See https://datatracker.ietf.org/doc/html/draft-ietf-add-ddr-07.
-func (mw *initMw) isDDRRequest(ri *agd.RequestInfo) (ok bool) {
+func (mw *Middleware) isDDRRequest(ri *agd.RequestInfo) (ok bool) {
 	if ri.QType != dns.TypeSVCB {
 		// Resolvers should respond to queries of any type other than SVCB for
 		// _dns.resolver.arpa with NODATA and queries of any type for any domain
@@ -97,27 +95,34 @@ func (mw *initMw) isDDRRequest(ri *agd.RequestInfo) (ok bool) {
 	}
 
 	host := ri.Host
-	if host == ddrDomain {
+	if host == DDRDomain {
 		// A simple resolver.arpa request.
 		return true
 	}
 
-	if firstLabel, resolverDomain, cut := strings.Cut(host, "."); cut && firstLabel == ddrLabel {
-		ddr := mw.srvGrp.DDR
-		if ddr.PublicTargets.Has(resolverDomain) {
-			// The client may simply send a DNS SVCB query using the known name
-			// of the resolver.  This query can be issued to the named Encrypted
-			// Resolver itself or to any other resolver.  Unlike the case of
-			// bootstrapping from an Unencrypted Resolver, these records should
-			// be available in the public DNS.
-			return true
-		}
+	return isDDRDomain(mw.srvGrp.DDR, ri.Device, host)
+}
 
-		firstLabel, resolverDomain, cut = strings.Cut(resolverDomain, ".")
-		if cut && ri.Device != nil && firstLabel == string(ri.Device.ID) {
-			// A request for the device ID resolver domain.
-			return ddr.DeviceTargets.Has(resolverDomain)
-		}
+// isDDRDomain returns true if host is a DDR domain.
+func isDDRDomain(ddr *agd.DDR, dev *agd.Device, host string) (ok bool) {
+	firstLabel, resolverDomain, cut := strings.Cut(host, ".")
+	if !cut || firstLabel != DDRLabel {
+		return false
+	}
+
+	if ddr.PublicTargets.Has(resolverDomain) {
+		// The client may simply send a DNS SVCB query using the known name of
+		// the resolver.  This query can be issued to the named Encrypted
+		// Resolver itself or to any other resolver.  Unlike the case of
+		// bootstrapping from an Unencrypted Resolver, these records should be
+		// available in the public DNS.
+		return true
+	}
+
+	firstLabel, resolverDomain, cut = strings.Cut(resolverDomain, ".")
+	if cut && dev != nil && firstLabel == string(dev.ID) {
+		// A request for the device ID resolver domain.
+		return ddr.DeviceTargets.Has(resolverDomain)
 	}
 
 	return false
@@ -125,7 +130,7 @@ func (mw *initMw) isDDRRequest(ri *agd.RequestInfo) (ok bool) {
 
 // handleDDR checks if the request is for the Discovery of Designated Resolvers
 // and writes a response if needed.
-func (mw *initMw) handleDDR(
+func (mw *Middleware) handleDDR(
 	ctx context.Context,
 	rw dnsserver.ResponseWriter,
 	req *dns.Msg,
@@ -145,7 +150,7 @@ func (mw *initMw) handleDDR(
 // newRespDDR returns a new Discovery of Designated Resolvers response copying
 // it from the prebuilt templates in srvGrp and modifying it in accordance with
 // the request data.  req must not be nil.
-func (mw *initMw) newRespDDR(req *dns.Msg, dev *agd.Device) (resp *dns.Msg) {
+func (mw *Middleware) newRespDDR(req *dns.Msg, dev *agd.Device) (resp *dns.Msg) {
 	resp = mw.messages.NewRespMsg(req)
 	name := req.Question[0].Name
 	ddr := mw.srvGrp.DDR
@@ -173,7 +178,7 @@ func (mw *initMw) newRespDDR(req *dns.Msg, dev *agd.Device) (resp *dns.Msg) {
 }
 
 // handleBadResolverARPA writes a NODATA response.
-func (mw *initMw) handleBadResolverARPA(
+func (mw *Middleware) handleBadResolverARPA(
 	ctx context.Context,
 	rw dnsserver.ResponseWriter,
 	req *dns.Msg,
@@ -189,7 +194,7 @@ func (mw *initMw) handleBadResolverARPA(
 // specialDomainHandler returns a handler that can handle a special-domain
 // query for Apple Private Relay or Firefox canary domain based on the request
 // or profile information, as well as the handler's name for debugging.
-func (mw *initMw) specialDomainHandler(
+func (mw *Middleware) specialDomainHandler(
 	ri *agd.RequestInfo,
 ) (f reqInfoHandlerFunc, name string) {
 	qt := ri.QType
@@ -202,13 +207,13 @@ func (mw *initMw) specialDomainHandler(
 
 	switch host {
 	case
-		applePrivateRelayMaskHost,
-		applePrivateRelayMaskH2Host,
-		applePrivateRelayMaskCanaryHost:
+		ApplePrivateRelayMaskHost,
+		ApplePrivateRelayMaskH2Host,
+		ApplePrivateRelayMaskCanaryHost:
 		if shouldBlockPrivateRelay(ri, prof) {
 			return mw.handlePrivateRelay, "apple_private_relay"
 		}
-	case firefoxCanaryHost:
+	case FirefoxCanaryHost:
 		if shouldBlockFirefoxCanary(ri, prof) {
 			return mw.handleFirefoxCanary, "firefox"
 		}
@@ -234,7 +239,7 @@ func shouldBlockPrivateRelay(ri *agd.RequestInfo, prof *agd.Profile) (ok bool) {
 
 // handlePrivateRelay responds to Apple Private Relay queries with an NXDOMAIN
 // response.
-func (mw *initMw) handlePrivateRelay(
+func (mw *Middleware) handlePrivateRelay(
 	ctx context.Context,
 	rw dnsserver.ResponseWriter,
 	req *dns.Msg,
@@ -262,7 +267,7 @@ func shouldBlockFirefoxCanary(ri *agd.RequestInfo, prof *agd.Profile) (ok bool) 
 
 // handleFirefoxCanary checks if the request is for the fully-qualified domain
 // name that Firefox uses to check DoH settings and writes a response if needed.
-func (mw *initMw) handleFirefoxCanary(
+func (mw *Middleware) handleFirefoxCanary(
 	ctx context.Context,
 	rw dnsserver.ResponseWriter,
 	req *dns.Msg,

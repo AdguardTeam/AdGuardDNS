@@ -12,6 +12,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/cache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/ecscache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/errors"
@@ -95,7 +96,7 @@ func (mh *preUpstreamMwHandler) ServeDNS(
 		return mh.serveAndroidMetric(ctx, mh.next, rw, req, rn)
 	}
 
-	nwrw := makeNonWriter(rw)
+	nwrw := internal.MakeNonWriter(rw)
 	err = mh.next.ServeDNS(ctx, nwrw, req)
 	if err != nil {
 		// Don't wrap the error, because this is the main flow, and there is
@@ -130,7 +131,7 @@ func (mh *preUpstreamMwHandler) serveAndroidMetric(
 	req := dnsmsg.Clone(origReq)
 	req.Question[0].Name = replName
 
-	nwrw := makeNonWriter(rw)
+	nwrw := internal.MakeNonWriter(rw)
 	err = h.ServeDNS(ctx, nwrw, req)
 	if err != nil {
 		// Don't wrap the error, because this is the main flow, and there is

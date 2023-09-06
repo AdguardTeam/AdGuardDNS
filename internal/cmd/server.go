@@ -6,7 +6,6 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/stringutil"
@@ -205,10 +204,8 @@ func (s *server) bindData(
 	ifaces := s.BindInterfaces
 	bindData = make([]*agd.ServerBindData, 0, len(ifaces))
 	for i, iface := range ifaces {
-		address := string(iface.ID)
-
 		for j, subnet := range iface.Subnets {
-			var lc netext.ListenConfig
+			var lc *bindtodevice.ListenConfig
 			lc, err = btdMgr.ListenConfig(iface.ID, subnet)
 			if err != nil {
 				const errStr = "bind_interface at index %d: subnet at index %d: %w"
@@ -218,7 +215,7 @@ func (s *server) bindData(
 
 			bindData = append(bindData, &agd.ServerBindData{
 				ListenConfig: lc,
-				Address:      address,
+				Address:      lc.Addr(),
 			})
 		}
 	}

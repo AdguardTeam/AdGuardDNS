@@ -20,27 +20,23 @@ type connIndex struct {
 	listeners   []*chanListener
 }
 
-// subnetSortsBefore returns true if subnet x sorts before subnet y.
-func subnetSortsBefore(x, y netip.Prefix) (isBefore bool) {
-	xAddr, xBits := x.Addr(), x.Bits()
-	yAddr, yBits := y.Addr(), y.Bits()
-	if xBits == yBits {
-		return xAddr.Less(yAddr)
-	}
-
-	return xBits > yBits
-}
-
 // subnetCompare is a comparison function for the two subnets.  It returns -1 if
 // x sorts before y, 1 if x sorts after y, and 0 if their relative sorting
 // position is the same.
 func subnetCompare(x, y netip.Prefix) (cmp int) {
-	switch {
-	case x == y:
+	if x == y {
 		return 0
-	case subnetSortsBefore(x, y):
+	}
+
+	xAddr, xBits := x.Addr(), x.Bits()
+	yAddr, yBits := y.Addr(), y.Bits()
+	if xBits == yBits {
+		return xAddr.Compare(yAddr)
+	}
+
+	if xBits > yBits {
 		return -1
-	default:
+	} else {
 		return 1
 	}
 }

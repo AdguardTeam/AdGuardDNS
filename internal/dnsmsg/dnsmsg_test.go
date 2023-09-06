@@ -31,6 +31,12 @@ const (
 	testFQDN   = testDomain + "."
 )
 
+// Common IP addresses for tests.
+var (
+	testIPv4 = netip.MustParseAddr("1.2.3.4")
+	testIPv6 = netip.MustParseAddr("1234::cdef")
+)
+
 // Common test constants.
 const (
 	ipv4MaskBits = 24

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -23,6 +22,7 @@ import (
 	"github.com/miekg/dns"
 	cache "github.com/patrickmn/go-cache"
 	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/exp/slices"
 	"golang.org/x/time/rate"
 )
 
@@ -46,8 +46,8 @@ type Consul struct {
 	nodeLocation string
 	nodeName     string
 
-	ipv4 []net.IP
-	ipv6 []net.IP
+	ipv4 []netip.Addr
+	ipv6 []netip.Addr
 }
 
 // ConsulConfig is the configuration structure for Consul KV based DNS checker.
@@ -77,10 +77,10 @@ type ConsulConfig struct {
 	NodeName string
 
 	// IPv4 are the IPv4 addresses to respond with to A requests.
-	IPv4 []net.IP
+	IPv4 []netip.Addr
 
 	// IPv6 are the IPv6 addresses to respond with to AAAA requests.
-	IPv6 []net.IP
+	IPv6 []netip.Addr
 
 	// TTL defines, for how long to keep the information about a single client.
 	TTL time.Duration
@@ -108,8 +108,8 @@ func NewConsul(c *ConsulConfig) (cc *Consul, err error) {
 		nodeLocation: c.NodeLocation,
 		nodeName:     c.NodeName,
 
-		ipv4: netutil.CloneIPs(c.IPv4),
-		ipv6: netutil.CloneIPs(c.IPv6),
+		ipv4: slices.Clone(c.IPv4),
+		ipv6: slices.Clone(c.IPv6),
 	}
 
 	// TODO(e.burkov):  Validate also c.ConsulSessionURL?

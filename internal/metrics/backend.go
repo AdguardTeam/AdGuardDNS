@@ -69,3 +69,34 @@ var ProfilesSyncDuration = promauto.NewHistogram(prometheus.HistogramOpts{
 	// massive. This is why the buckets go up to 240 seconds.
 	Buckets: []float64{0.01, 0.1, 1, 5, 10, 30, 60, 120, 240},
 })
+
+// ProfilesFullSyncDuration is a gauge with the duration of the last full sync.
+// It is a gauge because full syncs are not expected to be common.
+var ProfilesFullSyncDuration = promauto.NewGauge(prometheus.GaugeOpts{
+	Name:      "profiles_full_sync_duration_seconds",
+	Subsystem: subsystemBackend,
+	Namespace: namespace,
+	Help:      "Time elapsed on fully syncing user profiles with the backend, in seconds.",
+})
+
+// GRPCAvgProfileRecvDuration is a histogram with the average duration of a
+// receive of a single profile during a backend call.
+var GRPCAvgProfileRecvDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+	Name:      "grpc_avg_profile_recv_duration_seconds",
+	Subsystem: subsystemBackend,
+	Namespace: namespace,
+	Help: "The average duration of a receive of a profile during a call to the backend, " +
+		"in seconds.",
+	Buckets: []float64{0.000_001, 0.000_010, 0.000_100, 0.001},
+})
+
+// GRPCAvgProfileDecDuration is a histogram with the average duration of
+// decoding a single profile during a backend call.
+var GRPCAvgProfileDecDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+	Name:      "grpc_avg_profile_dec_duration_seconds",
+	Subsystem: subsystemBackend,
+	Namespace: namespace,
+	Help: "The average duration of decoding one profile during a call to the backend, " +
+		"in seconds.",
+	Buckets: []float64{0.000_001, 0.000_010, 0.000_100, 0.001},
+})

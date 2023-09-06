@@ -3,10 +3,12 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/backend"
+	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/netutil"
@@ -87,12 +89,14 @@ func setupBillStat(
 	sigHdlr signalHandler,
 	errColl agd.ErrorCollector,
 ) (rec *billstat.RuntimeRecorder, err error) {
-	billStatConf := &backend.BillStatConfig{
-		BaseEndpoint: netutil.CloneURL(&envs.BillStatURL.URL),
+	apiURL := netutil.CloneURL(&envs.BillStatURL.URL)
+	billStatUploader, err := setupBillStatUploader(apiURL, errColl)
+	if err != nil {
+		return nil, fmt.Errorf("creating bill stat uploader: %w", err)
 	}
 
 	rec = billstat.NewRuntimeRecorder(&billstat.RuntimeRecorderConfig{
-		Uploader: backend.NewBillStat(billStatConf),
+		Uploader: billStatUploader,
 	})
 
 	refrIvl := conf.RefreshIvl.Duration
@@ -127,13 +131,12 @@ func setupProfDB(
 	sigHdlr signalHandler,
 	errColl agd.ErrorCollector,
 ) (profDB *profiledb.Default, err error) {
-	profStrgConf := &backend.ProfileStorageConfig{
-		BaseEndpoint: netutil.CloneURL(&envs.ProfilesURL.URL),
-		Now:          time.Now,
-		ErrColl:      errColl,
+	apiURL := netutil.CloneURL(&envs.ProfilesURL.URL)
+	profStrg, err := setupProfStorage(apiURL, errColl)
+	if err != nil {
+		return nil, fmt.Errorf("creating profile storage: %w", err)
 	}
 
-	profStrg := backend.NewProfileStorage(profStrgConf)
 	profDB, err = profiledb.New(profStrg, conf.FullRefreshIvl.Duration, envs.ProfilesCachePath)
 	if err != nil {
 		return nil, fmt.Errorf("creating default profile database: %w", err)
@@ -161,4 +164,56 @@ func setupProfDB(
 	sigHdlr.add(profDBRefr)
 
 	return profDB, nil
+}
+
+// Backend API URL schemes.
+const (
+	schemeHTTP  = "http"
+	schemeHTTPS = "https"
+	schemeGRPC  = "grpc"
+	schemeGRPCS = "grpcs"
+)
+
+// setupProfStorage creates and returns a profile storage depending on the
+// provided API URL.
+func setupProfStorage(
+	apiURL *url.URL,
+	errColl agd.ErrorCollector,
+) (s profiledb.Storage, err error) {
+	switch apiURL.Scheme {
+	case schemeGRPC, schemeGRPCS:
+		return backendpb.NewProfileStorage(&backendpb.ProfileStorageConfig{
+			Endpoint: apiURL,
+			ErrColl:  errColl,
+		})
+	case schemeHTTP, schemeHTTPS:
+		return backend.NewProfileStorage(&backend.ProfileStorageConfig{
+			BaseEndpoint: apiURL,
+			Now:          time.Now,
+			ErrColl:      errColl,
+		}), nil
+	default:
+		return nil, fmt.Errorf("invalid backend api url: %s", apiURL)
+	}
+}
+
+// setupBillStatUploader creates and returns a billstat uploader depending on
+// the provided API URL.
+func setupBillStatUploader(
+	apiURL *url.URL,
+	errColl agd.ErrorCollector,
+) (s billstat.Uploader, err error) {
+	switch apiURL.Scheme {
+	case schemeGRPC, schemeGRPCS:
+		return backendpb.NewBillStat(&backendpb.BillStatConfig{
+			ErrColl:  errColl,
+			Endpoint: apiURL,
+		})
+	case schemeHTTP, schemeHTTPS:
+		return backend.NewBillStat(&backend.BillStatConfig{
+			BaseEndpoint: apiURL,
+		}), nil
+	default:
+		return nil, fmt.Errorf("invalid backend api url: %s", apiURL)
+	}
 }

@@ -9,7 +9,7 @@ import (
 // responsePaddingMaxSize is used to calculate the EDNS padding length.  We use
 // the Random-Length Padding strategy from RFC 8467 as we find it more
 // efficient, it requires less extra traffic while provides comparable entropy.
-const responsePaddingMaxSize = 128
+const responsePaddingMaxSize = 32
 
 // respPadBuf is a fixed buffer to draw on for padding.
 var respPadBuf [responsePaddingMaxSize]byte
@@ -64,7 +64,7 @@ func normalize(network Network, proto Protocol, req, resp *dns.Msg) {
 
 	// In the case of encrypted protocols we should pad responses.
 	if proto.HasPaddingSupport() {
-		padAnswer(resp, reqOpt, respOpt)
+		padAnswer(reqOpt, respOpt)
 	}
 }
 
@@ -123,7 +123,7 @@ func filterUnsupportedOptions(o []dns.EDNS0) (supported []dns.EDNS0) {
 // padAnswer adds padding to a DNS response before it's sent back over an
 // encrypted DNS protocol according to RFC 8467.  Unencrypted responses should
 // not be padded.  Inspired by github.com/folbricht/routedns padding.
-func padAnswer(resp *dns.Msg, reqOpt, respOpt *dns.OPT) {
+func padAnswer(reqOpt, respOpt *dns.OPT) {
 	if findOption[*dns.EDNS0_PADDING](reqOpt) == nil {
 		// According to the RFC, responders MAY (or may not) pad responses when
 		// the padding option is not included in the request.  In our case, we
@@ -146,22 +146,14 @@ func padAnswer(resp *dns.Msg, reqOpt, respOpt *dns.OPT) {
 	// TODO(ameshkov): Consider changing to crypto/rand, need to hold a vote.
 	// #nosec G404 -- We don't need a real random for a simple padding
 	// randomization, pseudo-random is enough.
-	padLen := rand.Intn(responsePaddingMaxSize-1) + 1
-
-	// If padding would make the packet larger than the request EDNS0 allows,
-	// we need to truncate it.
 	//
-	// TODO(ameshkov): Consider removing this check and not calling resp.Len().
-	// resp.Len() is a rather heavy function which we'd better avoid calling.
-	// However, we risk having a message larger than 64kB in this case.
-	answerLen := resp.Len()
-	if packetSize := int(reqOpt.UDPSize()); answerLen+padLen > packetSize {
-		padLen = packetSize - answerLen
-		if padLen < 0 {
-			// Still doesn't fit? Give up on padding.
-			padLen = 0
-		}
-	}
+	// Note, that we don't check for whether reqOpt.UDPSize() here is smaller
+	// than resp.Len() + padLen so in theory the padded response may be larger
+	// than 64kB.  This is an acceptable risk considering the savings on
+	// avoiding calling resp.Len().
+	//
+	// TODO(ameshkov): Return this check if we optimize resp.Len().
+	padLen := rand.Intn(responsePaddingMaxSize-1) + 1
 
 	paddingOpt.Padding = respPadBuf[:padLen:padLen]
 }

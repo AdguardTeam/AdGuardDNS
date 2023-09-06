@@ -2,7 +2,6 @@ package composite_test
 
 import (
 	"context"
-	"net"
 	"net/http"
 	"net/netip"
 	"testing"
@@ -180,6 +179,9 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 		dnsRewrite2Rules      = filtertest.BlockRule + "$dnsrewrite=1.2.3.4\n" +
 			filtertest.BlockRule + "$dnsrewrite=1.2.3.5"
 		dnsRewriteRuleTXT = filtertest.BlockRule + "$dnsrewrite=NOERROR;TXT;abcdefg"
+		dnsRewriteRuleSOA = filtertest.BlockRule + "$dnsrewrite=NOERROR;SOA;ns1." +
+			filtertest.ReqFQDN + " hostmaster." + filtertest.ReqFQDN + " 1 3600 1800 604800 86400"
+		dnsRewriteTypedRules = dnsRewriteRuleTXT + "\n" + dnsRewriteRuleSOA
 	)
 
 	var (
@@ -188,6 +190,7 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 		rlCustomRefused  = newImmutable(t, dnsRewriteRuleRefused, agd.FilterListIDCustom)
 		rlCustomCname    = newImmutable(t, dnsRewriteRuleCname, agd.FilterListIDCustom)
 		rlCustom2Rules   = newImmutable(t, dnsRewrite2Rules, agd.FilterListIDCustom)
+		rlCustomTyped    = newImmutable(t, dnsRewriteTypedRules, agd.FilterListIDCustom)
 	)
 
 	req := dnsservertest.NewReq(filtertest.ReqFQDN, dns.TypeA, dns.ClassINET)
@@ -196,23 +199,33 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 	modifiedReq := dnsmsg.Clone(req)
 	modifiedReq.Question[0].Name = "new-cname.example."
 
+	txtReq := dnsmsg.Clone(req)
+	txtReq.Question[0].Qtype = dns.TypeTXT
+
+	soaReq := dnsmsg.Clone(req)
+	soaReq.Question[0].Qtype = dns.TypeSOA
+
 	testCases := []struct {
 		custom    *rulelist.Immutable
+		req       *dns.Msg
 		wantRes   internal.Result
 		name      string
 		ruleLists []*rulelist.Refreshable
 	}{{
 		custom:    nil,
+		req:       req,
 		wantRes:   &internal.ResultBlocked{List: testFltListID1, Rule: blockRule},
 		name:      "block",
 		ruleLists: []*rulelist.Refreshable{rlNonRewrite},
 	}, {
 		custom:    nil,
+		req:       req,
 		wantRes:   &internal.ResultBlocked{List: testFltListID1, Rule: blockRule},
 		name:      "dnsrewrite_no_effect",
 		ruleLists: []*rulelist.Refreshable{rlNonRewrite, rlRewriteIgnored},
 	}, {
 		custom: rlCustomRefused,
+		req:    req,
 		wantRes: &internal.ResultModified{
 			Msg:  dnsservertest.NewResp(dns.RcodeRefused, req),
 			List: agd.FilterListIDCustom,
@@ -222,6 +235,7 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 		ruleLists: []*rulelist.Refreshable{rlNonRewrite, rlRewriteIgnored},
 	}, {
 		custom: rlCustomCname,
+		req:    req,
 		wantRes: &internal.ResultModified{
 			Msg:  modifiedReq,
 			List: agd.FilterListIDCustom,
@@ -231,17 +245,18 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 		ruleLists: []*rulelist.Refreshable{rlNonRewrite, rlRewriteIgnored},
 	}, {
 		custom: rlCustom2Rules,
+		req:    req,
 		wantRes: &internal.ResultModified{
 			Msg: dnsservertest.NewResp(dns.RcodeSuccess, req, dnsservertest.SectionAnswer{
 				dnsservertest.NewA(
 					filtertest.ReqFQDN,
 					agdtest.FilteredResponseTTLSec,
-					net.IP{1, 2, 3, 4},
+					netip.MustParseAddr("1.2.3.4"),
 				),
 				dnsservertest.NewA(
 					filtertest.ReqFQDN,
 					agdtest.FilteredResponseTTLSec,
-					net.IP{1, 2, 3, 5},
+					netip.MustParseAddr("1.2.3.5"),
 				),
 			}),
 			List: agd.FilterListIDCustom,
@@ -249,6 +264,31 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 		},
 		name:      "dnsrewrite_answers",
 		ruleLists: []*rulelist.Refreshable{rlNonRewrite, rlRewriteIgnored},
+	}, {
+		custom: rlCustomTyped,
+		req:    txtReq,
+		wantRes: &internal.ResultModified{
+			Msg: dnsservertest.NewResp(dns.RcodeSuccess, txtReq, dnsservertest.SectionAnswer{
+				dnsservertest.NewTXT(
+					filtertest.ReqFQDN,
+					agdtest.FilteredResponseTTLSec,
+					"abcdefg",
+				),
+			}),
+			List: agd.FilterListIDCustom,
+			Rule: "",
+		},
+		name:      "dnsrewrite_txt",
+		ruleLists: []*rulelist.Refreshable{},
+	}, {
+		custom: rlCustomTyped,
+		req:    soaReq,
+		wantRes: &internal.ResultModified{
+			Msg:  dnsservertest.NewResp(dns.RcodeSuccess, soaReq),
+			List: agd.FilterListIDCustom,
+		},
+		name:      "dnsrewrite_soa",
+		ruleLists: []*rulelist.Refreshable{},
 	}}
 
 	for _, tc := range testCases {
@@ -262,10 +302,10 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 			ri := &agd.RequestInfo{
 				Messages: agdtest.NewConstructor(),
 				Host:     filtertest.ReqHost,
-				QType:    dns.TypeA,
+				QType:    tc.req.Question[0].Qtype,
 			}
 
-			res, fltErr := f.FilterRequest(ctx, req, ri)
+			res, fltErr := f.FilterRequest(ctx, tc.req, ri)
 			require.NoError(t, fltErr)
 
 			assert.Equal(t, tc.wantRes, res)
@@ -364,7 +404,7 @@ func TestFilter_FilterRequest_safeSearch(t *testing.T) {
 
 	const rewriteRule = filtertest.BlockRule + "$dnsrewrite=NOERROR;A;" + safeSearchIPStr
 
-	var safeSearchIP net.IP = netip.MustParseAddr(safeSearchIPStr).AsSlice()
+	safeSearchIP := netip.MustParseAddr(safeSearchIPStr)
 	cachePath, srvURL := filtertest.PrepareRefreshable(t, nil, rewriteRule, http.StatusOK)
 
 	const fltListID = agd.FilterListIDGeneralSafeSearch
@@ -379,12 +419,12 @@ func TestFilter_FilterRequest_safeSearch(t *testing.T) {
 			MaxSize:   filtertest.FilterMaxSize,
 		},
 		Resolver: &agdtest.Resolver{
-			OnLookupIP: func(
+			OnLookupNetIP: func(
 				_ context.Context,
 				_ netutil.AddrFamily,
 				_ string,
-			) (ips []net.IP, err error) {
-				return []net.IP{safeSearchIP}, nil
+			) (ips []netip.Addr, err error) {
+				return []netip.Addr{safeSearchIP}, nil
 			},
 		},
 		ErrColl: &agdtest.ErrorCollector{
@@ -460,9 +500,9 @@ func TestFilter_FilterResponse(t *testing.T) {
 	)
 
 	var (
-		passedIPv4  net.IP = netip.MustParseAddr(passedIPv4Str).AsSlice()
-		blockedIPv4 net.IP = netip.MustParseAddr(blockedIPv4Str).AsSlice()
-		blockedIPv6 net.IP = netip.MustParseAddr(blockedIPv6Str).AsSlice()
+		passedIPv4  = netip.MustParseAddr(passedIPv4Str)
+		blockedIPv4 = netip.MustParseAddr(blockedIPv4Str)
+		blockedIPv6 = netip.MustParseAddr(blockedIPv6Str)
 	)
 
 	blockingRL := newFromStr(t, blockRules, testFltListID1)
@@ -492,7 +532,7 @@ func TestFilter_FilterResponse(t *testing.T) {
 		wantRule: filtertest.ReqHost,
 		respAns: dnsservertest.SectionAnswer{
 			dnsservertest.NewCNAME(cnameReqFQDN, ttl, filtertest.ReqFQDN),
-			dnsservertest.NewA(filtertest.ReqFQDN, ttl, net.IP{1, 2, 3, 4}),
+			dnsservertest.NewA(filtertest.ReqFQDN, ttl, netip.MustParseAddr("1.2.3.4")),
 		},
 		qType: dns.TypeA,
 	}, {
@@ -515,38 +555,45 @@ func TestFilter_FilterResponse(t *testing.T) {
 		name:     "ipv4hint",
 		reqFQDN:  filtertest.ReqFQDN,
 		wantRule: blockedIPv4Str,
-		respAns: dnsservertest.SectionAnswer{
-			dnsservertest.NewHTTPS(filtertest.ReqFQDN, ttl, []net.IP{blockedIPv4}, []net.IP{}),
-		},
+		respAns: dnsservertest.SectionAnswer{dnsservertest.NewHTTPS(
+			filtertest.ReqFQDN,
+			ttl,
+			[]netip.Addr{blockedIPv4},
+			[]netip.Addr{},
+		)},
 		qType: dns.TypeHTTPS,
 	}, {
 		name:     "ipv6hint",
 		reqFQDN:  filtertest.ReqFQDN,
 		wantRule: blockedIPv6Str,
-		respAns: dnsservertest.SectionAnswer{
-			dnsservertest.NewHTTPS(filtertest.ReqFQDN, ttl, []net.IP{}, []net.IP{blockedIPv6}),
-		},
+		respAns: dnsservertest.SectionAnswer{dnsservertest.NewHTTPS(
+			filtertest.ReqFQDN,
+			ttl,
+			[]netip.Addr{},
+			[]netip.Addr{blockedIPv6},
+		)},
 		qType: dns.TypeHTTPS,
 	}, {
 		name:     "ipv4_ipv6_hints",
 		reqFQDN:  filtertest.ReqFQDN,
 		wantRule: blockedIPv4Str,
-		respAns: dnsservertest.SectionAnswer{
-			dnsservertest.NewHTTPS(
-				filtertest.ReqFQDN,
-				ttl,
-				[]net.IP{blockedIPv4},
-				[]net.IP{blockedIPv6},
-			),
-		},
+		respAns: dnsservertest.SectionAnswer{dnsservertest.NewHTTPS(
+			filtertest.ReqFQDN,
+			ttl,
+			[]netip.Addr{blockedIPv4},
+			[]netip.Addr{blockedIPv6},
+		)},
 		qType: dns.TypeHTTPS,
 	}, {
 		name:     "pass_hints",
 		reqFQDN:  filtertest.ReqFQDN,
 		wantRule: "",
-		respAns: dnsservertest.SectionAnswer{
-			dnsservertest.NewHTTPS(filtertest.ReqFQDN, ttl, []net.IP{passedIPv4}, []net.IP{}),
-		},
+		respAns: dnsservertest.SectionAnswer{dnsservertest.NewHTTPS(
+			filtertest.ReqFQDN,
+			ttl,
+			[]netip.Addr{passedIPv4},
+			[]netip.Addr{},
+		)},
 		qType: dns.TypeHTTPS,
 	}}
 

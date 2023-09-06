@@ -7,7 +7,6 @@ import (
 	"net/netip"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
 )
 
@@ -25,6 +24,8 @@ func NewManager(c *ManagerConfig) (m *Manager) {
 
 // errUnsupported is returned from all [Manager] methods on OSs other than
 // Linux.
+//
+// TODO(a.garipov): Consider using [errors.ErrUnsupported] in Go 1.21.
 const errUnsupported errors.Error = "bindtodevice is only supported on linux"
 
 // Add creates a new interface-listener record in m.
@@ -34,12 +35,12 @@ func (m *Manager) Add(id ID, ifaceName string, port uint16, cc *ControlConfig) (
 	return errUnsupported
 }
 
-// ListenConfig returns a new netext.ListenConfig that receives connections from
-// the interface listener with the given id and the destination addresses of
-// which fall within subnet.  subnet should be masked.
+// ListenConfig returns a new *ListenConfig that receives connections from the
+// interface listener with the given id and the destination addresses of which
+// fall within subnet.  subnet should be masked.
 //
 // It is only supported on Linux.
-func (m *Manager) ListenConfig(id ID, subnet netip.Prefix) (c netext.ListenConfig, err error) {
+func (m *Manager) ListenConfig(id ID, subnet netip.Prefix) (c *ListenConfig, err error) {
 	return nil, errUnsupported
 }
 

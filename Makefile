@@ -51,16 +51,10 @@ test: go-test
 go-bench: ; $(ENV)          "$(SHELL)" ./scripts/make/go-bench.sh
 go-build: ; $(ENV)          "$(SHELL)" ./scripts/make/go-build.sh
 go-deps:  ; $(ENV)          "$(SHELL)" ./scripts/make/go-deps.sh
+go-gen:   ; $(ENV)          "$(SHELL)" ./scripts/make/go-gen.sh
 go-lint:  ; $(ENV)          "$(SHELL)" ./scripts/make/go-lint.sh
 go-test:  ; $(ENV) RACE='1' "$(SHELL)" ./scripts/make/go-test.sh
 go-tools: ; $(ENV)          "$(SHELL)" ./scripts/make/go-tools.sh
-
-go-gen:
-	cd ./internal/agd/   && "$(GO.MACRO)" run ./country_generate.go
-	cd ./internal/geoip/ && "$(GO.MACRO)" run ./asntops_generate.go
-
-	cd ./internal/profiledb/internal/filecachepb/ &&\
-		protoc --go_opt=paths=source_relative --go_out=. ./filecache.proto
 
 go-check: go-tools go-lint go-test
 

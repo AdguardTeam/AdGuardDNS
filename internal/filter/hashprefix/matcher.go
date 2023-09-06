@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/stringutil"
 )
 
@@ -54,7 +54,7 @@ func (m *Matcher) MatchByPrefix(
 		return nil, false, nil
 	}
 
-	log.Debug("hashprefix matcher: got prefixes string %q", prefixesStr)
+	optlog.Debug1("hashprefix matcher: got prefixes string %q", prefixesStr)
 
 	hashPrefixes, err := prefixesFromStr(prefixesStr)
 	if err != nil {

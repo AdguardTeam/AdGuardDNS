@@ -49,9 +49,10 @@ The URL of source list of rules for adult blocking filter.
 
 ##  <a href="#BILLSTAT_URL" id="BILLSTAT_URL" name="BILLSTAT_URL">`BILLSTAT_URL`</a>
 
-The base backend URL for backend billing statistics uploader API.  The backend
-endpoints must reply with a 200 status code on success.  See the [external HTTP
-API requirements section][ext-billstat]
+The base backend URL for backend billing statistics uploader API.  Supports HTTP
+and GRPC protocols.  In case of HTTP the backend endpoint must reply with a 200
+status code on success.  See the [external HTTP API requirements
+section][ext-billstat].
 
 **Default:** No default value, the variable is **required.**
 
@@ -227,13 +228,10 @@ The path to the profile cache file:
        < /path/to/profilecache.pb
    ```
 
-*  A file with the extension `.json` means that the profiles are cached in the
-   JSON format.  This format is **deprecated** and is not recommended.
-
 The profile cache is read on start and is later updated on every
 [full refresh][conf-backend-full_refresh_interval].
 
-**Default:** `./profilecache.json`.
+**Default:** `./profilecache.pb`.
 
 [conf-backend-full_refresh_interval]: configuration.md#backend-full_refresh_interval
 
@@ -241,9 +239,10 @@ The profile cache is read on start and is later updated on every
 
 ##  <a href="#PROFILES_URL" id="PROFILES_URL" name="PROFILES_URL">`PROFILES_URL`</a>
 
-The base backend URL for profiles API.  The backend endpoints must reply with a
-200 status code on success.  See the [external HTTP API requirements
-section][ext-profiles].
+The base backend URL for profiles API.  Supports HTTP (`http://` and `https://`)
+and GRPC (`grpc://` and `grpcs://`) URLs.  In case of HTTP the backend endpoint
+must reply with a 200 status code on success.  See the [external API
+requirements section][ext-profiles].
 
 **Default:** No default value, the variable is **required.**
 

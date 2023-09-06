@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"net"
 	"net/netip"
 	"net/url"
 	"strings"
@@ -53,18 +52,6 @@ func (c *checkConfig) toInternal(
 		sessURL = netutil.CloneURL(&envs.ConsulDNSCheckSessionURL.URL)
 	}
 
-	// TODO(a.garipov): Use netip.Addrs in dnscheck, which also means using it
-	// in dnsmsg.Constructor.
-	ipv4 := make([]net.IP, len(c.IPv4))
-	for i, ip := range c.IPv4 {
-		ipv4[i] = ip.AsSlice()
-	}
-
-	ipv6 := make([]net.IP, len(c.IPv6))
-	for i, ip := range c.IPv6 {
-		ipv6[i] = ip.AsSlice()
-	}
-
 	domains := make([]string, len(c.Domains))
 	for i, d := range c.Domains {
 		domains[i] = strings.ToLower(d)
@@ -78,8 +65,8 @@ func (c *checkConfig) toInternal(
 		Domains:          domains,
 		NodeLocation:     c.NodeLocation,
 		NodeName:         c.NodeName,
-		IPv4:             ipv4,
-		IPv6:             ipv6,
+		IPv4:             c.IPv4,
+		IPv6:             c.IPv6,
 		TTL:              c.TTL.Duration,
 	}
 }

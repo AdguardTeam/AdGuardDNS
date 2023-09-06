@@ -175,6 +175,11 @@ func (f *Filter) FilterRequest(
 	return rm, nil
 }
 
+// ID implements the [internal.RequestFilter] interface for *Filter.
+func (f *Filter) ID() (id agd.FilterListID) {
+	return f.id
+}
+
 // isFilterable returns true if the question type is filterable.  If the type is
 // filterable with a blocked page, fam is the address family for the IP
 // addresses of the blocked page; otherwise fam is [netutil.AddrFamilyNone].
@@ -212,7 +217,7 @@ func (f *Filter) filteredResponse(
 	ctx, cancel := context.WithTimeout(ctx, internal.DefaultResolveTimeout)
 	defer cancel()
 
-	ips, err := f.resolver.LookupIP(ctx, fam, f.repHost)
+	ips, err := f.resolver.LookupNetIP(ctx, fam, f.repHost)
 	if err != nil {
 		agd.Collectf(ctx, f.errColl, "filter %s: resolving: %w", f.id, err)
 

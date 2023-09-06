@@ -2,7 +2,6 @@ package prometheus_test
 
 import (
 	"context"
-	"net"
 	"net/netip"
 	"testing"
 	"time"
@@ -33,7 +32,7 @@ func TestRateLimiterMetricsListener_integration_cache(t *testing.T) {
 	})
 	rlMw, err := ratelimit.NewMiddleware(rl, nil)
 	require.NoError(t, err)
-	rlMw.Metrics = &prometheus.RateLimitMetricsListener{}
+	rlMw.Metrics = prometheus.NewRateLimitMetricsListener()
 
 	handlerWithMiddleware := dnsserver.WithMiddlewares(
 		dnsservertest.DefaultHandler(),
@@ -42,16 +41,13 @@ func TestRateLimiterMetricsListener_integration_cache(t *testing.T) {
 
 	// Pass 10 requests through the middleware.
 	for i := 0; i < 10; i++ {
-		req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
-		addr := &net.UDPAddr{IP: net.IP{1, 2, 3, 4}, Port: 53}
-		nrw := dnsserver.NewNonWriterResponseWriter(addr, addr)
-		ctx := dnsserver.ContextWithServerInfo(context.Background(), dnsserver.ServerInfo{
-			Name:  "test",
-			Addr:  "127.0.0.1",
-			Proto: dnsserver.ProtoDNS,
-		})
+		ctx := dnsserver.ContextWithServerInfo(context.Background(), testServerInfo)
 		ctx = dnsserver.ContextWithStartTime(ctx, time.Now())
 		ctx = dnsserver.ContextWithClientInfo(ctx, dnsserver.ClientInfo{})
+
+		nrw := dnsserver.NewNonWriterResponseWriter(testUDPAddr, testUDPAddr)
+
+		req := dnsservertest.CreateMessage(testReqDomain, dns.TypeA)
 
 		err = handlerWithMiddleware.ServeDNS(ctx, nrw, req)
 		require.NoError(t, err)
@@ -64,4 +60,36 @@ func TestRateLimiterMetricsListener_integration_cache(t *testing.T) {
 
 	// Now make sure that prometheus metrics were incremented properly.
 	requireMetrics(t, "dns_ratelimit_dropped_total")
+}
+
+func BenchmarkRateLimitMetricsListener(b *testing.B) {
+	l := prometheus.NewRateLimitMetricsListener()
+
+	ctx := dnsserver.ContextWithServerInfo(context.Background(), testServerInfo)
+	req := dnsservertest.CreateMessage(testReqDomain, dns.TypeA)
+	rw := dnsserver.NewNonWriterResponseWriter(testUDPAddr, testUDPAddr)
+
+	b.Run("OnAllowlisted", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			l.OnAllowlisted(ctx, req, rw)
+		}
+	})
+
+	b.Run("OnRateLimited", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			l.OnRateLimited(ctx, req, rw)
+		}
+	})
+
+	// Most recent result, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
+	//	goos: linux
+	//	goarch: amd64
+	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus
+	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
+	//	BenchmarkRateLimitMetricsListener/OnAllowlisted-16         	 6025423	       209.5 ns/op	       0 B/op	       0 allocs/op
+	//	BenchmarkRateLimitMetricsListener/OnRateLimited-16         	 5798031	       209.4 ns/op	       0 B/op	       0 allocs/op
 }

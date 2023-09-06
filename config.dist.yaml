@@ -52,6 +52,15 @@ ratelimit:
         stop: 1000
         resume: 800
 
+# Access settings.
+access:
+    # Domains to block.
+    blocked_question_domains:
+        - 'test.org'
+    # Client subnets to block.
+    blocked_client_subnets:
+        - '1.2.3.0/8'
+
 # DNS cache configuration.
 cache:
     # The type of cache to use.  Can be 'simple' (a simple LRU cache) or 'ecs'

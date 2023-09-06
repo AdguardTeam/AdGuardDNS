@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdprotobuf"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
@@ -82,7 +83,9 @@ func (x *Profile) toInternal() (prof *agd.Profile, err error) {
 		// Consider rule-list IDs to have been prevalidated.
 		RuleListIDs: unsafelyConvertStrSlice[string, agd.FilterListID](x.RuleListIds),
 		// Consider rule-list IDs to have been prevalidated.
-		CustomRules:         unsafelyConvertStrSlice[string, agd.FilterRuleText](x.CustomRules),
+		CustomRules: unsafelyConvertStrSlice[string, agd.FilterRuleText](
+			x.CustomRules,
+		),
 		FilteredResponseTTL: x.FilteredResponseTtl.AsDuration(),
 		FilteringEnabled:    x.FilteringEnabled,
 		SafeBrowsing:        x.SafeBrowsing.toInternal(),
@@ -204,7 +207,7 @@ func (x *Device) toInternal() (d *agd.Device, err error) {
 	}
 
 	var dedicatedIPs []netip.Addr
-	dedicatedIPs, err = byteSlicesToIPs(x.DedicatedIps)
+	dedicatedIPs, err = agdprotobuf.ByteSlicesToIPs(x.DedicatedIps)
 	if err != nil {
 		return nil, fmt.Errorf("dedicated ips: %w", err)
 	}
@@ -218,26 +221,6 @@ func (x *Device) toInternal() (d *agd.Device, err error) {
 		DedicatedIPs:     dedicatedIPs,
 		FilteringEnabled: x.FilteringEnabled,
 	}, nil
-}
-
-// byteSlicesToIPs converts a slice of byte slices into a slice of netip.Addrs.
-func byteSlicesToIPs(data [][]byte) (ips []netip.Addr, err error) {
-	if data == nil {
-		return nil, nil
-	}
-
-	ips = make([]netip.Addr, 0, len(data))
-	for i, ipData := range data {
-		var ip netip.Addr
-		err = ip.UnmarshalBinary(ipData)
-		if err != nil {
-			return nil, fmt.Errorf("ip at index %d: %w", i, err)
-		}
-
-		ips = append(ips, ip)
-	}
-
-	return ips, nil
 }
 
 // toInternal converts a protobuf safe browsing settings structure to an
@@ -259,13 +242,17 @@ func profilesToProtobuf(profiles []*agd.Profile) (pbProfiles []*Profile) {
 	pbProfiles = make([]*Profile, 0, len(profiles))
 	for _, p := range profiles {
 		pbProfiles = append(pbProfiles, &Profile{
-			Parental:            parentalToProtobuf(p.Parental),
-			BlockingMode:        blockingModeToProtobuf(p.BlockingMode),
-			ProfileId:           string(p.ID),
-			UpdateTime:          timestamppb.New(p.UpdateTime),
-			DeviceIds:           unsafelyConvertStrSlice[agd.DeviceID, string](p.DeviceIDs),
-			RuleListIds:         unsafelyConvertStrSlice[agd.FilterListID, string](p.RuleListIDs),
-			CustomRules:         unsafelyConvertStrSlice[agd.FilterRuleText, string](p.CustomRules),
+			Parental:     parentalToProtobuf(p.Parental),
+			BlockingMode: blockingModeToProtobuf(p.BlockingMode),
+			ProfileId:    string(p.ID),
+			UpdateTime:   timestamppb.New(p.UpdateTime),
+			DeviceIds:    unsafelyConvertStrSlice[agd.DeviceID, string](p.DeviceIDs),
+			RuleListIds: unsafelyConvertStrSlice[agd.FilterListID, string](
+				p.RuleListIDs,
+			),
+			CustomRules: unsafelyConvertStrSlice[agd.FilterRuleText, string](
+				p.CustomRules,
+			),
 			FilteredResponseTtl: durationpb.New(p.FilteredResponseTTL),
 			FilteringEnabled:    p.FilteringEnabled,
 			SafeBrowsing:        safeBrowsingToProtobuf(p.SafeBrowsing),
@@ -287,8 +274,10 @@ func parentalToProtobuf(s *agd.ParentalProtectionSettings) (pbSetts *ParentalPro
 	}
 
 	return &ParentalProtectionSettings{
-		Schedule:          scheduleToProtobuf(s.Schedule),
-		BlockedServices:   unsafelyConvertStrSlice[agd.BlockedServiceID, string](s.BlockedServices),
+		Schedule: scheduleToProtobuf(s.Schedule),
+		BlockedServices: unsafelyConvertStrSlice[agd.BlockedServiceID, string](
+			s.BlockedServices,
+		),
 		Enabled:           s.Enabled,
 		BlockAdult:        s.BlockAdult,
 		GeneralSafeSearch: s.GeneralSafeSearch,

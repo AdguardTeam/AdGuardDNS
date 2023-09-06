@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdsync"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/errors"
@@ -27,14 +27,12 @@ type FileSystemConfig struct {
 func NewFileSystem(c *FileSystemConfig) (l *FileSystem) {
 	return &FileSystem{
 		path: c.Path,
-		bufferPool: &sync.Pool{
-			New: func() (buf any) {
-				return &entryBuffer{
-					ent: &jsonlEntry{},
-					buf: &bytes.Buffer{},
-				}
-			},
-		},
+		bufferPool: agdsync.NewTypedPool(func() (v *entryBuffer) {
+			return &entryBuffer{
+				ent: &jsonlEntry{},
+				buf: &bytes.Buffer{},
+			}
+		}),
 	}
 }
 
@@ -47,10 +45,9 @@ type entryBuffer struct {
 
 // FileSystem is the file system implementation of the AdGuard DNS query log.
 type FileSystem struct {
-	// bufferPool is a pool with *entryBuffer instances we're using to avoid
-	// extra allocations when serializing query log items to JSON and writing
-	// them.
-	bufferPool *sync.Pool
+	// bufferPool is a pool with [*entryBuffer] instances used to avoid extra
+	// allocations when serializing query log items to JSON and writing them.
+	bufferPool *agdsync.TypedPool[entryBuffer]
 
 	// path is the path to the query log file.
 	path string
@@ -72,7 +69,7 @@ func (l *FileSystem) Write(_ context.Context, e *Entry) (err error) {
 		metrics.QueryLogItemsCount.Inc()
 	}()
 
-	entBuf := l.bufferPool.Get().(*entryBuffer)
+	entBuf := l.bufferPool.Get()
 	defer l.bufferPool.Put(entBuf)
 	entBuf.buf.Reset()
 

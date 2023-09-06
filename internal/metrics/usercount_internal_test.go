@@ -228,18 +228,16 @@ func BenchmarkUserCounter_Estimate(b *testing.B) {
 	}
 
 	b.Run("sparse", func(b *testing.B) {
-		b.ResetTimer()
 		b.ReportAllocs()
-
+		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			uint64Sink, uint64Sink = sparseCounter.estimate()
 		}
 	})
 
 	b.Run("sequential", func(b *testing.B) {
-		b.ResetTimer()
 		b.ReportAllocs()
-
+		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			uint64Sink, uint64Sink = seqCounter.estimate()
 		}

@@ -12,7 +12,80 @@ import (
 
 // ServerMetricsListener implements the [dnsserver.MetricsListener] interface
 // and increments prom counters.
-type ServerMetricsListener struct{}
+type ServerMetricsListener struct {
+	reqTotalCounters *initSyncMap[reqLabelMetricKey, prometheus.Counter]
+
+	respRCodeCounters *initSyncMap[srvInfoRCode, prometheus.Counter]
+
+	invalidMsgCounters *initSyncMap[dnsserver.ServerInfo, prometheus.Counter]
+	errorCounters      *initSyncMap[dnsserver.ServerInfo, prometheus.Counter]
+	panicCounters      *initSyncMap[dnsserver.ServerInfo, prometheus.Counter]
+
+	reqDurationHistograms *initSyncMap[dnsserver.ServerInfo, prometheus.Observer]
+	reqSizeHistograms     *initSyncMap[dnsserver.ServerInfo, prometheus.Observer]
+	respSizeHistograms    *initSyncMap[dnsserver.ServerInfo, prometheus.Observer]
+}
+
+// srvInfoRCode is a struct containing the server information along with a
+// response code.
+type srvInfoRCode struct {
+	rCode string
+	dnsserver.ServerInfo
+}
+
+// withLabelValues returns a counter with the server info and rcode data in the
+// correct order.
+func (i srvInfoRCode) withLabelValues(
+	vec *prometheus.CounterVec,
+) (c prometheus.Counter) {
+	// The labels must be in the following order:
+	//   1. server name;
+	//   2. server protocol;
+	//   3. server addr;
+	//   4. response code;
+	return vec.WithLabelValues(
+		i.Name,
+		i.Proto.String(),
+		i.Addr,
+		i.rCode,
+	)
+}
+
+// NewServerMetricsListener returns a new properly initialized
+// *ServerMetricsListener.
+func NewServerMetricsListener() (l *ServerMetricsListener) {
+	return &ServerMetricsListener{
+		reqTotalCounters: newInitSyncMap(func(k reqLabelMetricKey) (c prometheus.Counter) {
+			return k.withLabelValues(requestTotal)
+		}),
+
+		respRCodeCounters: newInitSyncMap(func(k srvInfoRCode) (c prometheus.Counter) {
+			return k.withLabelValues(responseRCode)
+		}),
+
+		invalidMsgCounters: newInitSyncMap(func(k dnsserver.ServerInfo) (c prometheus.Counter) {
+			// TODO(a.garipov): Here and below, remove explicit type
+			// declarations in Go 1.21.
+			return withSrvInfoLabelValues[prometheus.Counter](invalidMsgTotal, k)
+		}),
+		errorCounters: newInitSyncMap(func(k dnsserver.ServerInfo) (c prometheus.Counter) {
+			return withSrvInfoLabelValues[prometheus.Counter](errorTotal, k)
+		}),
+		panicCounters: newInitSyncMap(func(k dnsserver.ServerInfo) (c prometheus.Counter) {
+			return withSrvInfoLabelValues[prometheus.Counter](panicTotal, k)
+		}),
+
+		reqDurationHistograms: newInitSyncMap(func(k dnsserver.ServerInfo) (o prometheus.Observer) {
+			return withSrvInfoLabelValues[prometheus.Observer](requestDuration, k)
+		}),
+		reqSizeHistograms: newInitSyncMap(func(k dnsserver.ServerInfo) (o prometheus.Observer) {
+			return withSrvInfoLabelValues[prometheus.Observer](requestSize, k)
+		}),
+		respSizeHistograms: newInitSyncMap(func(k dnsserver.ServerInfo) (o prometheus.Observer) {
+			return withSrvInfoLabelValues[prometheus.Observer](responseSize, k)
+		}),
+	}
+}
 
 // type check
 var _ dnsserver.MetricsListener = (*ServerMetricsListener)(nil)
@@ -21,51 +94,57 @@ var _ dnsserver.MetricsListener = (*ServerMetricsListener)(nil)
 // [*ServerMetricsListener].
 func (l *ServerMetricsListener) OnRequest(
 	ctx context.Context,
-	req, resp *dns.Msg,
+	req *dns.Msg,
+	resp *dns.Msg,
 	rw dnsserver.ResponseWriter,
 ) {
 	serverInfo := dnsserver.MustServerInfoFromContext(ctx)
 	startTime := dnsserver.MustStartTimeFromContext(ctx)
 
 	// Increment total requests count metrics.
-	counterWithRequestLabels(serverInfo, req, rw, requestTotal).Inc()
+	l.reqTotalCounters.get(newReqLabelMetricKey(ctx, req, rw)).Inc()
 
 	// Increment request duration histogram.
 	elapsed := time.Since(startTime).Seconds()
-	histogramWithServerLabels(serverInfo, requestDuration).Observe(elapsed)
+	l.reqDurationHistograms.get(serverInfo).Observe(elapsed)
 
 	// Increment request size.
 	ri := dnsserver.MustRequestInfoFromContext(ctx)
-	histogramWithServerLabels(serverInfo, requestSize).Observe(float64(ri.RequestSize))
+	l.reqSizeHistograms.get(serverInfo).Observe(float64(ri.RequestSize))
 
 	// If resp is not nil, increment response-related metrics.
 	if resp != nil {
-		histogramWithServerLabels(serverInfo, responseSize).Observe(float64(ri.ResponseSize))
-		rCode := rCodeToString(resp.Rcode)
-		counterWithServerLabelsPlusRCode(serverInfo, rCode, responseRCode).Inc()
+		l.respSizeHistograms.get(serverInfo).Observe(float64(ri.ResponseSize))
+		l.respRCodeCounters.get(srvInfoRCode{
+			ServerInfo: serverInfo,
+			rCode:      rCodeToString(resp.Rcode),
+		}).Inc()
 	} else {
-		// If resp is nil, increment responseRCode with a special "rcode"
-		// label value ("DROPPED").
-		counterWithServerLabelsPlusRCode(serverInfo, "DROPPED", responseRCode).Inc()
+		// If resp is nil, increment responseRCode with a special "rcode" label
+		// value ("DROPPED").
+		l.respRCodeCounters.get(srvInfoRCode{
+			ServerInfo: serverInfo,
+			rCode:      "DROPPED",
+		}).Inc()
 	}
 }
 
 // OnInvalidMsg implements the [dnsserver.MetricsListener] interface for
 // [*ServerMetricsListener].
 func (l *ServerMetricsListener) OnInvalidMsg(ctx context.Context) {
-	counterWithServerLabels(dnsserver.MustServerInfoFromContext(ctx), invalidMsgTotal).Inc()
+	l.invalidMsgCounters.get(dnsserver.MustServerInfoFromContext(ctx)).Inc()
 }
 
 // OnError implements the [dnsserver.MetricsListener] interface for
 // [*ServerMetricsListener].
 func (l *ServerMetricsListener) OnError(ctx context.Context, _ error) {
-	counterWithServerLabels(dnsserver.MustServerInfoFromContext(ctx), errorTotal).Inc()
+	l.errorCounters.get(dnsserver.MustServerInfoFromContext(ctx)).Inc()
 }
 
 // OnPanic implements the [dnsserver.MetricsListener] interface for
 // [*ServerMetricsListener].
 func (l *ServerMetricsListener) OnPanic(ctx context.Context, _ any) {
-	counterWithServerLabels(dnsserver.MustServerInfoFromContext(ctx), panicTotal).Inc()
+	l.panicCounters.get(dnsserver.MustServerInfoFromContext(ctx)).Inc()
 }
 
 // OnQUICAddressValidation implements the [dnsserver.MetricsListener] interface

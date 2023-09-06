@@ -3,11 +3,12 @@ package dnssvc
 import (
 	"context"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
@@ -59,20 +60,20 @@ func (mh *svcHandler) ServeDNS(
 
 	modReq, reqRes, elapsedReq := mh.svc.filterRequest(ctx, req, flt, reqInfo)
 
-	nwrw := makeNonWriter(rw)
+	nwrw := internal.MakeNonWriter(rw)
 	if modReq != nil {
 		// Modified request is set only if the request was modified by a CNAME
 		// rewrite rule, so resolve the request as if it was for the rewritten
 		// name.
 
-		// Clone the request informaton and replace the host name with the
+		// Clone the request information and replace the host name with the
 		// rewritten one, since the request information from current context
 		// must only be accessed for reading, see [agd.RequestInfo].  Shallow
 		// copy is enough, because we only change the [agd.RequestInfo.Host]
 		// field, which is a string.
 		modReqInfo := &agd.RequestInfo{}
 		*modReqInfo = *reqInfo
-		modReqInfo.Host = strings.ToLower(strings.TrimSuffix(modReq.Question[0].Name, "."))
+		modReqInfo.Host = agdnet.NormalizeDomain(modReq.Question[0].Name)
 
 		modReqCtx := agd.ContextWithRequestInfo(ctx, modReqInfo)
 
@@ -108,17 +109,6 @@ func (mh *svcHandler) ServeDNS(
 	mh.svc.recordQueryInfo(ctx, req, resp, origResp, reqInfo, reqRes, respRes)
 
 	return nil
-}
-
-// makeNonWriter makes rw a *dnsserver.NonWriterResponseWriter unless it already
-// is one, in which case it just returns it.
-func makeNonWriter(rw dnsserver.ResponseWriter) (nwrw *dnsserver.NonWriterResponseWriter) {
-	nwrw, ok := rw.(*dnsserver.NonWriterResponseWriter)
-	if ok {
-		return nwrw
-	}
-
-	return dnsserver.NewNonWriterResponseWriter(rw.LocalAddr(), rw.RemoteAddr())
 }
 
 // rewrittenRequest returns a request from res in case it's a CNAME rewrite, and

@@ -11,13 +11,15 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
+	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // chanPacketConn is a [netext.SessionPacketConn] that returns data sent to it
 // through the channel.
 //
-// Connections of this type are returned by [chanListenConfig.ListenPacket] and
-// are used in module dnsserver to make the bind-to-device logic work in
+// Connections of this type are returned by [ListenConfig.ListenPacket] and are
+// used in module dnsserver to make the bind-to-device logic work in
 // DNS-over-UDP.
 type chanPacketConn struct {
 	// mu protects sessions (against closure) and isClosed.
@@ -25,6 +27,9 @@ type chanPacketConn struct {
 	sessions chan *packetSession
 
 	writeRequests chan *packetConnWriteReq
+
+	sessionsGauge      prometheus.Gauge
+	writeRequestsGauge prometheus.Gauge
 
 	// deadlineMu protects readDeadline and writeDeadline.
 	deadlineMu    *sync.RWMutex
@@ -47,6 +52,9 @@ func newChanPacketConn(
 		mu:            &sync.Mutex{},
 		sessions:      sessions,
 		writeRequests: writeRequests,
+
+		sessionsGauge:      metrics.BindToDeviceUDPSessionsChanSize.WithLabelValues(subnet.String()),
+		writeRequestsGauge: metrics.BindToDeviceUDPWriteRequestsChanSize.WithLabelValues(subnet.String()),
 
 		deadlineMu: &sync.RWMutex{},
 
@@ -257,6 +265,8 @@ func (c *chanPacketConn) writeToSession(
 		return 0, wrapConnError(tnChanPConn, fnName, c.laddr, err)
 	}
 
+	c.writeRequestsGauge.Set(float64(len(c.writeRequests)))
+
 	r, err := receiveWithTimer(resp, timerCh)
 	if err != nil {
 		err = fmt.Errorf("receiving write response: %w", err)
@@ -308,6 +318,8 @@ func (c *chanPacketConn) send(sess *packetSession) (ok bool) {
 	}
 
 	c.sessions <- sess
+
+	c.sessionsGauge.Set(float64(len(c.sessions)))
 
 	return true
 }

@@ -41,7 +41,7 @@ type environments struct {
 
 	ConfPath          string `env:"CONFIG_PATH" envDefault:"./config.yaml"`
 	FilterCachePath   string `env:"FILTER_CACHE_PATH" envDefault:"./filters/"`
-	ProfilesCachePath string `env:"PROFILES_CACHE_PATH" envDefault:"./profilecache.json"`
+	ProfilesCachePath string `env:"PROFILES_CACHE_PATH" envDefault:"./profilecache.pb"`
 	GeoIPASNPath      string `env:"GEOIP_ASN_PATH" envDefault:"./asn.mmdb"`
 	GeoIPCountryPath  string `env:"GEOIP_COUNTRY_PATH" envDefault:"./country.mmdb"`
 	QueryLogPath      string `env:"QUERYLOG_PATH" envDefault:"./querylog.jsonl"`

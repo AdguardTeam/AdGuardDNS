@@ -9,23 +9,24 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 )
 
-// chanListenConfig is a [netext.ListenConfig] implementation that uses the
+// ListenConfig is a [netext.ListenConfig] implementation that uses the
 // provided channel-based packet connection and listener to implement the
 // methods of the interface.
 //
 // netext.ListenConfig instances of this type are the ones that are going to be
 // set as [dnsserver.ConfigBase.ListenConfig] to make the bind-to-device logic
 // work.
-type chanListenConfig struct {
+type ListenConfig struct {
 	packetConn *chanPacketConn
 	listener   *chanListener
+	addr       string
 }
 
 // type check
-var _ netext.ListenConfig = (*chanListenConfig)(nil)
+var _ netext.ListenConfig = (*ListenConfig)(nil)
 
-// Listen implements the [netext.ListenConfig] interface for *chanListenConfig.
-func (lc *chanListenConfig) Listen(
+// Listen implements the [netext.ListenConfig] interface for *ListenConfig.
+func (lc *ListenConfig) Listen(
 	ctx context.Context,
 	network string,
 	address string,
@@ -34,11 +35,17 @@ func (lc *chanListenConfig) Listen(
 }
 
 // ListenPacket implements the [netext.ListenConfig] interface for
-// *chanListenConfig.
-func (lc *chanListenConfig) ListenPacket(
+// *ListenConfig.
+func (lc *ListenConfig) ListenPacket(
 	ctx context.Context,
 	network string,
 	address string,
 ) (c net.PacketConn, err error) {
 	return lc.packetConn, nil
+}
+
+// Addr returns the address on which lc accepts connections.  See
+// [agdnet.FormatPrefixAddr] for the format.
+func (lc *ListenConfig) Addr() (addr string) {
+	return lc.addr
 }

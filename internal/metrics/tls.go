@@ -160,8 +160,7 @@ func serverNameToLabel(
 	srvCerts []tls.Certificate,
 ) (label string) {
 	if sni == "" {
-		// SNI is not provided, so the request is probably made on the IP
-		// address.
+		// SNI is empty, so the request is probably made on the IP address.
 		return fmt.Sprintf("%s: other", srvName)
 	}
 

@@ -1,4 +1,4 @@
-package dnssvc
+package initial
 
 import (
 	"context"
@@ -9,13 +9,14 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestService_Wrap_deviceID(t *testing.T) {
+func TestDeviceIDFromContext(t *testing.T) {
 	testCases := []struct {
 		name         string
 		cliSrvName   string
@@ -46,8 +47,8 @@ func TestService_Wrap_deviceID(t *testing.T) {
 		proto:        agd.ProtoDoT,
 	}, {
 		name:         "tls_device_id",
-		cliSrvName:   testDeviceID + ".dns.example.com",
-		wantDeviceID: testDeviceID,
+		cliSrvName:   dnssvctest.DeviceIDStr + ".dns.example.com",
+		wantDeviceID: dnssvctest.DeviceID,
 		wantErrMsg:   "",
 		wildcards:    []string{"*.dns.example.com"},
 		proto:        agd.ProtoDoT,
@@ -61,7 +62,7 @@ func TestService_Wrap_deviceID(t *testing.T) {
 		proto:     agd.ProtoDoT,
 	}, {
 		name:         "tls_deep_subdomain",
-		cliSrvName:   "abc." + testDeviceID + ".dns.example.com",
+		cliSrvName:   "abc." + dnssvctest.DeviceIDStr + ".dns.example.com",
 		wantDeviceID: "",
 		wantErrMsg:   "",
 		wildcards:    []string{"*.dns.example.com"},
@@ -79,8 +80,8 @@ func TestService_Wrap_deviceID(t *testing.T) {
 		proto:     agd.ProtoDoT,
 	}, {
 		name:         "quic_device_id",
-		cliSrvName:   testDeviceID + ".dns.example.com",
-		wantDeviceID: testDeviceID,
+		cliSrvName:   dnssvctest.DeviceIDStr + ".dns.example.com",
+		wantDeviceID: dnssvctest.DeviceID,
 		wantErrMsg:   "",
 		wildcards:    []string{"*.dns.example.com"},
 		proto:        agd.ProtoDoQ,
@@ -93,8 +94,8 @@ func TestService_Wrap_deviceID(t *testing.T) {
 		proto:        agd.ProtoDoT,
 	}, {
 		name:         "tls_device_id_subdomain_wildcard",
-		cliSrvName:   testDeviceID + ".sub.dns.example.com",
-		wantDeviceID: testDeviceID,
+		cliSrvName:   dnssvctest.DeviceIDStr + ".sub.dns.example.com",
+		wantDeviceID: dnssvctest.DeviceID,
 		wantErrMsg:   "",
 		wildcards: []string{
 			"*.dns.example.com",
@@ -117,7 +118,7 @@ func TestService_Wrap_deviceID(t *testing.T) {
 	}
 }
 
-func TestService_Wrap_deviceIDHTTPS(t *testing.T) {
+func TestDeviceIDFromContext_https(t *testing.T) {
 	testCases := []struct {
 		name         string
 		path         string
@@ -135,13 +136,13 @@ func TestService_Wrap_deviceIDHTTPS(t *testing.T) {
 		wantErrMsg:   "",
 	}, {
 		name:         "device_id",
-		path:         "/dns-query/" + testDeviceID,
-		wantDeviceID: testDeviceID,
+		path:         "/dns-query/" + dnssvctest.DeviceIDStr,
+		wantDeviceID: dnssvctest.DeviceID,
 		wantErrMsg:   "",
 	}, {
 		name:         "device_id_slash",
-		path:         "/dns-query/" + testDeviceID + "/",
-		wantDeviceID: testDeviceID,
+		path:         "/dns-query/" + dnssvctest.DeviceIDStr + "/",
+		wantDeviceID: dnssvctest.DeviceID,
 		wantErrMsg:   "",
 	}, {
 		name:         "bad_url",
@@ -150,10 +151,10 @@ func TestService_Wrap_deviceIDHTTPS(t *testing.T) {
 		wantErrMsg:   `http url device id check: bad path "/foo"`,
 	}, {
 		name:         "extra",
-		path:         "/dns-query/" + testDeviceID + "/foo",
+		path:         "/dns-query/" + dnssvctest.DeviceIDStr + "/foo",
 		wantDeviceID: "",
-		wantErrMsg: `http url device id check: bad path "/dns-query/` + testDeviceID + `/foo": ` +
-			`extra parts`,
+		wantErrMsg: `http url device id check: bad path "/dns-query/` + dnssvctest.DeviceIDStr +
+			`/foo": extra parts`,
 	}, {
 		name:         "bad_device_id",
 		path:         "/dns-query/!!!",
@@ -186,7 +187,7 @@ func TestService_Wrap_deviceIDHTTPS(t *testing.T) {
 	t.Run("domain_name", func(t *testing.T) {
 		u := &url.URL{
 			Scheme: "https",
-			Host:   testDeviceID + ".dns.example.com",
+			Host:   dnssvctest.DeviceIDStr + ".dns.example.com",
 			Path:   "/dns-query",
 		}
 
@@ -202,11 +203,11 @@ func TestService_Wrap_deviceIDHTTPS(t *testing.T) {
 		deviceID, err := deviceIDFromContext(ctx, proto, []string{"*.dns.example.com"})
 		require.NoError(t, err)
 
-		assert.Equal(t, agd.DeviceID(testDeviceID), deviceID)
+		assert.Equal(t, agd.DeviceID(dnssvctest.DeviceID), deviceID)
 	})
 }
 
-func TestService_Wrap_deviceIDFromEDNS(t *testing.T) {
+func TestDeviceIDFromEDNS(t *testing.T) {
 	testCases := []struct {
 		name         string
 		opt          dns.EDNS0

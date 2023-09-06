@@ -5,9 +5,9 @@ import (
 	"compress/gzip"
 	"context"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"strings"
 	"testing"
@@ -25,7 +25,8 @@ import (
 
 func TestDefault_ServeHTTP(t *testing.T) {
 	const dname = "some-domain.name"
-	testIP := net.IP{1, 2, 3, 4}
+
+	testIP := netip.MustParseAddr("1.2.3.4")
 
 	successHdr := http.Header{
 		httphdr.ContentType:     []string{agdhttp.HdrValTextCSV},
@@ -100,7 +101,7 @@ func TestDefault_ServeHTTP(t *testing.T) {
 			db.Record(ctx, m, &agd.RequestInfo{
 				// Emulate the logic from init middleware.
 				//
-				// See [dnssvc.initMw.newRequestInfo].
+				// See [initial.Middleware.newRequestInfo].
 				Host: strings.TrimSuffix(m.Question[0].Name, "."),
 			})
 		}

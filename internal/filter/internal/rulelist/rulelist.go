@@ -117,9 +117,8 @@ func (f *filter) DNSResult(
 	}
 
 	dnsReq := &urlfilter.DNSRequest{
-		Hostname: host,
-		// TODO(a.garipov): Make this a net.IP in module urlfilter.
-		ClientIP:   clientIP.String(),
+		Hostname:   host,
+		ClientIP:   clientIP,
 		ClientName: clientName,
 		DNSType:    rrType,
 		Answer:     isAns,

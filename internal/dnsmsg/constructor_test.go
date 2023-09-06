@@ -2,7 +2,6 @@ package dnsmsg_test
 
 import (
 	"net"
-	"net/netip"
 	"strings"
 	"testing"
 
@@ -75,9 +74,6 @@ func TestConstructor_NewBlockedRespMsg_nullIP(t *testing.T) {
 }
 
 func TestConstructor_NewBlockedRespMsg_customIP(t *testing.T) {
-	wantIPv4 := netip.MustParseAddr("1.2.3.4")
-	wantIPv6 := netip.MustParseAddr("1234::cdef")
-
 	testCases := []struct {
 		messages *dnsmsg.Constructor
 		name     string
@@ -85,22 +81,22 @@ func TestConstructor_NewBlockedRespMsg_customIP(t *testing.T) {
 		wantAAAA bool
 	}{{
 		messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeCustomIP{
-			IPv4: wantIPv4,
-			IPv6: wantIPv6,
+			IPv4: testIPv4,
+			IPv6: testIPv6,
 		}, testFltRespTTL),
 		name:     "both",
 		wantA:    true,
 		wantAAAA: true,
 	}, {
 		messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeCustomIP{
-			IPv4: wantIPv4,
+			IPv4: testIPv4,
 		}, testFltRespTTL),
 		name:     "ipv4_only",
 		wantA:    true,
 		wantAAAA: false,
 	}, {
 		messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeCustomIP{
-			IPv6: wantIPv6,
+			IPv6: testIPv6,
 		}, testFltRespTTL),
 		name:     "ipv6_only",
 		wantA:    false,
@@ -120,7 +116,7 @@ func TestConstructor_NewBlockedRespMsg_customIP(t *testing.T) {
 				require.Len(t, respA.Answer, 1)
 
 				a := testutil.RequireTypeAssert[*dns.A](t, respA.Answer[0])
-				assert.Equal(t, net.IP(wantIPv4.AsSlice()), a.A)
+				assert.Equal(t, net.IP(testIPv4.AsSlice()), a.A)
 			} else {
 				assert.Empty(t, respA.Answer)
 			}
@@ -136,7 +132,7 @@ func TestConstructor_NewBlockedRespMsg_customIP(t *testing.T) {
 				require.Len(t, respAAAA.Answer, 1)
 
 				aaaa := testutil.RequireTypeAssert[*dns.AAAA](t, respAAAA.Answer[0])
-				assert.Equal(t, net.IP(wantIPv6.AsSlice()), aaaa.AAAA)
+				assert.Equal(t, net.IP(testIPv6.AsSlice()), aaaa.AAAA)
 			} else {
 				assert.Empty(t, respAAAA.Answer)
 			}

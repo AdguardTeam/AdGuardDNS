@@ -21,6 +21,8 @@ type BlockingMode interface {
 
 // BlockingModeCodec is a wrapper around a BlockingMode that implements the
 // [json.Marshaler] and [json.Unmarshaler] interfaces.
+//
+// TODO(s.chzhen):  Remove once it's not used anymore.
 type BlockingModeCodec struct {
 	Mode BlockingMode
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/golibs/netutil"
@@ -25,12 +26,6 @@ import (
 )
 
 const (
-	// testProfID is the [agd.ProfileID] for tests.
-	testProfID agd.ProfileID = "prof1234"
-
-	// testDevID is the [agd.DeviceID] for tests.
-	testDevID agd.DeviceID = "dev1234"
-
 	// testFltListID is the [agd.FilterListID] for tests.
 	testFltListID agd.FilterListID = "flt1234"
 
@@ -46,16 +41,13 @@ const (
 	testDevIDWildcard string = "*.dns.example.com"
 )
 
-// testTimeout is the common timeout for tests.
-const testTimeout time.Duration = 1 * time.Second
-
 // newTestService creates a new [dnssvc.Service] for tests.  The service built
 // of stubs, that use the following data:
 //
 //   - A filtering group containing a filter with [testFltListID] and enabled
 //     rule lists.
-//   - A device with [testDevID] and enabled filtering.
-//   - A profile with [testProfID] with enabled filtering and query
+//   - A device with [dnssvctest.DeviceID] and enabled filtering.
+//   - A profile with [dnssvctest.ProfileID] with enabled filtering and query
 //     logging, containing the device.
 //   - GeoIP database always returning [agd.CountryAD], [agd.ContinentEU], and
 //     ASN of 42.
@@ -63,8 +55,8 @@ const testTimeout time.Duration = 1 * time.Second
 //     the DeviceID with [testDevIDWildcard].
 //
 // Each stub also uses the corresponding channels to send the data it receives
-// from the service.  If the channel is [nil], the stub ignores it.  Each
-// sending to a channel wrapped with [testutil.RequireSend] using [testTimeout].
+// from the service.  The channels must not be nil.  Each sending to a channel
+// wrapped with [testutil.RequireSend] using [dnssvctest.Timeout].
 //
 // It also uses the [dnsservertest.DefaultHandler] to create the DNS handler.
 func newTestService(
@@ -82,13 +74,13 @@ func newTestService(
 	pt := testutil.PanicT{}
 
 	dev := &agd.Device{
-		ID:               testDevID,
+		ID:               dnssvctest.DeviceID,
 		FilteringEnabled: true,
 	}
 
 	prof := &agd.Profile{
-		ID:                  testProfID,
-		DeviceIDs:           []agd.DeviceID{testDevID},
+		ID:                  dnssvctest.ProfileID,
+		DeviceIDs:           []agd.DeviceID{dnssvctest.DeviceID},
 		RuleListIDs:         []agd.FilterListID{testFltListID},
 		FilteredResponseTTL: agdtest.FilteredResponseTTL,
 		FilteringEnabled:    true,
@@ -100,9 +92,7 @@ func newTestService(
 			_ context.Context,
 			id agd.DeviceID,
 		) (p *agd.Profile, d *agd.Device, err error) {
-			if profileDBCh != nil {
-				testutil.RequireSend(pt, profileDBCh, id, testTimeout)
-			}
+			testutil.RequireSend(pt, profileDBCh, id, dnssvctest.Timeout)
 
 			return prof, dev, nil
 		},
@@ -120,13 +110,20 @@ func newTestService(
 		},
 	}
 
+	accessManager := &agdtest.AccessManager{
+		OnIsBlockedHost: func(host string, qt uint16) (blocked bool) {
+			return false
+		},
+		OnIsBlockedIP: func(ip netip.Addr) (blocked bool, rule string) {
+			return false, ""
+		},
+	}
+
 	// Make sure that any panics and errors within handlers are caught and
 	// that they fail the test by panicking.
 	errColl := &agdtest.ErrorCollector{
 		OnCollect: func(_ context.Context, err error) {
-			if errCollCh != nil {
-				testutil.RequireSend(pt, errCollCh, err, testTimeout)
-			}
+			testutil.RequireSend(pt, errCollCh, err, dnssvctest.Timeout)
 		},
 	}
 
@@ -144,9 +141,7 @@ func newTestService(
 			panic("not implemented")
 		},
 		OnData: func(host string, _ netip.Addr) (l *agd.Location, err error) {
-			if geoIPCh != nil {
-				testutil.RequireSend(pt, geoIPCh, host, testTimeout)
-			}
+			testutil.RequireSend(pt, geoIPCh, host, dnssvctest.Timeout)
 
 			return loc, nil
 		},
@@ -161,9 +156,7 @@ func newTestService(
 
 	var ql querylog.Interface = &agdtest.QueryLog{
 		OnWrite: func(_ context.Context, e *querylog.Entry) (err error) {
-			if querylogCh != nil {
-				testutil.RequireSend(pt, querylogCh, e, testTimeout)
-			}
+			testutil.RequireSend(pt, querylogCh, e, dnssvctest.Timeout)
 
 			return nil
 		},
@@ -196,17 +189,13 @@ func newTestService(
 
 	dnsDB := &agdtest.DNSDB{
 		OnRecord: func(_ context.Context, _ *dns.Msg, ri *agd.RequestInfo) {
-			if dnsDBCh != nil {
-				testutil.RequireSend(pt, dnsDBCh, ri, testTimeout)
-			}
+			testutil.RequireSend(pt, dnsDBCh, ri, dnssvctest.Timeout)
 		},
 	}
 
 	ruleStat := &agdtest.RuleStat{
 		OnCollect: func(_ context.Context, _ agd.FilterListID, text agd.FilterRuleText) {
-			if ruleStatCh != nil {
-				testutil.RequireSend(pt, ruleStatCh, text, testTimeout)
-			}
+			testutil.RequireSend(pt, ruleStatCh, text, dnssvctest.Timeout)
 		},
 	}
 
@@ -226,7 +215,8 @@ func newTestService(
 	testFltGrpID := agd.FilteringGroupID("1234")
 
 	c := &dnssvc.Config{
-		Messages: agdtest.NewConstructor(),
+		AccessManager: accessManager,
+		Messages:      agdtest.NewConstructor(),
 		BillStat: &agdtest.BillStatRecorder{
 			OnRecord: func(
 				_ context.Context,
@@ -308,7 +298,7 @@ func TestService_Wrap(t *testing.T) {
 
 	ctx := context.Background()
 	ctx = dnsserver.ContextWithClientInfo(ctx, dnsserver.ClientInfo{
-		TLSServerName: strings.ReplaceAll(testDevIDWildcard, "*", string(testDevID)),
+		TLSServerName: strings.ReplaceAll(testDevIDWildcard, "*", string(dnssvctest.DeviceID)),
 	})
 	ctx = dnsserver.ContextWithServerInfo(ctx, dnsserver.ServerInfo{
 		Proto: agd.ProtoDoT,
@@ -356,7 +346,7 @@ func TestService_Wrap(t *testing.T) {
 		resp := rw.Msg()
 		dnsservertest.RequireResponse(t, req, resp, 1, dns.RcodeSuccess, false)
 
-		assert.Equal(t, testDevID, <-profileDBCh)
+		assert.Equal(t, dnssvctest.DeviceID, <-profileDBCh)
 
 		logEntry := <-querylogCh
 		assert.Equal(t, domainFQDN, logEntry.DomainFQDN)
@@ -446,7 +436,7 @@ func TestService_Wrap(t *testing.T) {
 			A: netutil.IPv4Localhost().AsSlice(),
 		}}, resp.Answer)
 
-		assert.Equal(t, testDevID, <-profileDBCh)
+		assert.Equal(t, dnssvctest.DeviceID, <-profileDBCh)
 
 		logEntry := <-querylogCh
 		assert.Equal(t, domainFQDN, logEntry.DomainFQDN)

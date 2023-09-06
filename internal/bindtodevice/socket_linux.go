@@ -7,7 +7,6 @@ import (
 	"net"
 	"syscall"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
 	"golang.org/x/sys/unix"
 )
@@ -106,14 +105,16 @@ func listenControlWithSO(
 	return errors.WithDeferred(opErr, err)
 }
 
+// msgUDPReader is an interface for types of connections that can read UDP
+// messages.  See [*net.UDPConn].
+type msgUDPReader interface {
+	ReadMsgUDP(b, oob []byte) (n, oobn, flags int, addr *net.UDPAddr, err error)
+}
+
 // readPacketSession is a helper that reads a packet-session data from a UDP
 // connection.
-func readPacketSession(c *net.UDPConn, bodySize int) (sess *packetSession, err error) {
-	// TODO(a.garipov): Consider adding pooling.
-	b := make([]byte, bodySize)
-	oob := make([]byte, netext.IPDstOOBSize)
-
-	n, oobn, _, raddr, err := c.ReadMsgUDP(b, oob)
+func readPacketSession(c msgUDPReader, body, oob []byte) (sess *packetSession, err error) {
+	n, oobn, _, raddr, err := c.ReadMsgUDP(body, oob)
 	if err != nil {
 		return nil, fmt.Errorf("reading: %w", err)
 	}
@@ -142,7 +143,7 @@ func readPacketSession(c *net.UDPConn, bodySize int) (sess *packetSession, err e
 	sess = &packetSession{
 		laddr:    origDstAddr,
 		raddr:    raddr,
-		readBody: b[:n],
+		readBody: body[:n],
 		respOOB:  respOOB,
 	}
 

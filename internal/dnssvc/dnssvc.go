@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
@@ -20,6 +21,8 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/accessmw"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/initial"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
@@ -47,6 +50,9 @@ type Config struct {
 	// ConnLimiter, if not nil, is used to limit the number of simultaneously
 	// active stream-connections.
 	ConnLimiter *connlimiter.Limiter
+
+	// AccessManager is used to block requests.
+	AccessManager access.Interface
 
 	// SafeBrowsing is the safe browsing TXT hash matcher.
 	SafeBrowsing filter.HashMatcher
@@ -397,7 +403,7 @@ func NewListener(
 
 	metricsListener := &errCollMetricsListener{
 		errColl:      errColl,
-		baseListener: &prometheus.ServerMetricsListener{},
+		baseListener: prometheus.NewServerMetricsListener(),
 	}
 
 	confBase := dnsserver.ConfigBase{
@@ -473,61 +479,47 @@ func newServers(
 		rlProtos := []agd.Protocol{agd.ProtoDNS}
 
 		var rlm *ratelimit.Middleware
+		srvName := s.Name
 		rlm, err = ratelimit.NewMiddleware(c.RateLimit, rlProtos)
 		if err != nil {
-			return nil, fmt.Errorf("ratelimit: %w", err)
+			return nil, fmt.Errorf("server %q: ratelimit: %w", srvName, err)
 		}
 
-		rlm.Metrics = &prometheus.RateLimitMetricsListener{}
+		rlm.Metrics = prometheus.NewRateLimitMetricsListener()
 
-		imw := &initMw{
-			messages: c.Messages,
-			fltGrp:   fg,
-			srvGrp:   srvGrp,
-			srv:      s,
-			db:       c.ProfileDB,
-			geoIP:    c.GeoIP,
-			errColl:  c.ErrColl,
-		}
+		amw := accessmw.New(&accessmw.Config{
+			AccessManager: c.AccessManager,
+		})
+
+		imw := initial.New(&initial.Config{
+			Messages:       c.Messages,
+			FilteringGroup: fg,
+			ServerGroup:    srvGrp,
+			Server:         s,
+			ProfileDB:      c.ProfileDB,
+			GeoIP:          c.GeoIP,
+			ErrColl:        c.ErrColl,
+		})
 
 		h := dnsserver.WithMiddlewares(
 			handler,
 
-			// Keep the rate limiting middleware as the outer one to make sure
-			// that the application logic isn't touched if the request is
-			// ratelimited.
+			// Keep the rate limiting and access middlewares as the outer ones
+			// to make sure that the application logic isn't touched if the
+			// request is ratelimited or blocked by access settings.
 			rlm,
+			amw,
 			imw,
 		)
 
-		listeners := make([]*listener, 0, len(s.BindData))
-		for _, bindData := range s.BindData {
-			addr := bindData.Address
-			if addr == "" {
-				addr = bindData.AddrPort.String()
-			}
-
-			name := listenerName(s.Name, addr, s.Protocol)
-
-			lc := bindData.ListenConfig
-			if lc == nil {
-				lc = newListenConfig(c.ControlConf, c.ConnLimiter, s.Protocol)
-			}
-
-			var l Listener
-			l, err = newListener(s, name, addr, h, c.NonDNS, c.ErrColl, lc)
-			if err != nil {
-				return nil, fmt.Errorf("server %q: %w", s.Name, err)
-			}
-
-			listeners = append(listeners, &listener{
-				name:     name,
-				Listener: l,
-			})
+		var listeners []*listener
+		listeners, err = newListeners(c, s, h, newListener)
+		if err != nil {
+			return nil, fmt.Errorf("server %q: %w", srvName, err)
 		}
 
 		servers[i] = &server{
-			name:      s.Name,
+			name:      srvName,
 			handler:   h,
 			listeners: listeners,
 		}
@@ -536,16 +528,59 @@ func newServers(
 	return servers, nil
 }
 
+// newServers creates a slice of listeners for a server.
+func newListeners(
+	c *Config,
+	srv *agd.Server,
+	handler dnsserver.Handler,
+	newListener NewListenerFunc,
+) (listeners []*listener, err error) {
+	listeners = make([]*listener, 0, len(srv.BindData))
+	for i, bindData := range srv.BindData {
+		addr := bindData.Address
+		if addr == "" {
+			addr = bindData.AddrPort.String()
+		}
+
+		proto := srv.Protocol
+		name := listenerName(srv.Name, addr, proto)
+
+		lc := newListenConfig(bindData.ListenConfig, c.ControlConf, c.ConnLimiter, proto)
+
+		var l Listener
+		l, err = newListener(srv, name, addr, handler, c.NonDNS, c.ErrColl, lc)
+		if err != nil {
+			return nil, fmt.Errorf("bind data at index %d: %w", i, err)
+		}
+
+		listeners = append(listeners, &listener{
+			name:     name,
+			Listener: l,
+		})
+	}
+
+	return listeners, nil
+}
+
 // newListenConfig returns the netext.ListenConfig used by the plain-DNS
 // servers.  The resulting ListenConfig sets additional socket flags and
 // processes the control messages of connections created with ListenPacket.
 // Additionally, if l is not nil, it is used to limit the number of
 // simultaneously active stream-connections.
 func newListenConfig(
+	original netext.ListenConfig,
 	ctrlConf *netext.ControlConfig,
 	l *connlimiter.Limiter,
 	p agd.Protocol,
 ) (lc netext.ListenConfig) {
+	if original != nil {
+		if l == nil {
+			return original
+		}
+
+		return connlimiter.NewListenConfig(original, l)
+	}
+
 	if p == agd.ProtoDNS {
 		lc = netext.DefaultListenConfigWithOOB(ctrlConf)
 	} else {

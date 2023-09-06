@@ -32,6 +32,7 @@ configuration file with comments.
      *  [Servers](#server_groups-*-servers-*)
  *  [Connectivity check](#connectivity-check)
  *  [Network settings](#network)
+ *  [Access settings](#access)
  *  [Additional metrics information](#additional_metrics_info)
 
 [dist]: ../config.dist.yml
@@ -1090,6 +1091,22 @@ The `network` object has the following properties:
     See also [notes on these parameters](#recommended-buffers).
 
     **Example:** `1MB`.
+
+
+
+## <a href="#access" id="access" name="access">Access settings</a>
+
+The `access` object has the following properties:
+
+*  <a href="#access-blocked_question_domains" id="access-blocked_question_domains" name="access-blocked_question_domains">`blocked_question_domains`</a>:
+   The list of domains or AdBlock rules to block requests.
+
+   **Examples:** `test.org`, `||example.org^$dnstype=AAAA`.
+
+*  <a href="#access-blocked_client_subnets" id="access-blocked_client_subnets" name="access-blocked_client_subnets">`blocked_client_subnets`</a>:
+   The list of IP addresses or CIDR-es to block.
+
+   **Example:** `127.0.0.1`.
 
 
 

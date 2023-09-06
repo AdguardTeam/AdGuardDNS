@@ -29,7 +29,7 @@ func TestForwardMetricsListener_integration_request(t *testing.T) {
 	// Prepare a test DNS message and call the handler's ServeDNS function.
 	// It will then call the metrics listener and prom metrics should be
 	// incremented.
-	req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
+	req := dnsservertest.CreateMessage(testReqDomain, dns.TypeA)
 	rw := dnsserver.NewNonWriterResponseWriter(srv.LocalUDPAddr(), srv.LocalUDPAddr())
 
 	err := handler.ServeDNS(context.Background(), rw, req)

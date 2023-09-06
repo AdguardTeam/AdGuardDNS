@@ -222,7 +222,6 @@ func BenchmarkNewFile(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-
 	for i := 0; i < b.N; i++ {
 		fileSink, errSink = geoip.NewFile(conf)
 	}

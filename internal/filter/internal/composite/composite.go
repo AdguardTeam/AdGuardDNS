@@ -13,7 +13,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/urlfilter/rules"
 	"github.com/miekg/dns"
 )
@@ -24,13 +24,6 @@ import (
 // An empty composite filter is a filter that always returns a nil filtering
 // result.
 type Filter struct {
-	safeBrowsing         *hashprefix.Filter
-	newRegisteredDomains *hashprefix.Filter
-	adultBlocking        *hashprefix.Filter
-
-	genSafeSearch *safesearch.Filter
-	ytSafeSearch  *safesearch.Filter
-
 	// custom is the custom rule-list filter of the profile, if any.
 	custom *rulelist.Immutable
 
@@ -41,6 +34,10 @@ type Filter struct {
 	// svcLists are the rule-list filters of the profile's enabled blocked
 	// services, if any.
 	svcLists []*rulelist.Immutable
+
+	// reqFilters are the safe-browsing and safe-search request filters in the
+	// composite filter.
+	reqFilters []internal.RequestFilter
 }
 
 // Config is the configuration structure for the composite filter.
@@ -80,16 +77,32 @@ func New(c *Config) (f *Filter) {
 		return &Filter{}
 	}
 
-	return &Filter{
-		safeBrowsing:         c.SafeBrowsing,
-		adultBlocking:        c.AdultBlocking,
-		genSafeSearch:        c.GeneralSafeSearch,
-		ytSafeSearch:         c.YouTubeSafeSearch,
-		custom:               c.Custom,
-		ruleLists:            c.RuleLists,
-		svcLists:             c.ServiceLists,
-		newRegisteredDomains: c.NewRegisteredDomains,
+	f = &Filter{
+		custom:    c.Custom,
+		ruleLists: c.RuleLists,
+		svcLists:  c.ServiceLists,
 	}
+
+	// DO NOT change the order of request filters without necessity.
+	f.reqFilters = appendReqFilter(f.reqFilters, c.SafeBrowsing)
+	f.reqFilters = appendReqFilter(f.reqFilters, c.AdultBlocking)
+	f.reqFilters = appendReqFilter(f.reqFilters, c.GeneralSafeSearch)
+	f.reqFilters = appendReqFilter(f.reqFilters, c.YouTubeSafeSearch)
+	f.reqFilters = appendReqFilter(f.reqFilters, c.NewRegisteredDomains)
+
+	return f
+}
+
+// appendReqFilter appends flt to flts if flt is not nil.
+func appendReqFilter[T *hashprefix.Filter | *safesearch.Filter](
+	flts []internal.RequestFilter,
+	flt T,
+) (res []internal.RequestFilter) {
+	if flt != nil {
+		flts = append(flts, internal.RequestFilter(flt))
+	}
+
+	return flts
 }
 
 // type check
@@ -110,7 +123,7 @@ func (f *Filter) FilterRequest(
 
 	// Prepare common data for filters.
 	reqID := ri.ID
-	log.Debug("filters: filtering req %s: %d rule lists", reqID, len(f.ruleLists))
+	optlog.Debug2("filters: filtering req %s: %d rule lists", reqID, len(f.ruleLists))
 
 	// Firstly, check the profile's rule-list filtering, the custom rules, and
 	// the rules from blocked services settings.
@@ -130,38 +143,11 @@ func (f *Filter) FilterRequest(
 		// Go on.
 	}
 
-	// Secondly, apply the safe browsing and safe search request filters in the
-	// following order.
-	//
-	// DO NOT change the order of reqFilters without necessity.
-	reqFilters := []struct {
-		filter internal.RequestFilter
-		id     agd.FilterListID
-	}{{
-		filter: nullify(f.safeBrowsing),
-		id:     agd.FilterListIDSafeBrowsing,
-	}, {
-		filter: nullify(f.adultBlocking),
-		id:     agd.FilterListIDAdultBlocking,
-	}, {
-		filter: nullify(f.genSafeSearch),
-		id:     agd.FilterListIDGeneralSafeSearch,
-	}, {
-		filter: nullify(f.ytSafeSearch),
-		id:     agd.FilterListIDYoutubeSafeSearch,
-	}, {
-		filter: nullify(f.newRegisteredDomains),
-		id:     agd.FilterListIDNewRegDomains,
-	}}
-
-	for _, rf := range reqFilters {
-		if rf.filter == nil {
-			continue
-		}
-
-		log.Debug("filter %s: filtering req %s", rf.id, reqID)
-		r, err = rf.filter.FilterRequest(ctx, req, ri)
-		log.Debug("filter %s: finished filtering req %s, errors: %v", rf.id, reqID, err)
+	for _, rf := range f.reqFilters {
+		id := rf.ID()
+		optlog.Debug2("filter %s: filtering req %s", id, reqID)
+		r, err = rf.FilterRequest(ctx, req, ri)
+		optlog.Debug3("filter %s: finished filtering req %s, errors: %v", id, reqID, err)
 		if err != nil {
 			return nil, err
 		} else if r != nil {
@@ -171,17 +157,6 @@ func (f *Filter) FilterRequest(
 
 	// Thirdly, return the previously obtained filter list result.
 	return rlRes, nil
-}
-
-// nullify returns a nil interface value if flt is a nil pointer.  Otherwise, it
-// returns flt converted to the interface type.  It is used to avoid situations
-// where an interface value doesn't have any data but does have a type.
-func nullify[T *safesearch.Filter | *hashprefix.Filter](flt T) (fr internal.RequestFilter) {
-	if flt == nil {
-		return nil
-	}
-
-	return internal.RequestFilter(flt)
 }
 
 // FilterResponse implements the [internal.Interface] interface for *Filter.  It
@@ -276,14 +251,10 @@ func parseRespAnswer(ans dns.RR) (hostname string, rrType dnsmsg.RRType, ok bool
 // isEmpty returns true if this composite filter is an empty filter.
 func (f *Filter) isEmpty() (ok bool) {
 	return f == nil ||
-		(f.safeBrowsing == nil &&
-			f.adultBlocking == nil &&
-			f.genSafeSearch == nil &&
-			f.ytSafeSearch == nil &&
-			f.custom == nil &&
-			f.newRegisteredDomains == nil &&
+		(f.custom == nil &&
 			len(f.ruleLists) == 0 &&
-			len(f.svcLists) == 0)
+			len(f.svcLists) == 0 &&
+			len(f.reqFilters) == 0)
 }
 
 // filterWithRuleLists filters one question's or answer's information through
@@ -408,7 +379,7 @@ func (f *Filter) ruleDataToResult(
 	}
 
 	if allowlist {
-		log.Debug("rule list %s: allowed by rule %s", fltID, rule)
+		optlog.Debug2("rule list %s: allowed by rule %s", fltID, rule)
 
 		return &internal.ResultAllowed{
 			List: fltID,
@@ -416,7 +387,7 @@ func (f *Filter) ruleDataToResult(
 		}
 	}
 
-	log.Debug("rule list %s: blocked by rule %s", fltID, rule)
+	optlog.Debug2("rule list %s: blocked by rule %s", fltID, rule)
 
 	return &internal.ResultBlocked{
 		List: fltID,

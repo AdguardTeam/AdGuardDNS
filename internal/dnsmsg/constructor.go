@@ -2,10 +2,9 @@ package dnsmsg
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 	"time"
 
-	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/urlfilter/rules"
 	"github.com/miekg/dns"
 )
@@ -38,7 +37,7 @@ func (c *Constructor) NewBlockedRespMsg(req *dns.Msg) (msg *dns.Msg, err error) 
 	case *BlockingModeNullIP:
 		switch qt := req.Question[0].Qtype; qt {
 		case dns.TypeA, dns.TypeAAAA:
-			return c.NewIPRespMsg(req, nil)
+			return c.NewIPRespMsg(req, netip.Addr{})
 		default:
 			return c.NewMsgNODATA(req), nil
 		}
@@ -62,11 +61,11 @@ func (c *Constructor) newBlockedCustomIPRespMsg(
 	switch qt := req.Question[0].Qtype; qt {
 	case dns.TypeA:
 		if m.IPv4.IsValid() {
-			return c.NewIPRespMsg(req, m.IPv4.AsSlice())
+			return c.NewIPRespMsg(req, m.IPv4)
 		}
 	case dns.TypeAAAA:
 		if m.IPv6.IsValid() {
-			return c.NewIPRespMsg(req, m.IPv6.AsSlice())
+			return c.NewIPRespMsg(req, m.IPv6)
 		}
 	default:
 		// Go on.
@@ -78,7 +77,7 @@ func (c *Constructor) newBlockedCustomIPRespMsg(
 // NewIPRespMsg returns a DNS A or AAAA response message with the given IP
 // addresses.  If any IP address is nil, it is replaced by an unspecified (aka
 // null) IP.  The TTL is also set to c.FilteredResponseTTL.
-func (c *Constructor) NewIPRespMsg(req *dns.Msg, ips ...net.IP) (msg *dns.Msg, err error) {
+func (c *Constructor) NewIPRespMsg(req *dns.Msg, ips ...netip.Addr) (msg *dns.Msg, err error) {
 	switch qt := req.Question[0].Qtype; qt {
 	case dns.TypeA:
 		return c.newMsgA(req, ips...)
@@ -205,40 +204,38 @@ func (c *Constructor) newHdrWithClass(req *dns.Msg, rrType RRType, cl dns.Class)
 }
 
 // NewAnsA returns a new resource record with an IPv4 address.  ip must be an
-// IPv4 address.  If ip is nil, it is replaced by an unspecified (aka null) IP,
-// 0.0.0.0.
-func (c *Constructor) NewAnsA(req *dns.Msg, ip net.IP) (ans *dns.A, err error) {
-	var ip4 net.IP
-	if ip == nil {
-		ip4 = net.IP{0, 0, 0, 0}
-	} else if err = netutil.ValidateIP(ip); err != nil {
-		return nil, err
-	} else if ip4 = ip.To4(); ip4 == nil {
+// IPv4 address.  If ip is a zero netip.Addr, it is replaced by an unspecified
+// (aka null) IP, 0.0.0.0.
+func (c *Constructor) NewAnsA(req *dns.Msg, ip netip.Addr) (ans *dns.A, err error) {
+	if ip == (netip.Addr{}) {
+		ip = netip.IPv4Unspecified()
+	} else if !ip.Is4() {
 		return nil, fmt.Errorf("bad ipv4: %s", ip)
 	}
 
+	data := ip.As4()
+
 	return &dns.A{
 		Hdr: c.newHdr(req, dns.TypeA),
-		A:   ip4,
+		A:   data[:],
 	}, nil
 }
 
 // NewAnsAAAA returns a new resource record with an IPv6 address.  ip must be an
-// IPv6 address.  If ip is nil, it is replaced by an unspecified (aka null) IP,
-// [::].
-func (c *Constructor) NewAnsAAAA(req *dns.Msg, ip net.IP) (ans *dns.AAAA, err error) {
-	var ip6 net.IP
-	if ip == nil {
-		ip6 = net.IPv6unspecified
-	} else if err = netutil.ValidateIP(ip); err != nil {
-		return nil, err
-	} else {
-		ip6 = ip.To16()
+// IPv6 address.  If ip is a zero netip.Addr, it is replaced by an unspecified
+// (aka null) IP, [::].
+func (c *Constructor) NewAnsAAAA(req *dns.Msg, ip netip.Addr) (ans *dns.AAAA, err error) {
+	if ip == (netip.Addr{}) {
+		ip = netip.IPv6Unspecified()
+	} else if !ip.Is6() {
+		return nil, fmt.Errorf("bad ipv6: %s", ip)
 	}
+
+	data := ip.As16()
 
 	return &dns.AAAA{
 		Hdr:  c.newHdr(req, dns.TypeAAAA),
-		AAAA: ip6,
+		AAAA: data[:],
 	}, nil
 }
 
@@ -358,7 +355,7 @@ func (c *Constructor) NewRespMsg(req *dns.Msg) (resp *dns.Msg) {
 
 // newMsgA returns a new DNS response with the given IPv4 addresses.  If any IP
 // address is nil, it is replaced by an unspecified (aka null) IP, 0.0.0.0.
-func (c *Constructor) newMsgA(req *dns.Msg, ips ...net.IP) (msg *dns.Msg, err error) {
+func (c *Constructor) newMsgA(req *dns.Msg, ips ...netip.Addr) (msg *dns.Msg, err error) {
 	msg = c.NewRespMsg(req)
 	for i, ip := range ips {
 		var ans dns.RR
@@ -375,7 +372,7 @@ func (c *Constructor) newMsgA(req *dns.Msg, ips ...net.IP) (msg *dns.Msg, err er
 
 // newMsgAAAA returns a new DNS response with the given IPv6 addresses.  If any
 // IP address is nil, it is replaced by an unspecified (aka null) IP, [::].
-func (c *Constructor) newMsgAAAA(req *dns.Msg, ips ...net.IP) (msg *dns.Msg, err error) {
+func (c *Constructor) newMsgAAAA(req *dns.Msg, ips ...netip.Addr) (msg *dns.Msg, err error) {
 	msg = c.NewRespMsg(req)
 	for i, ip := range ips {
 		var ans dns.RR

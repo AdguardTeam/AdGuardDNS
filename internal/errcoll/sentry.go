@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
@@ -52,6 +53,28 @@ func (c *SentryErrorCollector) Collect(ctx context.Context, err error) {
 	_ = c.sentry.CaptureException(err, &sentry.EventHint{
 		Context: ctx,
 	}, scope)
+}
+
+// ErrorFlushCollector collects information about errors, possibly sending them
+// to a remote location.  The collected errors should be flushed with the Flush.
+type ErrorFlushCollector interface {
+	agd.ErrorCollector
+
+	// Flush waits until the underlying transport sends any buffered events to
+	// the sentry server, blocking for at most the predefined timeout.
+	Flush()
+}
+
+// type check
+var _ ErrorFlushCollector = (*SentryErrorCollector)(nil)
+
+// flushTimeout is the timeout for flushing sentry errors.
+const flushTimeout = 1 * time.Second
+
+// Flush implements the [ErrorFlushCollector] interface for
+// *SentryErrorCollector.
+func (c *SentryErrorCollector) Flush() {
+	_ = c.sentry.Flush(flushTimeout)
 }
 
 // SentryReportableError is the interface for errors and wrapper that can tell

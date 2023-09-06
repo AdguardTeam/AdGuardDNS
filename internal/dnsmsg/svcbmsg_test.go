@@ -14,14 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var (
-	// testIPv4 is an IPv4 for tests.
-	testIPv4 = netip.MustParseAddr("1.2.3.4")
-
-	// testIPv6 is an IPv6 for tests.
-	testIPv6 = netip.MustParseAddr("::1")
-)
-
 func TestConstructor_NewAnswerHTTPS_andSVCB(t *testing.T) {
 	// Preconditions.
 

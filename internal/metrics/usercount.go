@@ -188,19 +188,19 @@ func mustMerge(a, b *hyperloglog.Sketch) {
 	}
 }
 
-// hyperloglogConfig is a serialized [hyperLogLog.Sketch] with prescision 18 and
+// hyperloglogConfig is a serialized [hyperLogLog.Sketch] with precision 18 and
 // sparse mode enabled.
 var hyperloglogConfig = [20]byte{
 	// Version.
 	0: 0x1,
-	// Prescision.
+	// Precision.
 	1: 18,
 	// Sparse.
 	3: 0x1,
 }
 
-// newHyperLogLog creates a new instance of hyperloglog.Sketch with prescision
-// 18 and sparse mode enabled.
+// newHyperLogLog creates a new instance of hyperloglog.Sketch with precision 18
+// and sparse mode enabled.
 func newHyperLogLog() (sk *hyperloglog.Sketch) {
 	sk = &hyperloglog.Sketch{}
 	err := sk.UnmarshalBinary(hyperloglogConfig[:])

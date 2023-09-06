@@ -1,0 +1,124 @@
+syntax = "proto3";
+
+option go_package = "./backendpb";
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+option java_multiple_files = true;
+option java_package = "com.adguard.backend.dns.generated";
+option java_outer_classname = "DNSProfilesProto";
+option objc_class_prefix = "DNS";
+
+service DNSService {
+
+  /*
+    Gets DNS profiles.
+
+    Field "sync_time" in DNSProfilesRequest - pass to return the latest updates after this time moment.
+
+    The trailers headers will include a "sync_time", given in milliseconds,
+    that should be used for subsequent incremental DNS profile synchronization requests.
+   */
+  rpc getDNSProfiles(DNSProfilesRequest) returns (stream DNSProfile);
+
+  /*
+    Stores devices activity.
+   */
+  rpc saveDevicesBillingStat(stream DeviceBillingStat) returns (google.protobuf.Empty);
+}
+
+message DNSProfilesRequest {
+  google.protobuf.Timestamp sync_time = 1;
+}
+
+message DNSProfile {
+  string dns_id = 1;
+  bool filtering_enabled = 2;
+  bool query_log_enabled = 3;
+  bool deleted = 4;
+  SafeBrowsingSettings safe_browsing = 5;
+  ParentalSettings parental = 6;
+  RuleListsSettings rule_lists = 7;
+  repeated DeviceSettings devices = 8;
+  repeated string custom_rules = 9;
+  google.protobuf.Duration filtered_response_ttl = 10;
+  bool block_private_relay = 11;
+  bool block_firefox_canary = 12;
+  oneof blocking_mode {
+    BlockingModeCustomIP blocking_mode_custom_ip = 13;
+    BlockingModeNXDOMAIN blocking_mode_nxdomain = 14;
+    BlockingModeNullIP blocking_mode_null_ip = 15;
+    BlockingModeREFUSED blocking_mode_refused = 16;
+  }
+}
+
+message SafeBrowsingSettings {
+  bool enabled = 1;
+  bool block_dangerous_domains = 2;
+  bool block_nrd = 3;
+}
+
+message DeviceSettings {
+  string id = 1;
+  string name = 2;
+  bool filtering_enabled = 3;
+  bytes linked_ip = 4;
+  repeated bytes dedicated_ips = 5;
+}
+
+message ParentalSettings {
+  bool enabled = 1;
+  bool block_adult = 2;
+  bool general_safe_search = 3;
+  bool youtube_safe_search = 4;
+  repeated string blocked_services = 5;
+  ScheduleSettings schedule = 6;
+}
+
+message ScheduleSettings {
+  string tmz = 1;
+  WeeklyRange weeklyRange = 2;
+}
+
+message WeeklyRange {
+  DayRange mon = 1;
+  DayRange tue = 2;
+  DayRange wed = 3;
+  DayRange thu = 4;
+  DayRange fri = 5;
+  DayRange sat = 6;
+  DayRange sun = 7;
+}
+
+message DayRange {
+  google.protobuf.Duration start = 1;
+  google.protobuf.Duration end = 2;
+}
+
+message RuleListsSettings {
+  bool enabled = 1;
+  repeated string ids = 2;
+}
+
+message BlockingModeCustomIP {
+  bytes ipv4 = 1;
+  bytes ipv6 = 2;
+}
+
+message BlockingModeNXDOMAIN {}
+
+message BlockingModeNullIP {}
+
+message BlockingModeREFUSED {}
+
+message DeviceBillingStat {
+  google.protobuf.Timestamp last_activity_time = 1;
+  string device_id = 2;
+  string client_country = 3;
+  // Protocol type. Possible values see here: https://bit.adguard.com/projects/DNS/repos/dns-server/browse#ql-properties
+  uint32 proto = 4;
+  uint32 asn = 5;
+  uint32 queries = 6;
+}

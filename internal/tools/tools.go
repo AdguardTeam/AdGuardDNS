@@ -13,6 +13,7 @@ import (
 	_ "golang.org/x/tools/go/analysis/passes/nilness/cmd/nilness"
 	_ "golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow"
 	_ "golang.org/x/vuln/cmd/govulncheck"
+	_ "google.golang.org/grpc/cmd/protoc-gen-go-grpc"
 	_ "google.golang.org/protobuf/cmd/protoc-gen-go"
 	_ "honnef.co/go/tools/cmd/staticcheck"
 	_ "mvdan.cc/gofumpt"

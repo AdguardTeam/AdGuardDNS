@@ -2,14 +2,14 @@ package composite
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/urlfilter/rules"
 	"github.com/miekg/dns"
 )
@@ -116,16 +116,13 @@ func processDNSRewriteRules(dnsr []*rules.NetworkRule) (res *dnsRewriteResult) {
 }
 
 // filterDNSRewrite handles dnsrewrite filters.  It constructs a DNS
-// response and returns it.
+// response and returns it.  dnsrr.RCode should be dns.RcodeSuccess and contain
+// a non-empty dnsrr.Response.
 func filterDNSRewrite(
 	messages *dnsmsg.Constructor,
 	req *dns.Msg,
 	dnsrr *dnsRewriteResult,
 ) (resp *dns.Msg, err error) {
-	if dnsrr.RCode != dns.RcodeSuccess {
-		return nil, errors.Error("non-success answer")
-	}
-
 	if dnsrr.Response == nil {
 		return nil, errors.Error("no dns rewrite rule responses")
 	}
@@ -139,6 +136,10 @@ func filterDNSRewrite(
 		ans, err = filterDNSRewriteResponse(messages, req, rr, v)
 		if err != nil {
 			return nil, fmt.Errorf("dns rewrite response for %d[%d]: %w", rr, i, err)
+		} else if ans == nil {
+			// TODO(e.burkov):  Currently, urlfilter returns all the matched
+			// $dnsrewrite rules including invalid ones.  Fix this behavior.
+			continue
 		}
 
 		resp.Answer = append(resp.Answer, ans)
@@ -171,7 +172,7 @@ func filterDNSRewriteResponse(
 	case dns.TypeSRV:
 		return newAnswerSRV(messages, v, rr, req)
 	default:
-		log.Debug("don't know how to handle dns rr type %d, skipping", rr)
+		optlog.Debug1("filters: don't know how to handle dns rr type %d, skipping", rr)
 
 		return nil, nil
 	}
@@ -238,13 +239,13 @@ func newAnsFromIP(
 	rr rules.RRType,
 	req *dns.Msg,
 ) (ans dns.RR, err error) {
-	ip, ok := v.(net.IP)
+	ip, ok := v.(netip.Addr)
 	if !ok {
 		return nil, fmt.Errorf("value for rr type %d has type %T, not net.IP", rr, v)
 	}
 
 	if rr == dns.TypeA {
-		return messages.NewAnsA(req, ip.To4())
+		return messages.NewAnsA(req, ip)
 	}
 
 	return messages.NewAnsAAAA(req, ip)

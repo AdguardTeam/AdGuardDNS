@@ -1,4 +1,4 @@
-package dnssvc
+package initial
 
 import (
 	"context"
@@ -15,8 +15,6 @@ import (
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 )
-
-// Device ID Extraction
 
 // deviceIDFromClientServerName extracts and validates a device ID.  cliSrvName
 // is the server name as sent by the client.  wildcards are the domain wildcards

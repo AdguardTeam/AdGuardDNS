@@ -18,7 +18,7 @@ type NetInterface interface {
 // type check
 var _ NetInterface = osInterface{}
 
-// osInterface is a wapper around [*net.Interface] that implements the
+// osInterface is a wrapper around [*net.Interface] that implements the
 // [NetInterface] interface.
 type osInterface struct {
 	iface *net.Interface

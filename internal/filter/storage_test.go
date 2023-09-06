@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -131,12 +132,12 @@ func TestStorage_FilterFromContext_customAllow(t *testing.T) {
 	}
 
 	resolver := &agdtest.Resolver{
-		OnLookupIP: func(
+		OnLookupNetIP: func(
 			_ context.Context,
 			_ netutil.AddrFamily,
 			_ string,
-		) (ips []net.IP, err error) {
-			return []net.IP{safeBrowsingSafeIP4}, nil
+		) (ips []netip.Addr, err error) {
+			return []netip.Addr{safeBrowsingSafeIP4}, nil
 		},
 	}
 
@@ -227,12 +228,12 @@ func TestStorage_FilterFromContext_schedule(t *testing.T) {
 	}
 
 	resolver := &agdtest.Resolver{
-		OnLookupIP: func(
+		OnLookupNetIP: func(
 			_ context.Context,
 			_ netutil.AddrFamily,
 			_ string,
-		) (ips []net.IP, err error) {
-			return []net.IP{safeBrowsingSafeIP4}, nil
+		) (ips []netip.Addr, err error) {
+			return []netip.Addr{safeBrowsingSafeIP4}, nil
 		},
 	}
 
@@ -741,12 +742,12 @@ func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
 	}
 
 	resolver := &agdtest.Resolver{
-		OnLookupIP: func(
+		OnLookupNetIP: func(
 			_ context.Context,
 			_ netutil.AddrFamily,
 			_ string,
-		) (ips []net.IP, err error) {
-			return []net.IP{safeBrowsingSafeIP4}, nil
+		) (ips []netip.Addr, err error) {
+			return []netip.Addr{safeBrowsingSafeIP4}, nil
 		},
 	}
 
@@ -809,18 +810,18 @@ func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
 func TestStorage_FilterFromContext_safeSearch(t *testing.T) {
 	numLookupIP := 0
 	resolver := &agdtest.Resolver{
-		OnLookupIP: func(
+		OnLookupNetIP: func(
 			_ context.Context,
 			fam netutil.AddrFamily,
 			_ string,
-		) (ips []net.IP, err error) {
+		) (ips []netip.Addr, err error) {
 			numLookupIP++
 
 			if fam == netutil.AddrFamilyIPv4 {
-				return []net.IP{safeSearchIPRespIP4}, nil
+				return []netip.Addr{safeSearchIPRespIP4}, nil
 			}
 
-			return []net.IP{safeSearchIPRespIP6}, nil
+			return []netip.Addr{safeSearchIPRespIP6}, nil
 		},
 	}
 
@@ -842,33 +843,33 @@ func TestStorage_FilterFromContext_safeSearch(t *testing.T) {
 	}
 
 	testCases := []struct {
+		wantIP      netip.Addr
 		name        string
 		host        string
-		wantIP      net.IP
 		rrtype      uint16
 		wantLookups int
 	}{{
+		wantIP:      safeSearchIPRespIP4,
 		name:        "ip4",
 		host:        safeSearchIPHost,
-		wantIP:      safeSearchIPRespIP4,
 		rrtype:      dns.TypeA,
 		wantLookups: 1,
 	}, {
+		wantIP:      safeSearchIPRespIP6,
 		name:        "ip6",
 		host:        safeSearchIPHost,
-		wantIP:      safeSearchIPRespIP6,
 		rrtype:      dns.TypeAAAA,
 		wantLookups: 1,
 	}, {
+		wantIP:      safeSearchIPRespIP4,
 		name:        "host_ip4",
 		host:        safeSearchHost,
-		wantIP:      safeSearchIPRespIP4,
 		rrtype:      dns.TypeA,
 		wantLookups: 1,
 	}, {
+		wantIP:      safeSearchIPRespIP6,
 		name:        "host_ip6",
 		host:        safeSearchHost,
-		wantIP:      safeSearchIPRespIP6,
 		rrtype:      dns.TypeAAAA,
 		wantLookups: 1,
 	}}
@@ -896,22 +897,15 @@ func TestStorage_FilterFromContext_safeSearch(t *testing.T) {
 
 			res := rm.Msg
 			require.NotNil(t, res)
-
-			if tc.wantIP == nil {
-				assert.Nil(t, res.Answer)
-
-				return
-			}
-
 			require.Len(t, res.Answer, 1)
 
 			switch ans := res.Answer[0]; ans := ans.(type) {
 			case *dns.A:
 				assert.Equal(t, tc.rrtype, ans.Hdr.Rrtype)
-				assert.Equal(t, tc.wantIP, ans.A)
+				assert.Equal(t, net.IP(tc.wantIP.AsSlice()), ans.A)
 			case *dns.AAAA:
 				assert.Equal(t, tc.rrtype, ans.Hdr.Rrtype)
-				assert.Equal(t, tc.wantIP, ans.AAAA)
+				assert.Equal(t, net.IP(tc.wantIP.AsSlice()), ans.AAAA)
 			default:
 				t.Fatalf("unexpected answer type %T(%[1]v)", ans)
 			}

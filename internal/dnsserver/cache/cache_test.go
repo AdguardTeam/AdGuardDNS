@@ -3,6 +3,7 @@ package cache_test
 import (
 	"context"
 	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 		defaultTTL uint32 = 3600
 	)
 
+	reqAddr := netip.MustParseAddr("1.2.3.4")
 	testTTL := 60 * time.Second
 
 	aReq := dnsservertest.NewReq(reqHostname, dns.TypeA, dns.ClassINET)
@@ -44,7 +46,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 	}{{
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
-			dnsservertest.NewA(reqHostname, defaultTTL, net.IP{1, 2, 3, 4}),
+			dnsservertest.NewA(reqHostname, defaultTTL, reqAddr),
 		}),
 		name:       "simple_a",
 		wantNumReq: 1,
@@ -114,7 +116,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 	}, {
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
-			dnsservertest.NewA(reqHostname, 0, net.IP{1, 2, 3, 4}),
+			dnsservertest.NewA(reqHostname, 0, reqAddr),
 		}),
 		name:       "expired_one",
 		wantNumReq: N,
@@ -123,7 +125,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 	}, {
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
-			dnsservertest.NewA(reqHostname, 10, net.IP{1, 2, 3, 4}),
+			dnsservertest.NewA(reqHostname, 10, reqAddr),
 		}),
 		name:       "override_ttl_ok",
 		wantNumReq: 1,
@@ -132,7 +134,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 	}, {
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
-			dnsservertest.NewA(reqHostname, 1000, net.IP{1, 2, 3, 4}),
+			dnsservertest.NewA(reqHostname, 1000, reqAddr),
 		}),
 		name:       "override_ttl_max",
 		wantNumReq: 1,
@@ -141,7 +143,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 	}, {
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
-			dnsservertest.NewA(reqHostname, 0, net.IP{1, 2, 3, 4}),
+			dnsservertest.NewA(reqHostname, 0, reqAddr),
 		}),
 		name:       "override_ttl_zero",
 		wantNumReq: N,
@@ -150,7 +152,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 	}, {
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeServerFailure, aReq, dnsservertest.SectionAnswer{
-			dnsservertest.NewA(reqHostname, servFailMaxCacheTTL, net.IP{1, 2, 3, 4}),
+			dnsservertest.NewA(reqHostname, servFailMaxCacheTTL, reqAddr),
 		}),
 		name:       "override_ttl_servfail",
 		wantNumReq: 1,

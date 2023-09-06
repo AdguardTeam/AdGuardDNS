@@ -3,7 +3,9 @@
 package bindtodevice
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"net"
 	"net/netip"
@@ -16,6 +18,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slices"
@@ -240,10 +243,13 @@ func testListenControlUDPQuery(t *testing.T, packetConn net.PacketConn, reqAddr 
 	err := packetConn.SetReadDeadline(time.Now().Add(testTimeout))
 	require.NoError(t, err)
 
+	b := make([]byte, reqLen)
+	oob := make([]byte, netext.IPDstOOBSize)
+
 	var sess *packetSession
 	switch c := packetConn.(type) {
 	case *net.UDPConn:
-		sess, err = readPacketSession(c, reqLen)
+		sess, err = readPacketSession(c, b, oob)
 		require.NoError(t, err)
 	case netext.SessionPacketConn:
 		var s netext.PacketSession
@@ -459,4 +465,85 @@ func TestListenControlWithSO(t *testing.T) {
 		})
 		require.NoError(t, err)
 	})
+}
+
+// testMsgUDPReader is a [msgUDPReader] for tests.
+type testMsgUDPReader struct {
+	onReadMsgUDP func(b, oob []byte) (n, oobn, flags int, addr *net.UDPAddr, err error)
+}
+
+// type check
+var _ msgUDPReader = (*testMsgUDPReader)(nil)
+
+// ReadMsgUDP implements the [msgUDPReader] interface for *testMsgUDPReader.
+func (r *testMsgUDPReader) ReadMsgUDP(
+	b []byte,
+	oob []byte,
+) (n, oobn, flags int, addr *net.UDPAddr, err error) {
+	return r.onReadMsgUDP(b, oob)
+}
+
+// Sinks for benchmarks.
+var (
+	sessSink *packetSession
+	errSink  error
+)
+
+func BenchmarkReadPacketSession(b *testing.B) {
+	bodyData := []byte("message body data")
+
+	// TODO(a.garipov): Find a better way to pack these control messages than
+	// just [binary.Write].
+	oobBuf := &bytes.Buffer{}
+	ctrlMsgHdr := unix.Cmsghdr{
+		Len:   24,
+		Level: unix.SOL_IP,
+		Type:  unix.IP_ORIGDSTADDR,
+	}
+
+	// TODO(a.garipov): Use binary.NativeEndian in Go 1.21 here and below.
+	err := binary.Write(oobBuf, binary.LittleEndian, ctrlMsgHdr)
+	require.NoError(b, err)
+
+	pktInfo := unix.Inet4Pktinfo{
+		Spec_dst: *(*[4]byte)(testRAddr.IP),
+		Addr:     *(*[4]byte)(testRAddr.IP),
+	}
+
+	err = binary.Write(oobBuf, binary.LittleEndian, pktInfo)
+	require.NoError(b, err)
+
+	oobData := oobBuf.Bytes()
+
+	c := &testMsgUDPReader{
+		onReadMsgUDP: func(body, oob []byte) (n, oobn, flags int, addr *net.UDPAddr, err error) {
+			copy(body, bodyData)
+			copy(oob, oobData)
+
+			return len(bodyData), len(oobData), 0, testRAddr, nil
+		},
+	}
+
+	body := make([]byte, dns.DefaultMsgSize)
+	oob := make([]byte, netext.IPDstOOBSize)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sessSink, errSink = readPacketSession(c, body, oob)
+	}
+
+	require.NoError(b, errSink)
+	require.NotNil(b, sessSink)
+
+	assert.Equal(b, sessSink.raddr, testRAddr)
+	assert.Equal(b, sessSink.readBody, bodyData)
+
+	// Most recent result, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
+	//	goos: linux
+	//	goarch: amd64
+	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice
+	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
+	//	BenchmarkReadPacketSession
+	//	BenchmarkReadPacketSession-16            3311841               458.1 ns/op           224 B/op        5 allocs/op
 }

@@ -36,10 +36,10 @@ func (c *connCheckConfig) validate() (err error) {
 
 // connectivityCheck performs connectivity checks for bind addresses with
 // provided dialer and probe addresses.  For each server group it reviews each
-// server bind addresses looking up for an IPv6 addresses.  If an IPv6 address
-// is found, then additionally to a general probe to IPv4 it will perform a
-// check to IPv6 probe address.
-func connectivityCheck(c *dnssvc.Config, connCheck *connCheckConfig) error {
+// server bind addresses looking up for IPv6 addresses.  If an IPv6 address is
+// found, then additionally to a general probe to IPv4 it will perform a check
+// to IPv6 probe address.
+func connectivityCheck(c *dnssvc.Config, connCheck *connCheckConfig) (err error) {
 	probeIPv4 := net.TCPAddrFromAddrPort(connCheck.ProbeIPv4)
 
 	// General check to IPv4 probe address.
@@ -49,46 +49,58 @@ func connectivityCheck(c *dnssvc.Config, connCheck *connCheckConfig) error {
 	}
 
 	defer func() {
-		err = conn.Close()
-		if err != nil {
-			log.Fatalf("connectivity check: ipv4: %v", err)
+		closeErr := conn.Close()
+		if closeErr != nil {
+			log.Fatalf("connectivity check: ipv4: %v", closeErr)
 		}
 	}()
 
-	if containsIPv6BindAddress(c.ServerGroups) {
-		if (connCheck.ProbeIPv6 == netip.AddrPort{}) {
-			log.Fatal("connectivity check: no ipv6 probe address in config")
-		}
-
-		probeIPv6 := net.TCPAddrFromAddrPort(connCheck.ProbeIPv6)
-
-		// Check to IPv6 probe address.
-		connV6, errV6 := net.DialTCP("tcp6", nil, probeIPv6)
-		if errV6 != nil {
-			return fmt.Errorf("connectivity check: ipv6: %w", errV6)
-		}
-
-		defer func() {
-			err = connV6.Close()
-			if err != nil {
-				log.Fatalf("connectivity check: ipv6: %v", err)
-			}
-		}()
+	if !requireIPv6ConnCheck(c.ServerGroups) {
+		return nil
 	}
+
+	if (connCheck.ProbeIPv6 == netip.AddrPort{}) {
+		log.Fatal("connectivity check: no ipv6 probe address in config")
+	}
+
+	probeIPv6 := net.TCPAddrFromAddrPort(connCheck.ProbeIPv6)
+
+	// Check to IPv6 probe address.
+	connV6, err := net.DialTCP("tcp6", nil, probeIPv6)
+	if err != nil {
+		return fmt.Errorf("connectivity check: ipv6: %w", err)
+	}
+
+	defer func() {
+		closeErr := connV6.Close()
+		if closeErr != nil {
+			log.Fatalf("connectivity check: ipv6: %v", closeErr)
+		}
+	}()
 
 	return nil
 }
 
-// containsIPv6BindAddress returns true if provided serverGroups require
-// IPv6 connectivity check.
-func containsIPv6BindAddress(serverGroups []*agd.ServerGroup) (ok bool) {
+// requireIPv6ConnCheck returns true if provided serverGroups require IPv6
+// connectivity check.
+func requireIPv6ConnCheck(serverGroups []*agd.ServerGroup) (ok bool) {
 	for _, srvGrp := range serverGroups {
 		for _, s := range srvGrp.Servers {
-			for _, bindData := range s.BindData {
-				if addr := bindData.AddrPort; addr.IsValid() && addr.Addr().Is6() {
-					return true
-				}
+			if containsIPv6BindAddress(s.BindData) {
+				return true
 			}
+		}
+	}
+
+	return false
+}
+
+// containsIPv6BindAddress returns true if provided bindData contains valid IPv6
+// address.
+func containsIPv6BindAddress(bindData []*agd.ServerBindData) (ok bool) {
+	for _, bData := range bindData {
+		if addr := bData.AddrPort; addr.Addr().Is6() {
+			return true
 		}
 	}
 

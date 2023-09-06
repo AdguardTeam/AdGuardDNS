@@ -5,7 +5,6 @@ package safesearch
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/netip"
 	"time"
 
@@ -108,7 +107,7 @@ func (f *Filter) FilterRequest(
 	defer cancel()
 
 	var result *dns.Msg
-	ips, err := f.resolver.LookupIP(ctx, fam, repHost)
+	ips, err := f.resolver.LookupNetIP(ctx, fam, repHost)
 	if err != nil {
 		agd.Collectf(ctx, f.errColl, "filter %s: resolving: %w", f.id, err)
 
@@ -135,6 +134,11 @@ func (f *Filter) FilterRequest(
 	return rm, nil
 }
 
+// ID implements the [internal.RequestFilter] interface for *Filter.
+func (f *Filter) ID() (id agd.FilterListID) {
+	return f.id
+}
+
 // safeSearchHost returns the replacement host for the given host and question
 // type, if any.  qt should be either [dns.TypeA] or [dns.TypeAAAA].
 func (f *Filter) safeSearchHost(host string, qt dnsmsg.RRType) (ssHost string, ok bool) {
@@ -157,7 +161,7 @@ func (f *Filter) safeSearchHost(host string, qt dnsmsg.RRType) (ssHost string, o
 		// A/AAAA or CNAME type.
 		switch drw.RRType {
 		case dns.TypeA, dns.TypeAAAA:
-			return drw.Value.(net.IP).String(), true
+			return drw.Value.(netip.Addr).String(), true
 		default:
 			continue
 		}

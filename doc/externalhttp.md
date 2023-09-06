@@ -29,7 +29,9 @@ document should set the `Server` header in their replies.
 ##  <a href="#backend-billstat" id="backend-billstat" name="backend-billstat">Backend Billing Statistics</a>
 
 This is the service to which the [`BILLSTAT_URL`][env-billstat_url] environment
-variable points.  This service must provide one endpoint:
+variable points.  Supports `http(s):` and `grpc(s)` URLs.  In case of GRPC
+protocol, the service must correspond to `./internal/backendpb/backend.proto`.
+In case of HTTP protocol this service must provide one endpoint:
 `POST /dns_api/v1/devices_activity`, it must respond with a `200 OK` response
 code and accept a JSON document in the following format:
 
@@ -55,7 +57,9 @@ code and accept a JSON document in the following format:
 ##  <a href="#backend-profiles" id="backend-profiles" name="backend-profiles">Backend Profiles Service</a>
 
 This is the service to which the [`PROFILES_URL`][env-profiles_url] environment
-variable points.  This service must provide one endpoint:
+variable points.  Supports `http(s):` and `grpc(s)` URLs.  In case of GRPC
+protocol, the service must correspond to `./internal/backendpb/backend.proto`.
+In case of HTTP protocol this service must provide one endpoint:
 `GET /dns_api/v1/settings`, it must respond with a `200 OK` response code and
 accept a JSON document in the following format:
 

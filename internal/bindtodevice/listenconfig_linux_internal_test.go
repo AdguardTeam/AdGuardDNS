@@ -6,16 +6,19 @@ import (
 	"context"
 	"testing"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestChanListenConfig(t *testing.T) {
+func TestListenConfig(t *testing.T) {
 	pc := newChanPacketConn(nil, testSubnetIPv4, nil, testLAddr)
 	lsnr := newChanListener(nil, testSubnetIPv4, testLAddr)
-	c := chanListenConfig{
+	addr := agdnet.FormatPrefixAddr(testSubnetIPv4, 1234)
+	c := &ListenConfig{
 		packetConn: pc,
 		listener:   lsnr,
+		addr:       addr,
 	}
 
 	ctx := context.Background()
@@ -29,4 +32,7 @@ func TestChanListenConfig(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, lsnr, gotLsnr)
+
+	gotAddr := c.Addr()
+	assert.Equal(t, addr, gotAddr)
 }

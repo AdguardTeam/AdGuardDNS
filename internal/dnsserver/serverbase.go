@@ -19,8 +19,8 @@ type ConfigBase struct {
 	// Name is used for logging, and it may be used for perf counters reporting.
 	Name string
 
-	// Addr is the address the server listens to.  See go doc net.Dial for
-	// the documentation on the address format.
+	// Addr is the address the server listens to.  See [net.Dial] for the
+	// documentation on the address format.
 	Addr string
 
 	// Network is the network this server listens to.  If empty, the server will

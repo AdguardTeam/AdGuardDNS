@@ -3,6 +3,7 @@ package dnssvc
 import (
 	"context"
 	"net"
+	"net/netip"
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -10,7 +11,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
-	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -23,9 +23,9 @@ func TestWriteFilteredResp(t *testing.T) {
 	)
 
 	const fltRespTTL = agdtest.FilteredResponseTTLSec
-	respIP := net.IP{1, 2, 3, 4}
-	rewrIP := net.IP{5, 6, 7, 8}
-	blockIP := netutil.IPv4Zero()
+	respIP := netip.MustParseAddr("1.2.3.4")
+	rewrIP := netip.MustParseAddr("5.6.7.8")
+	blockIP := netip.IPv4Unspecified()
 
 	const domain = "example.com"
 	req := dnsservertest.NewReq(domain, dns.TypeA, dns.ClassINET)
@@ -35,50 +35,50 @@ func TestWriteFilteredResp(t *testing.T) {
 	testCases := []struct {
 		reqRes  filter.Result
 		respRes filter.Result
+		wantIP  netip.Addr
 		name    string
-		wantIP  net.IP
 		wantTTL uint32
 	}{{
 		reqRes:  nil,
 		respRes: nil,
-		name:    "not_filtered",
 		wantIP:  respIP,
+		name:    "not_filtered",
 		wantTTL: respTTL,
 	}, {
 		reqRes:  &filter.ResultAllowed{},
 		respRes: nil,
-		name:    "allowed_req",
 		wantIP:  respIP,
+		name:    "allowed_req",
 		wantTTL: respTTL,
 	}, {
 		reqRes:  &filter.ResultBlocked{},
 		respRes: nil,
-		name:    "blocked_req",
 		wantIP:  blockIP,
+		name:    "blocked_req",
 		wantTTL: fltRespTTL,
 	}, {
 		reqRes:  &filter.ResultModified{Msg: rewrResp},
 		respRes: nil,
-		name:    "modified_req",
 		wantIP:  rewrIP,
+		name:    "modified_req",
 		wantTTL: fltRespTTL,
 	}, {
 		reqRes:  nil,
 		respRes: &filter.ResultAllowed{},
-		name:    "allowed_resp",
 		wantIP:  respIP,
+		name:    "allowed_resp",
 		wantTTL: respTTL,
 	}, {
 		reqRes:  nil,
 		respRes: &filter.ResultBlocked{},
-		name:    "blocked_resp",
 		wantIP:  blockIP,
+		name:    "blocked_resp",
 		wantTTL: fltRespTTL,
 	}, {
 		reqRes:  nil,
 		respRes: &filter.ResultModified{Msg: rewrResp},
-		name:    "modified_resp",
 		wantIP:  rewrIP,
+		name:    "modified_resp",
 		wantTTL: fltRespTTL,
 	}}
 
@@ -107,7 +107,7 @@ func TestWriteFilteredResp(t *testing.T) {
 
 			a := testutil.RequireTypeAssert[*dns.A](t, ans)
 
-			assert.Equal(t, tc.wantIP, a.A)
+			assert.Equal(t, net.IP(tc.wantIP.AsSlice()), a.A)
 		})
 	}
 }

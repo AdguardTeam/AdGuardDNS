@@ -46,6 +46,7 @@ rm -f\
 	bin/misspell\
 	bin/nilness\
 	bin/protoc-gen-go\
+	bin/protoc-gen-go-grpc\
 	bin/shadow\
 	bin/staticcheck\
 	bin/unparam\
@@ -75,6 +76,7 @@ env\
 	golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow\
 	golang.org/x/vuln/cmd/govulncheck\
 	google.golang.org/protobuf/cmd/protoc-gen-go\
+	google.golang.org/grpc/cmd/protoc-gen-go-grpc\
 	honnef.co/go/tools/cmd/staticcheck\
 	mvdan.cc/gofumpt\
 	mvdan.cc/unparam\

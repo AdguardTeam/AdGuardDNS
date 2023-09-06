@@ -14,6 +14,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
+	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/log"
 )
 
@@ -128,7 +129,7 @@ func (f *Filter) loadIndex(ctx context.Context, acceptStale bool) (resp *indexRe
 		return nil, fmt.Errorf("decoding index: %w", err)
 	}
 
-	log.Debug("service filter: loaded index with %d blocked services", len(resp.BlockedServices))
+	optlog.Debug1("service filter: loaded index with %d blocked services", len(resp.BlockedServices))
 
 	return resp, nil
 }

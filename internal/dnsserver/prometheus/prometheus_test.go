@@ -1,8 +1,10 @@
 package prometheus_test
 
 import (
+	"net"
 	"testing"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
@@ -10,6 +12,22 @@ import (
 
 func TestMain(m *testing.M) {
 	testutil.DiscardLogOutput(m)
+}
+
+// testReqDomain is the common request domain for tests.
+const testReqDomain = "request-domain.example"
+
+// testServerInfo is the common server information structure for tests.
+var testServerInfo = dnsserver.ServerInfo{
+	Name:  "test_server",
+	Addr:  "127.0.0.1:80",
+	Proto: dnsserver.ProtoDNS,
+}
+
+// testUDPAddr is the common UDP address for tests.
+var testUDPAddr = &net.UDPAddr{
+	IP:   net.IP{1, 2, 3, 4},
+	Port: 53,
 }
 
 // requireMetrics accepts a list of metrics names and checks that
@@ -34,6 +52,5 @@ func requireMetrics(t testing.TB, args ...string) {
 		delete(metricsToCheck, m.GetName())
 	}
 
-	require.Len(t, metricsToCheck, 0,
-		"Some metrics weren't reported: %v", metricsToCheck)
+	require.Len(t, metricsToCheck, 0, "Some metrics weren't reported: %v", metricsToCheck)
 }

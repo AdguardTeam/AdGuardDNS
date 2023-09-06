@@ -2,6 +2,7 @@ package dnsservertest
 
 import (
 	"net"
+	"net/netip"
 	"testing"
 
 	"github.com/AdguardTeam/golibs/testutil"
@@ -127,6 +128,38 @@ func NewResp(rcode int, req *dns.Msg, rrs ...RRSection) (resp *dns.Msg) {
 	return resp
 }
 
+// NewA constructs the new resource record of type A.  a must be a valid 4-byte
+// IPv4-address.
+func NewA(name string, ttl uint32, a netip.Addr) (rr dns.RR) {
+	data := a.As4()
+
+	return &dns.A{
+		Hdr: dns.RR_Header{
+			Name:   dns.Fqdn(name),
+			Rrtype: dns.TypeA,
+			Class:  dns.ClassINET,
+			Ttl:    ttl,
+		},
+		A: data[:],
+	}
+}
+
+// NewAAAA constructs the new resource record of type AAAA.  aaaa must be a
+// valid 16-byte IPv6-address.
+func NewAAAA(name string, ttl uint32, aaaa netip.Addr) (rr dns.RR) {
+	data := aaaa.As16()
+
+	return &dns.AAAA{
+		Hdr: dns.RR_Header{
+			Name:   dns.Fqdn(name),
+			Rrtype: dns.TypeAAAA,
+			Class:  dns.ClassINET,
+			Ttl:    ttl,
+		},
+		AAAA: data[:],
+	}
+}
+
 // NewCNAME constructs the new resource record of type CNAME.
 func NewCNAME(name string, ttl uint32, target string) (rr dns.RR) {
 	return &dns.CNAME{
@@ -140,39 +173,20 @@ func NewCNAME(name string, ttl uint32, target string) (rr dns.RR) {
 	}
 }
 
-// NewA constructs the new resource record of type A.  a must be a valid 4-byte
-// IPv4-address.
-func NewA(name string, ttl uint32, a net.IP) (rr dns.RR) {
-	return &dns.A{
-		Hdr: dns.RR_Header{
-			Name:   dns.Fqdn(name),
-			Rrtype: dns.TypeA,
-			Class:  dns.ClassINET,
-			Ttl:    ttl,
-		},
-		A: a,
-	}
-}
-
-// NewAAAA constructs the new resource record of type AAAA.  aaaa must be a
-// valid 16-byte IPv6-address.
-func NewAAAA(name string, ttl uint32, aaaa net.IP) (rr dns.RR) {
-	return &dns.AAAA{
-		Hdr: dns.RR_Header{
-			Name:   dns.Fqdn(name),
-			Rrtype: dns.TypeAAAA,
-			Class:  dns.ClassINET,
-			Ttl:    ttl,
-		},
-		AAAA: aaaa,
-	}
-}
-
 // NewHTTPS constructs the new resource record of type HTTPS with IPv4 and IPv6
 // hint records from provided v4Hint and v6Hint parameters.
 //
 // TODO(d.kolyshev): Add "alpn" and other SVCB key-value pairs.
-func NewHTTPS(name string, ttl uint32, v4Hint, v6Hint []net.IP) (rr dns.RR) {
+func NewHTTPS(name string, ttl uint32, v4Hints, v6Hints []netip.Addr) (rr dns.RR) {
+	v4Hint := &dns.SVCBIPv4Hint{}
+	for _, ip := range v4Hints {
+		v4Hint.Hint = append(v4Hint.Hint, ip.AsSlice())
+	}
+	v6Hint := &dns.SVCBIPv6Hint{}
+	for _, ip := range v6Hints {
+		v6Hint.Hint = append(v6Hint.Hint, ip.AsSlice())
+	}
+
 	svcb := dns.SVCB{
 		Hdr: dns.RR_Header{
 			Name:   dns.Fqdn(name),
@@ -181,14 +195,54 @@ func NewHTTPS(name string, ttl uint32, v4Hint, v6Hint []net.IP) (rr dns.RR) {
 			Ttl:    ttl,
 		},
 		Target: dns.Fqdn(name),
-		Value: []dns.SVCBKeyValue{
-			&dns.SVCBIPv4Hint{Hint: v4Hint},
-			&dns.SVCBIPv6Hint{Hint: v6Hint},
-		},
+		Value:  []dns.SVCBKeyValue{v4Hint, v6Hint},
 	}
 
 	return &dns.HTTPS{
 		SVCB: svcb,
+	}
+}
+
+// NewPTR constructs the new resource record of type PTR.
+func NewPTR(name string, ttl uint32, target string) (rr dns.RR) {
+	return &dns.PTR{
+		Hdr: dns.RR_Header{
+			Name:   dns.Fqdn(name),
+			Rrtype: dns.TypePTR,
+			Class:  dns.ClassINET,
+			Ttl:    ttl,
+		},
+		Ptr: dns.Fqdn(target),
+	}
+}
+
+// NewSRV constructs the new resource record of type SRV.
+func NewSRV(name string, ttl uint32, target string, prio, weight, port uint16) (rr dns.RR) {
+	return &dns.SRV{
+		Hdr: dns.RR_Header{
+			Name:   dns.Fqdn(name),
+			Rrtype: dns.TypeSRV,
+			Class:  dns.ClassINET,
+			Ttl:    ttl,
+		},
+		Priority: prio,
+		Weight:   weight,
+		Port:     port,
+		Target:   target,
+	}
+}
+
+// NewTXT constructs the new resource record of type TXT.  txts are put into the
+// TXT record as is.
+func NewTXT(name string, ttl uint32, txts ...string) (rr dns.RR) {
+	return &dns.TXT{
+		Hdr: dns.RR_Header{
+			Name:   dns.Fqdn(name),
+			Rrtype: dns.TypeTXT,
+			Class:  dns.ClassINET,
+			Ttl:    ttl,
+		},
+		Txt: txts,
 	}
 }
 

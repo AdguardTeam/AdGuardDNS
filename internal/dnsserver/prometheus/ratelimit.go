@@ -10,33 +10,47 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// RateLimitMetricsListener implements the ratelimit.MetricsListener interface
+// RateLimitMetricsListener implements the [ratelimit.MetricsListener] interface
 // and increments prom counters.
-type RateLimitMetricsListener struct{}
+type RateLimitMetricsListener struct {
+	dropCounters        *initSyncMap[reqLabelMetricKey, prometheus.Counter]
+	allowlistedCounters *initSyncMap[reqLabelMetricKey, prometheus.Counter]
+}
+
+// NewRateLimitMetricsListener returns a new properly initialized
+// *RateLimitMetricsListener.
+func NewRateLimitMetricsListener() (l *RateLimitMetricsListener) {
+	return &RateLimitMetricsListener{
+		dropCounters: newInitSyncMap(func(k reqLabelMetricKey) (c prometheus.Counter) {
+			return k.withLabelValues(droppedTotal)
+		}),
+		allowlistedCounters: newInitSyncMap(func(k reqLabelMetricKey) (c prometheus.Counter) {
+			return k.withLabelValues(allowlistedTotal)
+		}),
+	}
+}
 
 // type check
 var _ ratelimit.MetricsListener = (*RateLimitMetricsListener)(nil)
 
 // OnRateLimited implements the ratelimit.MetricsListener interface for
 // *RateLimitMetricsListener.
-func (r *RateLimitMetricsListener) OnRateLimited(
+func (l *RateLimitMetricsListener) OnRateLimited(
 	ctx context.Context,
 	req *dns.Msg,
 	rw dnsserver.ResponseWriter,
 ) {
-	s := dnsserver.MustServerInfoFromContext(ctx)
-	counterWithRequestLabels(s, req, rw, droppedTotal).Inc()
+	l.dropCounters.get(newReqLabelMetricKey(ctx, req, rw)).Inc()
 }
 
 // OnAllowlisted implements the ratelimit.MetricsListener interface for
 // *RateLimitMetricsListener.
-func (r *RateLimitMetricsListener) OnAllowlisted(
+func (l *RateLimitMetricsListener) OnAllowlisted(
 	ctx context.Context,
 	req *dns.Msg,
 	rw dnsserver.ResponseWriter,
 ) {
-	s := dnsserver.MustServerInfoFromContext(ctx)
-	counterWithRequestLabels(s, req, rw, allowlistedTotal).Inc()
+	l.allowlistedCounters.get(newReqLabelMetricKey(ctx, req, rw)).Inc()
 }
 
 // This block contains prometheus metrics declarations for ratelimit.Middleware

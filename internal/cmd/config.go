@@ -71,6 +71,9 @@ type configuration struct {
 	// Network is the configuration for network listeners.
 	Network *network `yaml:"network"`
 
+	// Access is the configuration of the service managing access control.
+	Access *accessConfig `yaml:"access"`
+
 	// AdditionalMetricsInfo is extra information, which is exposed by metrics.
 	AdditionalMetricsInfo additionalInfo `yaml:"additional_metrics_info"`
 
@@ -159,6 +162,9 @@ func (c *configuration) validate() (err error) {
 	}, {
 		validate: c.Network.validate,
 		name:     "network",
+	}, {
+		validate: c.Access.validate,
+		name:     "access",
 	}, {
 		validate: c.AdditionalMetricsInfo.validate,
 		name:     "additional_metrics_info",

@@ -9,18 +9,22 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdsync"
+	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
+	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
-	"github.com/miekg/dns"
 )
 
 // interfaceListener contains information about a single interface listener.
 type interfaceListener struct {
 	conns         *connIndex
+	listenConf    *net.ListenConfig
+	bodyPool      *agdsync.TypedPool[[]byte]
+	oobPool       *agdsync.TypedPool[[]byte]
 	writeRequests chan *packetConnWriteReq
 	done          chan unit
-	listenConf    *net.ListenConfig
 	errColl       agd.ErrorCollector
 	ifaceName     string
 	port          uint16
@@ -63,17 +67,30 @@ func (l *interfaceListener) listenTCP(errCh chan<- error) {
 			continue
 		}
 
-		laddr := netutil.NetAddrToAddrPort(conn.LocalAddr())
-		lsnr := l.conns.listener(laddr.Addr())
-		if lsnr == nil {
-			log.Info("%s: no channel for laddr %s", logPrefix, laddr)
+		l.processConn(conn, logPrefix)
+	}
+}
 
-			continue
-		}
-
+// processConn processes a single connection.  If the connection doesn't have a
+// connected channel-listener, it is closed.
+func (l *interfaceListener) processConn(conn net.Conn, logPrefix string) {
+	laddr := netutil.NetAddrToAddrPort(conn.LocalAddr())
+	raddr := conn.RemoteAddr()
+	if lsnr := l.conns.listener(laddr.Addr()); lsnr != nil {
 		if !lsnr.send(conn) {
-			log.Info("%s: channel for laddr %s is closed", logPrefix, laddr)
+			log.Info("%s: from raddr %s: channel for laddr %s is closed", logPrefix, raddr, laddr)
 		}
+
+		return
+	}
+
+	metrics.BindToDeviceUnknownTCPRequestsTotal.Inc()
+
+	optlog.Debug3("%s: from raddr %s: no stream channel for laddr %s", logPrefix, raddr, laddr)
+
+	err := conn.Close()
+	if err != nil {
+		log.Debug("%s: from raddr %s: closing: %s", logPrefix, raddr, err)
 	}
 }
 
@@ -112,27 +129,60 @@ func (l *interfaceListener) listenUDP(errCh chan<- error) {
 			// Go on.
 		}
 
-		// TODO(a.garipov): Consider customization of body sizes.
-		var sess *packetSession
-		sess, err = readPacketSession(udpConn, dns.DefaultMsgSize)
+		err = l.readUDP(udpConn, logPrefix)
 		if err != nil {
 			agd.Collectf(ctx, l.errColl, "%s: reading session: %w", logPrefix, err)
-
-			continue
-		}
-
-		laddr := sess.laddr.AddrPort().Addr()
-		chanPConn := l.conns.packetConn(laddr)
-		if chanPConn == nil {
-			log.Info("%s: no channel for laddr %s", logPrefix, laddr)
-
-			continue
-		}
-
-		if !chanPConn.send(sess) {
-			log.Info("%s: channel for laddr %s is closed", logPrefix, laddr)
 		}
 	}
+}
+
+// readUDP reads a UDP session from c and sends it to the appropriate channel.
+func (l *interfaceListener) readUDP(c *net.UDPConn, logPrefix string) (err error) {
+	bodyPtr := l.bodyPool.Get()
+	body := *bodyPtr
+
+	// Extend body to the capacity in case it had already been used and sliced
+	// by [readPacketSession].
+	body = body[:cap(body)]
+
+	oobPtr := l.oobPool.Get()
+	oob := *oobPtr
+
+	defer func() {
+		l.oobPool.Put(oobPtr)
+
+		// Only return the body to the pool in case of error here.  The actual
+		// return is done in writeUDP.
+		if err != nil {
+			l.bodyPool.Put(bodyPtr)
+		}
+	}()
+
+	sess, err := readPacketSession(c, body, oob)
+	if err != nil {
+		return fmt.Errorf("reading session: %w", err)
+	}
+
+	laddr := sess.laddr.AddrPort().Addr()
+	chanPacketConn := l.conns.packetConn(laddr)
+	if chanPacketConn == nil {
+		metrics.BindToDeviceUnknownUDPRequestsTotal.Inc()
+
+		optlog.Debug3(
+			"%s: from raddr %s: no packet channel for laddr %s",
+			logPrefix,
+			sess.raddr,
+			laddr,
+		)
+
+		return nil
+	}
+
+	if !chanPacketConn.send(sess) {
+		log.Info("%s: channel for laddr %s is closed", logPrefix, laddr)
+	}
+
+	return nil
 }
 
 // writeUDP runs the UDP write loop.  It is intended to be used as a goroutine.
@@ -167,6 +217,8 @@ func (l *interfaceListener) writeUDP(c *net.UDPConn) {
 				s.respOOB,
 				req.session.raddr,
 			)
+
+			l.bodyPool.Put(&s.readBody)
 		}
 
 		resetDeadlineErr := c.SetWriteDeadline(time.Time{})

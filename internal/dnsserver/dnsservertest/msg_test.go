@@ -2,7 +2,7 @@ package dnsservertest_test
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/golibs/netutil"
@@ -45,7 +45,7 @@ func ExampleNewResp() {
 
 	m = dnsservertest.NewResp(dns.RcodeSuccess, m, dnsservertest.SectionAnswer{
 		dnsservertest.NewCNAME(testFQDN, 3600, realTestFQDN),
-		dnsservertest.NewA(realTestFQDN, 3600, net.IP{1, 2, 3, 4}),
+		dnsservertest.NewA(realTestFQDN, 3600, netip.MustParseAddr("1.2.3.4")),
 	}, dnsservertest.SectionNs{
 		dnsservertest.NewSOA(realTestFQDN, 1000, "ns."+realTestFQDN, "mbox."+realTestFQDN),
 		dnsservertest.NewNS(testFQDN, 1000, "ns."+testFQDN),

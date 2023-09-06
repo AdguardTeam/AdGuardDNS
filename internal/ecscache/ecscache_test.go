@@ -49,6 +49,7 @@ func TestMiddleware_Wrap_noECS(t *testing.T) {
 		dnsservertest.NewSOA(reqHostname, defaultTTL, reqNS1, reqNS2),
 	}
 
+	knownIP := netip.MustParseAddr("1.2.3.4")
 	testTTL := 60 * time.Second
 
 	const N = 5
@@ -62,7 +63,7 @@ func TestMiddleware_Wrap_noECS(t *testing.T) {
 	}{{
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
-			dnsservertest.NewA(reqHostname, defaultTTL, net.IP{1, 2, 3, 4}),
+			dnsservertest.NewA(reqHostname, defaultTTL, knownIP),
 		}),
 		name:       "simple_a",
 		wantNumReq: 1,
@@ -132,7 +133,7 @@ func TestMiddleware_Wrap_noECS(t *testing.T) {
 	}, {
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
-			dnsservertest.NewA(reqHostname, 0, net.IP{1, 2, 3, 4}),
+			dnsservertest.NewA(reqHostname, 0, knownIP),
 		}),
 		name:       "expired_one",
 		wantNumReq: N,
@@ -141,7 +142,7 @@ func TestMiddleware_Wrap_noECS(t *testing.T) {
 	}, {
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
-			dnsservertest.NewA(reqHostname, 10, net.IP{1, 2, 3, 4}),
+			dnsservertest.NewA(reqHostname, 10, knownIP),
 		}),
 		name:       "override_ttl_ok",
 		wantNumReq: 1,
@@ -150,7 +151,7 @@ func TestMiddleware_Wrap_noECS(t *testing.T) {
 	}, {
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
-			dnsservertest.NewA(reqHostname, 1000, net.IP{1, 2, 3, 4}),
+			dnsservertest.NewA(reqHostname, 1000, knownIP),
 		}),
 		name:       "override_ttl_max",
 		wantNumReq: 1,
@@ -159,7 +160,7 @@ func TestMiddleware_Wrap_noECS(t *testing.T) {
 	}, {
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
-			dnsservertest.NewA(reqHostname, 0, net.IP{1, 2, 3, 4}),
+			dnsservertest.NewA(reqHostname, 0, knownIP),
 		}),
 		name:       "override_ttl_zero",
 		wantNumReq: N,
@@ -168,7 +169,7 @@ func TestMiddleware_Wrap_noECS(t *testing.T) {
 	}, {
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeServerFailure, aReq, dnsservertest.SectionAnswer{
-			dnsservertest.NewA(reqHostname, dnsmsg.ServFailMaxCacheTTL, net.IP{1, 2, 3, 4}),
+			dnsservertest.NewA(reqHostname, dnsmsg.ServFailMaxCacheTTL, knownIP),
 		}),
 		name:       "override_ttl_servfail",
 		wantNumReq: 1,
@@ -327,7 +328,7 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 				dnsservertest.SectionAnswer{dnsservertest.NewA(
 					reqHostname,
 					defaultTTL,
-					net.IP{1, 2, 3, 4},
+					netip.MustParseAddr("1.2.3.4"),
 				)},
 				dnsservertest.SectionExtra{tc.respECS},
 			)
@@ -444,8 +445,8 @@ func TestMiddleware_Wrap_ecsOrder(t *testing.T) {
 		},
 	)
 
-	answerA := dnsservertest.NewA(reqHostname, defaultTTL, net.IP{1, 2, 3, 4})
-	answerB := dnsservertest.NewA(reqHostname, defaultTTL, net.IP{5, 6, 7, 8})
+	answerA := dnsservertest.NewA(reqHostname, defaultTTL, netip.MustParseAddr("1.2.3.4"))
+	answerB := dnsservertest.NewA(reqHostname, defaultTTL, netip.MustParseAddr("5.6.7.8"))
 
 	// Tests
 

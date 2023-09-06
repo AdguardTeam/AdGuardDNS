@@ -2,7 +2,7 @@ package agdnet_test
 
 import (
 	"context"
-	"net"
+	"net/netip"
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
@@ -17,14 +17,14 @@ func TestCachingResolver_Resolve(t *testing.T) {
 	const testHost = "addr.example"
 
 	var numLookups uint64
-	wantIPv4 := []net.IP{{1, 2, 3, 4}}
-	wantIPv6 := []net.IP{net.ParseIP("1234::5678")}
+	wantIPv4 := []netip.Addr{netip.MustParseAddr("1.2.3.4")}
+	wantIPv6 := []netip.Addr{netip.MustParseAddr("1234::5678")}
 	r := &agdtest.Resolver{
-		OnLookupIP: func(
-			_ context.Context,
+		OnLookupNetIP: func(
+			ctx context.Context,
 			fam netutil.AddrFamily,
-			_ string,
-		) (ips []net.IP, err error) {
+			host string,
+		) (ips []netip.Addr, err error) {
 			numLookups++
 
 			if fam == netutil.AddrFamilyIPv4 {
@@ -40,7 +40,7 @@ func TestCachingResolver_Resolve(t *testing.T) {
 	testCases := []struct {
 		name    string
 		host    string
-		wantIPs []net.IP
+		wantIPs []netip.Addr
 		wantNum uint64
 		fam     netutil.AddrFamily
 	}{{
@@ -78,7 +78,7 @@ func TestCachingResolver_Resolve(t *testing.T) {
 	ctx := context.Background()
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := cached.LookupIP(ctx, tc.fam, tc.host)
+			got, err := cached.LookupNetIP(ctx, tc.fam, tc.host)
 			require.NoError(t, err)
 
 			assert.Equal(t, tc.wantNum, numLookups)

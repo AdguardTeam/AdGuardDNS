@@ -2,8 +2,8 @@ package hashprefix_test
 
 import (
 	"context"
-	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"testing"
 	"time"
@@ -28,7 +28,7 @@ func TestFilter_FilterRequest(t *testing.T) {
 	strg, err := hashprefix.NewStorage("")
 	require.NoError(t, err)
 
-	replIP := net.IP{1, 2, 3, 4}
+	replIP := netip.MustParseAddr("1.2.3.4")
 	f, err := hashprefix.NewFilter(&hashprefix.FilterConfig{
 		Hashes: strg,
 		URL:    srvURL,
@@ -38,12 +38,12 @@ func TestFilter_FilterRequest(t *testing.T) {
 			},
 		},
 		Resolver: &agdtest.Resolver{
-			OnLookupIP: func(
+			OnLookupNetIP: func(
 				_ context.Context,
 				_ netutil.AddrFamily,
 				_ string,
-			) (ips []net.IP, err error) {
-				return []net.IP{replIP}, nil
+			) (ips []netip.Addr, err error) {
+				return []netip.Addr{replIP}, nil
 			},
 		},
 		ID:              agd.FilterListIDAdultBlocking,
@@ -189,7 +189,7 @@ func newModifiedResult(
 	tb testing.TB,
 	req *dns.Msg,
 	messages *dnsmsg.Constructor,
-	replIP net.IP,
+	replIP netip.Addr,
 ) (r *internal.ResultModified) {
 	resp, err := messages.NewIPRespMsg(req, replIP)
 	require.NoError(tb, err)
@@ -217,11 +217,11 @@ func TestFilter_Refresh(t *testing.T) {
 			},
 		},
 		Resolver: &agdtest.Resolver{
-			OnLookupIP: func(
+			OnLookupNetIP: func(
 				_ context.Context,
 				_ netutil.AddrFamily,
 				_ string,
-			) (ips []net.IP, err error) {
+			) (ips []netip.Addr, err error) {
 				panic("not implemented")
 			},
 		},
@@ -262,7 +262,7 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	strg, err := hashprefix.NewStorage("")
 	require.NoError(t, err)
 
-	replIP := net.IP{1, 2, 3, 4}
+	replIP := netip.MustParseAddr("1.2.3.4")
 	fconf := &hashprefix.FilterConfig{
 		Hashes: strg,
 		URL:    srvURL,
@@ -272,12 +272,12 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 			},
 		},
 		Resolver: &agdtest.Resolver{
-			OnLookupIP: func(
+			OnLookupNetIP: func(
 				_ context.Context,
 				_ netutil.AddrFamily,
 				_ string,
-			) (ips []net.IP, err error) {
-				return []net.IP{replIP}, nil
+			) (ips []netip.Addr, err error) {
+				return []netip.Addr{replIP}, nil
 			},
 		},
 		ID:              agd.FilterListIDAdultBlocking,

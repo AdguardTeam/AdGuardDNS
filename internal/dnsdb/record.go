@@ -56,6 +56,7 @@ func answerString(rr dns.RR) (s string) {
 	case *dns.AAAA:
 		return v.AAAA.String()
 	case *dns.CNAME:
+		// TODO(a.garipov): Consider lowercasing target hostname.
 		return strings.TrimSuffix(v.Target, ".")
 	default:
 		return ""

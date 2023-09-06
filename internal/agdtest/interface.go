@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
@@ -56,6 +57,27 @@ func (r *Refresher) Refresh(ctx context.Context) (err error) {
 	return r.OnRefresh(ctx)
 }
 
+// Package access
+
+// type check
+var _ access.Interface = (*AccessManager)(nil)
+
+// AccessManager is a [access.Interface] for tests.
+type AccessManager struct {
+	OnIsBlockedHost func(host string, qt uint16) (blocked bool)
+	OnIsBlockedIP   func(ip netip.Addr) (blocked bool, rule string)
+}
+
+// IsBlockedHost implements the [access.Interface] interface for *AccessManager.
+func (a *AccessManager) IsBlockedHost(host string, qt uint16) (blocked bool) {
+	return a.OnIsBlockedHost(host, qt)
+}
+
+// IsBlockedIP implements the [access.Interface] interface for *AccessManager.
+func (a *AccessManager) IsBlockedIP(ip netip.Addr) (blocked bool, rule string) {
+	return a.OnIsBlockedIP(ip)
+}
+
 // Package agdnet
 
 // type check
@@ -63,20 +85,20 @@ var _ agdnet.Resolver = (*Resolver)(nil)
 
 // Resolver is an agd.Resolver for tests.
 type Resolver struct {
-	OnLookupIP func(
+	OnLookupNetIP func(
 		ctx context.Context,
 		fam netutil.AddrFamily,
 		host string,
-	) (ips []net.IP, err error)
+	) (ips []netip.Addr, err error)
 }
 
-// LookupIP implements the agd.Resolver interface for *Resolver.
-func (r *Resolver) LookupIP(
+// LookupNetIP implements the [agd.Resolver] interface for *Resolver.
+func (r *Resolver) LookupNetIP(
 	ctx context.Context,
 	fam netutil.AddrFamily,
 	host string,
-) (ips []net.IP, err error) {
-	return r.OnLookupIP(ctx, fam, host)
+) (ips []netip.Addr, err error) {
+	return r.OnLookupNetIP(ctx, fam, host)
 }
 
 // Package billstat

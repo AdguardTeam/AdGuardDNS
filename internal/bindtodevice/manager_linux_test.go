@@ -221,6 +221,8 @@ func TestManager(t *testing.T) {
 	err := m.Add(testID1, ifaceName, testPort1, nil)
 	require.NoError(t, err)
 
+	// TODO(a.garipov): Add tests for addresses within ifaceNet but outside of a
+	// narrower subnet.
 	subnet, err := netutil.IPNetToPrefixNoMapped(&net.IPNet{
 		IP:   ifaceNet.IP.Mask(ifaceNet.Mask),
 		Mask: ifaceNet.Mask,

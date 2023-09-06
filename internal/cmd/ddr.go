@@ -57,8 +57,16 @@ func ddrRecsToSVCBTmpls(
 		tmpls = appendDDRSVCBTmpls(tmpls, msgs, r, target)
 	}
 
-	slices.SortStableFunc(tmpls, func(a, b *dns.SVCB) (less bool) {
-		return a.Priority < b.Priority
+	// TODO(e.burkov):  Use cmp.Compare when updated to go1.21.
+	slices.SortStableFunc(tmpls, func(a, b *dns.SVCB) (res int) {
+		switch x, y := a.Priority, b.Priority; {
+		case x < y:
+			return -1
+		case x > y:
+			return +1
+		default:
+			return 0
+		}
 	})
 
 	return targets, tmpls
@@ -118,26 +126,16 @@ func (c *ddrConfig) validate() (err error) {
 		}
 
 		domainSuf := wildcard[2:]
-		err = netutil.ValidateHostname(domainSuf)
+		err = errors.Join(netutil.ValidateHostname(domainSuf), r.validate())
 		if err != nil {
-			return fmt.Errorf("device_records: %w", err)
-		}
-
-		err = r.validate()
-		if err != nil {
-			return fmt.Errorf("device_records: record for wildcard %q: %w", wildcard, err)
+			return fmt.Errorf("device_records: wildcard %q: %w", wildcard, err)
 		}
 	}
 
 	for domain, r := range c.PublicRecords {
-		err = netutil.ValidateHostname(domain)
+		err = errors.Join(netutil.ValidateHostname(domain), r.validate())
 		if err != nil {
-			return fmt.Errorf("public_records: %w", err)
-		}
-
-		err = r.validate()
-		if err != nil {
-			return fmt.Errorf("public_records: record for domain %q: %w", domain, err)
+			return fmt.Errorf("public_records: domain %q: %w", domain, err)
 		}
 	}
 

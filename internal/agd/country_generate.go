@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"net/http"
 	"os"
+	"strings"
 	"text/template"
 	"time"
 
@@ -40,10 +41,10 @@ func main() {
 	// Skip the first row, as it is a header.
 	rows = rows[1:]
 
-	// Sort by the code to make the output more predictable and easier to look
-	// through.
-	slices.SortFunc(rows, func(a, b []string) (less bool) {
-		return a[1] < b[1]
+	slices.SortFunc(rows, func(a, b []string) (res int) {
+		// Sort by the code to make the output more predictable and easier to
+		// look through.
+		return strings.Compare(a[1], b[1])
 	})
 
 	tmpl, err := template.New("main").Parse(tmplStr)

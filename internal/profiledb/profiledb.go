@@ -12,7 +12,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
-	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecachejson"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecachepb"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
@@ -98,15 +97,10 @@ func New(
 	var cacheStorage internal.FileCacheStorage
 	if cacheFilePath == "none" {
 		cacheStorage = internal.EmptyFileCacheStorage{}
+	} else if ext := filepath.Ext(cacheFilePath); ext == ".pb" {
+		cacheStorage = filecachepb.New(cacheFilePath)
 	} else {
-		switch ext := filepath.Ext(cacheFilePath); ext {
-		case ".json":
-			cacheStorage = filecachejson.New(cacheFilePath)
-		case ".pb":
-			cacheStorage = filecachepb.New(cacheFilePath)
-		default:
-			return nil, fmt.Errorf("file %q is neither json nor protobuf", cacheFilePath)
-		}
+		return nil, fmt.Errorf("file %q is not protobuf", cacheFilePath)
 	}
 
 	db = &Default{
@@ -161,14 +155,22 @@ var _ agd.Refresher = (*Default)(nil)
 // internal maps and the synchronization time using the data it receives from
 // the storage.
 func (db *Default) Refresh(ctx context.Context) (err error) {
+	sinceLastFullSync := time.Since(db.lastFullSync)
+	isFullSync := sinceLastFullSync >= db.fullSyncIvl
+
 	var totalProfiles, totalDevices int
 	startTime := time.Now()
 	defer func() {
 		metrics.ProfilesSyncTime.SetToCurrentTime()
-		metrics.ProfilesSyncDuration.Observe(time.Since(startTime).Seconds())
 		metrics.ProfilesCountGauge.Set(float64(totalProfiles))
 		metrics.DevicesCountGauge.Set(float64(totalDevices))
 		metrics.SetStatusGauge(metrics.ProfilesSyncStatus, err)
+
+		dur := time.Since(startTime).Seconds()
+		metrics.ProfilesSyncDuration.Observe(dur)
+		if isFullSync {
+			metrics.ProfilesFullSyncDuration.Set(dur)
+		}
 	}()
 
 	reqID := agd.NewRequestID()
@@ -180,9 +182,6 @@ func (db *Default) Refresh(ctx context.Context) (err error) {
 	defer db.refreshMu.Unlock()
 
 	syncTime := db.syncTime
-
-	sinceLastFullSync := time.Since(db.lastFullSync)
-	isFullSync := sinceLastFullSync >= db.fullSyncIvl
 	if isFullSync {
 		log.Info("profiledb: full sync, %s since %s", sinceLastFullSync, db.lastFullSync)
 

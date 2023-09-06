@@ -83,15 +83,10 @@ var (
 	blockedIP4 = net.IP{6, 6, 6, 13}
 	allowedIP4 = net.IP{7, 7, 7, 42}
 
-	safeBrowsingSafeIP4 = net.IP{94, 140, 14, 14}
+	safeBrowsingSafeIP4 = netip.MustParseAddr("94.140.14.14")
 
-	safeSearchIPRespIP4 = net.IP{213, 180, 193, 56}
-	safeSearchIPRespIP6 = net.IP{
-		0x00, 0x01, 0x02, 0x03,
-		0x00, 0x01, 0x02, 0x03,
-		0x00, 0x01, 0x02, 0x03,
-		0x00, 0x01, 0x02, 0x03,
-	}
+	safeSearchIPRespIP4 = netip.MustParseAddr("213.180.193.56")
+	safeSearchIPRespIP6 = netip.MustParseAddr("1:203:1:203:1:203:1:203")
 )
 
 // Common clients.  Keep in sync with ./testdata/filter.

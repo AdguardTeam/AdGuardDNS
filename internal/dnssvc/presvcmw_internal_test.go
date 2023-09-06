@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"net"
 	"testing"
 	"time"
 
@@ -13,8 +12,10 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,7 +25,7 @@ func TestPreServiceMwHandler_ServeDNS(t *testing.T) {
 	const safeBrowsingHost = "scam.example.net."
 
 	var (
-		ip   = net.IP{127, 0, 0, 1}
+		ip   = netutil.IPv4Localhost()
 		name = "example.com"
 	)
 
@@ -98,7 +99,7 @@ func TestPreServiceMwHandler_ServeDNS(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			rw := dnsserver.NewNonWriterResponseWriter(nil, testRAddr)
+			rw := dnsserver.NewNonWriterResponseWriter(nil, dnssvctest.RemoteAddr)
 			tctx := agd.ContextWithRequestInfo(ctx, tc.ri)
 
 			dnsCk := &agdtest.DNSCheck{

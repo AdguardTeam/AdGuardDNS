@@ -8,6 +8,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -47,8 +48,8 @@ func TestService_writeDebugResponse(t *testing.T) {
 		blockRule = "||example.com^"
 	)
 
-	clientIPStr := testClientIP.String()
-	serverIPStr := testServerAddr.String()
+	clientIPStr := dnssvctest.ClientIP.String()
+	serverIPStr := dnssvctest.ServerAddr.String()
 	testCases := []struct {
 		name      string
 		ri        *agd.RequestInfo
@@ -129,26 +130,26 @@ func TestService_writeDebugResponse(t *testing.T) {
 		}),
 	}, {
 		name:    "device",
-		ri:      &agd.RequestInfo{Device: &agd.Device{ID: testDeviceID}},
+		ri:      &agd.RequestInfo{Device: &agd.Device{ID: dnssvctest.DeviceID}},
 		reqRes:  nil,
 		respRes: nil,
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
 			{"server-ip.adguard-dns.com.", serverIPStr},
-			{"device-id.adguard-dns.com.", testDeviceID},
+			{"device-id.adguard-dns.com.", dnssvctest.DeviceIDStr},
 			{"resp.res-type.adguard-dns.com.", "normal"},
 		}),
 	}, {
 		name: "profile",
 		ri: &agd.RequestInfo{
-			Profile: &agd.Profile{ID: testProfileID},
+			Profile: &agd.Profile{ID: dnssvctest.ProfileID},
 		},
 		reqRes:  nil,
 		respRes: nil,
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
 			{"server-ip.adguard-dns.com.", serverIPStr},
-			{"profile-id.adguard-dns.com.", testProfileID},
+			{"profile-id.adguard-dns.com.", dnssvctest.ProfileIDStr},
 			{"resp.res-type.adguard-dns.com.", "normal"},
 		}),
 	}, {
@@ -182,7 +183,7 @@ func TestService_writeDebugResponse(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			rw := dnsserver.NewNonWriterResponseWriter(testLocalAddr, testRAddr)
+			rw := dnsserver.NewNonWriterResponseWriter(dnssvctest.LocalAddr, dnssvctest.RemoteAddr)
 
 			ctx := agd.ContextWithRequestInfo(context.Background(), tc.ri)
 

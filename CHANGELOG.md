@@ -11,7 +11,49 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
 
 
-##  AGDNS-1537 / Build 580
+##  AGDNS-1607 / Build 617
+
+*  New configuration `access` has been added, it has an a list of AdBlock rules
+   to block requests, and a lists of client subnets to block access from.
+   Example configuration:
+
+    ```yaml
+    access:
+        blocked_question_domains:
+          - 'test.org'
+          - '||example.org^$dnstype=AAAA'
+        blocked_client_subnets:
+          - '1.1.1.1'
+          - '2.2.2.0/8'
+    ```
+
+
+
+##  AGDNS-1619 / Build 611
+
+*  Added a new metric `bill_stat_upload_duration` that counts the duration of
+   billing statistics upload.
+*  The environment variable `BILLSTAT_URL`, which describes the endpoint for
+   backend billing statistics uploader API, now supports GRPC endpoints.
+
+
+
+##  AGDNS-1600 / Build 582
+
+ *  The environment variable `PROFILES_CACHE_PATH` no longer supports JSON
+    files.  Use protobuf with `.pb` extension instead.  The default value has
+    been changed to `./profilecache.pb`.
+
+
+
+##  AGDNS-1539 / Build 581
+
+ *  The environment variable `PROFILES_URL`, which describes the endpoint for
+    profiles sync API, now supports GRPC endpoints.
+
+
+
+##  AGDNS-1579 / Build 580
 
  *  The optional property `bind_interfaces` of `server_groups.*.servers`
     objects has been changed, property `subnet` is now an array and has been

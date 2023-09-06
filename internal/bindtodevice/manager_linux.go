@@ -10,10 +10,13 @@ import (
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdsync"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/mapsutil"
+	"github.com/miekg/dns"
 )
 
 // Manager creates individual listeners and dispatches connections to them.
@@ -49,7 +52,7 @@ var defaultCtrlConf = &ControlConfig{
 // configuration is used.
 //
 // Add must not be called after Start is called.
-func (m *Manager) Add(id ID, ifaceName string, port uint16, conf *ControlConfig) (err error) {
+func (m *Manager) Add(id ID, ifaceName string, port uint16, ctrlConf *ControlConfig) (err error) {
 	defer func() { err = errors.Annotate(err, "adding interface listener with id %q: %w", id) }()
 
 	_, err = m.interfaces.InterfaceByName(ifaceName)
@@ -86,29 +89,51 @@ func (m *Manager) Add(id ID, ifaceName string, port uint16, conf *ControlConfig)
 		return err
 	}
 
-	if conf == nil {
-		conf = defaultCtrlConf
+	if ctrlConf == nil {
+		ctrlConf = defaultCtrlConf
 	}
 
-	m.ifaceListeners[id] = &interfaceListener{
-		conns:         &connIndex{},
-		writeRequests: make(chan *packetConnWriteReq, m.chanBufSize),
-		done:          m.done,
-		listenConf:    newListenConfig(ifaceName, conf),
-		errColl:       m.errColl,
-		ifaceName:     ifaceName,
-		port:          port,
-	}
+	// TODO(a.garipov): Consider customization of body sizes.
+	m.ifaceListeners[id] = m.newInterfaceListener(ctrlConf, ifaceName, dns.DefaultMsgSize, port)
 
 	return nil
 }
 
-// ListenConfig returns a new netext.ListenConfig that receives connections from
-// the interface listener with the given id and the destination addresses of
-// which fall within subnet.  subnet should be masked.
+// newInterfaceListener returns a new properly initialized *interfaceListener
+// for this manager.
+func (m *Manager) newInterfaceListener(
+	ctrlConf *ControlConfig,
+	ifaceName string,
+	bodySize int,
+	port uint16,
+) (l *interfaceListener) {
+	return &interfaceListener{
+		conns:      &connIndex{},
+		listenConf: newListenConfig(ifaceName, ctrlConf),
+		bodyPool: agdsync.NewTypedPool(func() (v *[]byte) {
+			b := make([]byte, bodySize)
+
+			return &b
+		}),
+		oobPool: agdsync.NewTypedPool(func() (v *[]byte) {
+			b := make([]byte, netext.IPDstOOBSize)
+
+			return &b
+		}),
+		writeRequests: make(chan *packetConnWriteReq, m.chanBufSize),
+		done:          m.done,
+		errColl:       m.errColl,
+		ifaceName:     ifaceName,
+		port:          port,
+	}
+}
+
+// ListenConfig returns a new *ListenConfig that receives connections from the
+// interface listener with the given id and the destination addresses of which
+// fall within subnet.  subnet should be masked.
 //
 // ListenConfig must not be called after Start is called.
-func (m *Manager) ListenConfig(id ID, subnet netip.Prefix) (c netext.ListenConfig, err error) {
+func (m *Manager) ListenConfig(id ID, subnet netip.Prefix) (c *ListenConfig, err error) {
 	defer func() {
 		err = errors.Annotate(
 			err,
@@ -154,9 +179,10 @@ func (m *Manager) ListenConfig(id ID, subnet netip.Prefix) (c netext.ListenConfi
 		return nil, fmt.Errorf("adding udp conn: %w", err)
 	}
 
-	return &chanListenConfig{
+	return &ListenConfig{
 		packetConn: pConn,
 		listener:   lsnr,
+		addr:       agdnet.FormatPrefixAddr(subnet, l.port),
 	}, nil
 }
 

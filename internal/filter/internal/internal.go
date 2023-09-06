@@ -12,9 +12,6 @@ import (
 	"github.com/miekg/dns"
 )
 
-// Make sure that the signatures for FilterRequest match.
-var _ RequestFilter = (Interface)(nil)
-
 // Interface is the DNS request and response filter interface.
 type Interface interface {
 	// FilterRequest filters the DNS request for the provided client.  All
@@ -41,4 +38,5 @@ const DefaultResolveTimeout = 1 * time.Second
 // RequestFilter can filter a request based on the request info.
 type RequestFilter interface {
 	FilterRequest(ctx context.Context, req *dns.Msg, ri *agd.RequestInfo) (r Result, err error)
+	ID() (id agd.FilterListID)
 }

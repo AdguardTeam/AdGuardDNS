@@ -16,6 +16,8 @@ func TestPrefixAddr(t *testing.T) {
 		network = "tcp"
 	)
 
+	fullPrefix := netip.MustParsePrefix("1.2.3.4/32")
+
 	testCases := []struct {
 		in   *prefixNetAddr
 		want string
@@ -42,6 +44,14 @@ func TestPrefixAddr(t *testing.T) {
 			netip.AddrPortFrom(testSubnetIPv6.Addr(), port), testSubnetIPv6.Bits(),
 		),
 		name: "ipv6",
+	}, {
+		in: &prefixNetAddr{
+			prefix:  fullPrefix,
+			network: network,
+			port:    port,
+		},
+		want: netip.AddrPortFrom(fullPrefix.Addr(), port).String(),
+		name: "ipv4_full",
 	}}
 
 	for _, tc := range testCases {

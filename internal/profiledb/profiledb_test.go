@@ -1,10 +1,8 @@
 package profiledb_test
 
 import (
-	"bytes"
 	"context"
 	"net/netip"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -13,6 +11,8 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
+	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecachepb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/profiledbtest"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/testutil"
@@ -25,8 +25,6 @@ func TestMain(m *testing.M) {
 }
 
 // Common IPs for tests
-//
-// Keep in sync with testdata/profiles.json.
 var (
 	testClientIPv4      = netip.MustParseAddr("1.2.3.4")
 	testOtherClientIPv4 = netip.MustParseAddr("1.2.3.5")
@@ -290,20 +288,19 @@ func TestDefaultProfileDB_fileCache_success(t *testing.T) {
 		OnProfiles: onProfiles,
 	}
 
-	cacheFileTmplPath := filepath.Join("testdata", "profiles.json")
-	data, err := os.ReadFile(cacheFileTmplPath)
-	require.NoError(t, err)
-
 	// Use the time with monotonic clocks stripped down.
 	wantSyncTime := time.Now().Round(0).UTC()
-	data = bytes.ReplaceAll(
-		data,
-		[]byte("SYNC_TIME"),
-		[]byte(wantSyncTime.Format(time.RFC3339Nano)),
-	)
 
-	cacheFilePath := filepath.Join(t.TempDir(), "profiles.json")
-	err = os.WriteFile(cacheFilePath, data, 0o600)
+	prof, dev := profiledbtest.NewProfile(t)
+
+	cacheFilePath := filepath.Join(t.TempDir(), "profiles.pb")
+	pbCache := filecachepb.New(cacheFilePath)
+	err := pbCache.Store(&internal.FileCache{
+		SyncTime: wantSyncTime,
+		Profiles: []*agd.Profile{prof},
+		Devices:  []*agd.Device{dev},
+		Version:  internal.FileCacheVersion,
+	})
 	require.NoError(t, err)
 
 	db, err := profiledb.New(ps, 1*time.Minute, cacheFilePath)
@@ -312,10 +309,8 @@ func TestDefaultProfileDB_fileCache_success(t *testing.T) {
 
 	assert.Equal(t, wantSyncTime, gotSyncTime)
 
-	prof, dev := profiledbtest.NewProfile(t)
 	p, d, err := db.ProfileByDeviceID(context.Background(), dev.ID)
 	require.NoError(t, err)
-
 	assert.Equal(t, dev, d)
 	assert.Equal(t, prof, p)
 }
@@ -333,8 +328,11 @@ func TestDefaultProfileDB_fileCache_badVersion(t *testing.T) {
 		},
 	}
 
-	cacheFilePath := filepath.Join(t.TempDir(), "profiles.json")
-	err := os.WriteFile(cacheFilePath, []byte(`{"version":1000}`), 0o600)
+	cacheFilePath := filepath.Join(t.TempDir(), "profiles.pb")
+	pbCache := filecachepb.New(cacheFilePath)
+	err := pbCache.Store(&internal.FileCache{
+		Version: 10000,
+	})
 	require.NoError(t, err)
 
 	db, err := profiledb.New(ps, 1*time.Minute, cacheFilePath)

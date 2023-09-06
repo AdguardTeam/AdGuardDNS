@@ -241,27 +241,33 @@ Examples below are for the configuration with the following changes:
 
 You may also need to remove `probe_ipv6` if your network does not support IPv6.
 
+If you're using an OS different from Linux, you also need to make these changes:
+
+ *  Remove the `interface_listeners` section.
+ *  Remove `bind_interfaces` from the `default_dns` server configuration and
+    replace it with `bind_addresses`.
+
 ```sh
 env \
-    ADULT_BLOCKING_URL='https://raw.githubusercontent.com/ameshkov/PersonalFilters/master/adult_test.txt' \
-    BILLSTAT_URL='PUT BILLSTAT API BACKEND URL HERE' \
-    BLOCKED_SERVICE_INDEX_URL='https://adguardteam.github.io/HostlistsRegistry/assets/services.json'\
-    CONSUL_ALLOWLIST_URL='PUT CONSUL ALLOWLIST URL HERE' \
+    ADULT_BLOCKING_URL='https://raw.githubusercontent.com/ameshkov/stuff/master/DNS/adult_blocking.txt' \
+    BILLSTAT_URL='https://httpbin.agrd.workers.dev/post' \
+    BLOCKED_SERVICE_INDEX_URL='https://adguardteam.github.io/HostlistsRegistry/assets/services.json' \
+    CONSUL_ALLOWLIST_URL='https://raw.githubusercontent.com/ameshkov/stuff/master/DNS/consul_allowlist.json' \
     CONFIG_PATH='./config.yaml' \
     FILTER_INDEX_URL='https://adguardteam.github.io/HostlistsRegistry/assets/filters.json' \
     FILTER_CACHE_PATH='./test/cache' \
-    NEW_REG_DOMAINS_URL='PUT NEWLY REGISTERED DOMAINS FILTER URL HERE' \
-    PROFILES_CACHE_PATH='./test/profilecache.json' \
-    PROFILES_URL='PUT PROFILES API BACKEND URL HERE' \
-    SAFE_BROWSING_URL='https://raw.githubusercontent.com/ameshkov/PersonalFilters/master/safebrowsing_test.txt' \
+    NEW_REG_DOMAINS_URL='https://raw.githubusercontent.com/ameshkov/stuff/master/DNS/nrd.txt' \
+    PROFILES_CACHE_PATH='./test/profilecache.pb' \
+    PROFILES_URL='https://raw.githubusercontent.com/ameshkov/stuff/master/DNS/profiles' \
+    SAFE_BROWSING_URL='https://raw.githubusercontent.com/ameshkov/stuff/master/DNS/safe_browsing.txt' \
     GENERAL_SAFE_SEARCH_URL='https://adguardteam.github.io/HostlistsRegistry/assets/engines_safe_search.txt' \
     GEOIP_ASN_PATH='./test/GeoLite2-ASN-Test.mmdb' \
     GEOIP_COUNTRY_PATH='./test/GeoIP2-City-Test.mmdb' \
     QUERYLOG_PATH='./test/cache/querylog.jsonl' \
-    LINKED_IP_TARGET_URL='PUT LINKED IP TARGET URL HERE' \
+    LINKED_IP_TARGET_URL='https://httpbin.agrd.workers.dev/anything' \
     LISTEN_ADDR='127.0.0.1' \
     LISTEN_PORT='8081' \
-    RULESTAT_URL='https://testchrome.adtidy.org/api/1.0/rulestats.html' \
+    RULESTAT_URL='https://httpbin.agrd.workers.dev/post' \
     SENTRY_DSN='https://1:1@localhost/1' \
     VERBOSE='1' \
     YOUTUBE_SAFE_SEARCH_URL='https://adguardteam.github.io/HostlistsRegistry/assets/youtube_safe_search.txt' \
