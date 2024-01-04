@@ -14,11 +14,11 @@ import (
 	"github.com/AdguardTeam/golibs/netutil"
 )
 
-// Resolvers
-
 // Resolver is the DNS resolver interface.
 //
-// See go doc net.Resolver.
+// See [net.Resolver].
+//
+// TODO(a.garipov): Move to golibs and unite with the one in module dnsproxy.
 type Resolver interface {
 	// LookupNetIP returns a slice of host's IP addresses of family specified by
 	// fam, which must be either [netutil.AddrFamilyIPv4] or

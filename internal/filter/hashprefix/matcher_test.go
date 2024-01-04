@@ -16,7 +16,7 @@ import (
 // type check
 //
 // TODO(a.garipov): Move this into the actual package instead of keeping it in
-// the test package if [filter.Storage] and [filter.compFilter] are moved.
+// the test package if [filter.Storage] is moved.
 var _ filter.HashMatcher = (*hashprefix.Matcher)(nil)
 
 func TestMatcher(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
@@ -23,6 +24,10 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/accessmw"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/initial"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/mainmw"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/preservice"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/preupstream"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
@@ -32,17 +37,15 @@ import (
 	"github.com/miekg/dns"
 )
 
-// DNS Service Definition
-//
-// Note that the definition of a “server” differs between AdGuard DNS and the
-// dnsserver module.  In the latter, a server is a listener bound to a single
-// address, while in AGDNS, it's a collection of these listeners.
-
 // Config is the configuration of the AdGuard DNS service.
 type Config struct {
 	// Messages is the message constructor used to create blocked and other
 	// messages for this DNS service.
 	Messages *dnsmsg.Constructor
+
+	// Cloner is used to clone messages more efficiently by disposing of parts
+	// of DNS responses for later reuse.
+	Cloner *dnsmsg.Cloner
 
 	// ControlConf is the configuration of socket options.
 	ControlConf *netext.ControlConfig
@@ -75,7 +78,7 @@ type Config struct {
 
 	// ErrColl is the error collector that is used to collect critical and
 	// non-critical errors.
-	ErrColl agd.ErrorCollector
+	ErrColl errcoll.Interface
 
 	// FilterStorage is the storage of all filters.
 	FilterStorage filter.Storage
@@ -114,6 +117,10 @@ type Config struct {
 
 	// ServerGroups are the DNS server groups.  Each element must be non-nil.
 	ServerGroups []*agd.ServerGroup
+
+	// HandleTimeout defines the timeout for the entire handling of a single
+	// query.
+	HandleTimeout time.Duration
 
 	// CacheSize is the size of the DNS cache for domain names that don't
 	// support ECS.
@@ -165,30 +172,22 @@ func New(c *Config) (svc *Service, err error) {
 
 	// Configure the pre-upstream middleware common for all servers of all
 	// groups.
-	preUps := &preUpstreamMw{
-		db:                  c.DNSDB,
-		geoIP:               c.GeoIP,
-		cacheSize:           c.CacheSize,
-		ecsCacheSize:        c.ECSCacheSize,
-		useECSCache:         c.UseECSCache,
-		cacheMinTTL:         c.CacheMinTTL,
-		useCacheTTLOverride: c.UseCacheTTLOverride,
-	}
+	preUps := preupstream.New(&preupstream.Config{
+		Cloner:              c.Cloner,
+		DB:                  c.DNSDB,
+		GeoIP:               c.GeoIP,
+		CacheSize:           c.CacheSize,
+		ECSCacheSize:        c.ECSCacheSize,
+		UseECSCache:         c.UseECSCache,
+		CacheMinTTL:         c.CacheMinTTL,
+		UseCacheTTLOverride: c.UseCacheTTLOverride,
+	})
 	handler = preUps.Wrap(handler)
 
 	// Configure the service itself.
 	groups := make([]*serverGroup, len(c.ServerGroups))
 	svc = &Service{
-		messages:        c.Messages,
-		billStat:        c.BillStat,
-		errColl:         c.ErrColl,
-		fltStrg:         c.FilterStorage,
-		geoIP:           c.GeoIP,
-		queryLog:        c.QueryLog,
-		ruleStat:        c.RuleStat,
-		groups:          groups,
-		researchMetrics: c.ResearchMetrics,
-		researchLog:     c.ResearchLogs,
+		groups: groups,
 	}
 
 	for i, srvGrp := range c.ServerGroups {
@@ -196,17 +195,26 @@ func New(c *Config) (svc *Service, err error) {
 		//
 		// These are middlewares common to all filtering and server groups.
 		// They change the flow of request handling, so they are separated.
-		//
-		// TODO(a.garipov):  Merge with some other middlewares.
 
 		dnsHdlr := dnsserver.WithMiddlewares(
 			handler,
-			&preServiceMw{
-				messages:    c.Messages,
-				hashMatcher: c.SafeBrowsing,
-				checker:     c.DNSCheck,
-			},
-			svc,
+			preservice.New(&preservice.Config{
+				Messages:    c.Messages,
+				HashMatcher: c.SafeBrowsing,
+				Checker:     c.DNSCheck,
+			}),
+			mainmw.New(&mainmw.Config{
+				Messages:        c.Messages,
+				Cloner:          c.Cloner,
+				BillStat:        c.BillStat,
+				ErrColl:         c.ErrColl,
+				FilterStorage:   c.FilterStorage,
+				GeoIP:           c.GeoIP,
+				QueryLog:        c.QueryLog,
+				RuleStat:        c.RuleStat,
+				ResearchMetrics: c.ResearchMetrics,
+				ResearchLogs:    c.ResearchLogs,
+			}),
 		)
 
 		var servers []*server
@@ -225,6 +233,10 @@ func New(c *Config) (svc *Service, err error) {
 }
 
 // server is a group of listeners.
+//
+// Note that the definition of a “server” differs between AdGuard DNS and the
+// dnsserver module.  In the latter, a server is a listener bound to a single
+// address, while in AGDNS, it's a collection of these listeners.
 type server struct {
 	name      agd.ServerName
 	handler   dnsserver.Handler
@@ -237,28 +249,9 @@ type serverGroup struct {
 	servers []*server
 }
 
-// type check
-var _ agd.Service = (*Service)(nil)
-
 // Service is the main DNS service of AdGuard DNS.
 type Service struct {
-	messages *dnsmsg.Constructor
-	billStat billstat.Recorder
-	errColl  agd.ErrorCollector
-	fltStrg  filter.Storage
-	geoIP    geoip.Interface
-	queryLog querylog.Interface
-	ruleStat rulestat.Interface
-	groups   []*serverGroup
-
-	// researchMetrics enables reporting metrics that may be needed for research
-	// purposes.
-	researchMetrics bool
-
-	// researchLog enables logging of additional information that may be needed
-	// for research purposes.  It will only be used when researchMetrics is set
-	// to true.
-	researchLog bool
+	groups []*serverGroup
 }
 
 // mustStartListener starts l and panics on any error.
@@ -273,9 +266,12 @@ func mustStartListener(
 	}
 }
 
-// Start implements the agd.Service interface for *Service.  It panics if one of
-// the listeners could not start.
-func (svc *Service) Start() (err error) {
+// type check
+var _ agdservice.Interface = (*Service)(nil)
+
+// Start implements the [agdservice.Interface] interface for *Service.  It
+// panics if one of the listeners could not start.
+func (svc *Service) Start(_ context.Context) (err error) {
 	for _, g := range svc.groups {
 		for _, s := range g.servers {
 			for _, l := range s.listeners {
@@ -302,7 +298,7 @@ func shutdownListeners(ctx context.Context, listeners []*listener) (err error) {
 	return nil
 }
 
-// Shutdown implements the agd.Service interface for *Service.
+// Shutdown implements the [agdservice.Interface] interface for *Service.
 func (svc *Service) Shutdown(ctx context.Context) (err error) {
 	var errs []error
 	for _, g := range svc.groups {
@@ -323,6 +319,8 @@ func (svc *Service) Shutdown(ctx context.Context) (err error) {
 }
 
 // Handle is a simple helper to test the handling of DNS requests.
+//
+// TODO(a.garipov): Remove once the mainmw refactoring is complete.
 func (svc *Service) Handle(
 	ctx context.Context,
 	grpName agd.ServerGroupName,
@@ -366,12 +364,8 @@ type Listener = dnsserver.Server
 // NewListenerFunc is the type for DNS listener constructors.
 type NewListenerFunc func(
 	s *agd.Server,
-	name string,
-	addr string,
-	h dnsserver.Handler,
+	baseConf dnsserver.ConfigBase,
 	nonDNS http.Handler,
-	errColl agd.ErrorCollector,
-	lc netext.ListenConfig,
 ) (l Listener, err error)
 
 // listener is a Listener along with some of its associated data.
@@ -388,57 +382,61 @@ func listenerName(srvName agd.ServerName, addr string, proto agd.Protocol) (name
 
 // NewListener returns a new Listener.  It is the default DNS listener
 // constructor.
+//
+// TODO(a.garipov): Replace this in tests with [netext.ListenConfig].
 func NewListener(
 	s *agd.Server,
-	name string,
-	addr string,
-	h dnsserver.Handler,
+	baseConf dnsserver.ConfigBase,
 	nonDNS http.Handler,
-	errColl agd.ErrorCollector,
-	lc netext.ListenConfig,
 ) (l Listener, err error) {
-	defer func() { err = errors.Annotate(err, "listener %q: %w", name) }()
+	defer func() { err = errors.Annotate(err, "listener %q: %w", baseConf.Name) }()
 
-	dcConf := s.DNSCrypt
-
-	metricsListener := &errCollMetricsListener{
-		errColl:      errColl,
-		baseListener: prometheus.NewServerMetricsListener(),
-	}
-
-	confBase := dnsserver.ConfigBase{
-		Name:         name,
-		Addr:         addr,
-		Network:      dnsserver.NetworkAny,
-		Handler:      h,
-		Metrics:      metricsListener,
-		BaseContext:  ctxWithReqID,
-		ListenConfig: lc,
-	}
-
+	tcpConf := s.TCPConf
+	quicConf := s.QUICConf
 	switch p := s.Protocol; p {
 	case agd.ProtoDNS:
-		l = dnsserver.NewServerDNS(dnsserver.ConfigDNS{ConfigBase: confBase})
+		udpConf := s.UDPConf
+		l = dnsserver.NewServerDNS(dnsserver.ConfigDNS{
+			ConfigBase:         baseConf,
+			ReadTimeout:        s.ReadTimeout,
+			WriteTimeout:       s.WriteTimeout,
+			MaxUDPRespSize:     udpConf.MaxRespSize,
+			TCPIdleTimeout:     tcpConf.IdleTimeout,
+			MaxPipelineCount:   tcpConf.MaxPipelineCount,
+			MaxPipelineEnabled: tcpConf.MaxPipelineEnabled,
+		})
 	case agd.ProtoDNSCrypt:
+		dcConf := s.DNSCrypt
 		l = dnsserver.NewServerDNSCrypt(dnsserver.ConfigDNSCrypt{
-			ConfigBase:           confBase,
+			ConfigBase:           baseConf,
 			DNSCryptProviderName: dcConf.ProviderName,
 			DNSCryptResolverCert: dcConf.Cert,
 		})
 	case agd.ProtoDoH:
 		l = dnsserver.NewServerHTTPS(dnsserver.ConfigHTTPS{
-			ConfigBase:    confBase,
-			TLSConfig:     s.TLS,
-			NonDNSHandler: nonDNS,
+			ConfigBase:        baseConf,
+			TLSConfig:         s.TLS,
+			NonDNSHandler:     nonDNS,
+			MaxStreamsPerPeer: quicConf.MaxStreamsPerPeer,
+			QUICLimitsEnabled: quicConf.QUICLimitsEnabled,
 		})
 	case agd.ProtoDoQ:
 		l = dnsserver.NewServerQUIC(dnsserver.ConfigQUIC{
-			ConfigBase: confBase,
-			TLSConfig:  s.TLS,
+			ConfigBase:        baseConf,
+			TLSConfig:         s.TLS,
+			MaxStreamsPerPeer: quicConf.MaxStreamsPerPeer,
+			QUICLimitsEnabled: quicConf.QUICLimitsEnabled,
 		})
 	case agd.ProtoDoT:
 		l = dnsserver.NewServerTLS(dnsserver.ConfigTLS{
-			ConfigDNS: dnsserver.ConfigDNS{ConfigBase: confBase},
+			ConfigDNS: dnsserver.ConfigDNS{
+				ConfigBase:         baseConf,
+				ReadTimeout:        s.ReadTimeout,
+				WriteTimeout:       s.WriteTimeout,
+				MaxPipelineEnabled: tcpConf.MaxPipelineEnabled,
+				MaxPipelineCount:   tcpConf.MaxPipelineCount,
+				TCPIdleTimeout:     tcpConf.IdleTimeout,
+			},
 			TLSConfig: s.TLS,
 		})
 	default:
@@ -448,9 +446,31 @@ func NewListener(
 	return l, nil
 }
 
-// ctxWithReqID returns a context with a new request ID added to it.
-func ctxWithReqID() (ctx context.Context) {
-	return agd.WithRequestID(context.Background(), agd.NewRequestID())
+// contextConstructor is a [dnsserver.ContextConstructor] implementation that
+// that returns a context with the given timeout as well as a new
+// [agd.RequestID].
+type contextConstructor struct {
+	timeout time.Duration
+}
+
+// newContextConstructor returns a new properly initialized *contextConstructor.
+func newContextConstructor(timeout time.Duration) (c *contextConstructor) {
+	return &contextConstructor{
+		timeout: timeout,
+	}
+}
+
+// type check
+var _ dnsserver.ContextConstructor = (*contextConstructor)(nil)
+
+// New implements the [dnsserver.ContextConstructor] interface for
+// *contextConstructor.  It returns a context with a new [agd.RequestID] as well
+// as its timeout and the corresponding cancelation function.
+func (c *contextConstructor) New() (ctx context.Context, cancel context.CancelFunc) {
+	ctx, cancel = context.WithTimeout(context.Background(), c.timeout)
+	ctx = agd.WithRequestID(ctx, agd.NewRequestID())
+
+	return ctx, cancel
 }
 
 // newServers creates a slice of servers.
@@ -535,20 +555,40 @@ func newListeners(
 	handler dnsserver.Handler,
 	newListener NewListenerFunc,
 ) (listeners []*listener, err error) {
-	listeners = make([]*listener, 0, len(srv.BindData))
-	for i, bindData := range srv.BindData {
-		addr := bindData.Address
-		if addr == "" {
+	bindData := srv.BindData()
+	listeners = make([]*listener, 0, len(bindData))
+	for i, bindData := range bindData {
+		var addr string
+		if bindData.PrefixAddr == nil {
 			addr = bindData.AddrPort.String()
+		} else {
+			addr = bindData.PrefixAddr.String()
 		}
 
 		proto := srv.Protocol
-		name := listenerName(srv.Name, addr, proto)
 
-		lc := newListenConfig(bindData.ListenConfig, c.ControlConf, c.ConnLimiter, proto)
+		name := listenerName(srv.Name, addr, proto)
+		baseConf := dnsserver.ConfigBase{
+			Network: dnsserver.NetworkAny,
+			Handler: handler,
+			Metrics: &errCollMetricsListener{
+				errColl:      c.ErrColl,
+				baseListener: prometheus.NewServerMetricsListener(),
+			},
+			Disposer:       c.Cloner,
+			RequestContext: newContextConstructor(c.HandleTimeout),
+			ListenConfig: newListenConfig(
+				bindData.ListenConfig,
+				c.ControlConf,
+				c.ConnLimiter,
+				proto,
+			),
+			Name: name,
+			Addr: addr,
+		}
 
 		var l Listener
-		l, err = newListener(srv, name, addr, handler, c.NonDNS, c.ErrColl, lc)
+		l, err = newListener(srv, baseConf, c.NonDNS)
 		if err != nil {
 			return nil, fmt.Errorf("bind data at index %d: %w", i, err)
 		}

@@ -13,16 +13,21 @@ import (
 
 // Constructor creates DNS messages for blocked or modified responses.
 type Constructor struct {
+	cloner       *Cloner
 	blockingMode BlockingMode
 	fltRespTTL   time.Duration
 }
 
 // NewConstructor returns a properly initialized constructor with the given
 // options.  respTTL is the time-to-live value used for responses created by
-// this message constructor.  bm is the blocking mode to use in
-// [Constructor.NewBlockedRespMsg].
-func NewConstructor(bm BlockingMode, respTTL time.Duration) (c *Constructor) {
+// this message constructor.  cloner may be nil.  bm is the blocking mode to use
+// in [Constructor.NewBlockedRespMsg]; it must not be nil.
+func NewConstructor(cloner *Cloner, bm BlockingMode, respTTL time.Duration) (c *Constructor) {
 	return &Constructor{
+		// TODO(a.garipov): Allowing a nil cloner is really an optimization
+		// to make ri.Messages allocate less.  Consider setting a constructor
+		// for a profile once and require a non-nil cloner.
+		cloner:       cloner,
 		blockingMode: bm,
 		fltRespTTL:   respTTL,
 	}
@@ -88,6 +93,40 @@ func (c *Constructor) NewIPRespMsg(req *dns.Msg, ips ...netip.Addr) (msg *dns.Ms
 	}
 }
 
+// NewCNAMEWithIPs generates a filtered response to req with CNAME record and
+// provided ips.  cname is the fully-qualified name and must not be empty, ips
+// must be of the same family.
+func (c *Constructor) NewCNAMEWithIPs(
+	req *dns.Msg,
+	cname string,
+	ips ...netip.Addr,
+) (resp *dns.Msg, err error) {
+	resp = c.NewRespMsg(req)
+
+	resp.Answer = make([]dns.RR, 0, len(ips)+1)
+	resp.Answer = append(resp.Answer, c.NewAnswerCNAME(req, cname))
+
+	var ans dns.RR
+	for i, ip := range ips {
+		switch qt := req.Question[0].Qtype; qt {
+		case dns.TypeA:
+			ans, err = c.NewAnswerA(cname, ip)
+		case dns.TypeAAAA:
+			ans, err = c.NewAnswerAAAA(cname, ip)
+		default:
+			return nil, fmt.Errorf("bad qtype for a or aaaa resp: %d", qt)
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("bad ip at idx %d: %w", i, err)
+		}
+
+		resp.Answer = append(resp.Answer, ans)
+	}
+
+	return resp, err
+}
+
 // NewMsgFORMERR returns a properly initialized FORMERR response.
 func (c *Constructor) NewMsgFORMERR(req *dns.Msg) (resp *dns.Msg) {
 	return c.newMsgRCode(req, dns.RcodeFormatError)
@@ -127,7 +166,7 @@ func (c *Constructor) newMsgRCode(req *dns.Msg, rc RCode) (resp *dns.Msg) {
 // NewTXTRespMsg returns a DNS TXT response message with the given strings as
 // content.  The TTL is also set to c.FilteredResponseTTL.
 func (c *Constructor) NewTXTRespMsg(req *dns.Msg, strs ...string) (msg *dns.Msg, err error) {
-	ans, err := c.NewAnsTXT(req, strs)
+	ans, err := c.NewAnswerTXT(req, strs)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +189,7 @@ func (c *Constructor) AppendDebugExtra(req, resp *dns.Msg, str string) (err erro
 
 	if strLen <= MaxTXTStringLen {
 		resp.Extra = append(resp.Extra, &dns.TXT{
-			Hdr: c.newHdrWithClass(req, dns.TypeTXT, dns.ClassCHAOS),
+			Hdr: c.newHdrWithClass(req.Question[0].Name, dns.TypeTXT, dns.ClassCHAOS),
 			Txt: []string{str},
 		})
 
@@ -176,7 +215,7 @@ func (c *Constructor) AppendDebugExtra(req, resp *dns.Msg, str string) (err erro
 	}
 
 	resp.Extra = append(resp.Extra, &dns.TXT{
-		Hdr: c.newHdrWithClass(req, dns.TypeTXT, dns.ClassCHAOS),
+		Hdr: c.newHdrWithClass(req.Question[0].Name, dns.TypeTXT, dns.ClassCHAOS),
 		Txt: newStr,
 	})
 
@@ -185,62 +224,90 @@ func (c *Constructor) AppendDebugExtra(req, resp *dns.Msg, str string) (err erro
 
 // newHdr returns a new resource record header.
 func (c *Constructor) newHdr(req *dns.Msg, rrType RRType) (hdr dns.RR_Header) {
-	return dns.RR_Header{
-		Name:   req.Question[0].Name,
-		Rrtype: rrType,
-		Ttl:    uint32(c.fltRespTTL.Seconds()),
-		Class:  dns.ClassINET,
-	}
+	return c.newHdrWithClass(req.Question[0].Name, rrType, dns.ClassINET)
 }
 
 // newHdrWithClass returns a new resource record header with specified class.
-func (c *Constructor) newHdrWithClass(req *dns.Msg, rrType RRType, cl dns.Class) (h dns.RR_Header) {
+// fqdn is the fully-qualified name and must not be empty.
+func (c *Constructor) newHdrWithClass(fqdn string, rrType RRType, cl dns.Class) (h dns.RR_Header) {
 	return dns.RR_Header{
-		Name:   req.Question[0].Name,
+		Name:   fqdn,
 		Rrtype: rrType,
 		Ttl:    uint32(c.fltRespTTL.Seconds()),
 		Class:  uint16(cl),
 	}
 }
 
-// NewAnsA returns a new resource record with an IPv4 address.  ip must be an
-// IPv4 address.  If ip is a zero netip.Addr, it is replaced by an unspecified
-// (aka null) IP, 0.0.0.0.
-func (c *Constructor) NewAnsA(req *dns.Msg, ip netip.Addr) (ans *dns.A, err error) {
+// NewAnswerA returns a new resource record with the given IPv4 address and
+// fqdn.  fqdn is the fully-qualified name and must not be empty.  ip must be
+// an IPv4 address.  If ip is a zero netip.Addr, it is replaced by an
+// unspecified (aka null) IP, 0.0.0.0.
+//
+// TODO(a.garipov): Use FQDN in all other answer constructors.
+func (c *Constructor) NewAnswerA(fqdn string, ip netip.Addr) (rr *dns.A, err error) {
 	if ip == (netip.Addr{}) {
 		ip = netip.IPv4Unspecified()
 	} else if !ip.Is4() {
 		return nil, fmt.Errorf("bad ipv4: %s", ip)
 	}
 
-	data := ip.As4()
+	rr = newA(c.cloner, ip)
+	rr.Hdr = c.newHdrWithClass(fqdn, dns.TypeA, dns.ClassINET)
 
-	return &dns.A{
-		Hdr: c.newHdr(req, dns.TypeA),
-		A:   data[:],
-	}, nil
+	return rr, nil
 }
 
-// NewAnsAAAA returns a new resource record with an IPv6 address.  ip must be an
+// NewAnswerAAAA returns a new resource record with the given IPv6 address and
+// fqdn.  fqdn is the fully-qualified name and must not be empty.  ip must be an
 // IPv6 address.  If ip is a zero netip.Addr, it is replaced by an unspecified
 // (aka null) IP, [::].
-func (c *Constructor) NewAnsAAAA(req *dns.Msg, ip netip.Addr) (ans *dns.AAAA, err error) {
+func (c *Constructor) NewAnswerAAAA(fqdn string, ip netip.Addr) (rr *dns.AAAA, err error) {
 	if ip == (netip.Addr{}) {
 		ip = netip.IPv6Unspecified()
 	} else if !ip.Is6() {
 		return nil, fmt.Errorf("bad ipv6: %s", ip)
 	}
 
-	data := ip.As16()
+	rr = newAAAA(c.cloner, ip)
+	rr.Hdr = c.newHdrWithClass(fqdn, dns.TypeAAAA, dns.ClassINET)
 
-	return &dns.AAAA{
-		Hdr:  c.newHdr(req, dns.TypeAAAA),
-		AAAA: data[:],
-	}, nil
+	return rr, nil
 }
 
-// NewAnsTXT returns a new resource record of TXT type.
-func (c *Constructor) NewAnsTXT(req *dns.Msg, strs []string) (ans *dns.TXT, err error) {
+// NewAnswerCNAME returns a new resource record of CNAME type.
+func (c *Constructor) NewAnswerCNAME(req *dns.Msg, target string) (rr *dns.CNAME) {
+	rr = newCNAME(c.cloner, dns.Fqdn(target))
+	rr.Hdr = c.newHdr(req, dns.TypeCNAME)
+
+	return rr
+}
+
+// NewAnswerMX returns a new resource record of MX type.
+func (c *Constructor) NewAnswerMX(req *dns.Msg, mx *rules.DNSMX) (rr *dns.MX) {
+	rr = newMX(c.cloner, dns.Fqdn(mx.Exchange), mx.Preference)
+	rr.Hdr = c.newHdr(req, dns.TypeMX)
+
+	return rr
+}
+
+// NewAnswerPTR returns a new resource record of PTR type.
+func (c *Constructor) NewAnswerPTR(req *dns.Msg, ptr string) (rr *dns.PTR) {
+	rr = newPTR(c.cloner, dns.Fqdn(ptr))
+	rr.Hdr = c.newHdr(req, dns.TypePTR)
+
+	return rr
+}
+
+// NewAnswerSRV returns a new resource record of SRV type.
+func (c *Constructor) NewAnswerSRV(req *dns.Msg, srv *rules.DNSSRV) (rr *dns.SRV) {
+	rr = newSRV(c.cloner, dns.Fqdn(srv.Target), srv.Priority, srv.Weight, srv.Port)
+	rr.Hdr = c.newHdr(req, dns.TypeSRV)
+
+	return rr
+}
+
+// NewAnswerTXT returns a new resource record of TXT type.
+func (c *Constructor) NewAnswerTXT(req *dns.Msg, strs []string) (rr *dns.TXT, err error) {
 	qt := req.Question[0].Qtype
 	if qt != dns.TypeTXT {
 		return nil, fmt.Errorf("bad qtype for txt resp: %s", dns.Type(qt))
@@ -259,46 +326,10 @@ func (c *Constructor) NewAnsTXT(req *dns.Msg, strs []string) (ans *dns.TXT, err 
 		}
 	}
 
-	return &dns.TXT{
-		Hdr: c.newHdr(req, dns.TypeTXT),
-		Txt: strs,
-	}, nil
-}
+	rr = newTXT(c.cloner, strs)
+	rr.Hdr = c.newHdr(req, dns.TypeTXT)
 
-// NewAnsPTR returns a new resource record of PTR type.
-func (c *Constructor) NewAnsPTR(req *dns.Msg, ptr string) (ans *dns.PTR) {
-	return &dns.PTR{
-		Hdr: c.newHdr(req, dns.TypePTR),
-		Ptr: dns.Fqdn(ptr),
-	}
-}
-
-// NewAnswerMX returns a new resource record of MX type.
-func (c *Constructor) NewAnswerMX(req *dns.Msg, mx *rules.DNSMX) (ans *dns.MX) {
-	return &dns.MX{
-		Hdr:        c.newHdr(req, dns.TypeMX),
-		Preference: mx.Preference,
-		Mx:         dns.Fqdn(mx.Exchange),
-	}
-}
-
-// NewAnswerSRV returns a new resource record of SRV type.
-func (c *Constructor) NewAnswerSRV(req *dns.Msg, srv *rules.DNSSRV) (ans *dns.SRV) {
-	return &dns.SRV{
-		Hdr:      c.newHdr(req, dns.TypeSRV),
-		Priority: srv.Priority,
-		Weight:   srv.Weight,
-		Port:     srv.Port,
-		Target:   dns.Fqdn(srv.Target),
-	}
-}
-
-// NewAnswerCNAME returns a new resource record of CNAME type.
-func (c *Constructor) NewAnswerCNAME(req *dns.Msg, cname string) (ans *dns.CNAME) {
-	return &dns.CNAME{
-		Hdr:    c.newHdr(req, dns.TypeCNAME),
-		Target: dns.Fqdn(cname),
-	}
+	return rr, nil
 }
 
 // newSOARecords generates the Start Of Authority record for AdGuardDNS.  It
@@ -359,7 +390,7 @@ func (c *Constructor) newMsgA(req *dns.Msg, ips ...netip.Addr) (msg *dns.Msg, er
 	msg = c.NewRespMsg(req)
 	for i, ip := range ips {
 		var ans dns.RR
-		ans, err = c.NewAnsA(req, ip)
+		ans, err = c.NewAnswerA(req.Question[0].Name, ip)
 		if err != nil {
 			return nil, fmt.Errorf("bad ip at idx %d: %w", i, err)
 		}
@@ -376,7 +407,7 @@ func (c *Constructor) newMsgAAAA(req *dns.Msg, ips ...netip.Addr) (msg *dns.Msg,
 	msg = c.NewRespMsg(req)
 	for i, ip := range ips {
 		var ans dns.RR
-		ans, err = c.NewAnsAAAA(req, ip)
+		ans, err = c.NewAnswerAAAA(req.Question[0].Name, ip)
 		if err != nil {
 			return nil, fmt.Errorf("bad ip at idx %d: %w", i, err)
 		}

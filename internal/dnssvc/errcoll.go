@@ -4,16 +4,15 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
-	"github.com/miekg/dns"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 )
 
 // errCollMetricsListener extends the default prometheus.ServerMetricsListener
 // and overrides OnPanic and OnError methods.  The point is to collect errors
 // from inside the dnsserver.Server in addition to collecting prom metrics.
 type errCollMetricsListener struct {
-	errColl      agd.ErrorCollector
+	errColl      errcoll.Interface
 	baseListener dnsserver.MetricsListener
 }
 
@@ -24,10 +23,10 @@ var _ dnsserver.MetricsListener = (*errCollMetricsListener)(nil)
 // *errCollMetricsListener.
 func (s *errCollMetricsListener) OnRequest(
 	ctx context.Context,
-	req, resp *dns.Msg,
+	info *dnsserver.QueryInfo,
 	rw dnsserver.ResponseWriter,
 ) {
-	s.baseListener.OnRequest(ctx, req, resp, rw)
+	s.baseListener.OnRequest(ctx, info, rw)
 }
 
 // OnInvalidMsg implements the dnsserver.MetricsListener interface for

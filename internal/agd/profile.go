@@ -5,6 +5,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/golibs/errors"
@@ -37,11 +38,17 @@ type Profile struct {
 	// [internal/profiledb/internal.FileCacheVersion].
 	SafeBrowsing *SafeBrowsingSettings
 
+	// Access is the access manager for this profile.  Access is never nil.
+	//
+	// NOTE: Do not change fields of this structure without incrementing
+	// [internal/profiledb/internal.FileCacheVersion].
+	Access access.Profile
+
 	// BlockingMode defines the way blocked responses are constructed.
 	//
 	// NOTE: Do not change fields of this structure without incrementing
 	// [internal/profiledb/internal.FileCacheVersion].
-	BlockingMode dnsmsg.BlockingModeCodec
+	BlockingMode dnsmsg.BlockingMode
 
 	// ID is the unique ID of this profile.
 	//
@@ -126,6 +133,12 @@ type Profile struct {
 	// NOTE: Do not change fields of this structure without incrementing
 	// [internal/profiledb/internal.FileCacheVersion].
 	BlockFirefoxCanary bool
+
+	// IPLogEnabled shows if client IP addresses are logged.
+	//
+	// NOTE: Do not change fields of this structure without incrementing
+	// [internal/profiledb/internal.FileCacheVersion].
+	IPLogEnabled bool
 }
 
 // ProfileID is the ID of a profile.  It is an opaque string.

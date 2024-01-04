@@ -30,33 +30,6 @@ set -f -u
 
 
 
-# Warnings
-
-go_version="$( "${GO:-go}" version )"
-readonly go_version
-
-go_min_version='go1.20.7'
-go_version_msg="
-warning: your go version (${go_version}) is different from the recommended minimal one (${go_min_version}).
-if you have the version installed, please set the GO environment variable.
-for example:
-
-	export GO='${go_min_version}'
-"
-readonly go_min_version go_version_msg
-
-case "$go_version"
-in
-('go version'*"$go_min_version"*)
-	# Go on.
-	;;
-(*)
-	echo "$go_version_msg" 1>&2
-	;;
-esac
-
-
-
 # Simple analyzers
 
 # blocklist_imports is a simple check against unwanted packages.  The following
@@ -74,11 +47,12 @@ esac
 #
 #      See https://github.com/golang/go/issues/45200.
 #
-#   *  Package sort is replaced by golang.org/x/exp/slices.
+#   *  Package sort is replaced by package slices.
 #
 #   *  Package unsafe is… unsafe.
 #
-#   *  Package golang.org/x/net/context has been moved into stdlib.
+#   *  Packages golang.org/x/exp/slices and golang.org/x/net/context have been
+#      moved into stdlib.
 #
 # Currently, the only standard exception are files generated from protobuf
 # schemas, which use package reflect.  If your project needs more exceptions,
@@ -89,8 +63,8 @@ esac
 #   *  internal/profiledb/internal/filecachepb/unsafe.go: a “safe” unsafe helper
 #      to prevent excessive allocations.
 #
-# TODO(a.garipov): Add deprecated packages golang.org/x/exp/maps and
-# golang.org/x/exp/slices once all projects switch to Go 1.21.
+# TODO(a.garipov): Add deprecated package golang.org/x/exp/maps and once all
+# projects switch to Go 1.22 or later.
 blocklist_imports() {
 	git grep\
 		-e '[[:space:]]"errors"$'\
@@ -99,6 +73,7 @@ blocklist_imports() {
 		-e '[[:space:]]"reflect"$'\
 		-e '[[:space:]]"sort"$'\
 		-e '[[:space:]]"unsafe"$'\
+		-e '[[:space:]]"golang.org/x/exp/slices"$'\
 		-e '[[:space:]]"golang.org/x/net/context"$'\
 		-n\
 		-- '*.go'\
@@ -175,65 +150,11 @@ run_linter "$GO" vet ./... "$dnssrvmod"
 
 run_linter govulncheck ./... "$dnssrvmod"
 
-# NOTE: For AdGuard DNS, ignore the generated protobuf file.
+# NOTE: For AdGuard DNS, ignore the generated protobuf files.
 run_linter gocyclo --ignore '\.pb\.go$' --over 10 .
 
-# TODO(a.garipov): Enable 10 for all.
-#
-# TODO(a.garipov): Redo once https://github.com/uudashr/gocognit/issues/22 is
-# fixed.
-gocognit_paths="\
-./internal/metrics 19
-./internal/filter/internal/composite/ 15
-./internal/ecscache 15
-./internal/backend/   14
-./internal/dnsserver/ 14
-./internal/dnsmsg/            11
-./internal/filter/hashprefix/ 11
-./internal/agd/                              10
-./internal/agdhttp/                          10
-./internal/agdio/                            10
-./internal/agdnet/                           10
-./internal/agdprotobuf/                      10
-./internal/agdtest/                          10
-./internal/agdtime/                          10
-./internal/billstat/                         10
-./internal/bindtodevice/                     10
-./internal/cmd/                              10
-./internal/connlimiter/                      10
-./internal/consul/                           10
-./internal/debugsvc/                         10
-./internal/dnscheck/                         10
-./internal/dnsdb/                            10
-./internal/dnsserver/cache/                  10
-./internal/dnsserver/dnsservertest/          10
-./internal/dnsserver/forward/                10
-./internal/dnsserver/netext/                 10
-./internal/dnsserver/pool/                   10
-./internal/dnsserver/prometheus/             10
-./internal/dnsserver/querylog/               10
-./internal/dnsserver/ratelimit/              10
-./internal/dnssvc/                           10
-./internal/errcoll/                          10
-./internal/filter/internal/custom/           10
-./internal/filter/internal/filtertest/       10
-./internal/filter/internal/resultcache/      10
-./internal/filter/internal/rulelist/         10
-./internal/filter/internal/safesearch/       10
-./internal/filter/internal/serviceblock/     10
-./internal/geoip/                            10
-./internal/optlog/                           10
-./internal/profiledb/internal/profiledbtest/ 10
-./internal/querylog/                         10
-./internal/rulestat/                         10
-./internal/tools/                            10
-./internal/websvc/                           10"
-readonly gocognit_paths
-
-echo "$gocognit_paths" | while read -r path max
-do
-	run_linter gocognit --over="$max" "$path"
-done
+# NOTE: For AdGuard DNS, ignore the generated protobuf files.
+run_linter gocognit --ignore '\.pb\.go$' --over='10' .
 
 run_linter ineffassign ./... "$dnssrvmod"
 

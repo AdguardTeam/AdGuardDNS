@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/log"
 )
@@ -51,8 +53,8 @@ var _ Recorder = (*RuntimeRecorder)(nil)
 func (r *RuntimeRecorder) Record(
 	ctx context.Context,
 	id agd.DeviceID,
-	ctry agd.Country,
-	asn agd.ASN,
+	ctry geoip.Country,
+	asn geoip.ASN,
 	start time.Time,
 	proto agd.Protocol,
 ) {
@@ -80,10 +82,10 @@ func (r *RuntimeRecorder) Record(
 }
 
 // type check
-var _ agd.Refresher = (*RuntimeRecorder)(nil)
+var _ agdservice.Refresher = (*RuntimeRecorder)(nil)
 
-// Refresh implements the agd.Refresher interface for *RuntimeRecorder.  It
-// uploads the currently available data and resets it.
+// Refresh implements the [agdserivce.Refresher] interface for *RuntimeRecorder.
+// It uploads the currently available data and resets it.
 func (r *RuntimeRecorder) Refresh(ctx context.Context) (err error) {
 	records := r.resetRecords()
 

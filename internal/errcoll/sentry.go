@@ -18,9 +18,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Sentry API Error Collector
-
-// SentryErrorCollector is an [agd.ErrorCollector] that sends errors to a
+// SentryErrorCollector is an [Interface] implementation that sends errors to a
 // Sentry-like HTTP API.
 type SentryErrorCollector struct {
 	sentry *sentry.Client
@@ -35,10 +33,9 @@ func NewSentryErrorCollector(cli *sentry.Client) (c *SentryErrorCollector) {
 }
 
 // type check
-var _ agd.ErrorCollector = (*SentryErrorCollector)(nil)
+var _ Interface = (*SentryErrorCollector)(nil)
 
-// Collect implements the [agd.ErrorCollector] interface for
-// *SentryErrorCollector.
+// Collect implements the [Interface] interface for *SentryErrorCollector.
 func (c *SentryErrorCollector) Collect(ctx context.Context, err error) {
 	if !isReportable(err) {
 		log.Debug("errcoll: sentry: non-reportable error: %s", err)
@@ -58,7 +55,7 @@ func (c *SentryErrorCollector) Collect(ctx context.Context, err error) {
 // ErrorFlushCollector collects information about errors, possibly sending them
 // to a remote location.  The collected errors should be flushed with the Flush.
 type ErrorFlushCollector interface {
-	agd.ErrorCollector
+	Interface
 
 	// Flush waits until the underlying transport sends any buffered events to
 	// the sentry server, blocking for at most the predefined timeout.
@@ -213,12 +210,12 @@ func tagsFromCtx(ctx context.Context) (tags sentryTags) {
 		tags["dns_server_proto"] = si.Proto.String()
 	}
 
-	if ci, ok := dnsserver.ClientInfoFromContext(ctx); ok {
-		tags["dns_client_tls_server_name"] = toASCII(ci.TLSServerName)
-		if ci.URL != nil {
+	if ri, ok := dnsserver.RequestInfoFromContext(ctx); ok {
+		tags["dns_client_tls_server_name"] = toASCII(ri.TLSServerName)
+		if ri.URL != nil {
 			// Provide only the path and the query to fit into Sentry's 200
-			// character limit.
-			tags["dns_client_url_path"] = ci.URL.RequestURI()
+			// characters limit.
+			tags["dns_client_url_path"] = ri.URL.RequestURI()
 		}
 	}
 

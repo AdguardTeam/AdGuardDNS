@@ -128,7 +128,7 @@ func (f *Filter) FilterRequest(
 	// Firstly, check the profile's rule-list filtering, the custom rules, and
 	// the rules from blocked services settings.
 	host := ri.Host
-	rlRes := f.filterWithRuleLists(ri, host, ri.QType, req, false)
+	rlRes := f.filterWithRuleLists(ri, host, ri.QType, req)
 	switch flRes := rlRes.(type) {
 	case *internal.ResultAllowed:
 		// Skip any additional filtering if the domain is explicitly allowed by
@@ -172,19 +172,7 @@ func (f *Filter) FilterResponse(
 	}
 
 	for _, ans := range resp.Answer {
-		if rr, ok := ans.(*dns.HTTPS); ok {
-			r = f.filterHTTPSRecords(rr, ri, resp)
-			if r != nil {
-				return r, nil
-			}
-		}
-
-		host, rrType, ok := parseRespAnswer(ans)
-		if !ok {
-			continue
-		}
-
-		r = f.filterWithRuleLists(ri, host, rrType, resp, true)
+		r = f.filterAnswer(ri, ans)
 		if r != nil {
 			break
 		}
@@ -193,17 +181,28 @@ func (f *Filter) FilterResponse(
 	return r, nil
 }
 
-// filterHTTPSRecords filters HTTPS answers information through all rule list
+// filterAnswer filters a single answer of a response.  r is not nil if the
+// response is filtered.
+func (f *Filter) filterAnswer(ri *agd.RequestInfo, ans dns.RR) (r internal.Result) {
+	if rr, ok := ans.(*dns.HTTPS); ok {
+		return f.filterHTTPSAnswer(ri, rr)
+	}
+
+	host, rrType, ok := parseRespAnswer(ans)
+	if !ok {
+		return nil
+	}
+
+	return f.filterWithRuleLists(ri, host, rrType, nil)
+}
+
+// filterHTTPSAnswer filters HTTPS answers information through all rule list
 // filters of the composite filter.
-func (f *Filter) filterHTTPSRecords(
-	rr *dns.HTTPS,
-	ri *agd.RequestInfo,
-	resp *dns.Msg,
-) (r internal.Result) {
+func (f *Filter) filterHTTPSAnswer(ri *agd.RequestInfo, rr *dns.HTTPS) (r internal.Result) {
 	for _, kv := range rr.Value {
 		switch kv.Key() {
 		case dns.SVCB_IPV4HINT, dns.SVCB_IPV6HINT:
-			r = f.filterSVCBHint(kv.String(), ri, resp)
+			r = f.filterSVCBHint(kv.String(), ri)
 			if r != nil {
 				return r
 			}
@@ -220,10 +219,9 @@ func (f *Filter) filterHTTPSRecords(
 func (f *Filter) filterSVCBHint(
 	hint string,
 	ri *agd.RequestInfo,
-	resp *dns.Msg,
 ) (r internal.Result) {
 	for _, s := range strings.Split(hint, ",") {
-		r = f.filterWithRuleLists(ri, s, dns.TypeHTTPS, resp, true)
+		r = f.filterWithRuleLists(ri, s, dns.TypeHTTPS, nil)
 		if r != nil {
 			return r
 		}
@@ -258,13 +256,13 @@ func (f *Filter) isEmpty() (ok bool) {
 }
 
 // filterWithRuleLists filters one question's or answer's information through
-// all rule list filters of the composite filter.
+// all rule list filters of the composite filter.  If req is nil, the message is
+// assumed to be a response.
 func (f *Filter) filterWithRuleLists(
 	ri *agd.RequestInfo,
 	host string,
 	rrType dnsmsg.RRType,
-	msg *dns.Msg,
-	isAnswer bool,
+	req *dns.Msg,
 ) (r internal.Result) {
 	var devName string
 	if d := ri.Device; d != nil {
@@ -272,6 +270,7 @@ func (f *Filter) filterWithRuleLists(
 	}
 
 	ufRes := &urlFilterResult{}
+	isAnswer := req == nil
 	for _, rl := range f.ruleLists {
 		ufRes.add(rl.DNSResult(ri.RemoteIP, devName, host, rrType, isAnswer))
 	}
@@ -282,7 +281,7 @@ func (f *Filter) filterWithRuleLists(
 		// dnsrewrite rules only from one list, cause when there is no problem
 		// with merging them among different lists.
 		if !isAnswer {
-			modified := processDNSRewrites(ri.Messages, msg, dr.DNSRewrites(), host)
+			modified := processDNSRewrites(ri.Messages, req, dr.DNSRewrites(), host)
 			if modified != nil {
 				return modified
 			}
@@ -295,8 +294,7 @@ func (f *Filter) filterWithRuleLists(
 		ufRes.add(rl.DNSResult(ri.RemoteIP, devName, host, rrType, isAnswer))
 	}
 
-	mr := rules.NewMatchingResult(ufRes.networkRules, nil)
-	if nr := mr.GetBasicResult(); nr != nil {
+	if nr := rules.GetDNSBasicRule(ufRes.networkRules); nr != nil {
 		return f.ruleDataToResult(nr.FilterListID, nr.RuleText, nr.Whitelist)
 	}
 

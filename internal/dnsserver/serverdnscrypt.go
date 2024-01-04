@@ -3,6 +3,7 @@ package dnsserver
 import (
 	"context"
 	"net"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
@@ -65,11 +66,10 @@ func (s *ServerDNSCrypt) Start(ctx context.Context) (err error) {
 	if s.started {
 		return ErrServerAlreadyStarted
 	}
-	s.started = true
 
 	log.Info("[%s]: Starting the server", s.Name())
 
-	ctx = ContextWithServerInfo(ctx, ServerInfo{
+	ctx = ContextWithServerInfo(ctx, &ServerInfo{
 		Name:  s.name,
 		Addr:  s.addr,
 		Proto: s.proto,
@@ -88,6 +88,8 @@ func (s *ServerDNSCrypt) Start(ctx context.Context) (err error) {
 	if err != nil {
 		return err
 	}
+
+	s.started = true
 
 	log.Info("[%s]: Server has been started", s.Name())
 
@@ -202,8 +204,10 @@ func (h *dnsCryptHandler) ServeDNS(rw dnscrypt.ResponseWriter, r *dns.Msg) (err 
 	defer func() { err = errors.Annotate(err, "dnscrypt: %w") }()
 
 	// TODO(ameshkov): Use the context from the arguments once it's added there.
-	ctx := h.srv.requestContext()
-	ctx = ContextWithClientInfo(ctx, ClientInfo{})
+	ctx, cancel := h.srv.requestContext()
+	defer cancel()
+
+	ctx = ContextWithRequestInfo(ctx, &RequestInfo{StartTime: time.Now()})
 
 	nrw := NewNonWriterResponseWriter(rw.LocalAddr(), rw.RemoteAddr())
 	written := h.srv.serveDNSMsg(ctx, r, nrw)
@@ -214,7 +218,7 @@ func (h *dnsCryptHandler) ServeDNS(rw dnscrypt.ResponseWriter, r *dns.Msg) (err 
 
 	network := NetworkFromAddr(rw.LocalAddr())
 	msg := nrw.Msg()
-	normalize(network, ProtoDNSCrypt, r, msg)
+	normalize(network, ProtoDNSCrypt, r, msg, dns.MaxMsgSize)
 
 	return rw.WriteMsg(msg)
 }

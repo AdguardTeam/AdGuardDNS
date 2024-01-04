@@ -10,11 +10,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAccessManager_IsBlockedHost(t *testing.T) {
-	am, err := access.New([]string{
+func TestGlobal_IsBlockedHost(t *testing.T) {
+	global, err := access.NewGlobal([]string{
 		"block.test",
 		"UPPERCASE.test",
 		"||block_aaaa.test^$dnstype=AAAA",
+		"||allowlist.test^",
+		"@@||allow.allowlist.test^",
 	}, []string{})
 	require.NoError(t, err)
 
@@ -53,18 +55,28 @@ func TestAccessManager_IsBlockedHost(t *testing.T) {
 		name: "block_qt",
 		host: "block_aaaa.test",
 		qt:   dns.TypeAAAA,
+	}, {
+		want: assert.True,
+		name: "allowlist_block",
+		host: "block.allowlist.test",
+		qt:   dns.TypeA,
+	}, {
+		want: assert.False,
+		name: "allowlist_test",
+		host: "allow.allowlist.test",
+		qt:   dns.TypeA,
 	}}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			blocked := am.IsBlockedHost(tc.host, tc.qt)
+			blocked := global.IsBlockedHost(tc.host, tc.qt)
 			tc.want(t, blocked)
 		})
 	}
 }
 
-func TestAccessManager_IsBlockedIP(t *testing.T) {
-	am, err := access.New([]string{}, []string{
+func TestGlobal_IsBlockedIP(t *testing.T) {
+	global, err := access.NewGlobal([]string{}, []string{
 		"1.1.1.1",
 		"2.2.2.0/8",
 	})
@@ -99,7 +111,7 @@ func TestAccessManager_IsBlockedIP(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			blocked, rule := am.IsBlockedIP(tc.ip)
+			blocked, rule := global.IsBlockedIP(tc.ip)
 			tc.want(t, blocked)
 			assert.Equal(t, tc.wantRule, rule)
 		})

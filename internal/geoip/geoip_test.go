@@ -4,7 +4,7 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/testutil"
 )
 
@@ -14,7 +14,7 @@ func TestMain(m *testing.M) {
 
 // Paths to test data.
 const (
-	asnPath     = "./testdata/GeoLite2-ASN-Test.mmdb"
+	asnPath     = "./testdata/GeoIP2-ISP-Test.mmdb"
 	cityPath    = "./testdata/GeoIP2-City-Test.mmdb"
 	countryPath = "./testdata/GeoIP2-Country-Test.mmdb"
 )
@@ -27,31 +27,31 @@ const (
 
 // Test ASN data.
 var (
-	countryTopASNs = map[agd.Country]agd.ASN{
-		agd.CountryAU: 1221,
-		agd.CountryJP: 2516,
-		agd.CountryUS: 7922,
+	countryTopASNs = map[geoip.Country]geoip.ASN{
+		geoip.CountryAU: 1221,
+		geoip.CountryJP: 2516,
+		geoip.CountryUS: 7922,
 	}
-	allTopASNs = map[agd.ASN]struct{}{
-		countryTopASNs[agd.CountryAU]: {},
-		countryTopASNs[agd.CountryJP]: {},
-		countryTopASNs[agd.CountryUS]: {},
+	allTopASNs = map[geoip.ASN]struct{}{
+		countryTopASNs[geoip.CountryAU]: {},
+		countryTopASNs[geoip.CountryJP]: {},
+		countryTopASNs[geoip.CountryUS]: {},
 	}
 )
 
 // Test queries data.  See [ASN], [city], and [country] testing datum.
 //
-// [ASN]: https://github.com/maxmind/MaxMind-DB/blob/2bf1713b3b5adcb022cf4bb77eb0689beaadcfef/source-data/GeoLite2-ASN-Test.json
-// [city]: https://github.com/maxmind/MaxMind-DB/blob/2bf1713b3b5adcb022cf4bb77eb0689beaadcfef/source-data/GeoIP2-City-Test.json
-// [country]: https://github.com/maxmind/MaxMind-DB/blob/2bf1713b3b5adcb022cf4bb77eb0689beaadcfef/source-data/GeoIP2-Country-Test.json
+// [ASN]: https://raw.githubusercontent.com/maxmind/MaxMind-DB/main/source-data/GeoIP2-ISP-Test.json
+// [city]: https://raw.githubusercontent.com/maxmind/MaxMind-DB/main/source-data/GeoIP2-City-Test.json
+// [country]: https://raw.githubusercontent.com/maxmind/MaxMind-DB/main/source-data/GeoIP2-Country-Test.json
 const (
-	testASN    agd.ASN       = 1221
-	testCtry   agd.Country   = agd.CountryUS
-	testCont   agd.Continent = agd.ContinentNA
-	testSubdiv string        = "WA"
+	testASN    geoip.ASN = 1221
+	testCtry             = geoip.CountryUS
+	testCont             = geoip.ContinentNA
+	testSubdiv string    = "WA"
 
-	testIPv4SubnetCtry = agd.CountryUS
-	testIPv6SubnetCtry = agd.CountryJP
+	testIPv4SubnetCtry = geoip.CountryUS
+	testIPv6SubnetCtry = geoip.CountryJP
 )
 
 // testIPWithASN has ASN set to 1221 in the test database.

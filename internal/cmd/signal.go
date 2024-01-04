@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/golibs/log"
 	"golang.org/x/sys/unix"
 )
@@ -17,7 +17,7 @@ type signalHandler struct {
 
 	// services are the services that are shut down before application
 	// exiting.
-	services []agd.Service
+	services []agdservice.Interface
 }
 
 // newSignalHandler returns a new signalHandler that shuts down services.
@@ -32,7 +32,7 @@ func newSignalHandler() (h signalHandler) {
 }
 
 // add adds a service to the signal handler.
-func (h *signalHandler) add(s agd.Service) {
+func (h *signalHandler) add(s agdservice.Interface) {
 	h.services = append(h.services, s)
 }
 

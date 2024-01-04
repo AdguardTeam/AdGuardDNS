@@ -1,7 +1,6 @@
 package metrics
 
 import (
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
@@ -55,70 +54,69 @@ var ResearchResponseECH = promauto.NewCounter(prometheus.CounterOpts{
 	Help:      `The number of DNS responses with a ECH config.`,
 })
 
+// ResearchData contains data for research metrics.
+type ResearchData struct {
+	OriginalResponse *dns.Msg
+	FilterID         string
+	Country          string
+	TopSubdivision   string
+	Host             string
+	QType            uint16
+	Blocked          bool
+}
+
 // ReportResearch reports metrics to prometheus that we may need to conduct
 // researches.  If researchLogs is true, this method may also write additional
 // INFO-level logs.
-func ReportResearch(
-	ri *agd.RequestInfo,
-	origResp *dns.Msg,
-	filterID agd.FilterListID,
-	blocked bool,
-	researchLogs bool,
-) {
-	filteringEnabled := ri.FilteringGroup != nil &&
-		ri.FilteringGroup.RuleListsEnabled &&
-		len(ri.FilteringGroup.RuleListIDs) > 0
+func ReportResearch(data *ResearchData, researchLogs bool) {
+	ctry := data.Country
 
-	// The current research metrics only count queries that come to public DNS
-	// servers where filtering is enabled.
-	if !filteringEnabled || ri.Profile != nil {
-		return
+	var subdiv string
+	if model.LabelValue(data.TopSubdivision).IsValid() {
+		subdiv = data.TopSubdivision
 	}
 
-	var ctry, subdiv string
-	if l := ri.Location; l != nil {
-		// Ignore AdGuard ASN specifically in order to avoid counting queries
-		// that come from the monitoring.  This part is ugly, but since these
-		// metrics are a one-time deal, this is acceptable.
-		//
-		// TODO(ameshkov): Think of a better way later if we need to do that
-		// again.
-		if l.ASN == 212772 {
-			return
-		}
-
-		ctry = string(l.Country)
-		if model.LabelValue(l.TopSubdivision).IsValid() {
-			subdiv = l.TopSubdivision
-		}
-	}
-
-	if blocked {
-		reportResearchBlocked(string(filterID), ctry, subdiv)
+	if data.Blocked {
+		reportResearchBlocked(data.FilterID, ctry, subdiv)
 	}
 
 	reportResearchRequest(ctry, subdiv)
-	reportResearchECH(ri, origResp, researchLogs)
+
+	if data.QType == dns.TypeHTTPS {
+		reportResearchECH(data.Host, data.OriginalResponse, researchLogs)
+	}
 }
 
 // reportResearchECH checks if the response has ECH config and if it does,
 // reports to metrics and writes to log.
-func reportResearchECH(ri *agd.RequestInfo, origResp *dns.Msg, researchLogs bool) {
-	if origResp == nil || ri.QType != dns.TypeHTTPS {
+func reportResearchECH(host string, origResp *dns.Msg, researchLogs bool) {
+	if origResp == nil {
 		return
 	}
 
 	for _, rr := range origResp.Answer {
-		if svcb, ok := rr.(*dns.HTTPS); ok {
-			for _, v := range svcb.Value {
-				if v.Key() == dns.SVCB_ECHCONFIG {
-					ResearchResponseECH.Inc()
+		svcb, ok := rr.(*dns.HTTPS)
+		if !ok {
+			continue
+		}
 
-					if researchLogs {
-						log.Info("research: ech-enabled: %s", ri.Host)
-					}
-				}
-			}
+		reportECHConfig(svcb.SVCB, researchLogs, host)
+	}
+}
+
+// reportECHConfig iterates over SVCB records, finds records with ECH
+// configuration, reports to metrics, and if researchLogs is enabled writes to
+// log.
+func reportECHConfig(svcb dns.SVCB, researchLogs bool, host string) {
+	for _, v := range svcb.Value {
+		if v.Key() != dns.SVCB_ECHCONFIG {
+			continue
+		}
+
+		ResearchResponseECH.Inc()
+
+		if researchLogs {
+			log.Info("research: ech-enabled: %q", host)
 		}
 	}
 }

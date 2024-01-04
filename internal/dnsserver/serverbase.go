@@ -6,7 +6,6 @@ import (
 	"os"
 	"runtime/debug"
 	"sync"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/log"
@@ -16,35 +15,38 @@ import (
 // ConfigBase contains the necessary minimum that every Server needs to
 // be initialized.
 type ConfigBase struct {
-	// Name is used for logging, and it may be used for perf counters reporting.
-	Name string
-
-	// Addr is the address the server listens to.  See [net.Dial] for the
-	// documentation on the address format.
-	Addr string
-
 	// Network is the network this server listens to.  If empty, the server will
 	// listen to all networks that are supposed to be used by the server's
 	// protocol.  Note, that it only makes sense for [ServerDNS],
 	// [ServerDNSCrypt], and [ServerHTTPS].
 	Network Network
 
-	// Handler is a handler that processes incoming DNS messages.
-	// If not set, we'll use the default handler that returns error response
-	// to any query.
+	// Handler is a handler that processes incoming DNS messages.  If not set,
+	// the default handler, which returns error response to any query, is used.
 	Handler Handler
 
-	// Metrics is the object we use for collecting performance metrics.
-	// This field is optional.
+	// Metrics is the object we use for collecting performance metrics.  If not
+	// set, [EmptyMetricsListener] is used.
 	Metrics MetricsListener
 
-	// BaseContext is a function that should return the base context. If not
-	// set, we'll be using context.Background().
-	BaseContext func() (ctx context.Context)
+	// Disposer is used to help module users reuse parts of DNS responses.  If
+	// not set, EmptyDisposer is used.
+	Disposer Disposer
+
+	// RequestContext is a ContextConstructor that returns contexts for
+	// requests.  If not set, the server uses [DefaultContextConstructor].
+	RequestContext ContextConstructor
 
 	// ListenConfig, when set, is used to set options of connections used by the
 	// DNS server.  If nil, an appropriate default ListenConfig is used.
 	ListenConfig netext.ListenConfig
+
+	// Name is used for logging, and it may be used for perf counters reporting.
+	Name string
+
+	// Addr is the address the server listens to.  See [net.Dial] for the
+	// documentation on the address format.
+	Addr string
 }
 
 // ServerBase implements base methods that every Server implementation uses.
@@ -65,11 +67,14 @@ type ServerBase struct {
 	// handler is a handler that processes incoming DNS messages.
 	handler Handler
 
-	// baseContext is a function that should return the base context.
-	baseContext func() (ctx context.Context)
+	// reqCtx is a function that should return the base context.
+	reqCtx ContextConstructor
 
 	// metrics is the object we use for collecting performance metrics.
 	metrics MetricsListener
+
+	// disposer is used to help module users reuse parts of DNS responses.
+	disposer Disposer
 
 	// listenConfig is used to set tcpListener and udpListener.
 	listenConfig netext.ListenConfig
@@ -109,16 +114,21 @@ func newServerBase(proto Protocol, conf ConfigBase) (s *ServerBase) {
 		network:      conf.Network,
 		handler:      conf.Handler,
 		metrics:      conf.Metrics,
+		disposer:     conf.Disposer,
 		listenConfig: conf.ListenConfig,
-		baseContext:  conf.BaseContext,
+		reqCtx:       conf.RequestContext,
 	}
 
-	if s.baseContext == nil {
-		s.baseContext = context.Background
+	if s.reqCtx == nil {
+		s.reqCtx = DefaultContextConstructor{}
 	}
 
 	if s.metrics == nil {
 		s.metrics = &EmptyMetricsListener{}
+	}
+
+	if s.disposer == nil {
+		s.disposer = EmptyDisposer{}
 	}
 
 	if s.handler == nil {
@@ -176,27 +186,25 @@ func (s *ServerBase) LocalUDPAddr() (addr net.Addr) {
 	return nil
 }
 
-// requestContext returns a context for one request.  It adds the start time and
-// the server information.
-func (s *ServerBase) requestContext() (ctx context.Context) {
-	ctx = s.baseContext()
-	ctx = ContextWithServerInfo(ctx, ServerInfo{
+// requestContext returns a context for one request and adds server information.
+func (s *ServerBase) requestContext() (ctx context.Context, cancel context.CancelFunc) {
+	ctx, cancel = s.reqCtx.New()
+	ctx = ContextWithServerInfo(ctx, &ServerInfo{
 		Name:  s.name,
 		Addr:  s.addr,
 		Proto: s.proto,
 	})
-	ctx = ContextWithStartTime(ctx, time.Now())
 
-	return ctx
+	return ctx, cancel
 }
 
 // serveDNS processes the incoming DNS query and writes the response to the
 // specified ResponseWriter.  written is false if no response was written.
-func (s *ServerBase) serveDNS(ctx context.Context, m []byte, rw ResponseWriter) (written bool) {
-	req := new(dns.Msg)
-	if err := req.Unpack(m); err != nil {
-		// Ignore the incoming message and let the connection hang as
-		// it may be used to amplify
+func (s *ServerBase) serveDNS(ctx context.Context, buf []byte, rw ResponseWriter) (written bool) {
+	req := &dns.Msg{}
+	if err := req.Unpack(buf); err != nil {
+		// Ignore the incoming message and let the connection hang as it may be
+		// used to amplify.
 		s.metrics.OnInvalidMsg(ctx)
 
 		return false
@@ -218,19 +226,45 @@ func (s *ServerBase) serveDNSMsg(
 	recW := NewRecorderResponseWriter(rw)
 	s.serveDNSMsgInternal(ctx, req, recW)
 
-	ri := RequestInfo{RequestSize: req.Len()}
 	resp := recW.Resp
 	written = resp != nil
+
+	var respLen int
 	if written {
-		ri.ResponseSize = resp.Len()
+		// TODO(a.garipov): Use the real number of bytes written by
+		// [ResponseWriter] to the socket.
+		respLen = resp.Len()
 	}
 
-	ctx = ContextWithRequestInfo(ctx, ri)
-	s.metrics.OnRequest(ctx, req, resp, rw)
+	s.metrics.OnRequest(ctx, &QueryInfo{
+		Request:      req,
+		RequestSize:  req.Len(),
+		Response:     resp,
+		ResponseSize: respLen,
+	}, rw)
 
 	log.Debug("[%d]: finished processing \"%s %s\"", req.Id, qType, hostname)
 
+	s.dispose(rw, resp)
+
 	return written
+}
+
+// dispose is a helper for disposing a DNS response right after writing it to a
+// connection.  Disposal of a response is only safe assuming that there is no
+// further processing up the stack.  Currently, this is only true for plain DNS
+// and DoT at this point in the code.
+//
+// TODO(a.garipov): Add DoQ as well once the legacy format is removed.
+func (s *ServerBase) dispose(rw ResponseWriter, resp *dns.Msg) {
+	switch rw.(type) {
+	case
+		*tcpResponseWriter,
+		*udpResponseWriter:
+		s.disposer.Dispose(resp)
+	default:
+		// Go on.
+	}
 }
 
 // serveDNSMsgInternal serves the DNS request and uses recorder as a
@@ -273,12 +307,13 @@ func (s *ServerBase) serveDNSMsgInternal(
 
 	err := s.handler.ServeDNS(ctx, rw, req)
 	if err != nil {
-		log.Debug("[%d]: handler returned an error: %v", req.Id, err)
+		log.Debug("[%d]: handler returned an error: %s", req.Id, err)
 		s.metrics.OnError(ctx, err)
+
 		resp = genErrorResponse(req, dns.RcodeServerFailure)
 		err = rw.WriteMsg(ctx, req, resp)
 		if err != nil {
-			log.Debug("[%d]: error writing a response: %v", req.Id, err)
+			log.Debug("[%d]: error writing a response: %s", req.Id, err)
 		}
 	}
 }

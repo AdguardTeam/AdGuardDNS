@@ -42,6 +42,7 @@ func (f *ForwardMetricsListener) OnForwardRequest(
 	_ context.Context,
 	ups forward.Upstream,
 	_, resp *dns.Msg,
+	nw forward.Network,
 	startTime time.Time,
 	err error,
 ) {
@@ -50,7 +51,7 @@ func (f *ForwardMetricsListener) OnForwardRequest(
 
 	to := ups.String()
 
-	forwardRequestTotal.WithLabelValues(to).Inc()
+	forwardRequestTotal.WithLabelValues(to, string(nw)).Inc()
 	elapsed := time.Since(startTime).Seconds()
 	forwardRequestDuration.WithLabelValues(to).Observe(elapsed)
 
@@ -124,7 +125,7 @@ var (
 		Namespace: namespace,
 		Subsystem: subsystemForward,
 		Help:      "The number of processed DNS requests.",
-	}, []string{"to"})
+	}, []string{"to", "network"})
 
 	forwardResponseRCode = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name:      "response_rcode_total",

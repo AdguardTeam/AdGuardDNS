@@ -8,8 +8,8 @@ package netext
 import (
 	"fmt"
 	"net"
-	"sync"
 
+	"github.com/AdguardTeam/golibs/syncutil"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 )
@@ -49,13 +49,7 @@ type sessionPacketConn struct {
 }
 
 // oobPool is the pool of byte slices for out-of-band data.
-var oobPool = &sync.Pool{
-	New: func() (v any) {
-		b := make([]byte, IPDstOOBSize)
-
-		return &b
-	},
-}
+var oobPool = syncutil.NewSlicePool[byte](IPDstOOBSize)
 
 // IPDstOOBSize is the required size of the control-message buffer for
 // [net.UDPConn.ReadMsgUDP] to read the original destination on Linux.
@@ -65,7 +59,7 @@ const IPDstOOBSize = 40
 
 // ReadFromSession implements the [SessionPacketConn] interface for *packetConn.
 func (c *sessionPacketConn) ReadFromSession(b []byte) (n int, s PacketSession, err error) {
-	oobPtr := oobPool.Get().(*[]byte)
+	oobPtr := oobPool.Get()
 	defer oobPool.Put(oobPtr)
 
 	var oobn int

@@ -8,11 +8,11 @@ import (
 	"net"
 	"net/netip"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/pool"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/miekg/dns"
 )
 
@@ -46,13 +46,13 @@ const (
 	poolIdleTimeout = time.Second * 30
 	// minDNSMessageSize is a minimum theoretical size of a DNS message.
 	minDNSMessageSize = 12 + 5
-	// udpBuffSize is the size of buffers we use for UDP messages. We use
+	// udpBufSize is the size of buffers we use for UDP messages. We use
 	// 4096 since it's highly unlikely that a UDP message can be larger.
 	//
 	// TODO(ameshkov): consider making it configurable in the future.
-	udpBuffSize = 4096
-	// tcpBuffSize is the size of buffers we use for TCP messages.
-	tcpBuffSize = dns.MaxMsgSize
+	udpBufSize = 4096
+	// tcpBufSize is the size of buffers we use for TCP messages.
+	tcpBufSize = dns.MaxMsgSize
 )
 
 // UpstreamPlain is a simple plain DNS client.
@@ -61,13 +61,16 @@ type UpstreamPlain struct {
 	connsPoolUDP *pool.Pool
 	connsPoolTCP *pool.Pool
 
-	// sync.Pool instances we use for TCP and UDP messages buffers
-	// in order to avoid extra allocations.
-	udpBuffs sync.Pool
-	tcpBuffs sync.Pool
+	// Pools used for TCP and UDP messages buffers in order to avoid extra
+	// allocations.
+	udpBufs *syncutil.Pool[[]byte]
+	tcpBufs *syncutil.Pool[[]byte]
 
 	addr    netip.AddrPort
 	network Network
+
+	// timeout is the query timeout for this upstream.
+	timeout time.Duration
 }
 
 // type check
@@ -80,14 +83,23 @@ type UpstreamPlainConfig struct {
 
 	// Address is the address of the upstream DNS server.
 	Address netip.AddrPort
+
+	// Timeout is the optional query timeout for upstreams.  If not set, the
+	// context timeout or [defaultUDPTimeout] is used in case of UDP network.
+	Timeout time.Duration
 }
 
 // NewUpstreamPlain returns a new properly initialized *UpstreamPlain.  c must
 // not be nil.
 func NewUpstreamPlain(c *UpstreamPlainConfig) (ups *UpstreamPlain) {
 	ups = &UpstreamPlain{
+		udpBufs: syncutil.NewSlicePool[byte](udpBufSize),
+		tcpBufs: syncutil.NewSlicePool[byte](tcpBufSize),
+
 		addr:    c.Address,
 		network: c.Network,
+
+		timeout: c.Timeout,
 	}
 
 	ups.connsPoolUDP = pool.NewPool(poolMaxCapacity, makeConnsPoolFactory(ups, NetworkUDP))
@@ -95,27 +107,37 @@ func NewUpstreamPlain(c *UpstreamPlainConfig) (ups *UpstreamPlain) {
 	ups.connsPoolTCP = pool.NewPool(poolMaxCapacity, makeConnsPoolFactory(ups, NetworkTCP))
 	ups.connsPoolTCP.IdleTimeout = poolIdleTimeout
 
-	ups.udpBuffs.New = makeBuffsFactory(udpBuffSize)
-	ups.tcpBuffs.New = makeBuffsFactory(tcpBuffSize)
-
 	return ups
 }
 
-// Exchange implements the Upstream interface for *UpstreamPlain.
-// It handles gracefully the situation with truncated responses and fallbacks
-// to TCP when needed. Use context.WithDeadline to specify timeouts.  Ignores
-// net.Error and io.EOF errors that occur when writing response.
-func (u *UpstreamPlain) Exchange(ctx context.Context, req *dns.Msg) (resp *dns.Msg, err error) {
+// Exchange implements the [Upstream] interface for [*UpstreamPlain].  It
+// handles gracefully the situation with truncated responses and fallbacks to
+// TCP when needed.  Uses the first of context's deadline and the configured
+// timeout specify exchange deadline.  Ignores [net.Error] and [io.EOF] errors
+// that occur when writing response.  Returns response, network type over which
+// the request has been processed and error if happened.
+func (u *UpstreamPlain) Exchange(
+	ctx context.Context,
+	req *dns.Msg,
+) (resp *dns.Msg, nw Network, err error) {
 	defer func() { err = errors.Annotate(err, "upstreamplain: %w") }()
+
+	if u.timeout > 0 {
+		var cancel func()
+		ctx, cancel = context.WithTimeout(ctx, u.timeout)
+		defer cancel()
+	}
 
 	// First, we should try sending a DNS query over UDP.
 	var fallbackToTCP bool
 	fallbackToTCP, resp, err = u.exchangeUDP(ctx, req)
 	if !fallbackToTCP {
-		return resp, err
+		return resp, NetworkUDP, err
 	}
 
-	return u.exchangeNet(ctx, req, NetworkTCP)
+	resp, err = u.exchangeNet(ctx, req, NetworkTCP)
+
+	return resp, NetworkTCP, err
 }
 
 // Close implements the io.Closer interface for *UpstreamPlain.
@@ -188,12 +210,13 @@ func (u *UpstreamPlain) exchangeNet(
 
 	// Get the buffer to use for packing the request and reading the response.
 	// This buffer needs to be returned back to the pool once we're done.
-	buf := u.getBuffer(network)
-	defer u.putBuffer(network, buf)
+	bufPtr := u.getBuffer(network)
+	defer u.putBuffer(network, bufPtr)
+
+	buf := (*bufPtr)
 
 	// Pack the query into the specified buffer.
-	var bufLen int
-	bufLen, err = u.packReq(network, buf, req)
+	bufReqLen, err := u.packReq(network, buf, req)
 	if err != nil {
 		return nil, fmt.Errorf("packing request: %w", err)
 	}
@@ -206,7 +229,7 @@ func (u *UpstreamPlain) exchangeNet(
 	}
 
 	// err is already wrapped inside processConn.
-	resp, err = u.processConn(ctx, conn, connsPool, network, req, buf, bufLen)
+	resp, err = u.processConn(ctx, conn, connsPool, network, req, buf, bufReqLen)
 	if isExpectedConnErr(err) {
 		conn, err = connsPool.Create(ctx)
 		if err != nil {
@@ -214,7 +237,7 @@ func (u *UpstreamPlain) exchangeNet(
 		}
 
 		// err is already wrapped inside processConn.
-		resp, err = u.processConn(ctx, conn, connsPool, network, req, buf, bufLen)
+		resp, err = u.processConn(ctx, conn, connsPool, network, req, buf, bufReqLen)
 	}
 
 	return resp, err
@@ -247,7 +270,7 @@ func validatePlainResponse(req, resp *dns.Msg) (err error) {
 }
 
 // defaultUDPTimeout is the default timeout for waiting a valid DNS message or
-// network error.
+// network error over UDP protocol.
 const defaultUDPTimeout = 1 * time.Minute
 
 // processConn writes the query to the connection and then reads the response
@@ -255,7 +278,7 @@ const defaultUDPTimeout = 1 * time.Minute
 // a network error here, we'll attempt to open a new connection and call this
 // function again.
 //
-// TODO(ameshkov): 7 parameters in the method is not okay, rework this.
+// TODO(ameshkov): 7 parameters in a method is not okay, rework this.
 func (u *UpstreamPlain) processConn(
 	ctx context.Context,
 	conn *pool.Conn,
@@ -263,7 +286,7 @@ func (u *UpstreamPlain) processConn(
 	network Network,
 	req *dns.Msg,
 	buf []byte,
-	bufLen int,
+	bufReqLen int,
 ) (resp *dns.Msg, err error) {
 	// Make sure that we return the connection to the pool in the end or close
 	// if there was any error.
@@ -289,7 +312,7 @@ func (u *UpstreamPlain) processConn(
 	}
 
 	// Write the request to the connection.
-	_, err = conn.Write(buf[:bufLen])
+	_, err = conn.Write(buf[:bufReqLen])
 	if err != nil {
 		return nil, fmt.Errorf("writing request: %w", err)
 	}
@@ -354,18 +377,26 @@ func (u *UpstreamPlain) readMsg(network Network, conn net.Conn, buf []byte) (*dn
 	return ret, nil
 }
 
-// packReq packs the DNS query to the specified buffer. Returns the error if
-// the query cannot be packed or if it's too large.
+// packReq packs the DNS query to the specified buffer.
 func (u *UpstreamPlain) packReq(network Network, buf []byte, req *dns.Msg) (n int, err error) {
 	reqLen := req.Len()
-	if reqLen > len(buf) || reqLen > dns.MaxMsgSize {
+	if reqLen > dns.MaxMsgSize {
 		return 0, dns.ErrBuf
 	}
 
 	if network == NetworkTCP {
+		if reqLen > len(buf)-2 {
+			return 0, dns.ErrBuf
+		}
+
 		binary.BigEndian.PutUint16(buf, uint16(reqLen))
 		_, err = req.PackBuffer(buf[2:])
+
 		return reqLen + 2, err
+	}
+
+	if reqLen > len(buf) {
+		return 0, dns.ErrBuf
 	}
 
 	_, err = req.PackBuffer(buf)
@@ -373,31 +404,28 @@ func (u *UpstreamPlain) packReq(network Network, buf []byte, req *dns.Msg) (n in
 	return reqLen, err
 }
 
-// getBuffer gets a bytes buffer that we'll use for packing the request and
-// then for reading the response.
-func (u *UpstreamPlain) getBuffer(network Network) (b []byte) {
-	var bPtr *[]byte
+// getBuffer gets a bytes buffer that used for packing the request and then for
+// reading the response.
+func (u *UpstreamPlain) getBuffer(network Network) (bufPtr *[]byte) {
 	switch network {
 	case NetworkTCP:
-		bPtr = u.tcpBuffs.Get().(*[]byte)
+		return u.tcpBufs.Get()
 	case NetworkUDP:
-		bPtr = u.udpBuffs.Get().(*[]byte)
+		return u.udpBufs.Get()
 	default:
-		panic("invalid network passed to getBuffer")
+		panic(fmt.Errorf("no bufs for network %q in get", network))
 	}
-
-	return *bPtr
 }
 
-// putBuffer puts the buffer back to the sync.Pool.
-func (u *UpstreamPlain) putBuffer(network Network, b []byte) {
+// putBuffer puts the buffer back to the corresponding pool.
+func (u *UpstreamPlain) putBuffer(network Network, bufPtr *[]byte) {
 	switch network {
 	case NetworkTCP:
-		u.tcpBuffs.Put(&b)
+		u.tcpBufs.Put(bufPtr)
 	case NetworkUDP:
-		u.udpBuffs.Put(&b)
+		u.udpBufs.Put(bufPtr)
 	default:
-		panic("invalid network passed to putBuffer")
+		panic(fmt.Errorf("no bufs for network %q in put", network))
 	}
 }
 
@@ -422,15 +450,6 @@ func makeConnsPoolFactory(u *UpstreamPlain, network Network) (f pool.Factory) {
 		}
 
 		return net.DialTimeout(dialNetwork, u.addr.String(), timeout)
-	}
-}
-
-// makeBuffsFactory returns a function that is used for sync.Pool.New.
-func makeBuffsFactory(size int) (f func() any) {
-	return func() any {
-		b := make([]byte, size)
-
-		return &b
 	}
 }
 

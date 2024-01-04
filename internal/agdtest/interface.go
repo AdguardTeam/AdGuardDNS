@@ -9,11 +9,13 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
@@ -28,34 +30,6 @@ import (
 // Keep entities within a module/package in alphabetic order.
 
 // Module AdGuardDNS
-
-// type check
-var _ agd.ErrorCollector = (*ErrorCollector)(nil)
-
-// ErrorCollector is an agd.ErrorCollector for tests.
-//
-// TODO(a.garipov): Actually test the error collection where this is used.
-type ErrorCollector struct {
-	OnCollect func(ctx context.Context, err error)
-}
-
-// Collect implements the agd.ErrorCollector interface for *ErrorCollector.
-func (c *ErrorCollector) Collect(ctx context.Context, err error) {
-	c.OnCollect(ctx, err)
-}
-
-// type check
-var _ agd.Refresher = (*Refresher)(nil)
-
-// Refresher is an agd.Refresher for tests.
-type Refresher struct {
-	OnRefresh func(ctx context.Context) (err error)
-}
-
-// Refresh implements the agd.Refresher interface for *Refresher.
-func (r *Refresher) Refresh(ctx context.Context) (err error) {
-	return r.OnRefresh(ctx)
-}
 
 // Package access
 
@@ -83,7 +57,7 @@ func (a *AccessManager) IsBlockedIP(ip netip.Addr) (blocked bool, rule string) {
 // type check
 var _ agdnet.Resolver = (*Resolver)(nil)
 
-// Resolver is an agd.Resolver for tests.
+// Resolver is an [agdnet.Resolver] for tests.
 type Resolver struct {
 	OnLookupNetIP func(
 		ctx context.Context,
@@ -92,13 +66,28 @@ type Resolver struct {
 	) (ips []netip.Addr, err error)
 }
 
-// LookupNetIP implements the [agd.Resolver] interface for *Resolver.
+// LookupNetIP implements the [agdnet.Resolver] interface for *Resolver.
 func (r *Resolver) LookupNetIP(
 	ctx context.Context,
 	fam netutil.AddrFamily,
 	host string,
 ) (ips []netip.Addr, err error) {
 	return r.OnLookupNetIP(ctx, fam, host)
+}
+
+// Package agdservice
+
+// type check
+var _ agdservice.Refresher = (*Refresher)(nil)
+
+// Refresher is an [agdservice.Refresher] for tests.
+type Refresher struct {
+	OnRefresh func(ctx context.Context) (err error)
+}
+
+// Refresh implements the [agdservice.Refresher] interface for *Refresher.
+func (r *Refresher) Refresh(ctx context.Context) (err error) {
+	return r.OnRefresh(ctx)
 }
 
 // Package billstat
@@ -111,8 +100,8 @@ type BillStatRecorder struct {
 	OnRecord func(
 		ctx context.Context,
 		id agd.DeviceID,
-		ctry agd.Country,
-		asn agd.ASN,
+		ctry geoip.Country,
+		asn geoip.ASN,
 		start time.Time,
 		proto agd.Protocol,
 	)
@@ -122,8 +111,8 @@ type BillStatRecorder struct {
 func (r *BillStatRecorder) Record(
 	ctx context.Context,
 	id agd.DeviceID,
-	ctry agd.Country,
-	asn agd.ASN,
+	ctry geoip.Country,
+	asn geoip.ASN,
 	start time.Time,
 	proto agd.Protocol,
 ) {
@@ -175,6 +164,23 @@ type DNSDB struct {
 // Record implements the dnsdb.Interface interface for *DNSDB.
 func (db *DNSDB) Record(ctx context.Context, resp *dns.Msg, ri *agd.RequestInfo) {
 	db.OnRecord(ctx, resp, ri)
+}
+
+// Package errcoll
+
+// type check
+var _ errcoll.Interface = (*ErrorCollector)(nil)
+
+// ErrorCollector is an [errcoll.Interface] for tests.
+//
+// TODO(a.garipov): Actually test the error collection where this is used.
+type ErrorCollector struct {
+	OnCollect func(ctx context.Context, err error)
+}
+
+// Collect implements the [errcoll.Interface] interface for *ErrorCollector.
+func (c *ErrorCollector) Collect(ctx context.Context, err error) {
+	c.OnCollect(ctx, err)
 }
 
 // Package filter
@@ -263,25 +269,18 @@ var _ geoip.Interface = (*GeoIP)(nil)
 
 // GeoIP is a geoip.Interface for tests.
 type GeoIP struct {
-	OnSubnetByLocation func(
-		c agd.Country,
-		a agd.ASN,
-		fam netutil.AddrFamily,
-	) (n netip.Prefix, err error)
-	OnData func(host string, ip netip.Addr) (l *agd.Location, err error)
+	OnSubnetByLocation func(l *geoip.Location, fam netutil.AddrFamily) (n netip.Prefix, err error)
+	OnData             func(host string, ip netip.Addr) (l *geoip.Location, err error)
 }
 
 // SubnetByLocation implements the geoip.Interface interface for *GeoIP.
-func (g *GeoIP) SubnetByLocation(
-	c agd.Country,
-	a agd.ASN,
-	fam netutil.AddrFamily,
+func (g *GeoIP) SubnetByLocation(l *geoip.Location, fam netutil.AddrFamily,
 ) (n netip.Prefix, err error) {
-	return g.OnSubnetByLocation(c, a, fam)
+	return g.OnSubnetByLocation(l, fam)
 }
 
 // Data implements the geoip.Interface interface for *GeoIP.
-func (g *GeoIP) Data(host string, ip netip.Addr) (l *agd.Location, err error) {
+func (g *GeoIP) Data(host string, ip netip.Addr) (l *geoip.Location, err error) {
 	return g.OnData(host, ip)
 }
 

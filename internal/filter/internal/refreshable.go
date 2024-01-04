@@ -14,9 +14,9 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdio"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
+	"github.com/AdguardTeam/golibs/ioutil"
 	"github.com/AdguardTeam/golibs/log"
 	renameio "github.com/google/renameio/v2"
 )
@@ -29,7 +29,7 @@ type Refreshable struct {
 	id        agd.FilterListID
 	cachePath string
 	staleness time.Duration
-	maxSize   int64
+	maxSize   uint64
 }
 
 // RefreshableConfig is the configuration structure for a refreshable filter.
@@ -51,7 +51,7 @@ type RefreshableConfig struct {
 	Timeout time.Duration
 
 	// MaxSize is the maximum size in bytes of the downloadable filter content.
-	MaxSize int64
+	MaxSize uint64
 }
 
 // NewRefreshable returns a new refreshable filter.  c must not be nil.
@@ -181,7 +181,7 @@ func (f *Refreshable) refreshFromURL(
 
 	b := &strings.Builder{}
 	mw := io.MultiWriter(b, tmpFile)
-	_, err = io.Copy(mw, agdio.LimitReader(resp.Body, f.maxSize))
+	_, err = io.Copy(mw, ioutil.LimitReader(resp.Body, f.maxSize))
 	if err != nil {
 		return "", agdhttp.WrapServerError(fmt.Errorf("reading into file: %w", err), resp)
 	}

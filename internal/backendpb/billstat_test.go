@@ -12,6 +12,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
@@ -30,7 +31,7 @@ func TestBillStat_Upload(t *testing.T) {
 
 	wantRecord := &billstat.Record{
 		Time:    time.Time{},
-		Country: agd.CountryCY,
+		Country: geoip.CountryCY,
 		ASN:     1221,
 		Queries: 1122,
 		Proto:   agd.ProtoDNS,

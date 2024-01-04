@@ -5,15 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"os"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdsync"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/mathutil"
+	"github.com/AdguardTeam/golibs/syncutil"
 )
 
 // FileSystemConfig is the configuration of the file system query log.
@@ -27,7 +28,7 @@ type FileSystemConfig struct {
 func NewFileSystem(c *FileSystemConfig) (l *FileSystem) {
 	return &FileSystem{
 		path: c.Path,
-		bufferPool: agdsync.NewTypedPool(func() (v *entryBuffer) {
+		bufferPool: syncutil.NewPool(func() (v *entryBuffer) {
 			return &entryBuffer{
 				ent: &jsonlEntry{},
 				buf: &bytes.Buffer{},
@@ -47,7 +48,7 @@ type entryBuffer struct {
 type FileSystem struct {
 	// bufferPool is a pool with [*entryBuffer] instances used to avoid extra
 	// allocations when serializing query log items to JSON and writing them.
-	bufferPool *agdsync.TypedPool[entryBuffer]
+	bufferPool *syncutil.Pool[entryBuffer]
 
 	// path is the path to the query log file.
 	path string
@@ -73,6 +74,11 @@ func (l *FileSystem) Write(_ context.Context, e *Entry) (err error) {
 	defer l.bufferPool.Put(entBuf)
 	entBuf.buf.Reset()
 
+	var remoteIP *netip.Addr
+	if e.RemoteIP != (netip.Addr{}) {
+		remoteIP = &e.RemoteIP
+	}
+
 	c, id, r := resultData(e.RequestResult, e.ResponseResult)
 	*entBuf.ent = jsonlEntry{
 		RequestID:       e.RequestID.String(),
@@ -91,6 +97,7 @@ func (l *FileSystem) Write(_ context.Context, e *Entry) (err error) {
 		Protocol:        e.Protocol,
 		ResultCode:      c,
 		ResponseCode:    e.ResponseCode,
+		RemoteIP:        remoteIP,
 	}
 
 	var f *os.File

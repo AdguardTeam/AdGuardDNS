@@ -7,47 +7,66 @@ import (
 	"github.com/quic-go/quic-go/logging"
 )
 
-// QUICTracer implements the logging.Tracer interface.
+// QUICTracer is a helper structure for tracing QUIC connections.
 type QUICTracer struct {
-	logging.NullTracer
-	tracers []*quicConnTracer
-
 	// mu protects fields of *QUICTracer and also protects fields of every
 	// nested *quicConnTracer.
-	mu sync.Mutex
+	mu *sync.Mutex
+
+	connTracers []*quicConnTracer
 }
 
-// type check
-var _ logging.Tracer = (*QUICTracer)(nil)
+// NewQUICTracer returns a new QUIC tracer helper.
+func NewQUICTracer() (t *QUICTracer) {
+	return &QUICTracer{
+		mu: &sync.Mutex{},
+	}
+}
 
 // TracerForConnection implements the logging.Tracer interface for *quicTracer.
-func (q *QUICTracer) TracerForConnection(
+func (t *QUICTracer) TracerForConnection(
 	_ context.Context,
 	_ logging.Perspective,
-	odcid logging.ConnectionID,
-) (connTracer logging.ConnectionTracer) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
+	_ logging.ConnectionID,
+) (connTracer *logging.ConnectionTracer) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
-	tracer := &quicConnTracer{id: odcid, parent: q}
-	q.tracers = append(q.tracers, tracer)
+	ct := &quicConnTracer{
+		parentMu: t.mu,
+	}
 
-	return tracer
+	t.connTracers = append(t.connTracers, ct)
+
+	return &logging.ConnectionTracer{
+		SentLongHeaderPacket: ct.SentLongHeaderPacket,
+	}
 }
 
-// QUICConnInfo contains information about packets that were recorded by
-// *QUICTracer.
+// ConnectionsInfo returns the traced connections' information.
+func (t *QUICTracer) ConnectionsInfo() (conns []*QUICConnInfo) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	for _, tracer := range t.connTracers {
+		conns = append(conns, &QUICConnInfo{
+			headers: tracer.headers,
+		})
+	}
+
+	return conns
+}
+
+// QUICConnInfo contains information about packets that were recorded by a
+// [QUICTracer].
 type QUICConnInfo struct {
-	id      logging.ConnectionID
-	packets []logging.Header
+	headers []*logging.Header
 }
 
 // Is0RTT returns true if this connection's packets contain 0-RTT packets.
 func (c *QUICConnInfo) Is0RTT() (ok bool) {
-	for _, packet := range c.packets {
-		hdr := packet
-		packetType := logging.PacketTypeFromHeader(&hdr)
-		if packetType == logging.PacketType0RTT {
+	for _, hdr := range c.headers {
+		if t := logging.PacketTypeFromHeader(hdr); t == logging.PacketType0RTT {
 			return true
 		}
 	}
@@ -55,43 +74,23 @@ func (c *QUICConnInfo) Is0RTT() (ok bool) {
 	return false
 }
 
-// ConnectionsInfo returns the traced connections' information.
-func (q *QUICTracer) ConnectionsInfo() (conns []QUICConnInfo) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-
-	for _, tracer := range q.tracers {
-		conns = append(conns, QUICConnInfo{
-			id:      tracer.id,
-			packets: tracer.packets,
-		})
-	}
-
-	return conns
-}
-
-// quicConnTracer implements the [logging.ConnectionTracer] interface.
+// quicConnTracer is a helper structure for tracing QUIC connections.
 type quicConnTracer struct {
-	id      logging.ConnectionID
-	parent  *QUICTracer
-	packets []logging.Header
-
-	logging.NullConnectionTracer
+	parentMu *sync.Mutex
+	headers  []*logging.Header
 }
 
-// type check
-var _ logging.ConnectionTracer = (*quicConnTracer)(nil)
-
-// SentLongHeaderPacket implements the [logging.ConnectionTracer] interface for
-// *quicConnTracer.
+// SentLongHeaderPacket is a method for the [logging.ConnectionTracer] method.
 func (q *quicConnTracer) SentLongHeaderPacket(
-	hdr *logging.ExtendedHeader,
+	extHdr *logging.ExtendedHeader,
 	_ logging.ByteCount,
+	_ logging.ECN,
 	_ *logging.AckFrame,
 	_ []logging.Frame,
 ) {
-	q.parent.mu.Lock()
-	defer q.parent.mu.Unlock()
+	q.parentMu.Lock()
+	defer q.parentMu.Unlock()
 
-	q.packets = append(q.packets, hdr.Header)
+	hdr := extHdr.Header
+	q.headers = append(q.headers, &hdr)
 }

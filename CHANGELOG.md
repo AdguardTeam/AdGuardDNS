@@ -11,11 +11,247 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
 
 
+##  AGDNS-1761 / Build 702
+
+ *  The property `upstream` has been modified. Its property `timeout` has been
+    replaced with the new property `servers.timeout` for each server in the
+    `servers` list. Concomitantly the `fallback.timeout` has been replaced with
+    `fallback.servers.timeout` for each fallback server. The `fallback.servers`
+    now supports not only the addresses of the servers, but URLs in the
+    `[scheme://]ip:port` format like it's done with the main servers. So replace
+    this:
+
+    ```yaml
+    upstream:
+        # …
+        servers:
+          - 'tcp://1.1.1.1:53'
+          - '127.0.0.1:5358'
+        timeout: 2s
+        fallback:
+            servers:
+              - 8.8.4.4:53
+            timeout: 1s
+    ```
+
+    with this:
+
+    ```yaml
+    upstream:
+        # …
+        servers:
+          - address: 'tcp://1.1.1.1:53'
+            timeout: 2s
+          - address: '127.0.0.1:5358'
+            timeout: 2s
+        fallback:
+            servers:
+              - address: '8.8.4.4:53'
+                timeout: 1s
+    ```
+
+    Adjust the value and add new ones, if necessary.
+
+
+
+##  AGDNS-698 / Build 701
+
+ *  The object `dns` has new properties: `read_timeout`, `tcp_idle_timeout`, and
+    `write_timeout`.  So replace this:
+
+    ```yaml
+    dns:
+        max_udp_response_size: 1024B
+    ```
+
+    with this:
+
+    ```yaml
+    dns:
+        read_timeout: 2s
+        tcp_idle_timeout: 30s
+        write_timeout: 2s
+        handle_timeout: 1s
+        max_udp_response_size: 1024B
+    ```
+
+    The values in the example are previous defaults.
+
+
+
+##  AGDNS-1751 / Build 691
+
+ *  The property `upstream.server` has been removed.  Its former content is
+    moved to the newly added property `servers`, which now extended to contain
+    a list of URLs of main upstream servers.  So replace this:
+
+    ```yaml
+    upstream:
+        # …
+        server: `8.8.8.8:53`
+    ```
+
+    with this:
+
+    ```yaml
+    upstream:
+        # …
+        servers:
+          - `8.8.8.8:53`
+    ```
+
+    Adjust the value and add new ones, if necessary.
+
+
+
+##  AGDNS-1759 / Build 684
+
+ *  The object `backend` has a new property, `full_refresh_retry_interval`.  So
+    replace this:
+
+    ```yaml
+    backend:
+        # …
+        full_refresh_interval: 24h
+    ```
+
+    with this:
+
+    ```yaml
+    backend:
+        # …
+        full_refresh_interval: 24h
+        full_refresh_retry_interval: 1h
+    ```
+
+    Adjust the value, if necessary.
+
+
+
+##  AGDNS-1744 / Build 681
+
+ *  Metric `forward_request_total` has a new label `network`.  This label
+    describes the network type (`tcp` or `udp`), over which an upstream has
+    finished processing request.
+
+
+
+##  AGDNS-1738 / Build 678
+
+ *  Object `dns` has a new property, describing maximum size of DNS response
+    over UDP protocol.
+
+    ```yaml
+    dns:
+        max_udp_response_size: 1024B
+        handle_timeout: 1s
+    ```
+
+
+
+##  AGDNS-1735 / Build 677
+
+ *  The property `upstream.fallback` has been changed.  Its former content is
+    moved to the newly added property `servers`.  The new property `timeout`,
+    which describes query timeout to fallback servers, was added.  So replace
+    this:
+
+    ```yaml
+    upstream:
+        fallback:
+        - 1.1.1.1:53
+        - 8.8.8.8:53
+    ```
+
+    with this:
+
+    ```yaml
+    upstream:
+        fallback:
+            servers:
+            - 1.1.1.1:53
+            - 8.8.8.8:53
+            timeout: 1s
+    ```
+
+   Adjust the new values, if necessary.  Note that the query timeout to fallback
+   servers was previously defined with `upstream.timeout` property, which now
+   describes the query timeout to the primary servers only.
+
+
+
+##  AGDNS-1178 / Build 676
+
+ *  The new object `dns` has been added:
+
+    ```yaml
+    dns:
+        handle_timeout: 1s
+    ```
+
+
+
+##  AGDNS-1620 / Build 673
+
+ *  Object `ratelimit` has two new properties: `quic` and `tcp`.  They configure
+    QUIC and TCP connection limits.  Example configuration:
+
+    ```yaml
+    ratelimit:
+        # …
+        quic:
+            enabled: true
+            max_streams_per_peer: 100
+        tcp:
+            enabled: true
+            max_pipeline_count: 100
+    ```
+
+
+
+##  AGDNS-1684 / Build 661
+
+ *  Profile's file cache version was incremented.  The new field `access` has
+    been added.
+
+
+
+##  AGDNS-1664 / Build 636
+
+ *  The environment variables `BILLSTAT_URL` and `PROFILES_URL` no longer
+    support HTTP(s) endpoints.  Use GRPC(S) instead.
+
+
+
+##  AGDNS-1667 / Build 633
+
+*  `ratelimit` configuration properties `back_off_count`, `back_off_duration`
+   and `back_off_period` have been renamed to `backoff_count`,
+   `backoff_duration` and `backoff_period`.  So replace this:
+
+   ```yaml
+   ratelimit:
+       back_off_period: 10m
+       back_off_count: 1000
+       back_off_duration: 30m
+   ```
+
+   with this:
+
+   ```yaml
+   ratelimit:
+       backoff_period: 10m
+       backoff_count: 1000
+       backoff_duration: 30m
+   ```
+
+
+
 ##  AGDNS-1607 / Build 617
 
-*  New configuration `access` has been added, it has an a list of AdBlock rules
-   to block requests, and a lists of client subnets to block access from.
-   Example configuration:
+ *  New configuration `access` has been added, it has an a list of AdBlock rules
+    to block requests, and a lists of client subnets to block access from.
+    Example configuration:
 
     ```yaml
     access:
@@ -31,10 +267,11 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
 ##  AGDNS-1619 / Build 611
 
-*  Added a new metric `bill_stat_upload_duration` that counts the duration of
-   billing statistics upload.
-*  The environment variable `BILLSTAT_URL`, which describes the endpoint for
-   backend billing statistics uploader API, now supports GRPC endpoints.
+ *  Added a new metric `bill_stat_upload_duration` that counts the duration of
+    billing statistics upload.
+
+ *  The environment variable `BILLSTAT_URL`, which describes the endpoint for
+    backend billing statistics uploader API, now supports GRPC endpoints.
 
 
 
@@ -57,7 +294,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
  *  The optional property `bind_interfaces` of `server_groups.*.servers`
     objects has been changed, property `subnet` is now an array and has been
-    ranamed to `subnets`.  So replace this:
+    renamed to `subnets`.  So replace this:
 
     ```yaml
     bind_interfaces:
@@ -98,6 +335,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 ##  AGDNS-1580 / Build 562
 
  *  The environment variable `DNSDB_PATH` has been removed.
+
  *  New configuration `dnsdb` has been added, it has an enabled/disabled flag
     and the property `max_size` which describes the maximum amount of records in
     the in-memory buffer.  Example configuration:
@@ -944,7 +1182,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project
     identifiers, grouped by endpoint identifier and known server names.  All
     unknown server names are grouped in `other` label:
 
-    ```
+    ```none
     # TYPE dns_tls_handshake_total counter
     dns_tls_handshake_total{cipher_suite="TLS_AES_128_GCM_SHA256",did_resume="0",negotiated_proto="",proto="tls",server_name="default_dot: other",tls_version="tls1.3"} 4
     ```

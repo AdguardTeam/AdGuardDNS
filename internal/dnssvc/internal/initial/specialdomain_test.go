@@ -5,12 +5,14 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/initial"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
@@ -143,12 +145,14 @@ func TestMiddleware_ServeDNS_specialDomain(t *testing.T) {
 				}
 
 				prof := &agd.Profile{
+					Access:             access.EmptyProfile{},
 					BlockPrivateRelay:  tc.profBlocked,
 					BlockFirefoxCanary: tc.profBlocked,
 				}
 
 				return prof, &agd.Device{}, nil
 			}
+
 			db := &agdtest.ProfileDB{
 				OnProfileByDeviceID: func(
 					_ context.Context,
@@ -167,13 +171,12 @@ func TestMiddleware_ServeDNS_specialDomain(t *testing.T) {
 
 			geoIP := &agdtest.GeoIP{
 				OnSubnetByLocation: func(
-					_ agd.Country,
-					_ agd.ASN,
+					_ *geoip.Location,
 					_ netutil.AddrFamily,
 				) (n netip.Prefix, err error) {
 					panic("not implemented")
 				},
-				OnData: func(_ string, _ netip.Addr) (l *agd.Location, err error) {
+				OnData: func(_ string, _ netip.Addr) (l *geoip.Location, err error) {
 					return nil, nil
 				},
 			}

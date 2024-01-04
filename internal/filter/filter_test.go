@@ -182,6 +182,7 @@ func prepareConf(t testing.TB) (c *filter.DefaultStorageConfig) {
 		Now:                       time.Now,
 		ErrColl:                   nil,
 		Resolver:                  nil,
+		Cloner:                    agdtest.NewCloner(),
 		CacheDir:                  cacheDir,
 		CustomFilterCacheSize:     100,
 		SafeSearchCacheSize:       100,

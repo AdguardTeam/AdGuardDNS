@@ -47,26 +47,23 @@ type cacheRequest struct {
 // there is one.  If the host was found in the cache for domain names that
 // support ECS, isECSDependent is true.  cr, cr.req, and cr.subnet must not be
 // nil.
-func (mw *Middleware) get(
-	req *dns.Msg,
-	cr *cacheRequest,
-) (resp *dns.Msg, found, isECSDependent bool) {
+func (mw *Middleware) get(req *dns.Msg, cr *cacheRequest) (resp *dns.Msg, isECSDependent bool) {
 	key := mw.toCacheKey(cr, false)
 	item, ok := itemFromCache(mw.cache, key, cr)
 	if ok {
-		return fromCacheItem(item, req, cr.reqDO), true, false
+		return fromCacheItem(item, mw.cloner, req, cr.reqDO), false
 	} else if cr.isECSDeclined {
-		return nil, false, false
+		return nil, false
 	}
 
 	// Try ECS-aware cache.
 	key = mw.toCacheKey(cr, true)
 	item, ok = itemFromCache(mw.ecsCache, key, cr)
 	if ok {
-		return fromCacheItem(item, req, cr.reqDO), true, true
+		return fromCacheItem(item, mw.cloner, req, cr.reqDO), true
 	}
 
-	return nil, false, false
+	return nil, false
 }
 
 // itemFromCache retrieves a DNS message for the given key.  cr.host is used to
@@ -152,14 +149,15 @@ func (mw *Middleware) set(resp *dns.Msg, cr *cacheRequest, respIsECSDependent bo
 
 	exp := time.Duration(ttl) * time.Second
 	if mw.useTTLOverride && resp.Rcode != dns.RcodeServerFailure {
-		// TODO(d.kolyshev): Use built-in max in go 1.21.
-		exp = mathutil.Max(exp, mw.cacheMinTTL)
+		exp = max(exp, mw.cacheMinTTL)
 		dnsmsg.SetMinTTL(resp, uint32(exp.Seconds()))
 	}
 
 	key := mw.toCacheKey(cr, respIsECSDependent)
-	item := toCacheItem(resp, cr.host)
 
+	cachedResp := mw.cloner.Clone(resp)
+
+	item := toCacheItem(cachedResp, cr.host)
 	err := cache.SetWithExpire(key, item, exp)
 	if err != nil {
 		// Shouldn't happen, since we don't set a serialization function.
@@ -180,18 +178,23 @@ type cacheItem struct {
 	host string
 }
 
-// toCacheItem creates a cacheItem from a DNS message.
-func toCacheItem(msg *dns.Msg, host string) (item *cacheItem) {
+// toCacheItem creates a *cacheItem from a DNS message.
+func toCacheItem(resp *dns.Msg, host string) (item *cacheItem) {
 	return &cacheItem{
-		msg:  dnsmsg.Clone(msg),
+		msg:  resp,
 		when: time.Now(),
 		host: host,
 	}
 }
 
-// fromCacheItem creates a response from the cached item.  item and req must not
-// be nil.
-func fromCacheItem(item *cacheItem, req *dns.Msg, reqDO bool) (msg *dns.Msg) {
+// fromCacheItem creates a response from the cached item.  item, cloner, and req
+// must not be nil.
+func fromCacheItem(
+	item *cacheItem,
+	cloner *dnsmsg.Cloner,
+	req *dns.Msg,
+	reqDO bool,
+) (resp *dns.Msg) {
 	// Update the TTL depending on when the item was cached.  If it's already
 	// expired, update TTL to 0.
 	newTTL := dnsmsg.FindLowestTTL(item.msg)
@@ -201,17 +204,18 @@ func fromCacheItem(item *cacheItem, req *dns.Msg, reqDO bool) (msg *dns.Msg) {
 		newTTL = 0
 	}
 
-	msg = dnsmsg.Clone(item.msg)
-	msg.SetRcode(req, item.msg.Rcode)
-	setRespAD(msg, req.AuthenticatedData, reqDO)
+	resp = cloner.Clone(item.msg)
 
-	for _, rrs := range [][]dns.RR{msg.Answer, msg.Ns, msg.Extra} {
+	resp.SetRcode(req, item.msg.Rcode)
+	setRespAD(resp, req.AuthenticatedData, reqDO)
+
+	for _, rrs := range [][]dns.RR{resp.Answer, resp.Ns, resp.Extra} {
 		for _, rr := range rrs {
 			rr.Header().Ttl = newTTL
 		}
 	}
 
-	return msg
+	return resp
 }
 
 // roundDiv divides num by denom, rounding towards nearest integer.  denom must

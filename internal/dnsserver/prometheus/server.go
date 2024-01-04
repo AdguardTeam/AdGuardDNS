@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
-	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -64,25 +63,23 @@ func NewServerMetricsListener() (l *ServerMetricsListener) {
 		}),
 
 		invalidMsgCounters: newInitSyncMap(func(k dnsserver.ServerInfo) (c prometheus.Counter) {
-			// TODO(a.garipov): Here and below, remove explicit type
-			// declarations in Go 1.21.
-			return withSrvInfoLabelValues[prometheus.Counter](invalidMsgTotal, k)
+			return withSrvInfoLabelValues(invalidMsgTotal, k)
 		}),
 		errorCounters: newInitSyncMap(func(k dnsserver.ServerInfo) (c prometheus.Counter) {
-			return withSrvInfoLabelValues[prometheus.Counter](errorTotal, k)
+			return withSrvInfoLabelValues(errorTotal, k)
 		}),
 		panicCounters: newInitSyncMap(func(k dnsserver.ServerInfo) (c prometheus.Counter) {
-			return withSrvInfoLabelValues[prometheus.Counter](panicTotal, k)
+			return withSrvInfoLabelValues(panicTotal, k)
 		}),
 
 		reqDurationHistograms: newInitSyncMap(func(k dnsserver.ServerInfo) (o prometheus.Observer) {
-			return withSrvInfoLabelValues[prometheus.Observer](requestDuration, k)
+			return withSrvInfoLabelValues(requestDuration, k)
 		}),
 		reqSizeHistograms: newInitSyncMap(func(k dnsserver.ServerInfo) (o prometheus.Observer) {
-			return withSrvInfoLabelValues[prometheus.Observer](requestSize, k)
+			return withSrvInfoLabelValues(requestSize, k)
 		}),
 		respSizeHistograms: newInitSyncMap(func(k dnsserver.ServerInfo) (o prometheus.Observer) {
-			return withSrvInfoLabelValues[prometheus.Observer](responseSize, k)
+			return withSrvInfoLabelValues(responseSize, k)
 		}),
 	}
 }
@@ -94,27 +91,25 @@ var _ dnsserver.MetricsListener = (*ServerMetricsListener)(nil)
 // [*ServerMetricsListener].
 func (l *ServerMetricsListener) OnRequest(
 	ctx context.Context,
-	req *dns.Msg,
-	resp *dns.Msg,
+	info *dnsserver.QueryInfo,
 	rw dnsserver.ResponseWriter,
 ) {
-	serverInfo := dnsserver.MustServerInfoFromContext(ctx)
-	startTime := dnsserver.MustStartTimeFromContext(ctx)
+	serverInfo := *dnsserver.MustServerInfoFromContext(ctx)
 
 	// Increment total requests count metrics.
-	l.reqTotalCounters.get(newReqLabelMetricKey(ctx, req, rw)).Inc()
-
-	// Increment request duration histogram.
-	elapsed := time.Since(startTime).Seconds()
-	l.reqDurationHistograms.get(serverInfo).Observe(elapsed)
+	l.reqTotalCounters.get(newReqLabelMetricKey(ctx, info.Request, rw)).Inc()
 
 	// Increment request size.
 	ri := dnsserver.MustRequestInfoFromContext(ctx)
-	l.reqSizeHistograms.get(serverInfo).Observe(float64(ri.RequestSize))
+	l.reqSizeHistograms.get(serverInfo).Observe(float64(info.RequestSize))
+
+	// Increment request duration histogram.
+	elapsed := time.Since(ri.StartTime).Seconds()
+	l.reqDurationHistograms.get(serverInfo).Observe(elapsed)
 
 	// If resp is not nil, increment response-related metrics.
-	if resp != nil {
-		l.respSizeHistograms.get(serverInfo).Observe(float64(ri.ResponseSize))
+	if resp := info.Response; resp != nil {
+		l.respSizeHistograms.get(serverInfo).Observe(float64(info.ResponseSize))
 		l.respRCodeCounters.get(srvInfoRCode{
 			ServerInfo: serverInfo,
 			rCode:      rCodeToString(resp.Rcode),
@@ -132,19 +127,19 @@ func (l *ServerMetricsListener) OnRequest(
 // OnInvalidMsg implements the [dnsserver.MetricsListener] interface for
 // [*ServerMetricsListener].
 func (l *ServerMetricsListener) OnInvalidMsg(ctx context.Context) {
-	l.invalidMsgCounters.get(dnsserver.MustServerInfoFromContext(ctx)).Inc()
+	l.invalidMsgCounters.get(*dnsserver.MustServerInfoFromContext(ctx)).Inc()
 }
 
 // OnError implements the [dnsserver.MetricsListener] interface for
 // [*ServerMetricsListener].
 func (l *ServerMetricsListener) OnError(ctx context.Context, _ error) {
-	l.errorCounters.get(dnsserver.MustServerInfoFromContext(ctx)).Inc()
+	l.errorCounters.get(*dnsserver.MustServerInfoFromContext(ctx)).Inc()
 }
 
 // OnPanic implements the [dnsserver.MetricsListener] interface for
 // [*ServerMetricsListener].
 func (l *ServerMetricsListener) OnPanic(ctx context.Context, _ any) {
-	l.panicCounters.get(dnsserver.MustServerInfoFromContext(ctx)).Inc()
+	l.panicCounters.get(*dnsserver.MustServerInfoFromContext(ctx)).Inc()
 }
 
 // OnQUICAddressValidation implements the [dnsserver.MetricsListener] interface

@@ -18,9 +18,9 @@ import (
 type limitConn struct {
 	net.Conn
 
+	serverInfo *dnsserver.ServerInfo
 	decrement  func()
 	start      time.Time
-	serverInfo dnsserver.ServerInfo
 	isClosed   atomic.Bool
 }
 

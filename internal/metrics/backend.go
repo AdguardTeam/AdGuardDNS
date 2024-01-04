@@ -98,5 +98,28 @@ var GRPCAvgProfileDecDuration = promauto.NewHistogram(prometheus.HistogramOpts{
 	Namespace: namespace,
 	Help: "The average duration of decoding one profile during a call to the backend, " +
 		"in seconds.",
-	Buckets: []float64{0.000_001, 0.000_010, 0.000_100, 0.001},
+	Buckets: []float64{0.000_001, 0.000_01, 0.000_1, 0.001},
 })
+
+var (
+	// profilesSyncTimeouts is a gauge with the total number of timeout errors
+	// occurred during profiles sync, either full or partial.
+	profilesSyncTimeouts = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name:      "profiles_sync_timeouts_total",
+		Namespace: namespace,
+		Subsystem: subsystemBackend,
+		Help:      "The total number of timeout errors during profiles sync.",
+	}, []string{"is_full_sync"})
+
+	// ProfilesSyncFullTimeouts is a gauge with the total number of timeout
+	// errors occurred during full profiles sync.
+	ProfilesSyncFullTimeouts = profilesSyncTimeouts.With(prometheus.Labels{
+		"is_full_sync": "1",
+	})
+
+	// ProfilesSyncPartTimeouts is a gauge with the total number of timeout
+	// errors occurred during partial profiles sync.
+	ProfilesSyncPartTimeouts = profilesSyncTimeouts.With(prometheus.Labels{
+		"is_full_sync": "0",
+	})
+)

@@ -6,6 +6,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 )
 
 // filterIndexResp is the struct for the JSON response from a filter index API.
@@ -30,13 +31,13 @@ type filterIndexFilterData struct {
 // toInternal converts the filters from the index to []*filterIndexFilterData.
 func (r *filterIndexResp) toInternal(
 	ctx context.Context,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 ) (fls []*filterIndexFilterData) {
 	fls = make([]*filterIndexFilterData, 0, len(r.Filters))
 	for _, rf := range r.Filters {
 		id, err := agd.NewFilterListID(rf.ID)
 		if err != nil {
-			agd.Collectf(ctx, errColl, "%s: validating id %q: %w", strgLogPrefix, rf.ID, err)
+			errcoll.Collectf(ctx, errColl, "%s: validating id %q: %w", strgLogPrefix, rf.ID, err)
 
 			continue
 		}
@@ -44,7 +45,7 @@ func (r *filterIndexResp) toInternal(
 		var u *url.URL
 		u, err = agdhttp.ParseHTTPURL(rf.DownloadURL)
 		if err != nil {
-			agd.Collectf(
+			errcoll.Collectf(
 				ctx,
 				errColl,
 				"%s: validating url %q: %w",

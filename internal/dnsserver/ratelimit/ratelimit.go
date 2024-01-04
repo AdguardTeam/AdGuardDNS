@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"slices"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/netutil"
@@ -29,7 +30,7 @@ type Middleware struct {
 	Metrics MetricsListener
 
 	// rateLimit is defines whether the query should be dropped or not.  The
-	// default implementation of it is [*BackOff].
+	// default implementation of it is [*Backoff].
 	rateLimit Interface
 
 	// protos is a list of protocols this middleware applies rate-limiting logic
@@ -67,13 +68,7 @@ func (mw *Middleware) isEnabledForProto(ctx context.Context) (enabled bool) {
 
 	si := dnsserver.MustServerInfoFromContext(ctx)
 
-	for _, proto := range mw.protos {
-		if proto == si.Proto {
-			return true
-		}
-	}
-
-	return enabled
+	return slices.Contains(mw.protos, si.Proto)
 }
 
 // mwHandler implements the [dnsserver.Handler] interface and will be used as a

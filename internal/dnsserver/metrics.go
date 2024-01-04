@@ -6,28 +6,30 @@ import (
 	"github.com/miekg/dns"
 )
 
-// MetricsListener is an interface that is used for monitoring the server's
-// state. The dnsserver package user may supply MetricsListener implementation
-// that would increment different kinds of metrics (for instance, prometheus
+// MetricsListener is an interface that is used for monitoring a server's state.
+// The dnsserver package user may supply MetricsListener implementation that
+// would increment different kinds of metrics (for instance, prometheus
 // metrics).
+//
 // Every function accepts context.Context as a parameter. This context must have
-// server information attached to it. It can be retrieved using functions
-// ServerInfoFromContext or MustServerInfoFromContext.
-// N.B. The implementation must be thread-safe.
+// server information attached to it.  It can be retrieved using functions
+// [ServerInfoFromContext] or [MustServerInfoFromContext].
+//
+// NOTE: Implementations must be thread-safe.
 type MetricsListener interface {
 	// OnRequest called when we finished processing a request, and we know what
 	// response has been written.
 	//
 	// ctx is the context of the DNS request.  Besides the server info, it also
-	// must contain request's start time (retrieved by MustStartTimeFromContext)
-	// and request info (MustRequestInfoFromContext).
+	// must contain request info (retrieved by [MustRequestInfoFromContext]).
 	//
-	// req is a DNS request. Note, that if the request was discarded (BadFormat
-	// or NotImplemented) this method will still be called so the request
-	// message may be incorrect (i.e. no Question section or whatever). res is
-	// a DNS response, will always be present. rw is the ResponseWriter that was
-	// used to write the response.
-	OnRequest(ctx context.Context, req, resp *dns.Msg, rw ResponseWriter)
+	// info contains DNS request and response data. rw is the [ResponseWriter]
+	// that was used to write the response.
+	//
+	// Note, that if the request was discarded (BadFormat or NotImplemented)
+	// this method will still be called so the request message may be incorrect
+	// (i.e. no Question section or whatever).
+	OnRequest(ctx context.Context, info *QueryInfo, rw ResponseWriter)
 
 	// OnInvalidMsg called when the server encounters an invalid DNS message.
 	// It may be simply crap bytes that cannot be unpacked or a message that the
@@ -51,31 +53,43 @@ type MetricsListener interface {
 	OnQUICAddressValidation(hit bool)
 }
 
-// EmptyMetricsListener implements MetricsListener with empty functions.
-// This implementation is used by default if the user does not supply a custom
-// one.
+// QueryInfo contains the request with its size, and the response with its size.
+type QueryInfo struct {
+	// Request is the DNS request.
+	Request *dns.Msg
+
+	// Response is the DNS response.  The response will always be present.
+	Response *dns.Msg
+
+	// Request size is the size of DNS request in bytes.
+	RequestSize int
+
+	// ResponseSize is the size of DNS response in bytes.  May be 0 if no
+	// response was sent.
+	ResponseSize int
+}
+
+// EmptyMetricsListener implements [MetricsListener] with empty functions.  This
+// implementation is used by default if the user does not supply a custom one.
 type EmptyMetricsListener struct{}
 
 // type check
-var _ MetricsListener = (*EmptyMetricsListener)(nil)
+var _ MetricsListener = EmptyMetricsListener{}
 
-// OnRequest implements the MetricsListener interface for *EmptyMetricsListener.
-func (e *EmptyMetricsListener) OnRequest(_ context.Context, _, _ *dns.Msg, _ ResponseWriter) {
-}
+// OnRequest implements the [MetricsListener] interface for
+// EmptyMetricsListener.
+func (e EmptyMetricsListener) OnRequest(_ context.Context, _ *QueryInfo, _ ResponseWriter) {}
 
-// OnInvalidMsg implements the MetricsListener interface for *EmptyMetricsListener.
-func (e *EmptyMetricsListener) OnInvalidMsg(_ context.Context) {
-}
+// OnInvalidMsg implements the [MetricsListener] interface for
+// EmptyMetricsListener.
+func (e EmptyMetricsListener) OnInvalidMsg(_ context.Context) {}
 
-// OnError implements the MetricsListener interface for *EmptyMetricsListener.
-func (e *EmptyMetricsListener) OnError(_ context.Context, _ error) {
-}
+// OnError implements the [MetricsListener] interface for EmptyMetricsListener.
+func (e EmptyMetricsListener) OnError(_ context.Context, _ error) {}
 
-// OnPanic implements the MetricsListener interface for *EmptyMetricsListener.
-func (e *EmptyMetricsListener) OnPanic(_ context.Context, _ any) {
-}
+// OnPanic implements the [MetricsListener] interface for EmptyMetricsListener.
+func (e EmptyMetricsListener) OnPanic(_ context.Context, _ any) {}
 
-// OnQUICAddressValidation implements the MetricsListener interface for
-// *EmptyMetricsListener.
-func (e *EmptyMetricsListener) OnQUICAddressValidation(_ bool) {
-}
+// OnQUICAddressValidation implements the [MetricsListener] interface for
+// EmptyMetricsListener.
+func (e EmptyMetricsListener) OnQUICAddressValidation(_ bool) {}

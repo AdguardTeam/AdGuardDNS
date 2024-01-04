@@ -12,24 +12,24 @@ import (
 	cache "github.com/patrickmn/go-cache"
 )
 
-// Back-Off Rate Limiter
+// Backoff Rate Limiter
 
-// BackOffConfig is the configuration structure for a back-off rate limiter.
-type BackOffConfig struct {
+// BackoffConfig is the configuration structure for a backoff rate limiter.
+type BackoffConfig struct {
 	// Allowlist defines which IP networks are excluded from rate limiting.
 	Allowlist Allowlist
 
 	// Period is the time during which the rate limiter counts the number of
 	// times a client make more requests than RPS allows to increment the
-	// back-off count for the client.
+	// backoff count for the client.
 	Period time.Duration
 
-	// Duration is how much a client that has hit the back-off count stays in
-	// the back-off state.
+	// Duration is how much a client that has hit the backoff count stays in the
+	// backoff state.
 	Duration time.Duration
 
 	// Count is how many requests a client makes above the RPS before it is
-	// counted as a back-off hit.
+	// counted as a backoff hit.
 	Count int
 
 	// ResponseSizeEstimate is the estimate of the size of one DNS response for
@@ -39,8 +39,7 @@ type BackOffConfig struct {
 
 	// IPv4RPS is the maximum number of requests per second allowed from a
 	// single subnet for IPv4 addresses.  Any requests above this rate are
-	// counted as the client's back-off count.  RPS must be greater than
-	// zero.
+	// counted as the client's backoff count.  RPS must be greater than zero.
 	IPv4RPS int
 
 	// IPv4SubnetKeyLen is the length of the subnet prefix used to calculate
@@ -49,8 +48,7 @@ type BackOffConfig struct {
 
 	// IPv6RPS is the maximum number of requests per second allowed from a
 	// single subnet for IPv6 addresses.  Any requests above this rate are
-	// counted as the client's back-off count.  RPS must be greater than
-	// zero.
+	// counted as the client's backoff count.  RPS must be greater than zero.
 	IPv6RPS int
 
 	// IPv6SubnetKeyLen is the length of the subnet prefix used to calculate
@@ -62,7 +60,7 @@ type BackOffConfig struct {
 	RefuseANY bool
 }
 
-// BackOff is the back-off rate limiter which supports allowlists and DNS
+// Backoff is the backoff rate limiter which supports allowlists and DNS
 // amplification prevention.
 //
 // TODO(a.garipov): Consider merging this into ratelimit.Middleware.  The
@@ -72,7 +70,7 @@ type BackOffConfig struct {
 //
 // TODO(ameshkov): Consider splitting rps and other properties by protocol
 // family.
-type BackOff struct {
+type Backoff struct {
 	rpsCounters      *cache.Cache
 	hitCounters      *cache.Cache
 	allowlist        Allowlist
@@ -85,11 +83,11 @@ type BackOff struct {
 	refuseANY        bool
 }
 
-// NewBackOff returns a new default rate limiter.
-func NewBackOff(c *BackOffConfig) (l *BackOff) {
+// NewBackoff returns a new default rate limiter.
+func NewBackoff(c *BackoffConfig) (l *Backoff) {
 	// TODO(ameshkov, a.garipov): Consider adding a job or an endpoint for
 	// purging the caches to free the map bucket space in the caches.
-	return &BackOff{
+	return &Backoff{
 		// TODO(ameshkov): Consider running the janitor more often.
 		rpsCounters:      cache.New(c.Period, c.Period),
 		hitCounters:      cache.New(c.Duration, c.Duration),
@@ -105,11 +103,11 @@ func NewBackOff(c *BackOffConfig) (l *BackOff) {
 }
 
 // type check
-var _ Interface = (*BackOff)(nil)
+var _ Interface = (*Backoff)(nil)
 
-// IsRateLimited implements the Interface interface for *BackOff.  req must not
+// IsRateLimited implements the Interface interface for *Backoff.  req must not
 // be nil.
-func (l *BackOff) IsRateLimited(
+func (l *Backoff) IsRateLimited(
 	ctx context.Context,
 	req *dns.Msg,
 	ip netip.Addr,
@@ -132,7 +130,7 @@ func (l *BackOff) IsRateLimited(
 	}
 
 	key := l.subnetKey(ip)
-	if l.isBackOff(key) {
+	if l.isBackoff(key) {
 		return true, false, nil
 	}
 
@@ -158,8 +156,8 @@ func validateAddr(addr netip.Addr) (err error) {
 	return nil
 }
 
-// CountResponses implements the Interface interface for *BackOff.
-func (l *BackOff) CountResponses(ctx context.Context, resp *dns.Msg, ip netip.Addr) {
+// CountResponses implements the Interface interface for *Backoff.
+func (l *Backoff) CountResponses(ctx context.Context, resp *dns.Msg, ip netip.Addr) {
 	respLimit := l.respSzEst
 	respSize := resp.Len()
 	for i := 0; i < respSize/respLimit; i++ {
@@ -170,7 +168,7 @@ func (l *BackOff) CountResponses(ctx context.Context, resp *dns.Msg, ip netip.Ad
 // subnetKey returns the cache key for the subnet of ip.  The key is the string
 // representation of ip masked with a specified prefix.  ip is assumed to be
 // valid.
-func (l *BackOff) subnetKey(ip netip.Addr) (key string) {
+func (l *Backoff) subnetKey(ip netip.Addr) (key string) {
 	var subnet netip.Prefix
 	var err error
 	if ip.Is4() {
@@ -187,8 +185,8 @@ func (l *BackOff) subnetKey(ip netip.Addr) (key string) {
 	return subnet.String()
 }
 
-// incBackOff increments the number of requests above the RPS for a client.
-func (l *BackOff) incBackOff(key string) {
+// incBackoff increments the number of requests above the RPS for a client.
+func (l *Backoff) incBackoff(key string) {
 	counterVal, ok := l.hitCounters.Get(key)
 	if ok {
 		counterVal.(*atomic.Int64).Add(1)
@@ -203,7 +201,7 @@ func (l *BackOff) incBackOff(key string) {
 
 // hasHitRateLimit checks value for a subnet with rps as a maximum number
 // requests per second.
-func (l *BackOff) hasHitRateLimit(subnetIPStr string, rps int) (ok bool) {
+func (l *Backoff) hasHitRateLimit(subnetIPStr string, rps int) (ok bool) {
 	var r *rpsCounter
 	rVal, ok := l.rpsCounters.Get(subnetIPStr)
 	if ok {
@@ -215,14 +213,14 @@ func (l *BackOff) hasHitRateLimit(subnetIPStr string, rps int) (ok bool) {
 
 	above := r.add(time.Now())
 	if above {
-		l.incBackOff(subnetIPStr)
+		l.incBackoff(subnetIPStr)
 	}
 
 	return above
 }
 
-// isBackOff returns true if the specified client has hit the RPS too often.
-func (l *BackOff) isBackOff(key string) (ok bool) {
+// isBackoff returns true if the specified client has hit the RPS too often.
+func (l *Backoff) isBackoff(key string) (ok bool) {
 	counterVal, ok := l.hitCounters.Get(key)
 	if !ok {
 		return false

@@ -23,14 +23,15 @@ const (
 	subsystemConsul       = "consul"
 	subsystemDNSCheck     = "dnscheck"
 	subsystemDNSDB        = "dnsdb"
+	subsystemDNSMsg       = "dnsmsg"
 	subsystemDNSSvc       = "dnssvc"
 	subsystemECSCache     = "ecscache"
 	subsystemFilter       = "filter"
 	subsystemGeoIP        = "geoip"
 	subsystemQueryLog     = "querylog"
+	subsystemResearch     = "research"
 	subsystemRuleStat     = "rulestat"
 	subsystemTLS          = "tls"
-	subsystemResearch     = "research"
 	subsystemWebSvc       = "websvc"
 )
 
@@ -74,6 +75,16 @@ func BoolString(cond bool) (s string) {
 	}
 
 	return "0"
+}
+
+// IncrementCond increments trueCounter if cond is true and falseCounter
+// otherwise.
+func IncrementCond(cond bool, trueCounter, falseCounter prometheus.Counter) {
+	if cond {
+		trueCounter.Inc()
+	} else {
+		falseCounter.Inc()
+	}
 }
 
 // SetAdditionalInfo adds a gauge with extra info labels.  If info is nil,

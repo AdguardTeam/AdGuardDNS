@@ -26,7 +26,7 @@ func newTXTExtra(ttl uint32, strs ...string) (extra []dns.RR) {
 }
 
 func TestConstructor_NewBlockedRespMsg_nullIP(t *testing.T) {
-	mc := dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
+	mc := dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
 
 	testCases := []struct {
 		name       string
@@ -80,7 +80,7 @@ func TestConstructor_NewBlockedRespMsg_customIP(t *testing.T) {
 		wantA    bool
 		wantAAAA bool
 	}{{
-		messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeCustomIP{
+		messages: dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeCustomIP{
 			IPv4: testIPv4,
 			IPv6: testIPv6,
 		}, testFltRespTTL),
@@ -88,14 +88,14 @@ func TestConstructor_NewBlockedRespMsg_customIP(t *testing.T) {
 		wantA:    true,
 		wantAAAA: true,
 	}, {
-		messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeCustomIP{
+		messages: dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeCustomIP{
 			IPv4: testIPv4,
 		}, testFltRespTTL),
 		name:     "ipv4_only",
 		wantA:    true,
 		wantAAAA: false,
 	}, {
-		messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeCustomIP{
+		messages: dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeCustomIP{
 			IPv6: testIPv6,
 		}, testFltRespTTL),
 		name:     "ipv6_only",
@@ -148,11 +148,11 @@ func TestConstructor_NewBlockedRespMsg_noAnswer(t *testing.T) {
 		name     string
 		rcode    dnsmsg.RCode
 	}{{
-		messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeNXDOMAIN{}, testFltRespTTL),
+		messages: dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeNXDOMAIN{}, testFltRespTTL),
 		name:     "nxdomain",
 		rcode:    dns.RcodeNameError,
 	}, {
-		messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeREFUSED{}, testFltRespTTL),
+		messages: dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeREFUSED{}, testFltRespTTL),
 		name:     "refused",
 		rcode:    dns.RcodeRefused,
 	}}
@@ -174,7 +174,7 @@ func TestConstructor_NewBlockedRespMsg_noAnswer(t *testing.T) {
 }
 
 func TestConstructor_noAnswerMethods(t *testing.T) {
-	mc := dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
+	mc := dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
 	req := dnsservertest.NewReq(testFQDN, dns.TypeA, dns.ClassINET)
 
 	testCases := []struct {
@@ -220,7 +220,7 @@ func TestConstructor_noAnswerMethods(t *testing.T) {
 }
 
 func TestConstructor_NewTXTRespMsg(t *testing.T) {
-	mc := dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
+	mc := dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
 	req := dnsservertest.NewReq(testFQDN, dns.TypeTXT, dns.ClassINET)
 	tooLong := strings.Repeat("1", dnsmsg.MaxTXTStringLen+1)
 
@@ -277,7 +277,7 @@ func TestConstructor_NewTXTRespMsg(t *testing.T) {
 }
 
 func TestConstructor_AppendDebugExtra(t *testing.T) {
-	mc := dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
+	mc := dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
 	shortText := "This is a short test text"
 	longText := strings.Repeat("a", 2*dnsmsg.MaxTXTStringLen)
 

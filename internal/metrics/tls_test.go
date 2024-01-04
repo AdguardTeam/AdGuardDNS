@@ -114,26 +114,30 @@ func assertLabelValue(
 ) (ok bool) {
 	t.Helper()
 
-outerLoop:
 	for _, family := range metricFamilies {
 		if family.GetName() != "dns_tls_handshake_total" {
 			continue
 		}
 
-		for _, m := range family.GetMetric() {
-			for _, p := range m.GetLabel() {
-				if p.GetName() != "server_name" || wantLabel != p.GetValue() {
-					continue
-				}
-
-				ok = true
-
-				break outerLoop
-			}
+		if ok = findLabel(family.GetMetric(), wantLabel); ok {
+			break
 		}
 	}
 
 	return assert.Truef(t, ok, "%s not found in server name labels", wantLabel)
+}
+
+// findLabel is a helper function to find label in metrics.
+func findLabel(ms []*io_prometheus_client.Metric, label string) (ok bool) {
+	for _, m := range ms {
+		for _, p := range m.GetLabel() {
+			if p.GetName() == "server_name" && label == p.GetValue() {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func TestTLSMetricsBeforeHandshake(t *testing.T) {

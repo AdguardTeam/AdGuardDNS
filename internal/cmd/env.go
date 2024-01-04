@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -8,7 +9,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/debugsvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
@@ -16,6 +17,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/caarlos0/env/v7"
 	"github.com/getsentry/sentry-go"
 )
@@ -24,20 +26,20 @@ import (
 
 // environments represents the configuration that is kept in the environment.
 type environments struct {
-	AdultBlockingURL         *agdhttp.URL `env:"ADULT_BLOCKING_URL,notEmpty"`
-	BillStatURL              *agdhttp.URL `env:"BILLSTAT_URL,notEmpty"`
-	BlockedServiceIndexURL   *agdhttp.URL `env:"BLOCKED_SERVICE_INDEX_URL,notEmpty"`
-	ConsulAllowlistURL       *agdhttp.URL `env:"CONSUL_ALLOWLIST_URL,notEmpty"`
-	ConsulDNSCheckKVURL      *agdhttp.URL `env:"CONSUL_DNSCHECK_KV_URL"`
-	ConsulDNSCheckSessionURL *agdhttp.URL `env:"CONSUL_DNSCHECK_SESSION_URL"`
-	FilterIndexURL           *agdhttp.URL `env:"FILTER_INDEX_URL,notEmpty"`
-	GeneralSafeSearchURL     *agdhttp.URL `env:"GENERAL_SAFE_SEARCH_URL,notEmpty"`
-	LinkedIPTargetURL        *agdhttp.URL `env:"LINKED_IP_TARGET_URL"`
-	NewRegDomainsURL         *agdhttp.URL `env:"NEW_REG_DOMAINS_URL,notEmpty"`
-	ProfilesURL              *agdhttp.URL `env:"PROFILES_URL,notEmpty"`
-	RuleStatURL              *agdhttp.URL `env:"RULESTAT_URL"`
-	SafeBrowsingURL          *agdhttp.URL `env:"SAFE_BROWSING_URL,notEmpty"`
-	YoutubeSafeSearchURL     *agdhttp.URL `env:"YOUTUBE_SAFE_SEARCH_URL,notEmpty"`
+	AdultBlockingURL         *urlutil.URL `env:"ADULT_BLOCKING_URL,notEmpty"`
+	BillStatURL              *urlutil.URL `env:"BILLSTAT_URL,notEmpty"`
+	BlockedServiceIndexURL   *urlutil.URL `env:"BLOCKED_SERVICE_INDEX_URL,notEmpty"`
+	ConsulAllowlistURL       *urlutil.URL `env:"CONSUL_ALLOWLIST_URL,notEmpty"`
+	ConsulDNSCheckKVURL      *urlutil.URL `env:"CONSUL_DNSCHECK_KV_URL"`
+	ConsulDNSCheckSessionURL *urlutil.URL `env:"CONSUL_DNSCHECK_SESSION_URL"`
+	FilterIndexURL           *urlutil.URL `env:"FILTER_INDEX_URL,notEmpty"`
+	GeneralSafeSearchURL     *urlutil.URL `env:"GENERAL_SAFE_SEARCH_URL,notEmpty"`
+	LinkedIPTargetURL        *urlutil.URL `env:"LINKED_IP_TARGET_URL"`
+	NewRegDomainsURL         *urlutil.URL `env:"NEW_REG_DOMAINS_URL,notEmpty"`
+	ProfilesURL              *urlutil.URL `env:"PROFILES_URL,notEmpty"`
+	RuleStatURL              *urlutil.URL `env:"RULESTAT_URL"`
+	SafeBrowsingURL          *urlutil.URL `env:"SAFE_BROWSING_URL,notEmpty"`
+	YoutubeSafeSearchURL     *urlutil.URL `env:"YOUTUBE_SAFE_SEARCH_URL,notEmpty"`
 
 	ConfPath          string `env:"CONFIG_PATH" envDefault:"./config.yaml"`
 	FilterCachePath   string `env:"FILTER_CACHE_PATH" envDefault:"./filters/"`
@@ -50,7 +52,7 @@ type environments struct {
 
 	ListenAddr net.IP `env:"LISTEN_ADDR" envDefault:"127.0.0.1"`
 
-	ListenPort int `env:"LISTEN_PORT" envDefault:"8181"`
+	ListenPort uint16 `env:"LISTEN_PORT" envDefault:"8181"`
 
 	LogTimestamp    strictBool `env:"LOG_TIMESTAMP" envDefault:"1"`
 	LogVerbose      strictBool `env:"VERBOSE" envDefault:"0"`
@@ -84,7 +86,7 @@ func (envs *environments) configureLogs() {
 }
 
 // buildErrColl builds and returns an error collector from environment.
-func (envs *environments) buildErrColl() (errColl agd.ErrorCollector, err error) {
+func (envs *environments) buildErrColl() (errColl errcoll.Interface, err error) {
 	dsn := envs.SentryDSN
 	if dsn == "stderr" {
 		return errcoll.NewWriterErrorCollector(os.Stderr), nil
@@ -157,7 +159,7 @@ func (envs *environments) debugConf(dnsDB dnsdb.Interface) (conf *debugsvc.Confi
 // registers its refresher in sigHdlr, if necessary.
 func (envs *environments) buildRuleStat(
 	sigHdlr signalHandler,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 ) (r rulestat.Interface, err error) {
 	if envs.RuleStatURL == nil {
 		log.Info("main: warning: not collecting rule stats")
@@ -169,7 +171,7 @@ func (envs *environments) buildRuleStat(
 		URL: &envs.RuleStatURL.URL,
 	})
 
-	refr := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
+	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
 		Context:   ctxWithDefaultTimeout,
 		Refresher: httpRuleStat,
 		ErrColl:   errColl,
@@ -178,8 +180,9 @@ func (envs *environments) buildRuleStat(
 		Interval:            10 * time.Minute,
 		RefreshOnShutdown:   true,
 		RoutineLogsAreDebug: false,
+		RandomizeStart:      false,
 	})
-	err = refr.Start()
+	err = refr.Start(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("starting rulestat refresher: %w", err)
 	}

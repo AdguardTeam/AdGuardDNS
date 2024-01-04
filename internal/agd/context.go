@@ -6,6 +6,7 @@ import (
 	"net/netip"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/errors"
 )
 
@@ -73,7 +74,7 @@ type RequestInfo struct {
 	Profile *Profile
 
 	// Location is the GeoIP location data about the remote IP address, if any.
-	Location *Location
+	Location *geoip.Location
 
 	// ECS contains the EDNS Client Subnet option information of the request, if
 	// any.
@@ -107,9 +108,10 @@ type RequestInfo struct {
 	QType dnsmsg.RRType
 
 	// QClass is the class of question for this request.
-	//
-	// TODO(a.garipov): Use more.
 	QClass dnsmsg.Class
+
+	// Proto is the protocol by which this request is made.
+	Proto Protocol
 }
 
 // ECS is the content of the EDNS Client Subnet option of a DNS message.
@@ -118,7 +120,7 @@ type RequestInfo struct {
 type ECS struct {
 	// Location is the GeoIP location data about the IP address from the
 	// request's ECS data, if any.
-	Location *Location
+	Location *geoip.Location
 
 	// Subnet is the source subnet.
 	Subnet netip.Prefix

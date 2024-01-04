@@ -15,6 +15,7 @@ configuration file with comments.
  *  [Cache](#cache)
  *  [Upstream](#upstream)
      *  [Healthcheck](#upstream-healthcheck)
+ *  [Common DNS settings](#dns)
  *  [DNSDB](#dnsdb)
  *  [Backend](#backend)
  *  [Query log](#query_log)
@@ -130,13 +131,13 @@ The `ratelimit` object has the following properties:
 
     **Example:** `1KB`.
 
- *  <a href="#ratelimit-back_off_period" id="ratelimit-back_off_period" name="ratelimit-back_off_period">`back_off_period`</a>:
+ *  <a href="#ratelimit-backoff_period" id="ratelimit-backoff_period" name="ratelimit-backoff_period">`backoff_period`</a>:
     The time during which to count the number of requests that a client has sent
     over the RPS.
 
     **Example:** `10m`.
 
- *  <a href="#ratelimit-back_off_duration" id="ratelimit-back_off_duration" name="ratelimit-back_off_duration">`back_off_duration`</a>:
+ *  <a href="#ratelimit-backoff_duration" id="ratelimit-backoff_duration" name="ratelimit-backoff_duration">`backoff_duration`</a>:
     How long a client that has hit the RPS too often stays in the backoff state.
 
     **Example:** `30m`.
@@ -159,10 +160,10 @@ The `ratelimit` object has the following properties:
     The `ipv6` configuration object has the same properties as the `ipv4` one
     above.
 
- *  <a href="#ratelimit-back_off_count" id="ratelimit-back_off_count" name="ratelimit-back_off_count">`back_off_count`</a>:
-    Maximum number of requests a client can make above the RPS within
-    a `back_off_period`.  When a client exceeds this limit, requests aren't
-    allowed from client's subnet until `back_off_duration` ends.
+ *  <a href="#ratelimit-backoff_count" id="ratelimit-backoff_count" name="ratelimit-backoff_count">`backoff_count`</a>:
+    Maximum number of requests a client can make above the RPS within a
+    `backoff_period`.  When a client exceeds this limit, requests aren't allowed
+    from client's subnet until `backoff_duration` ends.
 
     **Example:** `1000`.
 
@@ -188,11 +189,11 @@ The `ratelimit` object has the following properties:
 
         **Example:** `30s`.
 
-For example, if `back_off_period` is `1m`, `back_off_count` is `10`, and
+For example, if `backoff_period` is `1m`, `backoff_count` is `10`, and
 `ipv4-rps` is `5`, a client (meaning all IP addresses within the subnet defined
 by `ipv4-subnet_key_len`) that made 15 requests in one second or 6 requests
 (one above `rps`) every second for 10 seconds within one minute, the client is
-blocked for `back_off_duration`.
+blocked for `backoff_duration`.
 
    ###  <a href="#ratelimit-connection_limit" id="ratelimit-connection_limit" name="ratelimit-connection_limit">Stream connection limit</a>
 
@@ -217,6 +218,35 @@ The `connection_limit` object has the following properties:
     **Example:** `800`.
 
 See also [notes on these parameters](#recommended-connection_limit).
+
+   ###  <a href="#ratelimit-quic" id="ratelimit-quic" name="ratelimit-quic">QUIC rate limiting</a>
+
+The `quic` object has the following properties:
+
+ *  <a href="#ratelimit-quic-enabled" id="ratelimit-quic-enabled" name="ratelimit-quic-enabled">`enabled`</a>:
+    Whether or not the QUIC connections rate limiting should be enforced.
+
+    **Example:** `true`.
+
+ *  <a href="#ratelimit-quic-max_streams_per_peer" id="ratelimit-quic-max_streams_per_peer" name="ratelimit-quic-max_streams_per_peer">`max_streams_per_peer`</a>:
+    The maximum number of concurrent streams that a peer is allowed to open.
+
+    **Example:** `1000`.
+
+   ###  <a href="#ratelimit-tcp" id="ratelimit-tcp" name="ratelimit-tcp">TCP rate limiting</a>
+
+The `tcp` object has the following properties:
+
+ *  <a href="#ratelimit-tcp-enabled" id="ratelimit-tcp-enabled" name="ratelimit-tcp-enabled">`enabled`</a>:
+    Whether or not the TCP rate limiting should be enforced.
+
+    **Example:** `true`.
+
+ *  <a href="#ratelimit-tcp-max_pipeline_count" id="ratelimit-tcp-max_pipeline_count" name="ratelimit-tcp-max_pipeline_count">`max_pipeline_count`</a>:
+    The maximum number of simultaneously processing TCP messages per one
+    connection.
+
+    **Example:** `1000`.
 
 [env-consul_allowlist_url]: environment.md#CONSUL_ALLOWLIST_URL
 
@@ -269,26 +299,45 @@ The `cache` object has the following properties:
 
 The `upstream` object has the following properties:
 
- *  <a href="#upstream-server" id="upstream-server" name="upstream-server">`server`</a>:
-    The URL of the main upstream server, in the `[scheme://]ip:port` format.
+ *  <a href="#upstream-servers" id="upstream-servers" name="upstream-servers">`servers`</a>:
+    The array of the main upstream servers URLs, in the `[scheme://]ip:port`
+    format and its timeouts for main upstream DNS requests, as a human-readable
+    duration.
 
-    **Examples:**
+    **Property example:**
 
-    - `8.8.8.8:53`: regular DNS (over UDP with TCP fallback).
-    - `tcp://1.1.1.1:53`: regular DNS (over TCP).
-    - `udp://1.1.1.1:53`: regular DNS (over UDP).
-
- *  <a href="#upstream-timeout" id="upstream-timeout" name="upstream-timeout">`timeout`</a>:
-    Timeout for all outgoing DNS requests, as a human-readable duration.
-
-    **Example:** `2s`.
+    ```yaml
+    'servers':
+      # Regular DNS (over UDP with TCP fallback).
+      - address: '8.8.8.8:53'
+        timeout: 2s
+      # Regular DNS (over TCP).
+      - address: 'tcp://1.1.1.1:53'
+        timeout: 2s
+      # Regular DNS (over UDP).
+      - address: 'udp://1.1.1.1:53'
+        timeout: 2s
+    ```
 
  *  <a href="#upstream-fallback" id="upstream-fallback" name="upstream-fallback">`fallback`</a>:
-    The array of addresses of the fallback upstream servers, in the `ip:port`
-    format.  These are use used in case a network error occurs while requesting
-    the main upstream server.
+    Fallback servers configuration.  It has the following properties:
 
-    **Example:** `['1.1.1.1:53', '[2001:4860:4860::8888]:53']`.
+     *  <a href="#upstream-fallback-servers" id="upstream-fallback-servers" name="upstream-fallback-servers">`servers`</a>:
+        The array of the fallback upstream servers URLs, in the
+        `[scheme://]ip:port` format and its timeouts for upstream DNS requests,
+        as a human-readable duration. These are use used in case a network error
+        occurs while requesting the main upstream server. This property has the
+        same format as [`upstream-servers`](#upstream-servers) above.
+
+        **Property example:**
+
+        ```yaml
+        'servers':
+          - address: '1.1.1.1:53'
+            timeout: 2s
+          - address: '[2001:4860:4860::8888]:53'
+            timeout: 2s
+         ```
 
  *  `healthcheck`: Healthcheck configuration.  See
     [below](#upstream-healthcheck).
@@ -341,9 +390,46 @@ connection to the main upstream as restored, and requests are routed back to it.
 
 
 
+##  <a href="#dns" id="dns" name="dns">DNS</a>
+
+The `dns` object has the following properties:
+
+ *  <a href="#dns-read_timeout" id="dns-read_timeout" name="dns-read_timeout">`read_timeout`</a>:
+    The timeout for any read from a UDP connection or the first read from
+    a TCP/TLS connection, as a human-readable duration.  It currently doesn't
+    affect DNSCrypt, QUIC, or HTTPS.
+
+    **Example:** `2s`.
+
+ *  <a href="#dns-tcp_idle_timeout" id="dns-tcp_idle_timeout" name="dns-tcp_idle_timeout">`tcp_idle_timeout`</a>:
+    The timeout for consecutive reads from a TCP/TLS connection, as a
+    human-readable duration.  It currently doesn't affect DNSCrypt, QUIC, or
+    HTTPS.
+
+    **Example:** `30s`.
+
+ *  <a href="#dns-write_timeout" id="dns-write_timeout" name="dns-write_timeout">`write_timeout`</a>:
+    The timeout for writing to a UDP or TCP/TLS connection, as a human-readable
+    duration.  It currently doesn't affect DNSCrypt, QUIC, or HTTPS.
+
+    **Example:** `2s`.
+
+ *  <a href="#dns-handle_timeout" id="dns-handle_timeout" name="dns-handle_timeout">`handle_timeout`</a>:
+    The timeout for the entire handling of a single query, as a human-readable
+    duration.
+
+    **Example:** `1s`.
+
+ *  <a href="#dns-max_udp_response_size" id="dns-max_udp_response_size" name="dns-max_udp_response_size">`max_udp_response_size`</a>:
+    The maximum size of DNS response over UDP protocol.
+
+    **Example:** `1024B`.
+
+
+
 ##  <a href="#dnsdb" id="dnsdb" name="dnsdb">DNSDB</a>
 
-The `DNSDB` object has the following properties:
+The `dnsdb` object has the following properties:
 
  *  <a href="#dnsdb-enabled" id="dnsdb-enabled" name="dnsdb-enabled">`enabled`</a>:
     If true, the DNSDB memory buffer is enabled.
@@ -381,6 +467,13 @@ The `backend` object has the following properties:
     profile cache is also saved after a full refresh.
 
     **Example:** `24h`.
+
+ *  <a href="#backend-full_refresh_retry_interval" id="backend-full_refresh_retry_interval" name="backend-full_refresh_retry_interval">`full_refresh_retry_interval`</a>:
+    How long to wait before attempting a new full profile synchronization after
+    a failure, as a human-readable duration.  It is recommended to keep this
+    value greater than [`refresh_interval`](#backend-refresh_interval).
+
+    **Example:** `1h`.
 
  *  <a href="#backend-bill_stat_interval" id="backend-bill_stat_interval" name="backend-bill_stat_interval">`bill_stat_interval`</a>:
     How often AdGuard DNS sends the billing statistics to the backend, as
@@ -552,9 +645,9 @@ The optional `web` object has the following properties:
     The optional listen addresses and optional TLS configuration for the web
     service in addition to the ones in the DNS-over-HTTPS handlers.  The
     `certificates` array has the same format as the one in a server group's [TLS
-    settings](#sg-*-tls).  In the special case of `GET /robots.txt` requests, a
-    special response is served; this response could be overwritten with static
-    content.
+    settings](#server_groups-*-tls).  In the special case of `GET /robots.txt`
+    requests, a special response is served; this response could be overwritten
+    with static content.
 
     **Property example:**
 
@@ -604,7 +697,6 @@ The optional `web` object has the following properties:
     **Example:** `30s`.
 
 [http-block-pages]:     http.md#block-pages
-[http-dnscheck-test]:   http.md#dhscheck-test
 [http-linked-ip-proxy]: http.md#linked-ip-proxy
 
 
@@ -677,7 +769,7 @@ The `filters` object has the following properties:
  *  <a href="#filters-refresh_interval" id="filters-refresh_interval" name="filters-refresh_interval">`refresh_interval`</a>:
     How often AdGuard DNS refreshes the rule-list filters from the filter index,
     as well as the blocked services list from the [blocked list
-    index][env-blocked_services)].
+    index][env-blocked_services].
 
     **Example:** `1h`.
 

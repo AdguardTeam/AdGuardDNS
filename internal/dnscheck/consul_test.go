@@ -16,7 +16,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -110,10 +109,6 @@ func TestConsul_ServeHTTP(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	ctx = dnsserver.ContextWithServerInfo(ctx, dnsserver.ServerInfo{
-		Name:  theOnlyVal["server_name"].(string),
-		Proto: agd.ProtoDNS,
-	})
 
 	var resp *dns.Msg
 	resp, err = dnsCk.Check(
@@ -131,6 +126,7 @@ func TestConsul_ServeHTTP(t *testing.T) {
 			Host:        randomid + "-" + checkDomain,
 			RemoteIP:    testRemoteIP,
 			QType:       dns.TypeA,
+			Proto:       agd.ProtoDNS,
 		},
 	)
 	require.NoError(t, err)
@@ -221,7 +217,7 @@ func TestConsul_Check(t *testing.T) {
 	}}
 
 	conf := &dnscheck.ConsulConfig{
-		Messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, ttl*time.Second),
+		Messages: dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeNullIP{}, ttl*time.Second),
 		Domains:  []string{checkDomain},
 		IPv4:     []netip.Addr{netip.MustParseAddr("1.2.3.4")},
 		IPv6:     []netip.Addr{netip.MustParseAddr("1234::5678")},
@@ -231,10 +227,6 @@ func TestConsul_Check(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	ctx = dnsserver.ContextWithServerInfo(ctx, dnsserver.ServerInfo{
-		Name:  "test-server-name",
-		Proto: agd.ProtoDNS,
-	})
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -248,7 +240,8 @@ func TestConsul_Check(t *testing.T) {
 				Host:     tc.host,
 				RemoteIP: testRemoteIP,
 				QType:    tc.qtype,
-				Messages: dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, ttl*time.Second),
+				Messages: dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeNullIP{}, ttl*time.Second),
+				Proto:    agd.ProtoDNS,
 			}
 
 			resp, cErr := dnsCk.Check(ctx, req, ri)

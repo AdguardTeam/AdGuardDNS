@@ -7,10 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -60,13 +62,7 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		require.NoError(t, err)
 		require.Error(t, errCollErr)
 
-		// See the TODO in [blockingModeToInternal].
-		wantProf := newProfile(t)
-		wantProf.BlockingMode = dnsmsg.BlockingModeCodec{
-			Mode: &dnsmsg.BlockingModeNullIP{},
-		}
-
-		assert.Equal(t, wantProf, got)
+		assert.Equal(t, newProfile(t), got)
 		assert.Equal(t, newDevices(t), gotDevices)
 	})
 
@@ -127,31 +123,55 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		_, _, err := dp.toInternal(ctx, TestUpdTime, errColl)
 		testutil.AssertErrorMsg(t, "blocking mode: bad custom ipv6: unexpected slice size", err)
 	})
+
+	t.Run("nil_blocking_mode", func(t *testing.T) {
+		dp := NewTestDNSProfile(t)
+		dp.BlockingMode = nil
+
+		got, gotDevices, err := dp.toInternal(ctx, TestUpdTime, errColl)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+
+		wantProf := newProfile(t)
+		wantProf.BlockingMode = &dnsmsg.BlockingModeNullIP{}
+
+		assert.Equal(t, wantProf, got)
+		assert.Equal(t, newDevices(t), gotDevices)
+	})
+
+	t.Run("nil_access", func(t *testing.T) {
+		dp := NewTestDNSProfile(t)
+		dp.Access = nil
+
+		got, _, err := dp.toInternal(ctx, TestUpdTime, errColl)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+
+		assert.Equal(t, got.ID, testProfileID)
+		assert.IsType(t, access.EmptyProfile{}, got.Access)
+	})
+
+	t.Run("access_disabled", func(t *testing.T) {
+		dp := NewTestDNSProfile(t)
+		dp.Access = &AccessSettings{
+			Enabled: false,
+		}
+
+		got, _, err := dp.toInternal(ctx, TestUpdTime, errColl)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+
+		assert.Equal(t, got.ID, testProfileID)
+		assert.IsType(t, access.EmptyProfile{}, got.Access)
+	})
 }
 
-// newDNSProfileWithBadData returns a new instance of *DNSProfile with bad data
-// for tests.
+// newDNSProfileWithBadData returns a new instance of *DNSProfile with bad
+// devices data for tests.
 func newDNSProfileWithBadData(tb testing.TB) (dp *DNSProfile) {
 	tb.Helper()
 
-	dayRange := &DayRange{
-		Start: durationpb.New(0),
-		End:   durationpb.New(59 * time.Minute),
-	}
-
-	devices := []*DeviceSettings{{
-		Id:               "118ffe93",
-		Name:             "118ffe93-name",
-		FilteringEnabled: false,
-		LinkedIp:         ipToBytes(tb, netip.MustParseAddr("1.1.1.1")),
-		DedicatedIps:     [][]byte{ipToBytes(tb, netip.MustParseAddr("1.1.1.2"))},
-	}, {
-		Id:               "b9e1a762",
-		Name:             "b9e1a762-name",
-		FilteringEnabled: true,
-		LinkedIp:         ipToBytes(tb, netip.MustParseAddr("2.2.2.2")),
-		DedicatedIps:     nil,
-	}, {
+	invalidDevices := []*DeviceSettings{{
 		Id:               "invalid-too-long-device-id",
 		Name:             "device_name",
 		FilteringEnabled: true,
@@ -179,45 +199,10 @@ func newDNSProfileWithBadData(tb testing.TB) (dp *DNSProfile) {
 		DedicatedIps:     [][]byte{[]byte("1")},
 	}}
 
-	return &DNSProfile{
-		DnsId:            string(testProfileID),
-		FilteringEnabled: true,
-		QueryLogEnabled:  true,
-		Deleted:          false,
-		SafeBrowsing: &SafeBrowsingSettings{
-			Enabled:               true,
-			BlockDangerousDomains: true,
-			BlockNrd:              false,
-		},
-		Parental: &ParentalSettings{
-			Enabled:           false,
-			BlockAdult:        false,
-			GeneralSafeSearch: false,
-			YoutubeSafeSearch: false,
-			BlockedServices:   []string{"youtube", "inv_blocked_svc\r"},
-			Schedule: &ScheduleSettings{
-				Tmz: "GMT",
-				WeeklyRange: &WeeklyRange{
-					Sun: nil,
-					Mon: dayRange,
-					Tue: dayRange,
-					Wed: dayRange,
-					Thu: dayRange,
-					Fri: dayRange,
-					Sat: nil,
-				},
-			},
-		},
-		RuleLists: &RuleListsSettings{
-			Enabled: true,
-			Ids:     []string{"1", "inv_filter_id\r"},
-		},
-		Devices:             devices,
-		CustomRules:         []string{"||example.org^"},
-		FilteredResponseTtl: durationpb.New(10 * time.Second),
-		BlockPrivateRelay:   true,
-		BlockFirefoxCanary:  true,
-	}
+	dp = NewTestDNSProfile(tb)
+	dp.Devices = append(dp.Devices, invalidDevices...)
+
+	return dp
 }
 
 // NewTestDNSProfile returns a new instance of *DNSProfile for tests.
@@ -281,11 +266,26 @@ func NewTestDNSProfile(tb testing.TB) (dp *DNSProfile) {
 		FilteredResponseTtl: durationpb.New(10 * time.Second),
 		BlockPrivateRelay:   true,
 		BlockFirefoxCanary:  true,
+		IpLogEnabled:        true,
 		BlockingMode: &DNSProfile_BlockingModeCustomIp{
 			BlockingModeCustomIp: &BlockingModeCustomIP{
 				Ipv4: ipToBytes(tb, netip.MustParseAddr("1.2.3.4")),
 				Ipv6: ipToBytes(tb, netip.MustParseAddr("1234::cdef")),
 			},
+		},
+		Access: &AccessSettings{
+			AllowlistCidr: []*CidrRange{{
+				Address: netip.MustParseAddr("1.1.1.0").AsSlice(),
+				Prefix:  24,
+			}},
+			BlocklistCidr: []*CidrRange{{
+				Address: netip.MustParseAddr("2.2.2.0").AsSlice(),
+				Prefix:  24,
+			}},
+			AllowlistAsn:         []uint32{1},
+			BlocklistAsn:         []uint32{2},
+			BlocklistDomainRules: []string{"block.test"},
+			Enabled:              true,
 		},
 	}
 }
@@ -328,12 +328,18 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 		BlockNewlyRegisteredDomains: false,
 	}
 
-	wantBlockingMode := dnsmsg.BlockingModeCodec{
-		Mode: &dnsmsg.BlockingModeCustomIP{
-			IPv4: netip.MustParseAddr("1.2.3.4"),
-			IPv6: netip.MustParseAddr("1234::cdef"),
-		},
+	wantBlockingMode := &dnsmsg.BlockingModeCustomIP{
+		IPv4: netip.MustParseAddr("1.2.3.4"),
+		IPv6: netip.MustParseAddr("1234::cdef"),
 	}
+
+	wantAccess := access.NewDefaultProfile(&access.ProfileConfig{
+		AllowedNets:          []netip.Prefix{netip.MustParsePrefix("1.1.1.0/24")},
+		BlockedNets:          []netip.Prefix{netip.MustParsePrefix("2.2.2.0/24")},
+		AllowedASN:           []geoip.ASN{1},
+		BlockedASN:           []geoip.ASN{2},
+		BlocklistDomainRules: []string{"block.test"},
+	})
 
 	return &agd.Profile{
 		Parental:     wantParental,
@@ -348,12 +354,14 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 		CustomRules:         []agd.FilterRuleText{"||example.org^"},
 		FilteredResponseTTL: 10 * time.Second,
 		SafeBrowsing:        wantSafeBrowsing,
+		Access:              wantAccess,
 		RuleListsEnabled:    true,
 		FilteringEnabled:    true,
 		QueryLogEnabled:     true,
 		Deleted:             false,
 		BlockPrivateRelay:   true,
 		BlockFirefoxCanary:  true,
+		IPLogEnabled:        true,
 	}
 }
 
@@ -390,30 +398,30 @@ func TestSyncTimeFromTrailer(t *testing.T) {
 	milliseconds := strconv.FormatInt(TestUpdTime.UnixMilli(), 10)
 
 	testCases := []struct {
+		in        metadata.MD
 		wantError string
 		want      time.Time
 		name      string
-		in        metadata.MD
 	}{{
+		in:        metadata.MD{},
 		wantError: "empty value",
 		want:      time.Time{},
 		name:      "no_key",
-		in:        metadata.MD{},
 	}, {
+		in:        metadata.MD{"sync_time": []string{}},
 		wantError: "empty value",
 		want:      time.Time{},
 		name:      "empty_key",
-		in:        metadata.MD{"sync_time": []string{}},
 	}, {
+		in:        metadata.MD{"sync_time": []string{""}},
 		wantError: `invalid value: strconv.ParseInt: parsing "": invalid syntax`,
 		want:      time.Time{},
 		name:      "empty_value",
-		in:        metadata.MD{"sync_time": []string{""}},
 	}, {
+		in:        metadata.MD{"sync_time": []string{milliseconds}},
 		wantError: "",
 		want:      TestUpdTime,
 		name:      "success",
-		in:        metadata.MD{"sync_time": []string{milliseconds}},
 	}}
 
 	for _, tc := range testCases {

@@ -21,6 +21,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TODO(ameshkov, a.garipov):  Move into the corresponding files.
+
 func BenchmarkServeDNS(b *testing.B) {
 	testCases := []struct {
 		name    string
@@ -150,37 +152,29 @@ func BenchmarkServeTLS(b *testing.B) {
 
 func BenchmarkServeDoH(b *testing.B) {
 	testCases := []struct {
+		tlsConfig    *tls.Config
 		name         string
 		https        bool
 		http3Enabled bool
 	}{{
+		tlsConfig:    dnsservertest.CreateServerTLSConfig("example.org"),
 		name:         "doh2",
-		https:        true,
 		http3Enabled: false,
 	}, {
+		tlsConfig:    dnsservertest.CreateServerTLSConfig("example.org"),
 		name:         "doh3",
-		https:        true,
 		http3Enabled: true,
 	}, {
+		tlsConfig:    nil,
 		name:         "plain_http",
-		https:        true,
 		http3Enabled: true,
 	}}
 
 	for _, tc := range testCases {
 		b.Run(tc.name, func(b *testing.B) {
-			proto := "https"
-			if !tc.https {
-				proto = "http"
-			}
-
-			var tlsConfig *tls.Config
-			if tc.https {
-				tlsConfig = dnsservertest.CreateServerTLSConfig("example.org")
-			}
 			srv, err := dnsservertest.RunLocalHTTPSServer(
 				dnsservertest.DefaultHandler(),
-				tlsConfig,
+				tc.tlsConfig,
 				nil,
 			)
 			require.NoError(b, err)
@@ -190,9 +184,10 @@ func BenchmarkServeDoH(b *testing.B) {
 			})
 
 			// Prepare a test message.
-			m := new(dns.Msg)
-			m.SetQuestion("example.org.", dns.TypeA)
-			data, _ := m.Pack()
+			m := (&dns.Msg{}).SetQuestion("example.org.", dns.TypeA)
+			data, err := m.Pack()
+			require.NoError(b, err)
+
 			msg := make([]byte, 2+len(data))
 			binary.BigEndian.PutUint16(msg, uint16(len(data)))
 			copy(msg[2:], data)
@@ -203,11 +198,11 @@ func BenchmarkServeDoH(b *testing.B) {
 				addr = srv.LocalUDPAddr()
 			}
 
-			client, err := createDoHClient(addr, tlsConfig)
+			client, err := newDoHClient(addr, tc.tlsConfig)
 			require.NoError(b, err)
 
 			// Prepare http.Request.
-			req, err := createDoHRequest(proto, http.MethodPost, m)
+			req, err := newDoHRequest(http.MethodPost, m, tc.tlsConfig != nil)
 			require.NoError(b, err)
 
 			b.ReportAllocs()
@@ -219,11 +214,12 @@ func BenchmarkServeDoH(b *testing.B) {
 
 				var buf []byte
 				buf, err = io.ReadAll(res.Body)
-				_ = res.Body.Close()
+				require.NoError(b, err)
+
+				err = res.Body.Close()
 				require.NoError(b, err)
 				require.GreaterOrEqual(b, len(buf), dnsserver.DNSHeaderSize)
 			}
-			b.StopTimer()
 		})
 	}
 }
@@ -317,9 +313,7 @@ func BenchmarkServeQUIC(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		var resp *dns.Msg
-		resp, err = sendQUICMessage(sess, req, false)
-		require.NoError(b, err)
+		resp := sendQUICMessage(b, sess, req, false)
 		require.NotNil(b, resp)
 		require.True(b, resp.Response)
 	}

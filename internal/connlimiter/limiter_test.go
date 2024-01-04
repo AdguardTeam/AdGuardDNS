@@ -23,7 +23,7 @@ func TestMain(m *testing.M) {
 const testTimeout = 1 * time.Second
 
 // testServerInfo is the common server information for tests.
-var testServerInfo = dnsserver.ServerInfo{
+var testServerInfo = &dnsserver.ServerInfo{
 	Name:  "test_server",
 	Addr:  "127.0.0.1:0",
 	Proto: agd.ProtoDoT,

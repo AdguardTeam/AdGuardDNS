@@ -46,15 +46,13 @@ func TestLogMiddleware_Wrap(t *testing.T) {
 	// Add server and request info to the context
 	ctx := dnsserver.ContextWithServerInfo(
 		context.Background(),
-		dnsserver.ServerInfo{
+		&dnsserver.ServerInfo{
 			Name:  "test",
 			Addr:  "0.0.0.0:53",
 			Proto: dnsserver.ProtoDNS,
 		})
-	ctx = dnsserver.ContextWithStartTime(ctx, time.Now().Add(-time.Second))
-	ctx = dnsserver.ContextWithRequestInfo(ctx, dnsserver.RequestInfo{
-		RequestSize:  req.Len(),
-		ResponseSize: req.Len(),
+	ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
+		StartTime: time.Now().Add(-time.Second),
 	})
 
 	// Init response writer with test data

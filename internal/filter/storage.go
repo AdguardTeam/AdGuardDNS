@@ -12,6 +12,9 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/composite"
@@ -72,7 +75,7 @@ type DefaultStorage struct {
 
 	// errColl used to collect non-critical and rare errors, for example caching
 	// errors.
-	errColl agd.ErrorCollector
+	errColl errcoll.Interface
 
 	// customFilters is the storage of custom filters for profiles.
 	customFilters *custom.Filters
@@ -91,7 +94,7 @@ type DefaultStorage struct {
 
 	// maxRuleListSize is the maximum size in bytes of the downloadable
 	// rule-list content.
-	maxRuleListSize int64
+	maxRuleListSize uint64
 
 	// useRuleListCache, if true, enables rule list cache.
 	useRuleListCache bool
@@ -141,10 +144,13 @@ type DefaultStorageConfig struct {
 	Now func() (now time.Time)
 
 	// ErrColl is used to collect non-critical and rare errors.
-	ErrColl agd.ErrorCollector
+	ErrColl errcoll.Interface
 
 	// Resolver is used to resolve hosts in safe search.
 	Resolver agdnet.Resolver
+
+	// Cloner is used to clone messages taken from filtering-result caches.
+	Cloner *dnsmsg.Cloner
 
 	// CacheDir is the path to the directory where the cached filter files are
 	// put.  The directory must exist.
@@ -178,12 +184,13 @@ type DefaultStorageConfig struct {
 
 	// MaxRuleListSize is the maximum size in bytes of the downloadable
 	// rule-list content.
-	MaxRuleListSize int64
+	MaxRuleListSize uint64
 }
 
 // NewDefaultStorage returns a new filter storage.  c must not be nil.
 func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage, err error) {
 	genSafeSearch := safesearch.New(&safesearch.Config{
+		Cloner: c.Cloner,
 		Refreshable: &internal.RefreshableConfig{
 			URL:       c.GeneralSafeSearchRulesURL,
 			ID:        agd.FilterListIDGeneralSafeSearch,
@@ -200,6 +207,7 @@ func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage, err error) {
 	})
 
 	ytSafeSearch := safesearch.New(&safesearch.Config{
+		Cloner: c.Cloner,
 		Refreshable: &internal.RefreshableConfig{
 			URL:       c.YoutubeSafeSearchRulesURL,
 			ID:        agd.FilterListIDYoutubeSafeSearch,
@@ -462,13 +470,13 @@ func (s *DefaultStorage) HasListID(id agd.FilterListID) (ok bool) {
 }
 
 // type check
-var _ agd.Refresher = (*DefaultStorage)(nil)
+var _ agdservice.Refresher = (*DefaultStorage)(nil)
 
 // strgLogPrefix is the logging prefix for reportable errors and logs that
 // DefaultStorage.Refresh uses.
 const strgLogPrefix = "filter storage: refresh"
 
-// Refresh implements the agd.Refresher interface for *DefaultStorage.
+// Refresh implements the [agdservice.Refresher] interface for *DefaultStorage.
 func (s *DefaultStorage) Refresh(ctx context.Context) (err error) {
 	return s.refresh(ctx, false)
 }
@@ -499,7 +507,7 @@ func (s *DefaultStorage) refresh(ctx context.Context, acceptStale bool) (err err
 	err = s.services.Refresh(ctx, s.ruleListCacheSize, s.useRuleListCache, acceptStale)
 	if err != nil {
 		const errFmt = "refreshing blocked services: %w"
-		agd.Collectf(ctx, s.errColl, errFmt, err)
+		errcoll.Collectf(ctx, s.errColl, errFmt, err)
 
 		return fmt.Errorf(errFmt, err)
 	}
@@ -528,7 +536,7 @@ func (s *DefaultStorage) addRuleList(
 	acceptStale bool,
 ) {
 	if _, ok := ruleLists[fl.id]; ok {
-		agd.Collectf(ctx, s.errColl, "%s: duplicated id %q", strgLogPrefix, fl.id)
+		errcoll.Collectf(ctx, s.errColl, "%s: duplicated id %q", strgLogPrefix, fl.id)
 
 		return
 	}
@@ -558,7 +566,7 @@ func (s *DefaultStorage) addRuleList(
 		return
 	}
 
-	agd.Collectf(ctx, s.errColl, "%s: refreshing %q: %w", strgLogPrefix, fl.id, err)
+	errcoll.Collectf(ctx, s.errColl, "%s: refreshing %q: %w", strgLogPrefix, fl.id, err)
 	metrics.FilterUpdatedStatus.WithLabelValues(fltIDStr).Set(0)
 
 	// If we can't get the new filter, and there is an old version of the same

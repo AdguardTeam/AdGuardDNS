@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
@@ -20,7 +21,7 @@ type indexResp struct {
 // toInternal converts the services from the index to serviceRuleLists.
 func (r *indexResp) toInternal(
 	ctx context.Context,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 	cacheSize int,
 	useCache bool,
 ) (services serviceRuleLists, err error) {
@@ -64,7 +65,7 @@ type indexRespService struct {
 // toInternal converts the service from the index to a rule-list filter.
 func (svc *indexRespService) toInternal(
 	ctx context.Context,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 	cacheSize int,
 	useCache bool,
 ) (svcID agd.BlockedServiceID, rl *rulelist.Immutable, err error) {

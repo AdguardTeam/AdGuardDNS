@@ -33,6 +33,9 @@ type configuration struct {
 	// DNSDB is the configuration of DNSDB buffer.
 	DNSDB *dnsDBConfig `yaml:"dnsdb"`
 
+	// DNSDB is the configuration of common DNS settings.
+	DNS *dnsConfig `yaml:"dns"`
+
 	// Backend is the AdGuard HTTP backend service configuration.  See the
 	// environments type for more backend parameters.
 	Backend *backendConfig `yaml:"backend"`
@@ -123,6 +126,9 @@ func (c *configuration) validate() (err error) {
 	}, {
 		validate: c.DNSDB.validate,
 		name:     "dnsdb",
+	}, {
+		validate: c.DNS.validate,
+		name:     "dns",
 	}, {
 		validate: c.Backend.validate,
 		name:     "backend",

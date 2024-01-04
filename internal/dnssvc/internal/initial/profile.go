@@ -19,7 +19,7 @@ func (mw *Middleware) addProfile(
 	ctx context.Context,
 	ri *agd.RequestInfo,
 	req *dns.Msg,
-	localIP netip.Addr,
+	localAddr netip.AddrPort,
 ) (err error) {
 	defer func() { err = errors.Annotate(err, "getting profile from req: %w") }()
 
@@ -39,9 +39,9 @@ func (mw *Middleware) addProfile(
 		return err
 	}
 
-	optlog.Debug3("init mw: got device id %q, raddr %s, and laddr %s", id, ri.RemoteIP, localIP)
+	optlog.Debug3("init mw: got device id %q, raddr %s, and laddr %s", id, ri.RemoteIP, localAddr)
 
-	prof, dev, byWhat, err := mw.profile(ctx, localIP, ri.RemoteIP, id)
+	prof, dev, byWhat, err := mw.profile(ctx, localAddr, ri.RemoteIP, id)
 	if err != nil {
 		if !errors.Is(err, profiledb.ErrDeviceNotFound) {
 			// Very unlikely, since there is only one error type currently
@@ -56,7 +56,10 @@ func (mw *Middleware) addProfile(
 		optlog.Debug3("init mw: found profile %s and device %s by %s", prof.ID, dev.ID, byWhat)
 
 		ri.Device, ri.Profile = dev, prof
-		ri.Messages = dnsmsg.NewConstructor(prof.BlockingMode.Mode, prof.FilteredResponseTTL)
+
+		// TODO(a.garipov): Consider using the global cloner here once it is
+		// tested and optimized.
+		ri.Messages = dnsmsg.NewConstructor(nil, prof.BlockingMode, prof.FilteredResponseTTL)
 	}
 
 	return nil
@@ -69,10 +72,14 @@ const (
 	byLinkedIP    = "linked ip"
 )
 
+// errUnknownDedicated is returned by [Middleware.profile] if the request should
+// be dropped, because it's a request for an unknown dedicated IP address.
+const errUnknownDedicated errors.Error = "drop"
+
 // profile finds the profile by the client data.
 func (mw *Middleware) profile(
 	ctx context.Context,
-	localIP netip.Addr,
+	localAddr netip.AddrPort,
 	remoteIP netip.Addr,
 	id agd.DeviceID,
 ) (prof *agd.Profile, dev *agd.Device, byWhat string, err error) {
@@ -85,26 +92,40 @@ func (mw *Middleware) profile(
 		return prof, dev, byDeviceID, nil
 	}
 
+	if mw.srv.Protocol == agd.ProtoDNS {
+		return mw.profileByAddrs(ctx, localAddr, remoteIP)
+	}
+
+	return nil, nil, "", profiledb.ErrDeviceNotFound
+}
+
+// profileByAddrs finds the profile by the remote and local addresses.
+func (mw *Middleware) profileByAddrs(
+	ctx context.Context,
+	localAddr netip.AddrPort,
+	remoteIP netip.Addr,
+) (prof *agd.Profile, dev *agd.Device, byWhat string, err error) {
+	if mw.srv.BindsToInterfaces() && !mw.srv.HasAddr(localAddr) {
+		prof, dev, err = mw.db.ProfileByDedicatedIP(ctx, localAddr.Addr())
+		if err == nil {
+			return prof, dev, byDedicatedIP, nil
+		} else if errors.Is(err, profiledb.ErrDeviceNotFound) {
+			optlog.Debug1("init mw: unknown dedicated ip for server %s; dropping", mw.srv.Name)
+
+			err = errUnknownDedicated
+		}
+
+		return nil, nil, "", err
+	}
+
 	if !mw.srv.LinkedIPEnabled {
-		optlog.Debug1("init mw: not matching by linked or dedicated ip for server %s", mw.srv.Name)
-
-		return nil, nil, "", profiledb.ErrDeviceNotFound
-	} else if p := mw.srv.Protocol; p != agd.ProtoDNS {
-		optlog.Debug1("init mw: not matching by linked or dedicated ip for proto %v", p)
-
 		return nil, nil, "", profiledb.ErrDeviceNotFound
 	}
 
-	byWhat = byDedicatedIP
-	prof, dev, err = mw.db.ProfileByDedicatedIP(ctx, localIP)
-	if errors.Is(err, profiledb.ErrDeviceNotFound) {
-		byWhat = byLinkedIP
-		prof, dev, err = mw.db.ProfileByLinkedIP(ctx, remoteIP)
-	}
-
+	prof, dev, err = mw.db.ProfileByLinkedIP(ctx, remoteIP)
 	if err != nil {
 		return nil, nil, "", err
 	}
 
-	return prof, dev, byWhat, nil
+	return prof, dev, byLinkedIP, nil
 }

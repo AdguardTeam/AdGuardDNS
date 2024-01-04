@@ -1,7 +1,8 @@
-// Package initial contains the initial, outermost (except for ratelimit)
-// middleware of the AdGuard DNS server.  It filters out the Firefox canary
-// domain logic, sets and resets the AD bit for further processing, as well as
-// puts as much information as it can into the context and request info.
+// Package initial contains the initial, outermost (except for ratelimit and
+// access) middleware of the AdGuard DNS server.  It handles Firefox canary
+// hosts requests, applies profile access restrictions, sets and resets the AD
+// bit for further processing, as well as puts as much information as it can
+// into the context and request info.
 package initial
 
 import (
@@ -12,20 +13,23 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdsync"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/miekg/dns"
 )
 
 // Middleware is the initial middleware of the AdGuard DNS server.  This
-// middleware must be the most outer middleware apart from the ratelimit one.
+// middleware must be the most outer middleware apart from the ratelimit and
+// global access middlewares.
 type Middleware struct {
 	// messages is used to build the responses specific for the request's
 	// context.
@@ -41,7 +45,7 @@ type Middleware struct {
 	srv *agd.Server
 
 	// pool is the pool of [agd.RequestInfo] values.
-	pool *agdsync.TypedPool[agd.RequestInfo]
+	pool *syncutil.Pool[agd.RequestInfo]
 
 	// db is the database of user profiles and devices.
 	db profiledb.Interface
@@ -50,13 +54,13 @@ type Middleware struct {
 	geoIP geoip.Interface
 
 	// errColl collects and reports the errors considered non-critical.
-	errColl agd.ErrorCollector
+	errColl errcoll.Interface
 }
 
 // Config is the configuration structure for the initial middleware.  All fields
 // must be non-nil.
 type Config struct {
-	// messages is used to build the responses specific for a request's context.
+	// Messages is used to build the responses specific for a request's context.
 	Messages *dnsmsg.Constructor
 
 	// FilteringGroup is the filtering group to which Server belongs.
@@ -75,7 +79,7 @@ type Config struct {
 	GeoIP geoip.Interface
 
 	// ErrColl collects and reports the errors considered non-critical.
-	ErrColl agd.ErrorCollector
+	ErrColl errcoll.Interface
 }
 
 // New returns a new initial middleware.  c must not be nil.
@@ -85,7 +89,7 @@ func New(c *Config) (mw *Middleware) {
 		fltGrp:   c.FilteringGroup,
 		srvGrp:   c.ServerGroup,
 		srv:      c.Server,
-		pool: agdsync.NewTypedPool(func() (v *agd.RequestInfo) {
+		pool: syncutil.NewPool(func() (v *agd.RequestInfo) {
 			return &agd.RequestInfo{}
 		}),
 		db:      c.ProfileDB,
@@ -110,14 +114,10 @@ func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
 		reqDO := dnsmsg.IsDO(req)
 		req.AuthenticatedData = true
 
-		// Assume that module dnsserver has already validated that the request
-		// always has exactly one question for us.
-		q := req.Question[0]
-		qt := q.Qtype
-		cl := q.Qclass
+		rAddr := netutil.NetAddrToAddrPort(rw.RemoteAddr())
 
 		// Get the request's information, such as GeoIP data and user profiles.
-		ri, err := mw.newRequestInfo(ctx, req, rw.LocalAddr(), rw.RemoteAddr(), q.Name, qt, cl)
+		ri, err := mw.newRequestInfo(ctx, req, rw.LocalAddr(), rAddr)
 		if err != nil {
 			// Don't wrap the error, because this is the main flow, and there is
 			// already [errors.Annotate] here.
@@ -125,7 +125,15 @@ func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
 		}
 		defer mw.pool.Put(ri)
 
-		if specHdlr, name := mw.reqInfoSpecialHandler(ri, cl); specHdlr != nil {
+		// Apply profile access restrictions.
+		if isBlockedByProfileAccess(ri, req, rAddr) {
+			optlog.Debug1("init mw: access: profile: req %q blocked", ri.ID)
+			metrics.AccessBlockedForProfileTotal.Inc()
+
+			return nil
+		}
+
+		if specHdlr, name := mw.reqInfoSpecialHandler(ri); specHdlr != nil {
 			optlog.Debug1("init mw: got req-info special handler %s", name)
 
 			// Don't wrap the error, because it's informative enough as is, and
@@ -167,11 +175,8 @@ func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
 func (mw *Middleware) newRequestInfo(
 	ctx context.Context,
 	req *dns.Msg,
-	laddr net.Addr,
-	raddr net.Addr,
-	fqdn string,
-	qt dnsmsg.RRType,
-	cl dnsmsg.Class,
+	lAddr net.Addr,
+	rAddr netip.AddrPort,
 ) (ri *agd.RequestInfo, err error) {
 	ri = mw.pool.Get()
 
@@ -193,12 +198,17 @@ func (mw *Middleware) newRequestInfo(
 	// immediately.
 	ri.FilteringGroup = mw.fltGrp
 	ri.Messages = mw.messages
-	ri.RemoteIP = netutil.NetAddrToAddrPort(raddr).Addr()
+	ri.RemoteIP = rAddr.Addr()
 	ri.ServerGroup = mw.srvGrp.Name
 	ri.Server = mw.srv.Name
-	ri.Host = agdnet.NormalizeDomain(fqdn)
-	ri.QType = qt
-	ri.QClass = cl
+	ri.Proto = mw.srv.Protocol
+
+	// Assume that module dnsserver has already validated that the request
+	// always has exactly one question for us.
+	q := req.Question[0]
+	ri.Host = agdnet.NormalizeDomain(q.Name)
+	ri.QType = q.Qtype
+	ri.QClass = q.Qclass
 
 	// As an optimization, put the request ID closer to the top of the context
 	// stack.
@@ -212,8 +222,8 @@ func (mw *Middleware) newRequestInfo(
 	}
 
 	// Add the profile information, if any.
-	localIP := netutil.NetAddrToAddrPort(laddr).Addr()
-	err = mw.addProfile(ctx, ri, req, localIP)
+	localAddr := netutil.NetAddrToAddrPort(lAddr)
+	err = mw.addProfile(ctx, ri, req, localAddr)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
@@ -244,11 +254,15 @@ func (mw *Middleware) addLocation(ctx context.Context, ri *agd.RequestInfo, req 
 
 // locationData returns the GeoIP location information about the IP address.
 // typ is the type of data being requested for error reporting and logging.
-func (mw *Middleware) locationData(ctx context.Context, ip netip.Addr, typ string) (l *agd.Location) {
+func (mw *Middleware) locationData(
+	ctx context.Context,
+	ip netip.Addr,
+	typ string,
+) (l *geoip.Location) {
 	l, err := mw.geoIP.Data("", ip)
 	if err != nil {
 		// Consider GeoIP errors non-critical.  Report and go on.
-		agd.Collectf(ctx, mw.errColl, "init mw: getting geoip for %s ip: %w", typ, err)
+		errcoll.Collectf(ctx, mw.errColl, "init mw: getting geoip for %s ip: %w", typ, err)
 	}
 
 	if l == nil {
@@ -268,6 +282,14 @@ func (mw *Middleware) processReqInfoErr(
 	req *dns.Msg,
 	origErr error,
 ) (err error) {
+	if errors.Is(origErr, errUnknownDedicated) {
+		metrics.DNSSvcUnknownDedicatedTotal.Inc()
+
+		// The request is dropped by the profile search.  Don't write anything
+		// and just return.
+		return nil
+	}
+
 	var ecsErr dnsmsg.BadECSError
 	if errors.As(origErr, &ecsErr) {
 		// We've got a bad ECS option.  Log and respond with a FORMERR
@@ -281,4 +303,15 @@ func (mw *Middleware) processReqInfoErr(
 	}
 
 	return origErr
+}
+
+// isBlockedByProfileAccess returns true if req is blocked by profile access
+// settings.
+func isBlockedByProfileAccess(
+	ri *agd.RequestInfo,
+	req *dns.Msg,
+	rAddr netip.AddrPort,
+) (blocked bool) {
+	return ri.Profile != nil &&
+		ri.Profile.Access.IsBlocked(req, rAddr, ri.Location)
 }

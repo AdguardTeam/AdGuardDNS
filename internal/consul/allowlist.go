@@ -10,8 +10,8 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
@@ -48,9 +48,10 @@ func NewAllowlistRefresher(
 }
 
 // type check
-var _ agd.Refresher = (*AllowlistRefresher)(nil)
+var _ agdservice.Refresher = (*AllowlistRefresher)(nil)
 
-// Refresh implements the agd.Refresher interface for *AllowlistRefresher.
+// Refresh implements the [agdservice.Refresher] interface for
+// *AllowlistRefresher.
 func (l *AllowlistRefresher) Refresh(ctx context.Context) (err error) {
 	defer func() {
 		metrics.ConsulAllowlistUpdateTime.SetToCurrentTime()

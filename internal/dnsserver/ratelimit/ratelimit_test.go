@@ -92,7 +92,7 @@ func TestRatelimitMiddleware(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			rl := ratelimit.NewBackOff(&ratelimit.BackOffConfig{
+			rl := ratelimit.NewBackoff(&ratelimit.BackoffConfig{
 				Allowlist:            ratelimit.NewDynamicAllowlist(persistent, nil),
 				Period:               time.Minute,
 				Duration:             time.Minute,
@@ -114,13 +114,14 @@ func TestRatelimitMiddleware(t *testing.T) {
 				rlMw,
 			)
 
-			ctx := dnsserver.ContextWithServerInfo(context.Background(), dnsserver.ServerInfo{
+			ctx := dnsserver.ContextWithServerInfo(context.Background(), &dnsserver.ServerInfo{
 				Name:  "test",
 				Addr:  "127.0.0.1",
 				Proto: dnsserver.ProtoDNS,
 			})
-			ctx = dnsserver.ContextWithStartTime(ctx, time.Now())
-			ctx = dnsserver.ContextWithClientInfo(ctx, dnsserver.ClientInfo{})
+			ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
+				StartTime: time.Now(),
+			})
 
 			n := 0
 			for i := 0; i < tc.reqsNum; i++ {

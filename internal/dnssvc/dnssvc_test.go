@@ -2,7 +2,6 @@ package dnssvc_test
 
 import (
 	"context"
-	"crypto/tls"
 	"net"
 	"net/http"
 	"net/netip"
@@ -10,11 +9,13 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -25,13 +26,14 @@ func TestMain(m *testing.M) {
 	testutil.DiscardLogOutput(m)
 }
 
-// type check
-var _ agd.Refresher = (*forward.Handler)(nil)
+const (
 
-// Test Mocks
+	// testSrvGrpName is the [agd.ServerGroupName] for tests.
+	testSrvGrpName agd.ServerGroupName = "test_group"
+)
 
 // type check
-var _ dnssvc.Listener = (*testListener)(nil)
+var _ agdservice.Refresher = (*forward.Handler)(nil)
 
 // testListener is a [dnssvc.Listener] for tests.
 type testListener struct {
@@ -44,6 +46,9 @@ type testListener struct {
 	onLocalTCPAddr func() (addr net.Addr)
 	onLocalUDPAddr func() (addr net.Addr)
 }
+
+// type check
+var _ dnssvc.Listener = (*testListener)(nil)
 
 // Name implements the [dnsserver.Server] interface for *testListener.
 func (l *testListener) Name() (name string) {
@@ -105,12 +110,8 @@ func newTestListener() (tl *testListener) {
 func newTestListenerFunc(tl *testListener) (f dnssvc.NewListenerFunc) {
 	return func(
 		_ *agd.Server,
-		_ string,
-		_ string,
-		_ dnsserver.Handler,
+		_ dnsserver.ConfigBase,
 		_ http.Handler,
-		_ agd.ErrorCollector,
-		_ netext.ListenConfig,
 	) (l dnssvc.Listener, err error) {
 		return tl, nil
 	}
@@ -141,8 +142,6 @@ func (rw *testResponseWriter) WriteMsg(ctx context.Context, req, resp *dns.Msg) 
 	return rw.onWriteMsg(ctx, req, resp)
 }
 
-// Tests
-
 func TestService_Start(t *testing.T) {
 	var numStart, numShutdown atomic.Uint64
 
@@ -158,13 +157,9 @@ func TestService_Start(t *testing.T) {
 		return nil
 	}
 
-	srv := &agd.Server{
-		Name: "test_server",
-		BindData: []*agd.ServerBindData{{
-			AddrPort: netip.MustParseAddrPort("127.0.0.1:53"),
-		}},
-		Protocol: agd.ProtoDNS,
-	}
+	srv := dnssvctest.NewServer(dnssvctest.ServerName, agd.ProtoDNS, &agd.ServerBindData{
+		AddrPort: netip.MustParseAddrPort("127.0.0.1:53"),
+	})
 
 	c := &dnssvc.Config{
 		NewListener: newTestListenerFunc(tl),
@@ -179,60 +174,36 @@ func TestService_Start(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NotPanics(t, func() {
-		err = svc.Start()
+		err = svc.Start(agdtest.ContextWithTimeout(t, dnssvctest.Timeout))
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(1), numStart.Load())
 	})
 
 	require.NotPanics(t, func() {
-		err = svc.Shutdown(context.Background())
+		err = svc.Shutdown(agdtest.ContextWithTimeout(t, dnssvctest.Timeout))
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(1), numShutdown.Load())
 	})
 }
 
 func TestNew(t *testing.T) {
-	srvs := []*agd.Server{{
-		DNSCrypt: nil,
-		TLS:      nil,
-		Name:     "test_server_dns",
-		BindData: []*agd.ServerBindData{{
+	srvs := []*agd.Server{
+		dnssvctest.NewServer("test_server_dns", agd.ProtoDNS, &agd.ServerBindData{
 			AddrPort: netip.MustParseAddrPort("127.0.0.1:53"),
-		}},
-		Protocol: agd.ProtoDNS,
-	}, {
-		DNSCrypt: &agd.DNSCryptConfig{},
-		TLS:      nil,
-		Name:     "test_server_dnscrypt_tcp",
-		BindData: []*agd.ServerBindData{{
+		}),
+		dnssvctest.NewServer("test_server_dnscrypt_tcp", agd.ProtoDNSCrypt, &agd.ServerBindData{
 			AddrPort: netip.MustParseAddrPort("127.0.0.1:8853"),
-		}},
-		Protocol: agd.ProtoDNSCrypt,
-	}, {
-		DNSCrypt: nil,
-		TLS:      &tls.Config{},
-		Name:     "test_server_doh",
-		BindData: []*agd.ServerBindData{{
+		}),
+		dnssvctest.NewServer("test_server_doh", agd.ProtoDoH, &agd.ServerBindData{
 			AddrPort: netip.MustParseAddrPort("127.0.0.1:443"),
-		}},
-		Protocol: agd.ProtoDoH,
-	}, {
-		DNSCrypt: nil,
-		TLS:      &tls.Config{},
-		Name:     "test_server_doq",
-		BindData: []*agd.ServerBindData{{
+		}),
+		dnssvctest.NewServer("test_server_doq", agd.ProtoDoQ, &agd.ServerBindData{
 			AddrPort: netip.MustParseAddrPort("127.0.0.1:853"),
-		}},
-		Protocol: agd.ProtoDoQ,
-	}, {
-		DNSCrypt: nil,
-		TLS:      &tls.Config{},
-		Name:     "test_server_dot",
-		BindData: []*agd.ServerBindData{{
+		}),
+		dnssvctest.NewServer("test_server_dot", agd.ProtoDoT, &agd.ServerBindData{
 			AddrPort: netip.MustParseAddrPort("127.0.0.1:853"),
-		}},
-		Protocol: agd.ProtoDoT,
-	}}
+		}),
+	}
 
 	c := &dnssvc.Config{
 		Handler: dnsservertest.DefaultHandler(),

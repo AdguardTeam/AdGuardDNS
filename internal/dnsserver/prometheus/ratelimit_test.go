@@ -20,7 +20,7 @@ import (
 func TestRateLimiterMetricsListener_integration_cache(t *testing.T) {
 	rps := 5
 
-	rl := ratelimit.NewBackOff(&ratelimit.BackOffConfig{
+	rl := ratelimit.NewBackoff(&ratelimit.BackoffConfig{
 		Allowlist:            ratelimit.NewDynamicAllowlist([]netip.Prefix{}, []netip.Prefix{}),
 		Period:               time.Minute,
 		Duration:             time.Minute,
@@ -42,8 +42,9 @@ func TestRateLimiterMetricsListener_integration_cache(t *testing.T) {
 	// Pass 10 requests through the middleware.
 	for i := 0; i < 10; i++ {
 		ctx := dnsserver.ContextWithServerInfo(context.Background(), testServerInfo)
-		ctx = dnsserver.ContextWithStartTime(ctx, time.Now())
-		ctx = dnsserver.ContextWithClientInfo(ctx, dnsserver.ClientInfo{})
+		ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
+			StartTime: time.Now(),
+		})
 
 		nrw := dnsserver.NewNonWriterResponseWriter(testUDPAddr, testUDPAddr)
 

@@ -43,10 +43,13 @@ func TestStorage_Reset(t *testing.T) {
 	s, err := hashprefix.NewStorage(testHost)
 	require.NoError(t, err)
 
+	assert.True(t, s.Matches(testHost))
+
 	n, err := s.Reset(testOtherHost)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, n)
+	assert.False(t, s.Matches(testHost))
 
 	h := sha256.Sum256([]byte(testOtherHost))
 	want := []string{hex.EncodeToString(h[:])}
@@ -58,6 +61,15 @@ func TestStorage_Reset(t *testing.T) {
 	prevHash := sha256.Sum256([]byte(testHost))
 	prev := s.Hashes([]hashprefix.Prefix{{prevHash[0], prevHash[1]}})
 	assert.Empty(t, prev)
+
+	// Reset again to make sure that the reuse of the map did not affect the
+	// results.
+	n, err = s.Reset(testOtherHost)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, n)
+	assert.False(t, s.Matches(testHost))
+	assert.True(t, s.Matches(testOtherHost))
 }
 
 // Sinks for benchmarks.
@@ -94,16 +106,16 @@ func BenchmarkStorage_Hashes(b *testing.B) {
 		})
 	}
 
-	// Most recent result, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
+	// Most recent results, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
 	//
 	//	goos: linux
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkStorage_Hashes/1-16            29928834                41.76 ns/op            0 B/op          0 allocs/op
-	//	BenchmarkStorage_Hashes/2-16            18693033                63.80 ns/op            0 B/op          0 allocs/op
-	//	BenchmarkStorage_Hashes/3-16            13492526                92.22 ns/op            0 B/op          0 allocs/op
-	//	BenchmarkStorage_Hashes/4-16             9542425               109.2 ns/op             0 B/op          0 allocs/op
+	//	BenchmarkStorage_Hashes/1-16      	156682185	        40.31 ns/op	       0 B/op	       0 allocs/op
+	//	BenchmarkStorage_Hashes/2-16      	81397060	        67.39 ns/op	       0 B/op	       0 allocs/op
+	//	BenchmarkStorage_Hashes/3-16      	61833548	       104.3 ns/op	       0 B/op	       0 allocs/op
+	//	BenchmarkStorage_Hashes/4-16      	44809807	       146.9 ns/op	       0 B/op	       0 allocs/op
 }
 
 func BenchmarkStorage_ResetHosts(b *testing.B) {
@@ -126,11 +138,11 @@ func BenchmarkStorage_ResetHosts(b *testing.B) {
 
 	require.NoError(b, errSink)
 
-	// Most recent result, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
+	// Most recent results, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
 	//
 	//	goos: linux
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkStorage_ResetHosts-16              2212            469343 ns/op           36224 B/op       1002 allocs/op
+	//	BenchmarkStorage_ResetHosts-16    	   16890	    344785 ns/op	  101968 B/op	    1006 allocs/op
 }

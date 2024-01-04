@@ -9,12 +9,12 @@ import (
 	"os"
 	"path"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
 
@@ -33,7 +33,7 @@ type webConfig struct {
 
 	// RootRedirectURL is the URL to which non-DNS and non-Debug HTTP requests
 	// are redirected.  If not set, a 404 page is shown.
-	RootRedirectURL *agdhttp.URL `yaml:"root_redirect_url"`
+	RootRedirectURL *urlutil.URL `yaml:"root_redirect_url"`
 
 	// StaticContent is the content that is served statically at the given
 	// paths.  If not set, no static content is shown.
@@ -60,7 +60,7 @@ type webConfig struct {
 func (c *webConfig) toInternal(
 	envs *environments,
 	dnsCk http.Handler,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 ) (conf *websvc.Config, err error) {
 	if c == nil {
 		return nil, nil
@@ -179,7 +179,7 @@ type linkedIPServer struct {
 // toInternal converts s to a linkedIP server configuration.  s is assumed to be
 // valid.
 func (s *linkedIPServer) toInternal(
-	targetURL *agdhttp.URL,
+	targetURL *urlutil.URL,
 ) (srv *websvc.LinkedIPServer, err error) {
 	if s == nil {
 		return nil, nil

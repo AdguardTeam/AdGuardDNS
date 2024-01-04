@@ -6,10 +6,12 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdprotobuf"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -89,11 +91,13 @@ func (x *Profile) toInternal() (prof *agd.Profile, err error) {
 		FilteredResponseTTL: x.FilteredResponseTtl.AsDuration(),
 		FilteringEnabled:    x.FilteringEnabled,
 		SafeBrowsing:        x.SafeBrowsing.toInternal(),
+		Access:              x.Access.toInternal(),
 		RuleListsEnabled:    x.RuleListsEnabled,
 		QueryLogEnabled:     x.QueryLogEnabled,
 		Deleted:             x.Deleted,
 		BlockPrivateRelay:   x.BlockPrivateRelay,
 		BlockFirefoxCanary:  x.BlockFirefoxCanary,
+		IPLogEnabled:        x.IpLogEnabled,
 	}, nil
 }
 
@@ -151,35 +155,31 @@ func (x *ParentalProtectionSchedule) toInternal() (s *agd.ParentalProtectionSche
 
 // blockingModeToInternal converts a protobuf blocking-mode sum-type to an
 // internal one.
-func blockingModeToInternal(
-	pbBlockingMode isProfile_BlockingMode,
-) (m dnsmsg.BlockingModeCodec, err error) {
-	switch pbm := pbBlockingMode.(type) {
+func blockingModeToInternal(pbm isProfile_BlockingMode) (m dnsmsg.BlockingMode, err error) {
+	switch pbm := pbm.(type) {
 	case *Profile_BlockingModeCustomIp:
 		custom := &dnsmsg.BlockingModeCustomIP{}
 		err = custom.IPv4.UnmarshalBinary(pbm.BlockingModeCustomIp.Ipv4)
 		if err != nil {
-			return dnsmsg.BlockingModeCodec{}, fmt.Errorf("bad custom ipv4: %w", err)
+			return nil, fmt.Errorf("bad custom ipv4: %w", err)
 		}
 
 		err = custom.IPv6.UnmarshalBinary(pbm.BlockingModeCustomIp.Ipv6)
 		if err != nil {
-			return dnsmsg.BlockingModeCodec{}, fmt.Errorf("bad custom ipv6: %w", err)
+			return nil, fmt.Errorf("bad custom ipv6: %w", err)
 		}
 
-		m.Mode = custom
+		return custom, nil
 	case *Profile_BlockingModeNxdomain:
-		m.Mode = &dnsmsg.BlockingModeNXDOMAIN{}
+		return &dnsmsg.BlockingModeNXDOMAIN{}, nil
 	case *Profile_BlockingModeNullIp:
-		m.Mode = &dnsmsg.BlockingModeNullIP{}
+		return &dnsmsg.BlockingModeNullIP{}, nil
 	case *Profile_BlockingModeRefused:
-		m.Mode = &dnsmsg.BlockingModeREFUSED{}
+		return &dnsmsg.BlockingModeREFUSED{}, nil
 	default:
 		// Consider unhandled type-switch cases programmer errors.
-		panic(fmt.Errorf("bad pb blocking mode %T(%[1]v)", m))
+		return nil, fmt.Errorf("bad pb blocking mode %T(%[1]v)", pbm)
 	}
-
-	return m, nil
 }
 
 // devicesToInternal converts protobuf device structures into internal ones.
@@ -237,6 +237,48 @@ func (x *SafeBrowsingSettings) toInternal() (s *agd.SafeBrowsingSettings) {
 	}
 }
 
+// toInternal converts protobuf access settings to an internal structure.  If x
+// is nil, toInternal returns [access.EmptyProfile].
+func (x *AccessSettings) toInternal() (a access.Profile) {
+	if x == nil {
+		return access.EmptyProfile{}
+	}
+
+	return access.NewDefaultProfile(&access.ProfileConfig{
+		AllowedNets:          cidrRangeToInternal(x.AllowlistCidr),
+		BlockedNets:          cidrRangeToInternal(x.BlocklistCidr),
+		AllowedASN:           asnToInternal(x.AllowlistAsn),
+		BlockedASN:           asnToInternal(x.BlocklistAsn),
+		BlocklistDomainRules: x.BlocklistDomainRules,
+	})
+}
+
+// cidrRangeToInternal is a helper that converts a slice of CidrRange to the
+// slice of [netip.Prefix].
+func cidrRangeToInternal(cidrs []*CidrRange) (out []netip.Prefix) {
+	for _, c := range cidrs {
+		addr, ok := netip.AddrFromSlice(c.Address)
+		if !ok {
+			// Should never happen.
+			panic(fmt.Errorf("bad address: %v", c.Address))
+		}
+
+		out = append(out, netip.PrefixFrom(addr, int(c.Prefix)))
+	}
+
+	return out
+}
+
+// asnToInternal is a helper that converts a slice of ASNs to the slice of
+// [geoip.ASN].
+func asnToInternal(asns []uint32) (out []geoip.ASN) {
+	for _, asn := range asns {
+		out = append(out, geoip.ASN(asn))
+	}
+
+	return out
+}
+
 // profilesToProtobuf converts a slice of profiles to protobuf structures.
 func profilesToProtobuf(profiles []*agd.Profile) (pbProfiles []*Profile) {
 	pbProfiles = make([]*Profile, 0, len(profiles))
@@ -244,6 +286,7 @@ func profilesToProtobuf(profiles []*agd.Profile) (pbProfiles []*Profile) {
 		pbProfiles = append(pbProfiles, &Profile{
 			Parental:     parentalToProtobuf(p.Parental),
 			BlockingMode: blockingModeToProtobuf(p.BlockingMode),
+			Access:       accessToProtobuf(p.Access.Config()),
 			ProfileId:    string(p.ID),
 			UpdateTime:   timestamppb.New(p.UpdateTime),
 			DeviceIds:    unsafelyConvertStrSlice[agd.DeviceID, string](p.DeviceIDs),
@@ -261,10 +304,48 @@ func profilesToProtobuf(profiles []*agd.Profile) (pbProfiles []*Profile) {
 			Deleted:             p.Deleted,
 			BlockPrivateRelay:   p.BlockPrivateRelay,
 			BlockFirefoxCanary:  p.BlockFirefoxCanary,
+			IpLogEnabled:        p.IPLogEnabled,
 		})
 	}
 
 	return pbProfiles
+}
+
+// accessToProtobuf converts access settings to protobuf structure.
+func accessToProtobuf(c *access.ProfileConfig) (ac *AccessSettings) {
+	if c == nil {
+		return nil
+	}
+
+	var allowedASNs []uint32
+	for _, asn := range c.AllowedASN {
+		allowedASNs = append(allowedASNs, uint32(asn))
+	}
+
+	var blockedASNs []uint32
+	for _, asn := range c.BlockedASN {
+		blockedASNs = append(blockedASNs, uint32(asn))
+	}
+
+	return &AccessSettings{
+		AllowlistCidr:        accessNetsToProtobuf(c.AllowedNets),
+		BlocklistCidr:        accessNetsToProtobuf(c.BlockedNets),
+		AllowlistAsn:         allowedASNs,
+		BlocklistAsn:         blockedASNs,
+		BlocklistDomainRules: c.BlocklistDomainRules,
+	}
+}
+
+// accessNetsToProtobuf converts slice of [netip.Prefix] to protobuf structure.
+func accessNetsToProtobuf(nets []netip.Prefix) (cidrs []*CidrRange) {
+	for _, n := range nets {
+		cidrs = append(cidrs, &CidrRange{
+			Address: n.Addr().AsSlice(),
+			Prefix:  uint32(n.Bits()),
+		})
+	}
+
+	return cidrs
 }
 
 // parentalToProtobuf converts parental settings to protobuf structure.
@@ -325,8 +406,8 @@ func scheduleToProtobuf(s *agd.ParentalProtectionSchedule) (pbSched *ParentalPro
 }
 
 // blockingModeToProtobuf converts a blocking-mode sum-type to a protobuf one.
-func blockingModeToProtobuf(m dnsmsg.BlockingModeCodec) (pbBlockingMode isProfile_BlockingMode) {
-	switch m := m.Mode.(type) {
+func blockingModeToProtobuf(m dnsmsg.BlockingMode) (pbBlockingMode isProfile_BlockingMode) {
+	switch m := m.(type) {
 	case *dnsmsg.BlockingModeCustomIP:
 		return &Profile_BlockingModeCustomIp{
 			BlockingModeCustomIp: &BlockingModeCustomIP{

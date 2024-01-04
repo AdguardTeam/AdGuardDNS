@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math"
 	"net"
 	"strings"
 	"sync"
@@ -15,6 +14,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/bluele/gcache"
 	"github.com/miekg/dns"
 	"github.com/panjf2000/ants/v2"
@@ -27,21 +27,25 @@ const (
 	// token "doq" in the crypto handshake.
 	nextProtoDoQ = "doq"
 
-	// maxQUICIdleTimeout is the maximum QUIC idle timeout.  The default
-	// value in quic-go is 30, but our internal tests show that a higher
-	// value works better for clients written with ngtcp2.
+	// maxQUICIdleTimeout is the maximum QUIC idle timeout.  The default value
+	// in quic-go is 30, but our internal tests show that a higher value works
+	// better for clients written with ngtcp2.
 	maxQUICIdleTimeout = 5 * time.Minute
 
-	// quicAddrValidatorCacheSize is the size of the cache that we use in the QUIC
-	// address validator.  The value is chosen arbitrarily and we should consider
-	// making it configurable.
+	// quicDefaultMaxStreamsPerPeer is the default maximum number of QUIC
+	// concurrent streams that a peer is allowed to open.
+	quicDefaultMaxStreamsPerPeer = 100
+
+	// quicAddrValidatorCacheSize is the size of the cache that we use in the
+	// QUIC address validator.  The value is chosen arbitrarily and we should
+	// consider making it configurable.
 	//
 	// TODO(ameshkov): make it configurable after we analyze stats.
 	quicAddrValidatorCacheSize = 10000
 
-	// quicAddrValidatorCacheTTL is time-to-live for cache items in the QUIC address
-	// validator.  The value is chosen arbitrarily and we should consider making it
-	// configurable.
+	// quicAddrValidatorCacheTTL is time-to-live for cache items in the QUIC
+	// address validator.  The value is chosen arbitrarily and we should
+	// consider making it configurable.
 	//
 	// TODO(ameshkov): make it configurable after we analyze stats.
 	quicAddrValidatorCacheTTL = 30 * time.Minute
@@ -66,6 +70,13 @@ type ConfigQUIC struct {
 
 	// TLSConfig is the TLS configuration for QUIC.
 	TLSConfig *tls.Config
+
+	// MaxStreamsPerPeer is the maximum number of concurrent streams that a peer
+	// is allowed to open.
+	MaxStreamsPerPeer int
+
+	// QUICLimitsEnabled, if true, enables QUIC limiting.
+	QUICLimitsEnabled bool
 }
 
 // ServerQUIC is a DNS-over-QUIC server implementation.
@@ -80,16 +91,19 @@ type ServerQUIC struct {
 	// to reuse already existing goroutines.
 	pool *ants.Pool
 
+	// reqPool is a pool to avoid unnecessary allocations when reading
+	// DNS packets.
+	reqPool *syncutil.Pool[[]byte]
+
+	// respPool is a pool for response buffers.
+	respPool *syncutil.Pool[[]byte]
+
 	// quicListener is a listener that we use to accept DoQ connections.
 	quicListener *quic.Listener
-
-	// bytesPool is a pool to avoid unnecessary allocations when reading
-	// DNS packets.
-	bytesPool sync.Pool
 }
 
-// type check
-var _ Server = (*ServerQUIC)(nil)
+// quicBytePoolSize is the size for the QUIC byte pools.
+const quicBytePoolSize = dns.MaxMsgSize
 
 // NewServerQUIC creates a new ServerQUIC instance.
 func NewServerQUIC(conf ConfigQUIC) (s *ServerQUIC) {
@@ -108,10 +122,15 @@ func NewServerQUIC(conf ConfigQUIC) (s *ServerQUIC) {
 		ServerBase: newServerBase(ProtoDoQ, conf.ConfigBase),
 		conf:       conf,
 		pool:       newPoolNonblocking(),
+		reqPool:    syncutil.NewSlicePool[byte](quicBytePoolSize),
+		respPool:   syncutil.NewSlicePool[byte](quicBytePoolSize),
 	}
 
 	return s
 }
+
+// type check
+var _ Server = (*ServerQUIC)(nil)
 
 // Start implements the dnsserver.Server interface for *ServerQUIC.
 func (s *ServerQUIC) Start(ctx context.Context) (err error) {
@@ -127,18 +146,14 @@ func (s *ServerQUIC) Start(ctx context.Context) (err error) {
 	if s.started {
 		return ErrServerAlreadyStarted
 	}
-	s.started = true
 
 	log.Info("[%s]: Starting the server", s.name)
 
-	ctx = ContextWithServerInfo(ctx, ServerInfo{
+	ctx = ContextWithServerInfo(ctx, &ServerInfo{
 		Name:  s.name,
 		Addr:  s.addr,
 		Proto: s.proto,
 	})
-
-	// Prepare the bytes pool.
-	s.bytesPool.New = makePacketBuffer(dns.MaxMsgSize)
 
 	// Start the QUIC listener.
 	err = s.listenQUIC(ctx)
@@ -149,6 +164,8 @@ func (s *ServerQUIC) Start(ctx context.Context) (err error) {
 	// Run the serving goroutine.
 	s.wg.Add(1)
 	go s.startServeQUIC(ctx)
+
+	s.started = true
 
 	log.Info("[%s]: Server has been started", s.Name())
 
@@ -221,51 +238,59 @@ func (s *ServerQUIC) startServeQUIC(ctx context.Context) {
 
 // serveQUIC listens for incoming QUIC connections.
 func (s *ServerQUIC) serveQUIC(ctx context.Context, l *quic.Listener) (err error) {
-	connWg := &sync.WaitGroup{}
+	wg := &sync.WaitGroup{}
 	// Wait until all conns are processed before exiting this method
-	defer connWg.Wait()
+	defer wg.Wait()
 
 	for s.isStarted() {
-		var conn quic.Connection
-		conn, err = acceptQUICConn(ctx, l)
+		err = s.acceptQUICConn(ctx, l, wg)
 		if err != nil {
 			if !s.isStarted() {
 				return nil
 			}
 
-			if isNonCriticalNetError(err) {
-				// Non-critical errors, do not register in the metrics or log
-				// anywhere.
-				continue
-			}
-
 			return err
 		}
 
-		connWg.Add(1)
-
-		err = s.pool.Submit(func() {
-			s.serveQUICConnAsync(ctx, conn, connWg)
-		})
-		if err != nil {
-			// Most likely the workerPool is closed, and we can exit right away.
-			// Make sure that the connection is closed just in case.
-			closeQUICConn(conn, DOQCodeNoError)
-
-			return err
-		}
 	}
 
 	return nil
 }
 
-// acceptQUICConn is a wrapper around quic.Listener.Accept that makes sure that the
-// timeout is handled properly.
-func acceptQUICConn(ctx context.Context, l *quic.Listener) (conn quic.Connection, err error) {
-	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(DefaultReadTimeout))
+// acceptQUICConn reads and starts processing a single QUIC connection.
+func (s *ServerQUIC) acceptQUICConn(
+	ctx context.Context,
+	l *quic.Listener,
+	wg *sync.WaitGroup,
+) (err error) {
+	acceptCtx, cancel := context.WithDeadline(ctx, time.Now().Add(DefaultReadTimeout))
 	defer cancel()
 
-	return l.Accept(ctx)
+	conn, err := l.Accept(acceptCtx)
+	if err != nil {
+		if isNonCriticalNetError(err) {
+			// Non-critical errors, do not register in the metrics or log
+			// anywhere.
+			return nil
+		}
+
+		return err
+	}
+
+	wg.Add(1)
+
+	err = s.pool.Submit(func() {
+		s.serveQUICConnAsync(ctx, conn, wg)
+	})
+	if err != nil {
+		// Most likely the workerPool is closed, and we can exit right away.
+		// Make sure that the connection is closed just in case.
+		closeQUICConn(conn, DOQCodeNoError)
+
+		return err
+	}
+
+	return nil
 }
 
 // serveQUICConnAsync wraps serveQUICConn call and handles all possible errors
@@ -315,14 +340,17 @@ func (s *ServerQUIC) serveQUICConn(ctx context.Context, conn quic.Connection) (e
 
 		streamWg.Add(1)
 
-		reqCtx := s.requestContext()
-
-		ci := ClientInfo{
+		ri := &RequestInfo{
+			StartTime:     time.Now(),
 			TLSServerName: strings.ToLower(conn.ConnectionState().TLS.ServerName),
 		}
-		reqCtx = ContextWithClientInfo(reqCtx, ci)
+
+		reqCtx, reqCancel := s.requestContext()
+		reqCtx = ContextWithRequestInfo(reqCtx, ri)
 
 		err = s.pool.Submit(func() {
+			defer reqCancel()
+
 			s.serveQUICStreamAsync(reqCtx, stream, conn, streamWg)
 		})
 		if err != nil {
@@ -401,26 +429,32 @@ func (s *ServerQUIC) serveQUICStream(
 	}
 
 	// Normalize before writing the response.  Note that for QUIC we can
-	// normalize as if it was tcp.
-	normalize(NetworkTCP, ProtoDoQ, msg, resp)
+	// normalize as if it was TCP.
+	normalizeTCP(ProtoDoQ, msg, resp)
+
+	bufPtr := s.respPool.Get()
+	defer s.respPool.Put(bufPtr)
 
 	// Depending on the DoQ version we either write a 2-bytes prefixed message
 	// or just write the message (for old draft versions).
-	var buf []byte
+	var b []byte
 	if doqDraft {
 		// TODO(ameshkov): remove draft support in the late 2023.
-		buf, err = resp.Pack()
+		b, err = resp.PackBuffer(*bufPtr)
 	} else {
-		buf, err = packWithPrefix(resp)
+		b, err = packWithPrefix(resp, *bufPtr)
 	}
-
 	if err != nil {
 		closeQUICConn(conn, DOQCodeProtocolError)
 
 		return err
 	}
 
-	_, err = stream.Write(buf)
+	*bufPtr = b
+
+	_, err = stream.Write(b)
+
+	s.disposer.Dispose(resp)
 
 	return err
 }
@@ -431,8 +465,11 @@ func (s *ServerQUIC) readQUICMsg(
 	ctx context.Context,
 	stream quic.Stream,
 ) (m *dns.Msg, doqDraft bool, err error) {
-	buf := s.getBuffer()
-	defer s.putBuffer(buf)
+	bufPtr := s.reqPool.Get()
+	defer s.reqPool.Put(bufPtr)
+
+	buf := *bufPtr
+	buf = buf[:quicBytePoolSize]
 
 	// One query - one stream.
 	// The client MUST send the DNS query over the selected stream, and MUST
@@ -441,8 +478,7 @@ func (s *ServerQUIC) readQUICMsg(
 	_ = stream.SetReadDeadline(time.Now().Add(DefaultReadTimeout))
 
 	// Read the stream data until io.EOF, i.e. until FIN is received.
-	var n int
-	n, err = readAll(stream, buf)
+	n, err := readAll(stream, buf)
 
 	// err is not checked here because STREAM FIN sent by the client is
 	// indicated as an error here. instead, we should check the number of bytes
@@ -514,7 +550,7 @@ func (s *ServerQUIC) listenQUIC(ctx context.Context) (err error) {
 		return err
 	}
 
-	qConf := newServerQUICConfig(s.metrics)
+	qConf := newServerQUICConfig(s.metrics, s.conf.QUICLimitsEnabled, s.conf.MaxStreamsPerPeer)
 
 	// Do not change to quic.ListenEarly, see quicNotEarlyListener to know why.
 	ql, err := quic.Listen(conn, s.conf.TLSConfig, qConf)
@@ -526,22 +562,6 @@ func (s *ServerQUIC) listenQUIC(ctx context.Context) (err error) {
 	s.quicListener = ql
 
 	return nil
-}
-
-// getBuffer gets a buffer to use for reading DNS messages.
-func (s *ServerQUIC) getBuffer() (buff []byte) {
-	return *s.bytesPool.Get().(*[]byte)
-}
-
-// putBuffer puts the buffer back to the pool.
-func (s *ServerQUIC) putBuffer(m []byte) {
-	if len(m) != dns.MaxMsgSize {
-		// Means a new slice was created
-		// We should create a new slice with the proper size before
-		// putting it back to pool
-		m = m[:dns.MaxMsgSize]
-	}
-	s.bytesPool.Put(&m)
 }
 
 // isExpectedQUICErr checks if this error signals about closing QUIC connection,
@@ -652,13 +672,24 @@ func closeQUICConn(conn quic.Connection, code quic.ApplicationErrorCode) {
 
 // newServerQUICConfig creates *quic.Config populated with the default settings.
 // This function is supposed to be used for both DoQ and DoH3 server.
-func newServerQUICConfig(metrics MetricsListener) (conf *quic.Config) {
-	v := newQUICAddrValidator(quicAddrValidatorCacheSize, quicAddrValidatorCacheTTL, metrics)
+func newServerQUICConfig(
+	metrics MetricsListener,
+	quicLimitsEnabled bool,
+	maxStreamsPerPeer int,
+) (conf *quic.Config) {
+	v := newQUICAddrValidator(quicAddrValidatorCacheSize, metrics, quicAddrValidatorCacheTTL)
+
+	maxIncStreams := quicDefaultMaxStreamsPerPeer
+	maxIncUniStreams := quicDefaultMaxStreamsPerPeer
+	if quicLimitsEnabled {
+		maxIncStreams = maxStreamsPerPeer
+		maxIncUniStreams = maxStreamsPerPeer
+	}
 
 	return &quic.Config{
 		MaxIdleTimeout:           maxQUICIdleTimeout,
-		MaxIncomingStreams:       math.MaxUint16,
-		MaxIncomingUniStreams:    math.MaxUint16,
+		MaxIncomingStreams:       int64(maxIncStreams),
+		MaxIncomingUniStreams:    int64(maxIncUniStreams),
 		RequireAddressValidation: v.requiresValidation,
 		// Enable 0-RTT by default for all addresses, it's beneficial for the
 		// performance.
@@ -670,20 +701,20 @@ func newServerQUICConfig(metrics MetricsListener) (conf *quic.Config) {
 // addresses for which we do not require address validation.
 type quicAddrValidator struct {
 	cache   gcache.Cache
-	ttl     time.Duration
 	metrics MetricsListener
+	ttl     time.Duration
 }
 
 // newQUICAddrValidator initializes a new instance of *quicAddrValidator.
 func newQUICAddrValidator(
 	cacheSize int,
-	ttl time.Duration,
 	metrics MetricsListener,
+	ttl time.Duration,
 ) (v *quicAddrValidator) {
 	return &quicAddrValidator{
 		cache:   gcache.New(cacheSize).LRU().Build(),
-		ttl:     ttl,
 		metrics: metrics,
+		ttl:     ttl,
 	}
 }
 

@@ -19,9 +19,8 @@ func CreateTestHandler(recordsCount int) (h dnsserver.Handler) {
 	f := func(ctx context.Context, rw dnsserver.ResponseWriter, req *dns.Msg) (err error) {
 		// Check that necessary context keys are set.
 		si := dnsserver.MustServerInfoFromContext(ctx)
-		_ = dnsserver.MustStartTimeFromContext(ctx)
-		ci := dnsserver.MustClientInfoFromContext(ctx)
-		if si.Proto.IsStdEncrypted() && ci.TLSServerName == "" {
+		ri := dnsserver.MustRequestInfoFromContext(ctx)
+		if si.Proto.IsStdEncrypted() && ri.TLSServerName == "" {
 			return errors.Error("client info does not contain server name")
 		}
 

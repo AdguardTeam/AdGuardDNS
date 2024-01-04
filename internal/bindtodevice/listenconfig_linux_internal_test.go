@@ -14,7 +14,11 @@ import (
 func TestListenConfig(t *testing.T) {
 	pc := newChanPacketConn(nil, testSubnetIPv4, nil, testLAddr)
 	lsnr := newChanListener(nil, testSubnetIPv4, testLAddr)
-	addr := agdnet.FormatPrefixAddr(testSubnetIPv4, 1234)
+	addr := &agdnet.PrefixNetAddr{
+		Prefix: testSubnetIPv4,
+		Net:    "",
+		Port:   1234,
+	}
 	c := &ListenConfig{
 		packetConn: pc,
 		listener:   lsnr,

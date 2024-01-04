@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
@@ -32,14 +33,14 @@ type Filter struct {
 	services serviceRuleLists
 
 	// errColl used to collect non-critical and rare errors.
-	errColl agd.ErrorCollector
+	errColl errcoll.Interface
 }
 
 // serviceRuleLists is convenient alias for an ID to filter mapping.
 type serviceRuleLists = map[agd.BlockedServiceID]*rulelist.Immutable
 
 // New returns a fully initialized service blocker.
-func New(refr *internal.Refreshable, errColl agd.ErrorCollector) (f *Filter) {
+func New(refr *internal.Refreshable, errColl errcoll.Interface) (f *Filter) {
 	return &Filter{
 		refr:     refr,
 		mu:       &sync.RWMutex{},

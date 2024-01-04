@@ -10,7 +10,8 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 )
@@ -38,7 +39,7 @@ type Config struct {
 	DNSCheck http.Handler
 
 	// ErrColl is used to collect linked IP proxy errors and other errors.
-	ErrColl agd.ErrorCollector
+	ErrColl errcoll.Interface
 
 	// Error404 is the content of the HTML page for the 404 status.  If not set,
 	// a simple plain text 404 response is served.
@@ -200,11 +201,11 @@ func blockPageServers(
 }
 
 // type check
-var _ agd.Service = (*Service)(nil)
+var _ agdservice.Interface = (*Service)(nil)
 
-// Start implements the agd.Service interface for *Service.  svc may be nil.  It
-// panics if one of the servers could not start.
-func (svc *Service) Start() (err error) {
+// Start implements the [agdservice.Interface] interface for *Service.  svc may
+// be nil.  It panics if one of the servers could not start.
+func (svc *Service) Start(ctx context.Context) (err error) {
 	if svc == nil {
 		return nil
 	}
@@ -260,7 +261,8 @@ func mustStartServer(srv *http.Server) {
 	}
 }
 
-// Shutdown implements the agd.Service interface for *Service.  svc may be nil.
+// Shutdown implements the [agdservice.Interface] interface for *Service.  svc
+// may be nil.
 func (svc *Service) Shutdown(ctx context.Context) (err error) {
 	if svc == nil {
 		return nil
@@ -280,7 +282,7 @@ func (svc *Service) Shutdown(ctx context.Context) (err error) {
 		srvs: svc.adultBlocking,
 	}, {
 		name: "non-doh",
-		srvs: svc.adultBlocking,
+		srvs: svc.nonDoH,
 	}}
 
 	for _, g := range serverGroups {

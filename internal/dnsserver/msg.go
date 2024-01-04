@@ -3,6 +3,7 @@ package dnsserver
 import (
 	"encoding/binary"
 	"fmt"
+	"slices"
 
 	"github.com/miekg/dns"
 )
@@ -33,18 +34,18 @@ func questionData(m *dns.Msg) (hostname, qType string) {
 }
 
 // packWithPrefix packs a DNS message with a 2-byte prefix with the message
-// length.
-func packWithPrefix(m *dns.Msg) (b []byte, err error) {
-	var data []byte
-	data, err = m.Pack()
+// length by appending it into buf and returns it.
+func packWithPrefix(m *dns.Msg, buf []byte) (packed []byte, err error) {
+	buf, err = m.PackBuffer(buf)
 	if err != nil {
 		return nil, err
 	}
 
-	msg := make([]byte, 2+len(data))
+	// Try to reuse the slice if there is already space there.
+	packed = slices.Grow(buf, 2)[:len(buf)+2]
 
-	// *dns.Msg.Pack guarantees that data is less or equal to math.MaxUint16.
-	binary.BigEndian.PutUint16(msg, uint16(len(data)))
-	copy(msg[2:], data)
-	return msg, nil
+	copy(packed[2:], buf)
+	binary.BigEndian.PutUint16(packed[:2], uint16(len(buf)))
+
+	return packed, nil
 }

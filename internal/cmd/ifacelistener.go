@@ -1,8 +1,8 @@
 package cmd
 
 import (
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/mapsutil"
 )
@@ -22,7 +22,7 @@ type interfaceListenersConfig struct {
 
 // toInternal converts c to a bindtodevice.Manager.  c is assumed to be valid.
 func (c *interfaceListenersConfig) toInternal(
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 	ctrlConf *bindtodevice.ControlConfig,
 ) (m *bindtodevice.Manager, err error) {
 	if c == nil {

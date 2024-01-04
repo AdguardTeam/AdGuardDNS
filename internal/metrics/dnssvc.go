@@ -96,3 +96,12 @@ var DNSSvcFilteringDuration = promauto.NewHistogram(prometheus.HistogramOpts{
 		1,
 	},
 })
+
+// DNSSvcUnknownDedicatedTotal is the counter of queries that have been dropped,
+// because the local-address data was not recognized.
+var DNSSvcUnknownDedicatedTotal = promauto.NewCounter(prometheus.CounterOpts{
+	Name:      "unknown_dedicated",
+	Namespace: namespace,
+	Subsystem: subsystemDNSSvc,
+	Help:      "The number of dropped queries for unrecognized dedicated addresses.",
+})

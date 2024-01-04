@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
 )
@@ -33,7 +33,7 @@ func (db *Default) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if err != nil {
 			h.Set(httphdr.XError, err.Error())
-			agd.Collectf(ctx, db.errColl, "dnsdb: http handler error: %w", err)
+			errcoll.Collectf(ctx, db.errColl, "dnsdb: http handler error: %w", err)
 		}
 	}()
 

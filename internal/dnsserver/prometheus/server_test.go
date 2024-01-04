@@ -70,14 +70,26 @@ func BenchmarkServerMetricsListener(b *testing.B) {
 	l := prometheus.NewServerMetricsListener()
 
 	ctx := dnsserver.ContextWithServerInfo(context.Background(), testServerInfo)
-	ctx = dnsserver.ContextWithStartTime(ctx, time.Now())
+	ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
+		StartTime: time.Now(),
+	})
 
 	req := dnsservertest.CreateMessage(testReqDomain, dns.TypeA)
+	reqSize := req.Len()
+
 	resp := (&dns.Msg{}).SetRcode(req, dns.RcodeSuccess)
-	ctx = dnsserver.ContextWithRequestInfo(ctx, dnsserver.RequestInfo{
-		RequestSize:  req.Len(),
-		ResponseSize: resp.Len(),
+	respSize := resp.Len()
+
+	ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
+		StartTime: time.Now(),
 	})
+
+	info := &dnsserver.QueryInfo{
+		Request:      req,
+		Response:     resp,
+		RequestSize:  reqSize,
+		ResponseSize: respSize,
+	}
 
 	rw := dnsserver.NewNonWriterResponseWriter(testUDPAddr, testUDPAddr)
 
@@ -85,7 +97,7 @@ func BenchmarkServerMetricsListener(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			l.OnRequest(ctx, req, resp, rw)
+			l.OnRequest(ctx, info, rw)
 		}
 	})
 

@@ -6,9 +6,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/timeutil"
@@ -44,7 +44,7 @@ type checkConfig struct {
 func (c *checkConfig) toInternal(
 	envs *environments,
 	messages *dnsmsg.Constructor,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 ) (conf *dnscheck.ConsulConfig) {
 	var kvURL, sessURL *url.URL
 	if envs.ConsulDNSCheckKVURL != nil && envs.ConsulDNSCheckSessionURL != nil {

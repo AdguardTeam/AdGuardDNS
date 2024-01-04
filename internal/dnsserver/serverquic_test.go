@@ -56,8 +56,7 @@ func TestServerQUIC_integration_query(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			resp, qerr := sendQUICMessage(conn, req, doqDraft)
-			assert.NoError(t, qerr)
+			resp := sendQUICMessage(t, conn, req, doqDraft)
 			assert.NotNil(t, resp)
 			assert.True(t, resp.Response)
 
@@ -93,8 +92,7 @@ func TestServerQUIC_integration_ENDS0Padding(t *testing.T) {
 	req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
 	req.Extra = []dns.RR{dnsservertest.NewEDNS0Padding(req.Len(), dns.DefaultMsgSize)}
 
-	resp, qerr := sendQUICMessage(conn, req, false)
-	require.NoError(t, qerr)
+	resp := sendQUICMessage(t, conn, req, false)
 	require.NotNil(t, resp)
 	require.Equal(t, dns.RcodeSuccess, resp.Rcode)
 	require.True(t, resp.Response)
@@ -117,7 +115,7 @@ func TestServerQUIC_integration_0RTT(t *testing.T) {
 		return srv.Shutdown(context.Background())
 	})
 
-	quicTracer := &dnsservertest.QUICTracer{}
+	quicTracer := dnsservertest.NewQUICTracer()
 
 	// quicConfig with TokenStore set so that 0-RTT was enabled.
 	quicConfig := &quic.Config{
@@ -176,8 +174,7 @@ func TestServerQUIC_integration_largeQuery(t *testing.T) {
 		},
 	}
 
-	resp, err := sendQUICMessage(conn, req, false)
-	require.NoError(t, err)
+	resp := sendQUICMessage(t, conn, req, false)
 	require.NotNil(t, resp)
 	require.True(t, resp.Response)
 }
@@ -205,25 +202,26 @@ func testQUICExchange(
 	req := dnsservertest.NewReq("example.org.", dns.TypeA, dns.ClassINET)
 	req.RecursionDesired = true
 
-	resp, err := sendQUICMessage(conn, req, false)
-	require.NoError(t, err)
+	resp := sendQUICMessage(t, conn, req, false)
 	require.NotNil(t, resp)
 }
 
-// sendQUICMessage sends a test QUIC message.
-func sendQUICMessage(conn quic.Connection, req *dns.Msg, doqDraft bool) (*dns.Msg, error) {
-	// Open stream.
+// sendQUICMessage is a test helper that sends a test QUIC message.
+func sendQUICMessage(
+	t testing.TB,
+	conn quic.Connection,
+	req *dns.Msg,
+	doqDraft bool,
+) (resp *dns.Msg) {
+	t.Helper()
+
 	stream, err := conn.OpenStreamSync(context.Background())
-	if err != nil {
-		return nil, err
-	}
+	require.NoError(t, err)
+
 	defer log.OnCloserError(stream, log.DEBUG)
 
-	// Prepare a message to be written.
 	data, err := req.Pack()
-	if err != nil {
-		return nil, err
-	}
+	require.NoError(t, err)
 
 	var buf []byte
 	if doqDraft {
@@ -235,26 +233,22 @@ func sendQUICMessage(conn quic.Connection, req *dns.Msg, doqDraft bool) (*dns.Ms
 	}
 
 	err = writeQUICStream(buf, stream)
-	if err != nil {
-		return nil, err
-	}
+	require.NoError(t, err)
 
 	// Closes the write-direction of the stream and sends a STREAM FIN packet.
 	// A DoQ client MUST send a FIN packet to indicate that the query is
 	// finished.
-	_ = stream.Close()
+	err = stream.Close()
+	require.NoError(t, err)
 
 	// Now read the response.
 	respBytes := make([]byte, dns.MaxMsgSize)
 	n, err := stream.Read(respBytes)
-	if err != nil && !errors.Is(err, io.EOF) {
-		// Ignore EOF, this is just server sending FIN alongside the data
-		return nil, err
+	if !errors.Is(err, io.EOF) {
+		require.NoError(t, err)
 	}
 
-	if n < dnsserver.DNSHeaderSize {
-		return nil, dns.ErrShortRead
-	}
+	require.GreaterOrEqual(t, n, dnsserver.DNSHeaderSize)
 
 	// Unpack the response.
 	reply := &dns.Msg{}
@@ -263,11 +257,9 @@ func sendQUICMessage(conn quic.Connection, req *dns.Msg, doqDraft bool) (*dns.Ms
 	} else {
 		err = reply.Unpack(respBytes[2:n])
 	}
-	if err != nil {
-		return nil, err
-	}
+	require.NoError(t, err)
 
-	return reply, nil
+	return reply
 }
 
 // writeQUICStream writes buf to the specified QUIC stream in chunks.  This way

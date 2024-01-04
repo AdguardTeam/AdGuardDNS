@@ -30,6 +30,7 @@ func TestFilter_FilterRequest(t *testing.T) {
 
 	replIP := netip.MustParseAddr("1.2.3.4")
 	f, err := hashprefix.NewFilter(&hashprefix.FilterConfig{
+		Cloner: agdtest.NewCloner(),
 		Hashes: strg,
 		URL:    srvURL,
 		ErrColl: &agdtest.ErrorCollector{
@@ -209,6 +210,7 @@ func TestFilter_Refresh(t *testing.T) {
 	require.NoError(t, err)
 
 	f, err := hashprefix.NewFilter(&hashprefix.FilterConfig{
+		Cloner: agdtest.NewCloner(),
 		Hashes: strg,
 		URL:    srvURL,
 		ErrColl: &agdtest.ErrorCollector{
@@ -264,6 +266,7 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 
 	replIP := netip.MustParseAddr("1.2.3.4")
 	fconf := &hashprefix.FilterConfig{
+		Cloner: agdtest.NewCloner(),
 		Hashes: strg,
 		URL:    srvURL,
 		ErrColl: &agdtest.ErrorCollector{

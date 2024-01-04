@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -64,7 +64,7 @@ func TestFileSystem_Write(t *testing.T) {
 	t.Run("nxdomain", func(t *testing.T) {
 		e = testEntry()
 		e.RequestResult, e.ResponseResult = nil, nil
-		e.ResponseCountry = agd.CountryNone
+		e.ResponseCountry = geoip.CountryNone
 		e.ResponseCode = dns.RcodeNameError
 
 		err = l.Write(ctx, e)

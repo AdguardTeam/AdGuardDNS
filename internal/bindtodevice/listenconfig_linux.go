@@ -6,6 +6,7 @@ import (
 	"context"
 	"net"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 )
 
@@ -19,7 +20,7 @@ import (
 type ListenConfig struct {
 	packetConn *chanPacketConn
 	listener   *chanListener
-	addr       string
+	addr       *agdnet.PrefixNetAddr
 }
 
 // type check
@@ -44,8 +45,7 @@ func (lc *ListenConfig) ListenPacket(
 	return lc.packetConn, nil
 }
 
-// Addr returns the address on which lc accepts connections.  See
-// [agdnet.FormatPrefixAddr] for the format.
-func (lc *ListenConfig) Addr() (addr string) {
+// Addr returns the address on which lc accepts connections.  addr.Net is empty.
+func (lc *ListenConfig) Addr() (addr *agdnet.PrefixNetAddr) {
 	return lc.addr
 }

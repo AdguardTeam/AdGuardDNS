@@ -1,7 +1,5 @@
 syntax = "proto3";
 
-option go_package = "./backendpb";
-
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/empty.proto";
@@ -25,7 +23,7 @@ service DNSService {
 
   /*
     Stores devices activity.
-   */
+ */
   rpc saveDevicesBillingStat(stream DeviceBillingStat) returns (google.protobuf.Empty);
 }
 
@@ -52,6 +50,8 @@ message DNSProfile {
     BlockingModeNullIP blocking_mode_null_ip = 15;
     BlockingModeREFUSED blocking_mode_refused = 16;
   }
+  bool ip_log_enabled = 17;
+  AccessSettings access = 18;
 }
 
 message SafeBrowsingSettings {
@@ -121,4 +121,18 @@ message DeviceBillingStat {
   uint32 proto = 4;
   uint32 asn = 5;
   uint32 queries = 6;
+}
+
+message AccessSettings {
+  repeated CidrRange allowlist_cidr = 1;
+  repeated CidrRange blocklist_cidr = 2;
+  repeated uint32 allowlist_asn = 3;
+  repeated uint32 blocklist_asn = 4;
+  repeated string blocklist_domain_rules = 5;
+  bool enabled = 6;
+}
+
+message CidrRange {
+  bytes address = 1;
+  uint32 prefix = 2;
 }

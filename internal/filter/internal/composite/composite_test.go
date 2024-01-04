@@ -56,7 +56,7 @@ func newImmutable(tb testing.TB, text string, id agd.FilterListID) (rl *rulelist
 }
 
 // newReqData returns data for calling FilterRequest.  The context uses
-// [filtertest.Timeout] and [tb.Cleanup] is used for its cancellation.  Both req
+// [filtertest.Timeout] and [tb.Cleanup] is used for its cancelation.  Both req
 // and ri use [filtertest.ReqFQDN], [dns.TypeA], and [dns.ClassINET] for the
 // request data.
 func newReqData(tb testing.TB) (ctx context.Context, req *dns.Msg, ri *agd.RequestInfo) {
@@ -66,6 +66,7 @@ func newReqData(tb testing.TB) (ctx context.Context, req *dns.Msg, ri *agd.Reque
 	req = dnsservertest.NewReq(filtertest.ReqFQDN, dns.TypeA, dns.ClassINET)
 	ri = &agd.RequestInfo{
 		Messages: agdtest.NewConstructor(),
+		RemoteIP: filtertest.RemoteIP,
 		Host:     filtertest.ReqHost,
 		QType:    dns.TypeA,
 		QClass:   dns.ClassINET,
@@ -102,6 +103,39 @@ func TestFilter_nil(t *testing.T) {
 			assert.Nil(t, res)
 		})
 	}
+}
+
+func TestFilter_FilterRequest_client(t *testing.T) {
+	const (
+		devName   = "MyDevice"
+		blockRule = filtertest.BlockRule + "$client=" + devName
+	)
+
+	rl := newFromStr(t, blockRule, testFltListID1)
+
+	wantRes := &internal.ResultBlocked{
+		List: testFltListID1,
+		Rule: blockRule,
+	}
+
+	f := composite.New(&composite.Config{
+		RuleLists: []*rulelist.Refreshable{rl},
+	})
+
+	ctx, req, ri := newReqData(t)
+	res, err := f.FilterRequest(ctx, req, ri)
+	require.NoError(t, err)
+
+	assert.Nil(t, res)
+
+	ri.Device = &agd.Device{
+		Name: devName,
+	}
+
+	res, err = f.FilterRequest(ctx, req, ri)
+	require.NoError(t, err)
+
+	assert.Equal(t, wantRes, res)
 }
 
 func TestFilter_FilterRequest_badfilter(t *testing.T) {
@@ -410,6 +444,7 @@ func TestFilter_FilterRequest_safeSearch(t *testing.T) {
 	const fltListID = agd.FilterListIDGeneralSafeSearch
 
 	gen := safesearch.New(&safesearch.Config{
+		Cloner: agdtest.NewCloner(),
 		Refreshable: &internal.RefreshableConfig{
 			URL:       srvURL,
 			ID:        fltListID,

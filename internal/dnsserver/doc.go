@@ -151,7 +151,11 @@ Package dnsserver supports customizing server behavior using middlewares.  All
 you need to do is implement dnsserver.Middleware interface and use it this way:
 
 	forwarder := forward.NewHandler(&forward.HandlerConfig{
-		Address: netip.MustParseAddrPort("94.140.14.140:53"),
+		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
+			Network: forward.NetworkAny,
+			Address: netip.MustParseAddrPort("94.140.14.140:53"),
+			Timeout: 5 * time.Second,
+		}},
 	})
 	middleware := querylog.NewLogMiddleware(os.Stdout)
 	handler := dnsserver.WithMiddlewares(forwarder, middleware)

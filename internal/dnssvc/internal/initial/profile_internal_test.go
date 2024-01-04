@@ -5,7 +5,9 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
@@ -13,13 +15,40 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// Bind data for tests.
+var (
+	bindDataAddr = &agd.ServerBindData{
+		AddrPort: netip.MustParseAddrPort("1.2.3.4:53"),
+	}
+
+	bindDataIface = &agd.ServerBindData{
+		ListenConfig: &agdtest.ListenConfig{},
+		PrefixAddr: &agdnet.PrefixNetAddr{
+			Prefix: netip.MustParsePrefix("1.2.3.0/24"),
+			Net:    "",
+			Port:   53,
+		},
+	}
+
+	bindDataIfaceSingleIP = &agd.ServerBindData{
+		ListenConfig: &agdtest.ListenConfig{},
+		PrefixAddr: &agdnet.PrefixNetAddr{
+			Prefix: netip.PrefixFrom(dnssvctest.ServerAddr, 32),
+			Net:    "",
+			Port:   dnssvctest.ServerAddrPort.Port(),
+		},
+	}
+)
+
 func TestMiddleware_profile(t *testing.T) {
 	prof := &agd.Profile{
-		ID: dnssvctest.ProfileID,
+		Access: access.EmptyProfile{},
+		ID:     dnssvctest.ProfileID,
 		DeviceIDs: []agd.DeviceID{
 			dnssvctest.DeviceID,
 		},
 	}
+
 	dev := &agd.Device{
 		ID:       dnssvctest.DeviceID,
 		LinkedIP: dnssvctest.ClientAddr,
@@ -56,15 +85,6 @@ func TestMiddleware_profile(t *testing.T) {
 		proto:           agd.ProtoDNS,
 		linkedIPEnabled: true,
 	}, {
-		wantDev:         dev,
-		wantProf:        prof,
-		wantByWhat:      byLinkedIP,
-		wantErrMsg:      "",
-		name:            "linked_ip",
-		id:              "",
-		proto:           agd.ProtoDNS,
-		linkedIPEnabled: true,
-	}, {
 		wantDev:         nil,
 		wantProf:        nil,
 		wantByWhat:      "",
@@ -73,14 +93,73 @@ func TestMiddleware_profile(t *testing.T) {
 		id:              "",
 		proto:           agd.ProtoDoT,
 		linkedIPEnabled: true,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := dnssvctest.NewServer("test_server", tc.proto, bindDataAddr)
+			srv.LinkedIPEnabled = tc.linkedIPEnabled
+
+			mw := New(&Config{
+				Server:    srv,
+				ProfileDB: newProfileDB(t, prof, dev, tc.wantByWhat),
+			})
+
+			ctx := context.Background()
+			gotProf, gotDev, gotByWhat, err := mw.profile(
+				ctx,
+				dnssvctest.ServerAddrPort,
+				dnssvctest.ClientAddr,
+				tc.id,
+			)
+			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)
+			assert.Equal(t, tc.wantProf, gotProf)
+			assert.Equal(t, tc.wantDev, gotDev)
+			assert.Equal(t, tc.wantByWhat, gotByWhat)
+		})
+	}
+}
+
+func TestMiddleware_profileByAddrs(t *testing.T) {
+	prof := &agd.Profile{
+		Access: access.EmptyProfile{},
+		ID:     dnssvctest.ProfileID,
+		DeviceIDs: []agd.DeviceID{
+			dnssvctest.DeviceID,
+		},
+	}
+
+	dev := &agd.Device{
+		ID:       dnssvctest.DeviceID,
+		LinkedIP: dnssvctest.ClientAddr,
+		DedicatedIPs: []netip.Addr{
+			dnssvctest.ServerAddr,
+		},
+	}
+
+	testCases := []struct {
+		wantDev         *agd.Device
+		wantProf        *agd.Profile
+		wantByWhat      string
+		wantErrMsg      string
+		name            string
+		bindData        []*agd.ServerBindData
+		linkedIPEnabled bool
+	}{{
+		wantDev:         dev,
+		wantProf:        prof,
+		wantByWhat:      byLinkedIP,
+		wantErrMsg:      "",
+		name:            "linked_ip",
+		bindData:        []*agd.ServerBindData{bindDataAddr},
+		linkedIPEnabled: true,
 	}, {
 		wantDev:         nil,
 		wantProf:        nil,
 		wantByWhat:      "",
 		wantErrMsg:      "device not found",
 		name:            "linked_ip_disabled",
-		id:              "",
-		proto:           agd.ProtoDoT,
+		bindData:        []*agd.ServerBindData{bindDataAddr},
 		linkedIPEnabled: false,
 	}, {
 		wantDev:         dev,
@@ -88,27 +167,44 @@ func TestMiddleware_profile(t *testing.T) {
 		wantByWhat:      byDedicatedIP,
 		wantErrMsg:      "",
 		name:            "dedicated_ip",
-		id:              "",
-		proto:           agd.ProtoDNS,
+		bindData:        []*agd.ServerBindData{bindDataIface},
+		linkedIPEnabled: true,
+	}, {
+		wantDev:         nil,
+		wantProf:        nil,
+		wantByWhat:      "",
+		wantErrMsg:      "drop",
+		name:            "dedicated_ip_not_found",
+		bindData:        []*agd.ServerBindData{bindDataIface},
+		linkedIPEnabled: true,
+	}, {
+		wantDev:    nil,
+		wantProf:   nil,
+		wantByWhat: "",
+		wantErrMsg: "device not found",
+		name:       "dedicated_ip_and_single_ip",
+		bindData: []*agd.ServerBindData{
+			bindDataIface,
+			bindDataIfaceSingleIP,
+		},
 		linkedIPEnabled: true,
 	}}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			srv := dnssvctest.NewServer("test_server", agd.ProtoDNS, tc.bindData...)
+			srv.LinkedIPEnabled = tc.linkedIPEnabled
+
 			mw := New(&Config{
-				Server: &agd.Server{
-					Protocol:        tc.proto,
-					LinkedIPEnabled: tc.linkedIPEnabled,
-				},
+				Server:    srv,
 				ProfileDB: newProfileDB(t, prof, dev, tc.wantByWhat),
 			})
 
 			ctx := context.Background()
-			gotProf, gotDev, gotByWhat, err := mw.profile(
+			gotProf, gotDev, gotByWhat, err := mw.profileByAddrs(
 				ctx,
-				dnssvctest.ServerAddr,
+				dnssvctest.ServerAddrPort,
 				dnssvctest.ClientAddr,
-				tc.id,
 			)
 			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)
 			assert.Equal(t, tc.wantProf, gotProf)

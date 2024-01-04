@@ -10,18 +10,19 @@ import (
 	"github.com/AdguardTeam/golibs/stringutil"
 )
 
-// Server Group Configuration
-
 // serverGroups are the DNS server groups.  A valid instance of serverGroups has
 // no nil items.
 type serverGroups []*serverGroup
 
 // toInternal returns the configuration for all server groups in the DNS
-// service.  srvGrps is assumed to be valid.
+// service.  srvGrps and other parts of the configuration are assumed to be
+// valid.
 func (srvGrps serverGroups) toInternal(
 	messages *dnsmsg.Constructor,
 	btdMgr *bindtodevice.Manager,
 	fltGrps map[agd.FilteringGroupID]*agd.FilteringGroup,
+	ratelimitConf *rateLimitConfig,
+	dnsConf *dnsConfig,
 ) (svcSrvGrps []*agd.ServerGroup, err error) {
 	svcSrvGrps = make([]*agd.ServerGroup, len(srvGrps))
 	for i, g := range srvGrps {
@@ -44,7 +45,7 @@ func (srvGrps serverGroups) toInternal(
 			FilteringGroup: fltGrpID,
 		}
 
-		svcSrvGrps[i].Servers, err = g.Servers.toInternal(tlsConf, btdMgr)
+		svcSrvGrps[i].Servers, err = g.Servers.toInternal(tlsConf, btdMgr, ratelimitConf, dnsConf)
 		if err != nil {
 			return nil, fmt.Errorf("server group %q: %w", g.Name, err)
 		}

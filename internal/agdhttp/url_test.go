@@ -61,13 +61,6 @@ func TestParseHTTPURL(t *testing.T) {
 	}
 }
 
-func TestURL_UnmarshalText(t *testing.T) {
-	u := &agdhttp.URL{
-		URL: *testURL(),
-	}
-	testutil.AssertUnmarshalText(t, u.String(), u)
-}
-
 func testURL() (u *url.URL) {
 	return &url.URL{
 		Scheme:   "http",

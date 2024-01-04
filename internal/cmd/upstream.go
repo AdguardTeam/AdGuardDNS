@@ -8,41 +8,39 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
 
 // DNS upstream configuration
 
-// upstreamConfig module configuration
+// upstreamConfig is the upstream module configuration.
 type upstreamConfig struct {
 	// Healthcheck contains the upstream healthcheck configuration.
 	Healthcheck *upstreamHealthcheckConfig `yaml:"healthcheck"`
 
-	// Server is the upstream url of the server we're using to forward DNS
-	// queries. It starts with tcp://, udp://, or with an IP address.
-	Server string `yaml:"server"`
+	// Fallback is the configuration for the upstream fallback servers.
+	Fallback *upstreamFallbackConfig `yaml:"fallback"`
 
-	// FallbackServers is a list of the DNS servers we're using to fallback to
-	// when the upstream server fails to respond
-	FallbackServers []netip.AddrPort `yaml:"fallback"`
-
-	// Timeout is the timeout for DNS requests to the upstreams.
-	Timeout timeutil.Duration `yaml:"timeout"`
+	// Servers is a list of the upstream servers configurations we use to
+	// forward DNS queries.
+	Servers []*upstreamServerConfig `yaml:"servers"`
 }
 
 // toInternal converts c to the data storage configuration for the DNS server.
-func (c *upstreamConfig) toInternal() (fwdConf *forward.HandlerConfig, err error) {
-	network, addrPort, err := splitUpstreamURL(c.Server)
-	if err != nil {
-		return nil, err
-	}
+// c is assumed to be valid.
+func (c *upstreamConfig) toInternal() (fwdConf *forward.HandlerConfig) {
+	upstreams := c.Servers
+	fallbacks := c.Fallback.Servers
 
-	fallbacks := c.FallbackServers
-	metricsListener := prometheus.NewForwardMetricsListener(len(fallbacks) + 1)
+	upsConfs := toUpstreamConfigs(upstreams)
+	fallbackConfs := toUpstreamConfigs(fallbacks)
+
+	metricsListener := prometheus.NewForwardMetricsListener(len(upstreams) + len(fallbacks))
 
 	var hcInit time.Duration
 	if c.Healthcheck.Enabled {
@@ -50,17 +48,15 @@ func (c *upstreamConfig) toInternal() (fwdConf *forward.HandlerConfig, err error
 	}
 
 	fwdConf = &forward.HandlerConfig{
-		Address:                    addrPort,
-		Network:                    network,
 		MetricsListener:            metricsListener,
 		HealthcheckDomainTmpl:      c.Healthcheck.DomainTmpl,
-		FallbackAddresses:          c.FallbackServers,
-		Timeout:                    c.Timeout.Duration,
+		UpstreamsAddresses:         upsConfs,
+		FallbackAddresses:          fallbackConfs,
 		HealthcheckBackoffDuration: c.Healthcheck.BackoffDuration.Duration,
 		HealthcheckInitDuration:    hcInit,
 	}
 
-	return fwdConf, nil
+	return fwdConf
 }
 
 // validate returns an error if the upstream configuration is invalid.
@@ -68,20 +64,20 @@ func (c *upstreamConfig) validate() (err error) {
 	switch {
 	case c == nil:
 		return errNilConfig
-	case c.Server == "":
-		return errors.Error("no server")
-	case len(c.FallbackServers) == 0:
-		return errors.Error("no fallback")
-	case c.Timeout.Duration <= 0:
-		return newMustBePositiveError("timeout", c.Timeout)
+	case len(c.Servers) == 0:
+		return errors.Error("no servers")
 	}
 
-	err = validateAddrs(c.FallbackServers)
-	if err != nil {
-		return fmt.Errorf("fallback: %w", err)
+	for i, s := range c.Servers {
+		if err = s.validate(); err != nil {
+			return fmt.Errorf("servers: at index %d: %w", i, err)
+		}
 	}
 
-	return errors.Annotate(c.Healthcheck.validate(), "healthcheck: %w")
+	return coalesceError(
+		validateProp("fallback", c.Fallback.validate),
+		validateProp("healthcheck", c.Healthcheck.validate),
+	)
 }
 
 // splitUpstreamURL separates server url to net protocol and port address.
@@ -163,13 +159,13 @@ func (c *upstreamHealthcheckConfig) validate() (err error) {
 func newUpstreamHealthcheck(
 	handler *forward.Handler,
 	conf *upstreamConfig,
-	errColl agd.ErrorCollector,
-) (refr agd.Service) {
+	errColl errcoll.Interface,
+) (refr agdservice.Interface) {
 	if !conf.Healthcheck.Enabled {
-		return agd.EmptyService{}
+		return agdservice.Empty{}
 	}
 
-	return agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
+	return agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
 		Context: func() (ctx context.Context, cancel context.CancelFunc) {
 			return context.WithTimeout(
 				context.Background(),
@@ -182,5 +178,76 @@ func newUpstreamHealthcheck(
 		Interval:            conf.Healthcheck.Interval.Duration,
 		RefreshOnShutdown:   false,
 		RoutineLogsAreDebug: true,
+		RandomizeStart:      false,
 	})
+}
+
+// upstreamFallbackConfig is the configuration for the upstream fallback
+// servers.
+type upstreamFallbackConfig struct {
+	// Servers is a list of the upstream servers configurations we use to
+	// fallback when the upstream servers fail to respond.
+	Servers []*upstreamServerConfig `yaml:"servers"`
+}
+
+// validate returns an error if the upstream fallback configuration is invalid.
+func (c *upstreamFallbackConfig) validate() (err error) {
+	switch {
+	case c == nil:
+		return errNilConfig
+	case len(c.Servers) == 0:
+		return errors.Error("no servers")
+	}
+
+	for i, s := range c.Servers {
+		if err = s.validate(); err != nil {
+			return fmt.Errorf("servers: at index %d: %w", i, err)
+		}
+	}
+
+	return nil
+}
+
+// upstreamServerConfig is the configuration for the upstream server.
+type upstreamServerConfig struct {
+	// Address is the url of the DNS server in the `[scheme://]ip:port`
+	// format.
+	Address string `yaml:"address"`
+
+	// Timeout is the timeout for DNS requests.
+	Timeout timeutil.Duration `yaml:"timeout"`
+}
+
+// validate returns an error if the upstream server configuration is invalid.
+func (c *upstreamServerConfig) validate() (err error) {
+	switch {
+	case c == nil:
+		return errNilConfig
+	case c.Timeout.Duration <= 0:
+		return newMustBePositiveError("timeout", c.Timeout)
+	}
+
+	_, _, err = splitUpstreamURL(c.Address)
+	if err != nil {
+		return fmt.Errorf("invalid addr: %s", c.Address)
+	}
+
+	return nil
+}
+
+// toUpstreamConfigs converts confs to the list of upstream configurations.
+// confs must be valid.
+func toUpstreamConfigs(confs []*upstreamServerConfig) (upsConfs []*forward.UpstreamPlainConfig) {
+	upsConfs = make([]*forward.UpstreamPlainConfig, 0, len(confs))
+	for _, c := range confs {
+		net, addrPort, _ := splitUpstreamURL(c.Address)
+
+		upsConfs = append(upsConfs, &forward.UpstreamPlainConfig{
+			Network: net,
+			Address: addrPort,
+			Timeout: c.Timeout.Duration,
+		})
+	}
+
+	return upsConfs
 }

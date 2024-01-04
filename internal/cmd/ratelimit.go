@@ -1,14 +1,16 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/consul"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/timeutil"
@@ -32,22 +34,28 @@ type rateLimitConfig struct {
 	// Rate limit options for IPv6 addresses.
 	IPv6 *rateLimitOptions `yaml:"ipv6"`
 
+	// QUIC is the configuration of QUIC streams limiting.
+	QUIC *ratelimitQUICConfig `yaml:"quic"`
+
+	// TCP is the configuration of TCP pipeline limiting.
+	TCP *ratelimitTCPConfig `yaml:"tcp"`
+
 	// ResponseSizeEstimate is the size of the estimate of the size of one DNS
 	// response for the purposes of rate limiting.  Responses over this estimate
 	// are counted as several responses.
 	ResponseSizeEstimate datasize.ByteSize `yaml:"response_size_estimate"`
 
-	// BackOffCount helps with repeated offenders.  It defines, how many times
+	// BackoffCount helps with repeated offenders.  It defines, how many times
 	// a client hits the rate limit before being held in the back off.
-	BackOffCount int `yaml:"back_off_count"`
+	BackoffCount int `yaml:"backoff_count"`
 
-	// BackOffDuration is how much a client that has hit the rate limit too
+	// BackoffDuration is how much a client that has hit the rate limit too
 	// often stays in the back off.
-	BackOffDuration timeutil.Duration `yaml:"back_off_duration"`
+	BackoffDuration timeutil.Duration `yaml:"backoff_duration"`
 
-	// BackOffPeriod is the time during which to count the number of times
+	// BackoffPeriod is the time during which to count the number of times
 	// a client has hit the rate limit for a back off.
-	BackOffPeriod timeutil.Duration `yaml:"back_off_period"`
+	BackoffPeriod timeutil.Duration `yaml:"backoff_period"`
 
 	// RefuseANY, if true, makes the server refuse DNS * queries.
 	RefuseANY bool `yaml:"refuse_any"`
@@ -87,17 +95,17 @@ func (o *rateLimitOptions) validate() (err error) {
 
 // toInternal converts c to the rate limiting configuration for the DNS server.
 // c is assumed to be valid.
-func (c *rateLimitConfig) toInternal(al ratelimit.Allowlist) (conf *ratelimit.BackOffConfig) {
-	return &ratelimit.BackOffConfig{
+func (c *rateLimitConfig) toInternal(al ratelimit.Allowlist) (conf *ratelimit.BackoffConfig) {
+	return &ratelimit.BackoffConfig{
 		Allowlist:            al,
 		ResponseSizeEstimate: int(c.ResponseSizeEstimate.Bytes()),
-		Duration:             c.BackOffDuration.Duration,
-		Period:               c.BackOffPeriod.Duration,
+		Duration:             c.BackoffDuration.Duration,
+		Period:               c.BackoffPeriod.Duration,
 		IPv4RPS:              c.IPv4.RPS,
 		IPv4SubnetKeyLen:     c.IPv4.SubnetKeyLen,
 		IPv6RPS:              c.IPv6.RPS,
 		IPv6SubnetKeyLen:     c.IPv6.SubnetKeyLen,
-		Count:                c.BackOffCount,
+		Count:                c.BackoffCount,
 		RefuseANY:            c.RefuseANY,
 	}
 }
@@ -111,25 +119,15 @@ func (c *rateLimitConfig) validate() (err error) {
 		return fmt.Errorf("allowlist: %w", errNilConfig)
 	}
 
-	err = c.ConnectionLimit.validate()
-	if err != nil {
-		return fmt.Errorf("connection_limit: %w", err)
-	}
-
-	err = c.IPv4.validate()
-	if err != nil {
-		return fmt.Errorf("ipv4: %w", err)
-	}
-
-	err = c.IPv6.validate()
-	if err != nil {
-		return fmt.Errorf("ipv6: %w", err)
-	}
-
 	return coalesceError(
-		validatePositive("back_off_count", c.BackOffCount),
-		validatePositive("back_off_duration", c.BackOffDuration),
-		validatePositive("back_off_period", c.BackOffPeriod),
+		validateProp("connection_limit", c.ConnectionLimit.validate),
+		validateProp("ipv4", c.IPv4.validate),
+		validateProp("ipv6", c.IPv6.validate),
+		validateProp("quic", c.QUIC.validate),
+		validateProp("tcp", c.TCP.validate),
+		validatePositive("backoff_count", c.BackoffCount),
+		validatePositive("backoff_duration", c.BackoffDuration),
+		validatePositive("backoff_period", c.BackoffPeriod),
 		validatePositive("response_size_estimate", c.ResponseSizeEstimate),
 		validatePositive("allowlist.refresh_interval", c.Allowlist.RefreshIvl),
 	)
@@ -141,8 +139,8 @@ func setupRateLimiter(
 	conf *rateLimitConfig,
 	consulAllowlist *url.URL,
 	sigHdlr signalHandler,
-	errColl agd.ErrorCollector,
-) (rateLimiter *ratelimit.BackOff, connLimiter *connlimiter.Limiter, err error) {
+	errColl errcoll.Interface,
+) (rateLimiter *ratelimit.Backoff, connLimiter *connlimiter.Limiter, err error) {
 	allowSubnets, err := agdnet.ParseSubnets(conf.Allowlist.List...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("parsing allowlist subnets: %w", err)
@@ -154,7 +152,7 @@ func setupRateLimiter(
 		return nil, nil, fmt.Errorf("creating allowlist refresher: %w", err)
 	}
 
-	refr := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
+	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
 		Context:             ctxWithDefaultTimeout,
 		Refresher:           refresher,
 		ErrColl:             errColl,
@@ -162,15 +160,17 @@ func setupRateLimiter(
 		Interval:            conf.Allowlist.RefreshIvl.Duration,
 		RefreshOnShutdown:   false,
 		RoutineLogsAreDebug: false,
+		RandomizeStart:      false,
 	})
-	err = refr.Start()
+
+	err = refr.Start(context.Background())
 	if err != nil {
 		return nil, nil, fmt.Errorf("starting allowlist refresher: %w", err)
 	}
 
 	sigHdlr.add(refr)
 
-	return ratelimit.NewBackOff(conf.toInternal(allowlist)), conf.ConnectionLimit.toInternal(), nil
+	return ratelimit.NewBackoff(conf.toInternal(allowlist)), conf.ConnectionLimit.toInternal(), nil
 }
 
 // connLimitConfig is the configuration structure for the stream-connection
@@ -228,4 +228,42 @@ func (c *connLimitConfig) validate() (err error) {
 	default:
 		return nil
 	}
+}
+
+// ratelimitTCPConfig is the configuration of TCP pipeline limiting.
+type ratelimitTCPConfig struct {
+	// MaxPipelineCount is the maximum number of simultaneously processing TCP
+	// messages per one connection.
+	MaxPipelineCount uint `yaml:"max_pipeline_count"`
+
+	// Enabled, if true, enables TCP limiting.
+	Enabled bool `yaml:"enabled"`
+}
+
+// validate returns an error if the config is invalid.
+func (c *ratelimitTCPConfig) validate() (err error) {
+	if c == nil {
+		return errNilConfig
+	}
+
+	return validatePositive("max_pipeline_count", c.MaxPipelineCount)
+}
+
+// ratelimitQUICConfig is the configuration of QUIC streams limiting.
+type ratelimitQUICConfig struct {
+	// MaxStreamsPerPeer is the maximum number of concurrent streams that a peer
+	// is allowed to open.
+	MaxStreamsPerPeer int `yaml:"max_streams_per_peer"`
+
+	// Enabled, if true, enables QUIC limiting.
+	Enabled bool `yaml:"enabled"`
+}
+
+// validate returns an error if the config is invalid.
+func (c *ratelimitQUICConfig) validate() (err error) {
+	if c == nil {
+		return errNilConfig
+	}
+
+	return validatePositive("max_streams_per_peer", c.MaxStreamsPerPeer)
 }

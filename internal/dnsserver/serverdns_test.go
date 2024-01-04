@@ -25,50 +25,43 @@ func TestServerDNS_StartShutdown(t *testing.T) {
 
 func TestServerDNS_integration_query(t *testing.T) {
 	testCases := []struct {
-		name    string
-		network dnsserver.Network
-		req     *dns.Msg
-		// if nil, use defaultTestHandler
-		handler              dnsserver.Handler
-		expectedRecordsCount int
-		expectedRCode        int
-		expectedTruncated    bool
-		expectedMsg          func(t *testing.T, m *dns.Msg)
+		name             string
+		network          dnsserver.Network
+		req              *dns.Msg
+		handler          dnsserver.Handler
+		wantMsg          func(t *testing.T, m *dns.Msg)
+		wantRecordsCount int
+		wantRCode        int
+		wantTruncated    bool
 	}{{
-		name:                 "valid_udp_msg",
-		network:              dnsserver.NetworkUDP,
-		expectedRecordsCount: 1,
-		expectedRCode:        dns.RcodeSuccess,
+		name:    "valid_udp_msg",
+		network: dnsserver.NetworkUDP,
 		req: &dns.Msg{
 			MsgHdr: dns.MsgHdr{Id: dns.Id(), RecursionDesired: true},
 			Question: []dns.Question{
 				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
 			},
 		},
+		handler:          dnsservertest.DefaultHandler(),
+		wantRecordsCount: 1,
+		wantRCode:        dns.RcodeSuccess,
 	}, {
-		name:                 "valid_tcp_msg",
-		network:              dnsserver.NetworkTCP,
-		expectedRecordsCount: 1,
-		expectedRCode:        dns.RcodeSuccess,
+		name:    "valid_tcp_msg",
+		network: dnsserver.NetworkTCP,
 		req: &dns.Msg{
 			MsgHdr: dns.MsgHdr{Id: dns.Id(), RecursionDesired: true},
 			Question: []dns.Question{
 				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
 			},
 		},
+		handler:          dnsservertest.DefaultHandler(),
+		wantRecordsCount: 1,
+		wantRCode:        dns.RcodeSuccess,
 	}, {
 		// This test checks that we remove unsupported EDNS0 options from
 		// the response.
-		name:                 "udp_edns0_supported_options",
-		network:              dnsserver.NetworkUDP,
-		expectedRecordsCount: 1,
-		expectedRCode:        dns.RcodeSuccess,
-		expectedMsg: func(t *testing.T, m *dns.Msg) {
-			opt := m.IsEdns0()
-			require.NotNil(t, opt)
-			require.Len(t, opt.Option, 1)
-			require.Equal(t, uint16(dns.EDNS0EXPIRE), opt.Option[0].Option())
-		},
+		name:    "udp_edns0_supported_options",
+		network: dnsserver.NetworkUDP,
 		req: &dns.Msg{
 			MsgHdr: dns.MsgHdr{Id: dns.Id(), RecursionDesired: true},
 			Question: []dns.Question{
@@ -96,12 +89,19 @@ func TestServerDNS_integration_query(t *testing.T) {
 				},
 			},
 		},
+		handler: dnsservertest.DefaultHandler(),
+		wantMsg: func(t *testing.T, m *dns.Msg) {
+			opt := m.IsEdns0()
+			require.NotNil(t, opt)
+			require.Len(t, opt.Option, 1)
+			require.Equal(t, uint16(dns.EDNS0EXPIRE), opt.Option[0].Option())
+		},
+		wantRecordsCount: 1,
+		wantRCode:        dns.RcodeSuccess,
 	}, {
 		// Check that we reject invalid DNS messages (like having two questions)
-		name:                 "reject_msg",
-		network:              dnsserver.NetworkUDP,
-		expectedRecordsCount: 0,
-		expectedRCode:        dns.RcodeFormatError,
+		name:    "reject_msg",
+		network: dnsserver.NetworkUDP,
 		req: &dns.Msg{
 			MsgHdr: dns.MsgHdr{Id: dns.Id(), RecursionDesired: true},
 			Question: []dns.Question{
@@ -109,38 +109,47 @@ func TestServerDNS_integration_query(t *testing.T) {
 				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
 			},
 		},
+		handler:          dnsservertest.DefaultHandler(),
+		wantRecordsCount: 0,
+		wantRCode:        dns.RcodeFormatError,
 	}, {
-		// Checks that we handle mixed case domain names
-		name:                 "udp_mixed_case",
-		network:              dnsserver.NetworkUDP,
-		expectedRecordsCount: 1,
-		expectedRCode:        dns.RcodeSuccess,
+		// Check that we handle mixed case domain names.
+		name:    "udp_mixed_case",
+		network: dnsserver.NetworkUDP,
 		req: &dns.Msg{
 			MsgHdr: dns.MsgHdr{Id: dns.Id(), RecursionDesired: true},
 			Question: []dns.Question{
 				{Name: "eXaMplE.oRg.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
 			},
 		},
+		handler:          dnsservertest.DefaultHandler(),
+		wantRecordsCount: 1,
+		wantRCode:        dns.RcodeSuccess,
 	}, {
 		// Checks that we respond with NotImplemented to requests with OpcodeStatus
 		// also checks that Opcode is unchanged in the response
-		name:                 "not_implemented_msg",
-		network:              dnsserver.NetworkUDP,
-		expectedRecordsCount: 0,
-		expectedRCode:        dns.RcodeNotImplemented,
+		name:    "not_implemented_msg",
+		network: dnsserver.NetworkUDP,
 		req: &dns.Msg{
 			MsgHdr: dns.MsgHdr{Id: dns.Id(), RecursionDesired: true, Opcode: dns.OpcodeStatus},
 			Question: []dns.Question{
 				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
 			},
 		},
+		handler:          dnsservertest.DefaultHandler(),
+		wantRecordsCount: 0,
+		wantRCode:        dns.RcodeNotImplemented,
 	}, {
 		// Checks that we respond with SERVFAIL in case if the handler
 		// returns an error
-		name:                 "handler_failure",
-		network:              dnsserver.NetworkUDP,
-		expectedRecordsCount: 0,
-		expectedRCode:        dns.RcodeServerFailure,
+		name:    "handler_failure",
+		network: dnsserver.NetworkUDP,
+		req: &dns.Msg{
+			MsgHdr: dns.MsgHdr{Id: dns.Id(), RecursionDesired: true},
+			Question: []dns.Question{
+				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
+			},
+		},
 		handler: dnsserver.HandlerFunc(func(
 			_ context.Context,
 			_ dnsserver.ResponseWriter,
@@ -148,51 +157,43 @@ func TestServerDNS_integration_query(t *testing.T) {
 		) (err error) {
 			return errors.Error("something went wrong")
 		}),
-		req: &dns.Msg{
-			MsgHdr: dns.MsgHdr{Id: dns.Id(), RecursionDesired: true},
-			Question: []dns.Question{
-				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
-			},
-		},
+		wantRecordsCount: 0,
+		wantRCode:        dns.RcodeServerFailure,
 	}, {
 		// Checks that Z flag is set to zero even when the query has it
 		// See https://github.com/miekg/dns/issues/975
-		name:                 "msg_with_zflag",
-		network:              dnsserver.NetworkUDP,
-		expectedRecordsCount: 1,
-		expectedRCode:        dns.RcodeSuccess,
+		name:    "msg_with_zflag",
+		network: dnsserver.NetworkUDP,
 		req: &dns.Msg{
 			MsgHdr: dns.MsgHdr{Id: dns.Id(), RecursionDesired: true, Zero: true},
 			Question: []dns.Question{
 				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
 			},
 		},
+		handler:          dnsservertest.DefaultHandler(),
+		wantRecordsCount: 1,
+		wantRCode:        dns.RcodeSuccess,
 	}, {
 		// Checks that large responses are getting truncated when
 		// sent over UDP
 		name:    "udp_truncate_response",
 		network: dnsserver.NetworkUDP,
-		// Set a handler that generates a large response
-		handler:              dnsservertest.CreateTestHandler(64),
-		expectedRecordsCount: 0,
-		expectedRCode:        dns.RcodeSuccess,
-		expectedTruncated:    true,
 		req: &dns.Msg{
 			MsgHdr: dns.MsgHdr{Id: dns.Id(), RecursionDesired: true},
 			Question: []dns.Question{
 				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
 			},
 		},
+		// Set a handler that generates a large response
+		handler:          dnsservertest.CreateTestHandler(64),
+		wantRecordsCount: 0,
+		wantRCode:        dns.RcodeSuccess,
+		wantTruncated:    true,
 	}, {
 		// Checks that if UDP size is large enough there would be no
 		// truncated responses
 		name:    "udp_edns0_no_truncate",
 		network: dnsserver.NetworkUDP,
-		// Set a handler that generates a large response
-		handler:              dnsservertest.CreateTestHandler(64),
-		expectedRecordsCount: 64,
-		expectedRCode:        dns.RcodeSuccess,
-		expectedTruncated:    false,
 		req: &dns.Msg{
 			MsgHdr: dns.MsgHdr{Id: dns.Id(), RecursionDesired: true},
 			Question: []dns.Question{
@@ -208,30 +209,33 @@ func TestServerDNS_integration_query(t *testing.T) {
 				},
 			},
 		},
+		// Set a handler that generates a large response
+		handler:          dnsservertest.CreateTestHandler(64),
+		wantRecordsCount: 64,
+		wantRCode:        dns.RcodeSuccess,
+		wantTruncated:    false,
 	}, {
 		// Checks that large responses are NOT truncated when
 		// sent over UDP
 		name:    "tcp_no_truncate_response",
 		network: dnsserver.NetworkTCP,
-		// Set a handler that generates a large response
-		handler: dnsservertest.CreateTestHandler(64),
-		// No truncate
-		expectedRecordsCount: 64,
-		expectedRCode:        dns.RcodeSuccess,
-		expectedTruncated:    false,
 		req: &dns.Msg{
 			MsgHdr: dns.MsgHdr{Id: dns.Id(), RecursionDesired: true},
 			Question: []dns.Question{
 				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
 			},
 		},
+		// Set a handler that generates a large response
+		handler: dnsservertest.CreateTestHandler(64),
+		// No truncate
+		wantRecordsCount: 64,
+		wantRCode:        dns.RcodeSuccess,
+		wantTruncated:    false,
 	}, {
 		// Check that the server adds keep alive option when the client
 		// indicates that supports it.
-		name:                 "tcp_edns0_tcp_keep-alive",
-		network:              dnsserver.NetworkTCP,
-		expectedRecordsCount: 1,
-		expectedRCode:        dns.RcodeSuccess,
+		name:    "tcp_edns0_tcp_keep-alive",
+		network: dnsserver.NetworkTCP,
 		req: &dns.Msg{
 			MsgHdr: dns.MsgHdr{Id: dns.Id(), RecursionDesired: true},
 			Question: []dns.Question{
@@ -253,15 +257,14 @@ func TestServerDNS_integration_query(t *testing.T) {
 				},
 			},
 		},
+		handler:          dnsservertest.DefaultHandler(),
+		wantRecordsCount: 1,
+		wantRCode:        dns.RcodeSuccess,
 	}}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			handler := dnsservertest.DefaultHandler()
-			if tc.handler != nil {
-				handler = tc.handler
-			}
-			_, addr := dnsservertest.RunDNSServer(t, handler)
+			_, addr := dnsservertest.RunDNSServer(t, tc.handler)
 
 			// Send this test message to our server over UDP
 			c := new(dns.Client)
@@ -271,17 +274,17 @@ func TestServerDNS_integration_query(t *testing.T) {
 			resp, _, err := c.Exchange(tc.req, addr)
 			require.NoError(t, err)
 			require.NotNil(t, resp)
-			if tc.expectedMsg != nil {
-				tc.expectedMsg(t, resp)
+			if tc.wantMsg != nil {
+				tc.wantMsg(t, resp)
 			}
 
 			dnsservertest.RequireResponse(
 				t,
 				tc.req,
 				resp,
-				tc.expectedRecordsCount,
-				tc.expectedRCode,
-				tc.expectedTruncated,
+				tc.wantRecordsCount,
+				tc.wantRCode,
+				tc.wantTruncated,
 			)
 
 			reqKeepAliveOpt := dnsservertest.FindEDNS0Option[*dns.EDNS0_TCP_KEEPALIVE](tc.req)
@@ -380,12 +383,14 @@ func TestServerDNS_integration_udpMsgIgnore(t *testing.T) {
 	require.NoError(t, err)
 
 	// Try reading the response and make sure that it times out
-	_ = conn.SetReadDeadline(time.Now().Add(time.Millisecond * 100))
+	err = conn.SetReadDeadline(time.Now().Add(time.Millisecond * 100))
+	require.NoError(t, err)
+
 	buf := make([]byte, 500)
 	n, err := conn.Read(buf)
-
 	require.Error(t, err)
 	require.Equal(t, 0, n)
+
 	var netErr net.Error
 	require.ErrorAs(t, err, &netErr)
 	require.True(t, netErr.Timeout())

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -38,6 +38,6 @@ func newClient(apiURL *url.URL) (client DNSServiceClient, err error) {
 }
 
 // reportf is a helper method for reporting non-critical errors.
-func reportf(ctx context.Context, errColl agd.ErrorCollector, format string, args ...any) {
-	agd.Collectf(ctx, errColl, "backendpb: "+format, args...)
+func reportf(ctx context.Context, errColl errcoll.Interface, format string, args ...any) {
+	errcoll.Collectf(ctx, errColl, "backendpb: "+format, args...)
 }

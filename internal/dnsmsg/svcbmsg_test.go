@@ -17,7 +17,7 @@ import (
 func TestConstructor_NewAnswerHTTPS_andSVCB(t *testing.T) {
 	// Preconditions.
 
-	mc := dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
+	mc := dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
 	req := &dns.Msg{
 		Question: []dns.Question{{
 			Name: "abcd",
@@ -159,7 +159,7 @@ func TestConstructor_NewDDR(t *testing.T) {
 		dohPath           = "/dns-query"
 	)
 
-	mc := dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
+	mc := dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
 
 	testCases := []struct {
 		name     string

@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/pprofutil"
@@ -69,11 +69,12 @@ func startServer(s *server) {
 }
 
 // type check
-var _ agd.Service = (*Service)(nil)
+var _ agdservice.Interface = (*Service)(nil)
 
-// Start implements the agd.Service interface for *Service.  It starts serving
-// all endpoints.  err is always nil, if any endpoint fails to start, it panics.
-func (svc *Service) Start() (err error) {
+// Start implements the [agdservice.Interface] interface for *Service.  It
+// starts serving all endpoints.  err is always nil, if any endpoint fails to
+// start, it panics.
+func (svc *Service) Start(_ context.Context) (err error) {
 	for _, srv := range svc.servers {
 		go startServer(srv)
 	}
@@ -81,8 +82,8 @@ func (svc *Service) Start() (err error) {
 	return nil
 }
 
-// Shutdown implements the agd.Service interface for *Service.  It stops serving
-// all endpoints.
+// Shutdown implements the [agdservice.Interface] interface for *Service.  It
+// stops serving all endpoints.
 func (svc *Service) Shutdown(ctx context.Context) (err error) {
 	srvNum := 0
 	for _, srv := range svc.servers {

@@ -13,7 +13,7 @@
 
 Development is supported on Linux and macOS (aka Darwin) systems.
 
-1.  Install Go 1.20 or later.
+1.  Install Go 1.21 or later.
 
 1.  Call `make init` to set up the Git pre-commit hook.
 
@@ -74,10 +74,13 @@ This is not an extensive list.  See `../Makefile`.
         </p>
         <ul>
             <li>
-                <code>../internal/agd/country_generate.go</code>;
+                <code>../internal/geoip/country_generate.go</code>;
             </li>
             <li>
                 <code>../internal/geoip/asntops_generate.go</code>;
+            </li>
+            <li>
+                <code>../internal/ecscache/ecsblockilist_generate.go</code>;
             </li>
             <li>
                 <code>../internal/profiledb/internal/filecachepb/filecache.pb.go</code>.
@@ -207,7 +210,7 @@ rm -f -r ./test/cache/
 mkdir ./test/cache
 curl 'https://raw.githubusercontent.com/maxmind/MaxMind-DB/main/test-data/GeoIP2-Country-Test.mmdb' -o ./test/GeoIP2-Country-Test.mmdb
 curl 'https://raw.githubusercontent.com/maxmind/MaxMind-DB/main/test-data/GeoIP2-City-Test.mmdb' -o ./test/GeoIP2-City-Test.mmdb
-curl 'https://raw.githubusercontent.com/maxmind/MaxMind-DB/main/test-data/GeoLite2-ASN-Test.mmdb' -o ./test/GeoLite2-ASN-Test.mmdb
+curl 'https://raw.githubusercontent.com/maxmind/MaxMind-DB/main/test-data/GeoIP2-ISP-Test.mmdb' -o ./test/GeoIP2-ISP-Test.mmdb
 ```
 
 
@@ -227,6 +230,9 @@ You'll need to supply the following:
  *  [`YOUTUBE_SAFE_SEARCH_URL`](#env-YOUTUBE_SAFE_SEARCH_URL)
 
 See the [external HTTP API documentation][externalhttp].
+
+You may use `go run ./scripts/backend` to start mock GRPC server for
+`BILLSTAT_URL` and `PROFILES_URL` endpoints.
 
 You may need to change the listen ports in `config.yaml` which are less than
 1024 to some other ports.  Otherwise, `sudo` or `doas` is required to run
@@ -250,7 +256,7 @@ If you're using an OS different from Linux, you also need to make these changes:
 ```sh
 env \
     ADULT_BLOCKING_URL='https://raw.githubusercontent.com/ameshkov/stuff/master/DNS/adult_blocking.txt' \
-    BILLSTAT_URL='https://httpbin.agrd.workers.dev/post' \
+    BILLSTAT_URL='grpc://localhost:6062' \
     BLOCKED_SERVICE_INDEX_URL='https://adguardteam.github.io/HostlistsRegistry/assets/services.json' \
     CONSUL_ALLOWLIST_URL='https://raw.githubusercontent.com/ameshkov/stuff/master/DNS/consul_allowlist.json' \
     CONFIG_PATH='./config.yaml' \
@@ -258,10 +264,10 @@ env \
     FILTER_CACHE_PATH='./test/cache' \
     NEW_REG_DOMAINS_URL='https://raw.githubusercontent.com/ameshkov/stuff/master/DNS/nrd.txt' \
     PROFILES_CACHE_PATH='./test/profilecache.pb' \
-    PROFILES_URL='https://raw.githubusercontent.com/ameshkov/stuff/master/DNS/profiles' \
+    PROFILES_URL='grpc://localhost:6062' \
     SAFE_BROWSING_URL='https://raw.githubusercontent.com/ameshkov/stuff/master/DNS/safe_browsing.txt' \
     GENERAL_SAFE_SEARCH_URL='https://adguardteam.github.io/HostlistsRegistry/assets/engines_safe_search.txt' \
-    GEOIP_ASN_PATH='./test/GeoLite2-ASN-Test.mmdb' \
+    GEOIP_ASN_PATH='./test/GeoIP2-ISP-Test.mmdb' \
     GEOIP_COUNTRY_PATH='./test/GeoIP2-City-Test.mmdb' \
     QUERYLOG_PATH='./test/cache/querylog.jsonl' \
     LINKED_IP_TARGET_URL='https://httpbin.agrd.workers.dev/anything' \

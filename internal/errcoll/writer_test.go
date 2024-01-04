@@ -15,7 +15,7 @@ func TestWriterErrorCollector(t *testing.T) {
 	c := errcoll.NewWriterErrorCollector(buf)
 	c.Collect(context.Background(), errors.Error("test error"))
 
-	wantRx := `.*: .*errcoll/writer_test.go:[0-9]+: caught error: test error.*`
+	wantRx := `.*: caught error: test error.*`
 	got := buf.String()
 	assert.Regexp(t, wantRx, got)
 }

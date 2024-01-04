@@ -8,6 +8,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
@@ -20,10 +21,10 @@ type sig = struct{}
 
 // Common constants for tests.
 const (
-	devID              = "dev1234"
-	proto              = agd.ProtoDoH
-	clientCtry         = agd.CountryAD
-	clientASN  agd.ASN = 42
+	devID                = "dev1234"
+	proto                = agd.ProtoDoH
+	clientCtry           = geoip.CountryAD
+	clientASN  geoip.ASN = 42
 )
 
 func TestRuntimeRecorder_success(t *testing.T) {

@@ -107,7 +107,7 @@ func TestDeviceIDFromContext(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
-			ctx = dnsserver.ContextWithClientInfo(ctx, dnsserver.ClientInfo{
+			ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
 				TLSServerName: tc.cliSrvName,
 			})
 
@@ -174,7 +174,7 @@ func TestDeviceIDFromContext_https(t *testing.T) {
 			}
 
 			ctx := context.Background()
-			ctx = dnsserver.ContextWithClientInfo(ctx, dnsserver.ClientInfo{
+			ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
 				URL: u,
 			})
 
@@ -192,12 +192,9 @@ func TestDeviceIDFromContext_https(t *testing.T) {
 		}
 
 		ctx := context.Background()
-		ctx = dnsserver.ContextWithClientInfo(ctx, dnsserver.ClientInfo{
+		ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
 			URL:           u,
 			TLSServerName: u.Host,
-		})
-		ctx = dnsserver.ContextWithServerInfo(ctx, dnsserver.ServerInfo{
-			Proto: proto,
 		})
 
 		deviceID, err := deviceIDFromContext(ctx, proto, []string{"*.dns.example.com"})

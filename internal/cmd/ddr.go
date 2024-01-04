@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"cmp"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -11,7 +13,6 @@ import (
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/stringutil"
 	"github.com/miekg/dns"
-	"golang.org/x/exp/slices"
 )
 
 // Discovery Of Designated Resolvers (DDR) configuration
@@ -57,16 +58,8 @@ func ddrRecsToSVCBTmpls(
 		tmpls = appendDDRSVCBTmpls(tmpls, msgs, r, target)
 	}
 
-	// TODO(e.burkov):  Use cmp.Compare when updated to go1.21.
 	slices.SortStableFunc(tmpls, func(a, b *dns.SVCB) (res int) {
-		switch x, y := a.Priority, b.Priority; {
-		case x < y:
-			return -1
-		case x > y:
-			return +1
-		default:
-			return 0
-		}
+		return cmp.Compare(a.Priority, b.Priority)
 	})
 
 	return targets, tmpls

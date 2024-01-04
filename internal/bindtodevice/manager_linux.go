@@ -9,13 +9,14 @@ import (
 	"net/netip"
 	"sync"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdsync"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/mapsutil"
+	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/miekg/dns"
 )
 
@@ -24,7 +25,7 @@ type Manager struct {
 	interfaces     InterfaceStorage
 	closeOnce      *sync.Once
 	ifaceListeners map[ID]*interfaceListener
-	errColl        agd.ErrorCollector
+	errColl        errcoll.Interface
 	done           chan unit
 	chanBufSize    int
 }
@@ -108,18 +109,10 @@ func (m *Manager) newInterfaceListener(
 	port uint16,
 ) (l *interfaceListener) {
 	return &interfaceListener{
-		conns:      &connIndex{},
-		listenConf: newListenConfig(ifaceName, ctrlConf),
-		bodyPool: agdsync.NewTypedPool(func() (v *[]byte) {
-			b := make([]byte, bodySize)
-
-			return &b
-		}),
-		oobPool: agdsync.NewTypedPool(func() (v *[]byte) {
-			b := make([]byte, netext.IPDstOOBSize)
-
-			return &b
-		}),
+		conns:         &connIndex{},
+		listenConf:    newListenConfig(ifaceName, ctrlConf),
+		bodyPool:      syncutil.NewSlicePool[byte](bodySize),
+		oobPool:       syncutil.NewSlicePool[byte](netext.IPDstOOBSize),
 		writeRequests: make(chan *packetConnWriteReq, m.chanBufSize),
 		done:          m.done,
 		errColl:       m.errColl,
@@ -154,10 +147,10 @@ func (m *Manager) ListenConfig(id ID, subnet netip.Prefix) (c *ListenConfig, err
 	}
 
 	lsnrCh := make(chan net.Conn, m.chanBufSize)
-	lsnr := newChanListener(lsnrCh, subnet, &prefixNetAddr{
-		prefix:  subnet,
-		network: "tcp",
-		port:    l.port,
+	lsnr := newChanListener(lsnrCh, subnet, &agdnet.PrefixNetAddr{
+		Prefix: subnet,
+		Net:    "tcp",
+		Port:   l.port,
 	})
 
 	err = l.conns.addListener(lsnr)
@@ -166,10 +159,10 @@ func (m *Manager) ListenConfig(id ID, subnet netip.Prefix) (c *ListenConfig, err
 	}
 
 	sessCh := make(chan *packetSession, m.chanBufSize)
-	pConn := newChanPacketConn(sessCh, subnet, l.writeRequests, &prefixNetAddr{
-		prefix:  subnet,
-		network: "udp",
-		port:    l.port,
+	pConn := newChanPacketConn(sessCh, subnet, l.writeRequests, &agdnet.PrefixNetAddr{
+		Prefix: subnet,
+		Net:    "udp",
+		Port:   l.port,
 	})
 
 	err = l.conns.addPacketConn(pConn)
@@ -182,7 +175,11 @@ func (m *Manager) ListenConfig(id ID, subnet netip.Prefix) (c *ListenConfig, err
 	return &ListenConfig{
 		packetConn: pConn,
 		listener:   lsnr,
-		addr:       agdnet.FormatPrefixAddr(subnet, l.port),
+		addr: &agdnet.PrefixNetAddr{
+			Prefix: subnet,
+			Net:    "",
+			Port:   l.port,
+		},
 	}, nil
 }
 
@@ -214,13 +211,15 @@ func (m *Manager) validateIfaceSubnet(ifaceName string, subnet netip.Prefix) (er
 }
 
 // type check
-var _ agd.Service = (*Manager)(nil)
+var _ agdservice.Interface = (*Manager)(nil)
 
-// Start implements the [agd.Service] interface for *Manager.  If m is nil,
-// Start returns nil, since this feature is optional.
+// Start implements the [agdservice.Interface] interface for *Manager.  If m is
+// nil, Start returns nil, since this feature is optional.
 //
 // TODO(a.garipov): Consider an interface solution.
-func (m *Manager) Start() (err error) {
+//
+// TODO(a.garipov): Use the context for cancelation.
+func (m *Manager) Start(_ context.Context) (err error) {
 	if m == nil {
 		return nil
 	}
@@ -250,8 +249,8 @@ func (m *Manager) Start() (err error) {
 	return nil
 }
 
-// Shutdown implements the [agd.Service] interface for *Manager.  If m is nil,
-// Shutdown returns nil, since this feature is optional.
+// Shutdown implements the [agdservice.Interface] interface for *Manager.  If m
+// is nil, Shutdown returns nil, since this feature is optional.
 //
 // TODO(a.garipov): Consider an interface solution.
 //

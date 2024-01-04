@@ -68,6 +68,13 @@ type ConfigHTTPS struct {
 	// NonDNSHandler handles requests with the path not equal to /dns-query.
 	// If it is empty, the server will return 404 for requests like that.
 	NonDNSHandler http.Handler
+
+	// MaxStreamsPerPeer is the maximum number of concurrent streams that a peer
+	// is allowed to open.
+	MaxStreamsPerPeer int
+
+	// QUICLimitsEnabled, if true, enables QUIC limiting.
+	QUICLimitsEnabled bool
 }
 
 // ServerHTTPS is a DoH server implementation. It supports both DNS Wireformat
@@ -120,11 +127,10 @@ func (s *ServerHTTPS) Start(ctx context.Context) (err error) {
 	if s.started {
 		return ErrServerAlreadyStarted
 	}
-	s.started = true
 
 	log.Info("[%s]: Starting the server", s.addr)
 
-	ctx = ContextWithServerInfo(ctx, ServerInfo{
+	ctx = ContextWithServerInfo(ctx, &ServerInfo{
 		Name:  s.name,
 		Addr:  s.addr,
 		Proto: s.proto,
@@ -147,6 +153,8 @@ func (s *ServerHTTPS) Start(ctx context.Context) (err error) {
 			return err
 		}
 	}
+
+	s.started = true
 
 	log.Info("[%s]: Server has been started", s.Name())
 
@@ -339,21 +347,22 @@ func (h *httpHandler) remoteAddr(r *http.Request) (addr net.Addr) {
 
 	if NetworkFromAddr(h.localAddr) == NetworkUDP {
 		// This means that we're extracting remoteAddr from an HTTP/3 request.
-		return &net.UDPAddr{IP: ip, Port: port}
+		return &net.UDPAddr{IP: ip, Port: int(port)}
 	}
 
-	return &net.TCPAddr{IP: ip, Port: port}
+	return &net.TCPAddr{IP: ip, Port: int(port)}
 }
 
 // ServeHTTP implements the http.Handler interface for *httpHandler.  It reads
 // the DNS data from the request, resolves it, and sends a response.
 //
-// NOTE: r.Context() is only used to control cancellation.  To add values to the
+// NOTE: r.Context() is only used to control cancelation.  To add values to the
 // context, use the BaseContext of this handler's ServerHTTPS.
 func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx := h.srv.requestContext()
+	ctx, cancel := h.srv.requestContext()
+	defer cancel()
+
 	if dl, ok := r.Context().Deadline(); ok {
-		var cancel func()
 		ctx, cancel = context.WithDeadline(ctx, dl)
 		defer cancel()
 	}
@@ -394,7 +403,7 @@ func (h *httpHandler) serveDoH(ctx context.Context, w http.ResponseWriter, r *ht
 	rAddr := h.remoteAddr(r)
 	lAddr := h.localAddr
 	rw := NewNonWriterResponseWriter(lAddr, rAddr)
-	ctx = httpContextWithClientInfo(ctx, r)
+	ctx = addRequestInfo(ctx, r)
 
 	// Serve the query
 	written := h.srv.serveDNS(ctx, m, rw)
@@ -418,7 +427,11 @@ func (h *httpHandler) serveDoH(ctx context.Context, w http.ResponseWriter, r *ht
 
 		// Try writing an error response just in case.
 		http.Error(w, "Internal error", http.StatusInternalServerError)
+
+		return
 	}
+
+	h.srv.disposer.Dispose(resp)
 }
 
 // writeResponse writes the actual DNS response to the client and takes care of
@@ -431,7 +444,7 @@ func (h *httpHandler) writeResponse(
 	w http.ResponseWriter,
 ) (err error) {
 	// normalize the response
-	normalize(NetworkTCP, ProtoDoH, req, resp)
+	normalizeTCP(ProtoDoH, req, resp)
 
 	isDNS, _, ct := isDoH(r)
 	if !isDNS {
@@ -447,9 +460,8 @@ func (h *httpHandler) writeResponse(
 		buf, err = dnsMsgToJSON(resp)
 		w.Header().Set(httphdr.ContentType, MimeTypeJSON)
 	default:
-		return fmt.Errorf("invalid content type: %s", ct)
+		err = fmt.Errorf("invalid content type: %q", ct)
 	}
-
 	if err != nil {
 		return err
 	}
@@ -466,6 +478,7 @@ func (h *httpHandler) writeResponse(
 	// Write the actual response
 	log.Debug("[%d] Writing HTTP response", req.Id)
 	_, err = w.Write(buf)
+
 	return err
 }
 
@@ -505,7 +518,7 @@ func (s *ServerHTTPS) listenQUIC(ctx context.Context) (err error) {
 		return err
 	}
 
-	qConf := newServerQUICConfig(s.metrics)
+	qConf := newServerQUICConfig(s.metrics, s.conf.QUICLimitsEnabled, s.conf.MaxStreamsPerPeer)
 	ql, err := quic.ListenEarly(conn, tlsConf, qConf)
 	if err != nil {
 		return err
@@ -517,19 +530,24 @@ func (s *ServerHTTPS) listenQUIC(ctx context.Context) (err error) {
 	return nil
 }
 
-// httpContextWithClientInfo adds client info to the context.
-func httpContextWithClientInfo(parent context.Context, r *http.Request) (ctx context.Context) {
+// addRequestInfo adds request info to the context.
+func addRequestInfo(parent context.Context, r *http.Request) (ctx context.Context) {
 	ctx = parent
 
-	ci := ClientInfo{
-		URL: netutil.CloneURL(r.URL),
+	ri := &RequestInfo{
+		StartTime: time.Now(),
+		URL:       netutil.CloneURL(r.URL),
 	}
 
 	if r.TLS != nil {
-		ci.TLSServerName = strings.ToLower(r.TLS.ServerName)
+		ri.TLSServerName = strings.ToLower(r.TLS.ServerName)
 	}
 
-	return ContextWithClientInfo(ctx, ci)
+	if username, pass, ok := r.BasicAuth(); ok {
+		ri.Userinfo = url.UserPassword(username, pass)
+	}
+
+	return ContextWithRequestInfo(ctx, ri)
 }
 
 // httpRequestToMsg reads the DNS message from http.Request.

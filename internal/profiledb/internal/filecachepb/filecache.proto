@@ -36,6 +36,8 @@ message Profile {
   bool block_private_relay = 17;
   bool block_firefox_canary = 18;
   SafeBrowsingSettings safe_browsing = 19;
+  bool ip_log_enabled = 20;
+  AccessSettings access = 21;
 }
 
 message ParentalProtectionSettings {
@@ -86,4 +88,17 @@ message Device {
   string device_name = 3;
   repeated bytes dedicated_ips = 4;
   bool filtering_enabled = 5;
+}
+
+message AccessSettings {
+  repeated CidrRange allowlist_cidr = 1;
+  repeated CidrRange blocklist_cidr = 2;
+  repeated uint32 allowlist_asn = 3;
+  repeated uint32 blocklist_asn = 4;
+  repeated string blocklist_domain_rules = 5;
+}
+
+message CidrRange {
+  bytes address = 1;
+  uint32 prefix = 2;
 }

@@ -2,24 +2,27 @@ package querylog
 
 import (
 	"fmt"
+	"net/netip"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 )
-
-// Query Log Entry
 
 // Entry is a single query log entry.
 type Entry struct {
+	// RemoteIP is the remote IP address of the client.
+	RemoteIP netip.Addr
+
 	// RequestResult is the result of filtering the DNS request.
 	RequestResult filter.Result
 
 	// ResponseResult is the result of filtering the DNS response.
 	ResponseResult filter.Result
 
-	// Time is the time of receiving the request in milliseconds.
+	// Time is the time of receiving the request.
 	Time time.Time
 
 	// ProfileID is the detected profile ID, if any.
@@ -29,11 +32,11 @@ type Entry struct {
 	DeviceID agd.DeviceID
 
 	// ClientCountry is the detected country of the client's IP address, if any.
-	ClientCountry agd.Country
+	ClientCountry geoip.Country
 
 	// ResponseCountry is the detected country of the first IP in the response
 	// sent to the client, if any.
-	ResponseCountry agd.Country
+	ResponseCountry geoip.Country
 
 	// DomainFQDN is the fully-qualified name of the requested resource.
 	DomainFQDN string
@@ -43,7 +46,7 @@ type Entry struct {
 
 	// ClientASN is the detected autonomous system number of the client's IP
 	// address, if any.
-	ClientASN agd.ASN
+	ClientASN geoip.ASN
 
 	// Elapsed is the time passed since the beginning of the request processing
 	// in milliseconds.
@@ -131,6 +134,14 @@ func toResultCode(r filter.Result, resp bool) (c resultCode) {
 
 // jsonlEntry is a single JSONL query log jsonlEntry / line.
 type jsonlEntry struct {
+	// RemoteIP is the remote IP address of the client.  This field is optional.
+	//
+	// The short name "ip" stands for "IP".
+	//
+	// TODO(d.kolyshev): Do not use pointer when `omitempty` is supported for
+	// zero structs.  See https://github.com/golang/go/issues/11939.
+	RemoteIP *netip.Addr `json:"ip,omitempty"`
+
 	// RequestID is the ID of the request.
 	//
 	// The short name "u" stands for "unique".
@@ -149,13 +160,13 @@ type jsonlEntry struct {
 	// ClientCountry is the detected country of the client's IP address, if any.
 	//
 	// The short name "c" stands for "client country".
-	ClientCountry agd.Country `json:"c,omitempty"`
+	ClientCountry geoip.Country `json:"c,omitempty"`
 
 	// ResponseCountry is the detected country of the first IP in the response
 	// sent to the client, if any.
 	//
 	// The short name "d" stands for "direction" or "destination".
-	ResponseCountry agd.Country `json:"d,omitempty"`
+	ResponseCountry geoip.Country `json:"d,omitempty"`
 
 	// DomainFQDN is the requested resource name.
 	//
@@ -184,7 +195,7 @@ type jsonlEntry struct {
 	// address, if any.
 	//
 	// The short name "a" stands for "ASN".
-	ClientASN agd.ASN `json:"a,omitempty"`
+	ClientASN geoip.ASN `json:"a,omitempty"`
 
 	// Elapsed is the time passed since the beginning of the request processing
 	// in milliseconds.

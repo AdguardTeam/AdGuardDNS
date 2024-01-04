@@ -76,17 +76,18 @@ func prefixesFromStr(prefixesStr string) (hashPrefixes []Prefix, err error) {
 	prefixSet := stringutil.NewSet()
 	prefixStrs := strings.Split(prefixesStr, ".")
 	for _, s := range prefixStrs {
-		if len(s) != PrefixEncLen {
+		switch l := len(s); l {
+		case PrefixEncLen:
+			// A valid prefix; go on.
+		case legacyPrefixEncLen:
 			// Some legacy clients send eight-character hashes instead of
 			// four-character ones.  For now, remove the final four characters.
 			//
 			// TODO(a.garipov): Either remove this crutch or support such
 			// prefixes better.
-			if len(s) == legacyPrefixEncLen {
-				s = s[:PrefixEncLen]
-			} else {
-				return nil, fmt.Errorf("bad hash len for %q", s)
-			}
+			s = s[:PrefixEncLen]
+		default:
+			return nil, fmt.Errorf("bad hash len %d for %q", l, s)
 		}
 
 		prefixSet.Add(s)

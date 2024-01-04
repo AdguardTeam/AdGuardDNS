@@ -209,14 +209,23 @@ func matchSrvCerts(sni string, srvCerts []tls.Certificate) (match string) {
 			continue
 		}
 
-		for _, n := range leaf.DNSNames {
-			if n == sni {
-				return sni
-			}
+		if match = matchSNI(sni, leaf.DNSNames); match != "" {
+			return match
+		}
+	}
 
-			if strings.HasPrefix(n, "*.") && netutil.IsImmediateSubdomain(sni, n[len("*."):]) {
-				return n
-			}
+	return ""
+}
+
+// matchSNI finds match for sni in dnsNames.
+func matchSNI(sni string, dnsNames []string) (match string) {
+	for _, n := range dnsNames {
+		if n == sni {
+			return sni
+		}
+
+		if strings.HasPrefix(n, "*.") && netutil.IsImmediateSubdomain(sni, n[len("*."):]) {
+			return n
 		}
 	}
 

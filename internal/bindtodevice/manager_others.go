@@ -4,9 +4,10 @@ package bindtodevice
 
 import (
 	"context"
+	"fmt"
 	"net/netip"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/golibs/errors"
 )
 
@@ -22,17 +23,11 @@ func NewManager(c *ManagerConfig) (m *Manager) {
 	return &Manager{}
 }
 
-// errUnsupported is returned from all [Manager] methods on OSs other than
-// Linux.
-//
-// TODO(a.garipov): Consider using [errors.ErrUnsupported] in Go 1.21.
-const errUnsupported errors.Error = "bindtodevice is only supported on linux"
-
 // Add creates a new interface-listener record in m.
 //
 // It is only supported on Linux.
 func (m *Manager) Add(id ID, ifaceName string, port uint16, cc *ControlConfig) (err error) {
-	return errUnsupported
+	return fmt.Errorf("bindtodevice: add: %w; only supported on linux", errors.ErrUnsupported)
 }
 
 // ListenConfig returns a new *ListenConfig that receives connections from the
@@ -41,26 +36,29 @@ func (m *Manager) Add(id ID, ifaceName string, port uint16, cc *ControlConfig) (
 //
 // It is only supported on Linux.
 func (m *Manager) ListenConfig(id ID, subnet netip.Prefix) (c *ListenConfig, err error) {
-	return nil, errUnsupported
+	return nil, fmt.Errorf(
+		"bindtodevice: listenconfig: %w; only supported on linux",
+		errors.ErrUnsupported,
+	)
 }
 
 // type check
-var _ agd.Service = (*Manager)(nil)
+var _ agdservice.Interface = (*Manager)(nil)
 
-// Start implements the [agd.Service] interface for *Manager.  If m is nil,
-// Start returns nil, since this feature is optional.
+// Start implements the [agdservice.Interface] interface for *Manager.  If m is
+// nil, Start returns nil, since this feature is optional.
 //
 // It is only supported on Linux.
-func (m *Manager) Start() (err error) {
+func (m *Manager) Start(_ context.Context) (err error) {
 	if m == nil {
 		return nil
 	}
 
-	return errUnsupported
+	return fmt.Errorf("bindtodevice: starting: %w; only supported on linux", errors.ErrUnsupported)
 }
 
-// Shutdown implements the [agd.Service] interface for *Manager.  If m is nil,
-// Shutdown returns nil, since this feature is optional.
+// Shutdown implements the [agdservice.Interface] interface for *Manager.  If m
+// is nil, Shutdown returns nil, since this feature is optional.
 //
 // It is only supported on Linux.
 func (m *Manager) Shutdown(_ context.Context) (err error) {
@@ -68,5 +66,8 @@ func (m *Manager) Shutdown(_ context.Context) (err error) {
 		return nil
 	}
 
-	return errUnsupported
+	return fmt.Errorf(
+		"bindtodevice: shutting down: %w; only supported on linux",
+		errors.ErrUnsupported,
+	)
 }

@@ -29,26 +29,8 @@ document should set the `Server` header in their replies.
 ##  <a href="#backend-billstat" id="backend-billstat" name="backend-billstat">Backend Billing Statistics</a>
 
 This is the service to which the [`BILLSTAT_URL`][env-billstat_url] environment
-variable points.  Supports `http(s):` and `grpc(s)` URLs.  In case of GRPC
-protocol, the service must correspond to `./internal/backendpb/backend.proto`.
-In case of HTTP protocol this service must provide one endpoint:
-`POST /dns_api/v1/devices_activity`, it must respond with a `200 OK` response
-code and accept a JSON document in the following format:
-
-```json
-{
-  "devices": [
-    {
-      "client_country": "AU",
-      "device_id": "abcd1234",
-      "time_ms": 1624443079309,
-      "asn": 1234,
-      "queries": 1000,
-      "proto": 1
-    }
-  ]
-}
-```
+variable points.  Supports `grpc(s)` URLs.  The service must correspond to
+`./internal/backendpb/backend.proto`.
 
 [env-billstat_url]: environment.md#BILLSTAT_URL
 
@@ -57,80 +39,8 @@ code and accept a JSON document in the following format:
 ##  <a href="#backend-profiles" id="backend-profiles" name="backend-profiles">Backend Profiles Service</a>
 
 This is the service to which the [`PROFILES_URL`][env-profiles_url] environment
-variable points.  Supports `http(s):` and `grpc(s)` URLs.  In case of GRPC
-protocol, the service must correspond to `./internal/backendpb/backend.proto`.
-In case of HTTP protocol this service must provide one endpoint:
-`GET /dns_api/v1/settings`, it must respond with a `200 OK` response code and
-accept a JSON document in the following format:
-
-```json
-{
-  "sync_time": 1624443079309,
-  "settings": [
-    {
-      "dns_id": "83f3ea8f",
-      "filtering_enabled": true,
-      "query_log_enabled": true,
-      "safe_browsing":
-      {
-        "enabled": true
-      },
-      "deleted": true,
-      "block_private_relay": false,
-      "devices": [
-        {
-          "id": "0d7724fa",
-          "name": "Device 1",
-          "filtering_enabled": true,
-          "linked_ip": "1.2.3.4"
-        }
-      ],
-      "parental": {
-        "enabled": false,
-        "block_adult": false,
-        "general_safe_search": false,
-        "youtube_safe_search": false,
-        "blocked_services": [
-          "youtube"
-        ],
-        "schedule": {
-          "tmz": "GMT",
-          "mon": [
-            "0s",
-            "59m"
-          ],
-          "tue": [
-            "0s",
-            "59m"
-          ],
-          "wed": [
-            "0s",
-            "59m"
-          ],
-          "thu": [
-            "0s",
-            "59m"
-          ],
-          "fri": [
-            "0s",
-            "59m"
-          ]
-        }
-      },
-      "rule_lists": {
-        "enabled": true,
-        "ids": [
-          "1"
-        ]
-      },
-      "filtered_response_ttl": 3600,
-      "custom_rules": [
-        "||example.org^"
-      ]
-    }
-  ]
-}
-```
+variable points.  Supports `grpc(s)` URLs.  The service must correspond to
+`./internal/backendpb/backend.proto`.
 
 [env-profiles_url]: environment.md#PROFILES_URL
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
@@ -20,11 +21,11 @@ import (
 // Filters contains custom filters made from custom filtering rules of profiles.
 type Filters struct {
 	cache   gcache.Cache
-	errColl agd.ErrorCollector
+	errColl errcoll.Interface
 }
 
 // New returns a new custom filter storage.
-func New(cache gcache.Cache, errColl agd.ErrorCollector) (f *Filters) {
+func New(cache gcache.Cache, errColl errcoll.Interface) (f *Filters) {
 	return &Filters{
 		cache:   cache,
 		errColl: errColl,
@@ -43,11 +44,11 @@ func (f *Filters) Get(ctx context.Context, p *agd.Profile) (rl *rulelist.Immutab
 	// Report the custom filters cache lookup to prometheus so that we could
 	// keep track of whether the cache size is enough.
 	defer func() {
-		if rl == nil {
-			metrics.FilterCustomCacheLookupsMisses.Inc()
-		} else {
-			metrics.FilterCustomCacheLookupsHits.Inc()
-		}
+		metrics.IncrementCond(
+			rl == nil,
+			metrics.FilterCustomCacheLookupsMisses,
+			metrics.FilterCustomCacheLookupsHits,
+		)
 	}()
 
 	rl = f.get(p)

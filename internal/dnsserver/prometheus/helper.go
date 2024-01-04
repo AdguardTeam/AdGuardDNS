@@ -28,7 +28,7 @@ func newReqLabelMetricKey(
 		network: string(dnsserver.NetworkFromAddr(rw.LocalAddr())),
 		qType:   typeToString(req),
 		family:  raddrToFamily(rw.RemoteAddr()),
-		srvInfo: dnsserver.MustServerInfoFromContext(ctx),
+		srvInfo: *dnsserver.MustServerInfoFromContext(ctx),
 	}
 }
 

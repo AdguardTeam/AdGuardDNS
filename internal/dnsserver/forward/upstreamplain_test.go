@@ -19,15 +19,19 @@ func TestUpstreamPlain_Exchange(t *testing.T) {
 	testCases := []struct {
 		name    string
 		network forward.Network
+		want    forward.Network
 	}{{
 		name:    "any",
 		network: forward.NetworkAny,
+		want:    forward.NetworkUDP,
 	}, {
 		name:    "udp",
 		network: forward.NetworkUDP,
+		want:    forward.NetworkUDP,
 	}, {
 		name:    "tcp",
 		network: forward.NetworkTCP,
+		want:    forward.NetworkTCP,
 	}}
 
 	for _, tc := range testCases {
@@ -40,10 +44,12 @@ func TestUpstreamPlain_Exchange(t *testing.T) {
 			defer log.OnCloserError(u, log.DEBUG)
 
 			req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
-			res, err := u.Exchange(newTimeoutCtx(t, context.Background()), req)
+			res, nw, err := u.Exchange(newTimeoutCtx(t, context.Background()), req)
 			require.NoError(t, err)
 			require.NotNil(t, res)
 			dnsservertest.RequireResponse(t, req, res, 1, dns.RcodeSuccess, false)
+
+			assert.Equal(t, tc.want, nw)
 		})
 	}
 }
@@ -91,9 +97,11 @@ func TestUpstreamPlain_Exchange_truncated(t *testing.T) {
 
 	ctx := context.Background()
 
-	res, err := uUDP.Exchange(newTimeoutCtx(t, ctx), req)
+	res, nw, err := uUDP.Exchange(newTimeoutCtx(t, ctx), req)
 	require.NoError(t, err)
 	dnsservertest.RequireResponse(t, req, res, 0, dns.RcodeSuccess, true)
+
+	assert.Equal(t, forward.NetworkUDP, nw)
 
 	// Second, check that nothing is truncated over TCP.
 	uTCP := forward.NewUpstreamPlain(&forward.UpstreamPlainConfig{
@@ -102,9 +110,11 @@ func TestUpstreamPlain_Exchange_truncated(t *testing.T) {
 	})
 	defer log.OnCloserError(uTCP, log.DEBUG)
 
-	res, err = uTCP.Exchange(newTimeoutCtx(t, ctx), req)
+	res, nw, err = uTCP.Exchange(newTimeoutCtx(t, ctx), req)
 	require.NoError(t, err)
 	dnsservertest.RequireResponse(t, req, res, 1, dns.RcodeSuccess, false)
+
+	assert.Equal(t, forward.NetworkTCP, nw)
 
 	// Now with NetworkANY response is also not truncated since the upstream
 	// fallbacks to TCP.
@@ -114,9 +124,11 @@ func TestUpstreamPlain_Exchange_truncated(t *testing.T) {
 	})
 	defer log.OnCloserError(uAny, log.DEBUG)
 
-	res, err = uAny.Exchange(newTimeoutCtx(t, ctx), req)
+	res, nw, err = uAny.Exchange(newTimeoutCtx(t, ctx), req)
 	require.NoError(t, err)
 	dnsservertest.RequireResponse(t, req, res, 1, dns.RcodeSuccess, false)
+
+	assert.Equal(t, forward.NetworkTCP, nw)
 }
 
 func TestUpstreamPlain_Exchange_fallbackFail(t *testing.T) {
@@ -153,7 +165,7 @@ func TestUpstreamPlain_Exchange_fallbackFail(t *testing.T) {
 	var resp *dns.Msg
 	var err error
 	go func() {
-		resp, err = u.Exchange(newTimeoutCtx(t, context.Background()), req)
+		resp, _, err = u.Exchange(newTimeoutCtx(t, context.Background()), req)
 		testutil.RequireSend(pt, respCh, struct{}{}, testTimeout)
 	}()
 
@@ -207,7 +219,7 @@ func TestUpstreamPlain_Exchange_fallbackSuccess(t *testing.T) {
 		name:    "wrong_id",
 	}, {
 		udpResp: badQNumResp,
-		name:    "wrong_question)_number",
+		name:    "wrong_question_number",
 	}, {
 		udpResp: badQnameResp,
 		name:    "wrong_qname",
@@ -254,7 +266,7 @@ func TestUpstreamPlain_Exchange_fallbackSuccess(t *testing.T) {
 			var actualResp *dns.Msg
 			var err error
 			go func() {
-				actualResp, err = u.Exchange(newTimeoutCtx(t, context.Background()), clonedReq)
+				actualResp, _, err = u.Exchange(newTimeoutCtx(t, context.Background()), clonedReq)
 				testutil.RequireSend(pt, respCh, struct{}{}, testTimeout)
 			}()
 

@@ -36,15 +36,3 @@ func ParseHTTPURL(s string) (u *url.URL, err error) {
 		return u, nil
 	}
 }
-
-// URL is a wrapper around *url.URL that can unmarshal itself from JSON or YAML.
-//
-// TODO(a.garipov): Move to netutil if we need it somewhere else.
-type URL struct {
-	url.URL
-}
-
-// UnmarshalText implements the encoding.TextUnmarshaler interface for *URL.
-func (u *URL) UnmarshalText(b []byte) (err error) {
-	return u.UnmarshalBinary(b)
-}

@@ -1,11 +1,9 @@
 package cmd
 
 import (
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 )
-
-// DNSDB Configuration.
 
 // dnsDBConfig is the configuration of the DNSDB module.
 type dnsDBConfig struct {
@@ -29,7 +27,7 @@ func (c *dnsDBConfig) validate() (err error) {
 }
 
 // toInternal builds and returns an anonymous statistics collector.
-func (c *dnsDBConfig) toInternal(errColl agd.ErrorCollector) (d dnsdb.Interface) {
+func (c *dnsDBConfig) toInternal(errColl errcoll.Interface) (d dnsdb.Interface) {
 	if !c.Enabled {
 		return dnsdb.Empty{}
 	}

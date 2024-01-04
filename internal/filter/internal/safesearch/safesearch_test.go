@@ -60,6 +60,7 @@ func TestFilter(t *testing.T) {
 	require.NoError(t, err)
 
 	f := safesearch.New(&safesearch.Config{
+		Cloner: agdtest.NewCloner(),
 		Refreshable: &internal.RefreshableConfig{
 			ID:        id,
 			URL:       srvURL,
@@ -175,11 +176,14 @@ func TestFilter(t *testing.T) {
 		require.NoError(t, fltErr)
 
 		rm := testutil.RequireTypeAssert[*internal.ResultModified](t, res)
-		require.Len(t, rm.Msg.Answer, 1)
+		require.Len(t, rm.Msg.Answer, 2)
 
 		assert.Equal(t, rm.Rule, agd.FilterRuleText(testEngineWithDomain))
 
-		a := testutil.RequireTypeAssert[*dns.A](t, rm.Msg.Answer[0])
+		cname := testutil.RequireTypeAssert[*dns.CNAME](t, rm.Msg.Answer[0])
+		assert.Equal(t, dns.Fqdn(testSafeDomain), cname.Target)
+
+		a := testutil.RequireTypeAssert[*dns.A](t, rm.Msg.Answer[1])
 		assert.Equal(t, net.IP(testIPOfEngineWithDomain.AsSlice()), a.A)
 	})
 }

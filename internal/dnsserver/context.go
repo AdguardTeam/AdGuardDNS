@@ -2,20 +2,77 @@ package dnsserver
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"time"
 )
 
-// Context Helpers
+// ContextConstructor is an interface for constructing interfaces with
+// deadlines, e.g. for request contexts.
+type ContextConstructor interface {
+	New() (ctx context.Context, cancel context.CancelFunc)
+}
 
+// DefaultContextConstructor is the default implementation of the
+// [ContextConstructor] interface.
+type DefaultContextConstructor struct{}
+
+// type check
+var _ ContextConstructor = DefaultContextConstructor{}
+
+// New implements the [ContextConstructor] interface for
+// DefaultContextConstructor.  It returns [context.Background] and an empty
+// [context.CancelFunc].
+func (DefaultContextConstructor) New() (ctx context.Context, cancel context.CancelFunc) {
+	return context.Background(), func() {}
+}
+
+// TimeoutContextConstructor is an implementation of the [ContextConstructor]
+// interface that returns a context with the given timeout.
+type TimeoutContextConstructor struct {
+	timeout time.Duration
+}
+
+// NewTimeoutContextConstructor returns a new properly initialized
+// *TimeoutContextConstructor.
+func NewTimeoutContextConstructor(timeout time.Duration) (c *TimeoutContextConstructor) {
+	return &TimeoutContextConstructor{
+		timeout: timeout,
+	}
+}
+
+// type check
+var _ ContextConstructor = (*TimeoutContextConstructor)(nil)
+
+// New implements the [ContextConstructor] interface for
+// *TimeoutContextConstructor.  It returns a context with its timeout and the
+// corresponding cancelation function.
+func (c *TimeoutContextConstructor) New() (ctx context.Context, cancel context.CancelFunc) {
+	return context.WithTimeout(context.Background(), c.timeout)
+}
+
+// ctxKey is the type for context keys.
 type ctxKey int
 
 const (
 	ctxKeyServerInfo ctxKey = iota
-	ctxKeyStartTime
 	ctxKeyRequestInfo
-	ctxKeyClientInfo
 )
+
+// type check
+var _ fmt.Stringer = ctxKey(0)
+
+// String implements the [fmt.Stringer] interface for ctxKey.
+func (k ctxKey) String() (s string) {
+	switch k {
+	case ctxKeyServerInfo:
+		return "dnsserver.ctxKeyServerInfo"
+	case ctxKeyRequestInfo:
+		return "dnsserver.ctxKeyRequestInfo"
+	default:
+		panic(fmt.Errorf("bad ctx key value %d", k))
+	}
+}
 
 // ServerInfo is a structure that contains basic server information.  It is
 // attached to every context.Context created inside dnsserver.
@@ -30,77 +87,84 @@ type ServerInfo struct {
 	Proto Protocol
 }
 
-// ContextWithServerInfo attaches ServerInfo to the specified context.
-func ContextWithServerInfo(parent context.Context, s ServerInfo) (ctx context.Context) {
-	return context.WithValue(parent, ctxKeyServerInfo, s)
+// ContextWithServerInfo attaches ServerInfo to the specified context.  s should
+// not be nil.
+func ContextWithServerInfo(parent context.Context, si *ServerInfo) (ctx context.Context) {
+	return context.WithValue(parent, ctxKeyServerInfo, si)
 }
 
 // ServerInfoFromContext gets ServerInfo attached to the context.
-func ServerInfoFromContext(ctx context.Context) (s ServerInfo, found bool) {
-	s, found = ctx.Value(ctxKeyServerInfo).(ServerInfo)
+func ServerInfoFromContext(ctx context.Context) (si *ServerInfo, found bool) {
+	v := ctx.Value(ctxKeyServerInfo)
+	if v == nil {
+		return nil, false
+	}
 
-	return s, found
+	ri, ok := v.(*ServerInfo)
+	if !ok {
+		panicBadType(ctxKeyServerInfo, v)
+	}
+
+	return ri, true
 }
 
 // MustServerInfoFromContext gets ServerInfo attached to the context and panics
 // if it is not found.
-func MustServerInfoFromContext(ctx context.Context) (s ServerInfo) {
-	s, found := ServerInfoFromContext(ctx)
+func MustServerInfoFromContext(ctx context.Context) (si *ServerInfo) {
+	si, found := ServerInfoFromContext(ctx)
 	if !found {
 		panic("server info not found in the context")
 	}
 
-	return s
-}
-
-// ContextWithStartTime attaches request's start time to the specified context.
-func ContextWithStartTime(parent context.Context, t time.Time) (ctx context.Context) {
-	return context.WithValue(parent, ctxKeyStartTime, t)
-}
-
-// StartTimeFromContext gets request's start time from the context.
-func StartTimeFromContext(ctx context.Context) (startTime time.Time, found bool) {
-	startTime, found = ctx.Value(ctxKeyStartTime).(time.Time)
-	return startTime, found
-}
-
-// MustStartTimeFromContext gets request's start time from the context or panics
-// if it's not found.
-func MustStartTimeFromContext(ctx context.Context) (t time.Time) {
-	st, found := ctx.Value(ctxKeyStartTime).(time.Time)
-	if !found {
-		panic("request's start time not found in the context")
-	}
-
-	return st
+	return si
 }
 
 // RequestInfo is a structure that contains basic request information.  It is
 // attached to every context.Context linked to processing a DNS request.
 type RequestInfo struct {
-	// RequestSize is the size of a DNS request in bytes.
-	RequestSize int
+	// URL is the request URL.  It is set only if the protocol of the server is
+	// DoH.
+	URL *url.URL
 
-	// ResponseSize is the size of a DNS response in bytes.  May be 0 if no
-	// response was sent.
-	ResponseSize int
+	// Userinfo is the userinfo from the basic authentication header.  It is set
+	// only if the protocol of the server is DoH.
+	Userinfo *url.Userinfo
+
+	// StartTime is the request's start time.  It's never zero value.
+	StartTime time.Time
+
+	// TLSServerName is the server name field of the client's TLS hello request.
+	// It is set only if the protocol of the server is either DoQ, DoT or DoH.
+	// Note, that the original SNI is transformed to lower-case.
+	//
+	// TODO(ameshkov): use r.TLS with DoH3 (see addRequestInfo).
+	TLSServerName string
 }
 
-// ContextWithRequestInfo attaches RequestInfo to the specified context.
-func ContextWithRequestInfo(parent context.Context, ri RequestInfo) (ctx context.Context) {
+// ContextWithRequestInfo attaches RequestInfo to the specified context.  ri
+// should not be nil.
+func ContextWithRequestInfo(parent context.Context, ri *RequestInfo) (ctx context.Context) {
 	return context.WithValue(parent, ctxKeyRequestInfo, ri)
 }
 
 // RequestInfoFromContext gets RequestInfo from the specified context.
-func RequestInfoFromContext(ctx context.Context) (ri RequestInfo, found bool) {
-	ri, found = ctx.Value(ctxKeyRequestInfo).(RequestInfo)
+func RequestInfoFromContext(ctx context.Context) (ri *RequestInfo, found bool) {
+	v := ctx.Value(ctxKeyRequestInfo)
+	if v == nil {
+		return nil, false
+	}
 
-	return ri, found
+	ri, ok := v.(*RequestInfo)
+	if !ok {
+		panicBadType(ctxKeyRequestInfo, v)
+	}
+
+	return ri, true
 }
 
 // MustRequestInfoFromContext gets RequestInfo attached to the context and
 // panics if it is not found.
-func MustRequestInfoFromContext(ctx context.Context) (ri RequestInfo) {
+func MustRequestInfoFromContext(ctx context.Context) (ri *RequestInfo) {
 	ri, found := RequestInfoFromContext(ctx)
 	if !found {
 		panic("request info not found in the context")
@@ -109,40 +173,8 @@ func MustRequestInfoFromContext(ctx context.Context) (ri RequestInfo) {
 	return ri
 }
 
-// ClientInfo is a structure that contains basic information about the client.
-// It is attached to every context.Context created inside dnsserver.
-type ClientInfo struct {
-	// URL is the request URL.  It is set only if the protocol of the
-	// server is DoH.
-	URL *url.URL
-
-	// TLSServerName is the server name field of the client's TLS hello
-	// request.  It is set only if the protocol of the server is either DoQ
-	// or DoT or DoH.  Note, that the original SNI is transformed to lower-case.
-	//
-	// TODO(ameshkov): use r.TLS with DoH3 (see httpContextWithClientInfo).
-	TLSServerName string
-}
-
-// ContextWithClientInfo attaches the client information to the context.
-func ContextWithClientInfo(parent context.Context, ci ClientInfo) (ctx context.Context) {
-	return context.WithValue(parent, ctxKeyClientInfo, ci)
-}
-
-// ClientInfoFromContext returns the client information from the context.
-func ClientInfoFromContext(ctx context.Context) (ci ClientInfo, found bool) {
-	ci, found = ctx.Value(ctxKeyClientInfo).(ClientInfo)
-
-	return ci, found
-}
-
-// MustClientInfoFromContext gets ClientInfo attached to the context and panics
-// if it is not found.
-func MustClientInfoFromContext(ctx context.Context) (ci ClientInfo) {
-	ci, found := ClientInfoFromContext(ctx)
-	if !found {
-		panic("client info not found in the context")
-	}
-
-	return ci
+// panicBadType is a helper that panics with a message about the context key and
+// the expected type.
+func panicBadType(key ctxKey, v any) {
+	panic(fmt.Errorf("bad type for %s: %T(%[2]v)", key, v))
 }

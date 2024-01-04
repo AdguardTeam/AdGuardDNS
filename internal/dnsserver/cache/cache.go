@@ -14,7 +14,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
-	"github.com/AdguardTeam/golibs/mathutil"
 	"github.com/bluele/gcache"
 	"github.com/miekg/dns"
 )
@@ -152,8 +151,7 @@ func (m *Middleware) set(msg *dns.Msg) (err error) {
 
 	exp := time.Duration(ttl) * time.Second
 	if m.useTTLOverride && msg.Rcode != dns.RcodeServerFailure {
-		// TODO(d.kolyshev): Use built-in max in go 1.21.
-		exp = mathutil.Max(exp, m.cacheMinTTL)
+		exp = max(exp, m.cacheMinTTL)
 		setMinTTL(msg, uint32(exp.Seconds()))
 	}
 
@@ -266,8 +264,7 @@ func setMinTTL(r *dns.Msg, minTTL uint32) {
 	for _, rr := range r.Answer {
 		h := rr.Header()
 
-		// TODO(d.kolyshev): Use built-in max in go 1.21.
-		h.Ttl = mathutil.Max(h.Ttl, minTTL)
+		h.Ttl = max(h.Ttl, minTTL)
 	}
 }
 

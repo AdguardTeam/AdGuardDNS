@@ -14,6 +14,7 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/ameshkov/dnscrypt/v2"
+	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,6 +33,7 @@ func RunDNSServer(t testing.TB, h dnsserver.Handler) (s *dnsserver.ServerDNS, ad
 			Addr:    "127.0.0.1:0",
 			Handler: h,
 		},
+		MaxUDPRespSize: dns.MaxMsgSize,
 	}
 	s = dnsserver.NewServerDNS(conf)
 	require.Equal(t, dnsserver.ProtoDNS, s.Proto())

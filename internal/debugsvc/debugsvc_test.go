@@ -1,13 +1,13 @@
 package debugsvc_test
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"testing"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/debugsvc"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
@@ -17,6 +17,9 @@ import (
 func TestMain(m *testing.M) {
 	testutil.DiscardLogOutput(m)
 }
+
+// testTimeout is a common timeout for tests.
+const testTimeout = 1 * time.Second
 
 func TestService_Start(t *testing.T) {
 	// TODO(a.garipov): Consider adding an HTTP server constructor as a part of
@@ -42,12 +45,11 @@ func TestService_Start(t *testing.T) {
 
 	var err error
 	require.NotPanics(t, func() {
-		err = svc.Start()
+		err = svc.Start(agdtest.ContextWithTimeout(t, testTimeout))
 	})
 	require.NoError(t, err)
-
 	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return svc.Shutdown(context.Background())
+		return svc.Shutdown(agdtest.ContextWithTimeout(t, testTimeout))
 	})
 
 	client := http.Client{

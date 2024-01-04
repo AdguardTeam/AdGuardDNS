@@ -4,12 +4,15 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// type check
+var _ agdservice.Refresher = (*geoip.File)(nil)
 
 func TestFile_Data_cityDB(t *testing.T) {
 	conf := &geoip.FileConfig{
@@ -107,37 +110,43 @@ func TestFile_SubnetByLocation(t *testing.T) {
 
 	testCases := []struct {
 		name    string
-		country agd.Country
+		subdiv  string
+		country geoip.Country
 		want    netip.Prefix
-		asn     agd.ASN
+		asn     geoip.ASN
 		fam     netutil.AddrFamily
 	}{{
 		name:    "by_asn",
 		country: testIPv4SubnetCtry,
+		subdiv:  "",
 		asn:     countryTopASNs[testIPv4SubnetCtry],
 		fam:     netutil.AddrFamilyIPv4,
 		want:    testIPv4CountrySubnet,
 	}, {
 		name:    "from_top_countries_v4",
 		country: testIPv4SubnetCtry,
+		subdiv:  "",
 		asn:     0,
 		fam:     netutil.AddrFamilyIPv4,
 		want:    testIPv4CountrySubnet,
 	}, {
 		name:    "from_top_countries_v6",
 		country: testIPv6SubnetCtry,
+		subdiv:  "",
 		asn:     0,
 		fam:     netutil.AddrFamilyIPv6,
 		want:    testIPv6CountrySubnet,
 	}, {
 		name:    "from_countries_dict",
-		country: agd.CountryBT,
+		country: geoip.CountryBT,
+		subdiv:  "",
 		asn:     0,
 		fam:     netutil.AddrFamilyIPv4,
 		want:    netip.MustParsePrefix("67.43.156.0/24"),
 	}, {
 		name:    "not_found",
-		country: agd.CountryFR,
+		country: geoip.CountryFR,
+		subdiv:  "",
 		asn:     0,
 		fam:     netutil.AddrFamilyIPv4,
 		want:    netutil.ZeroPrefix(netutil.AddrFamilyIPv4),
@@ -145,7 +154,12 @@ func TestFile_SubnetByLocation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctrySubnet, err := g.SubnetByLocation(tc.country, tc.asn, tc.fam)
+			ctrySubnet, err := g.SubnetByLocation(&geoip.Location{
+				Country:        tc.country,
+				Continent:      "",
+				TopSubdivision: tc.subdiv,
+				ASN:            tc.asn,
+			}, tc.fam)
 			require.NoError(t, err)
 
 			assert.Equal(t, tc.want, ctrySubnet)
@@ -153,9 +167,12 @@ func TestFile_SubnetByLocation(t *testing.T) {
 	}
 }
 
-var locSink *agd.Location
-
-var errSink error
+// Sinks for benchmarks.
+var (
+	errSink  error
+	fileSink *geoip.File
+	locSink  *geoip.Location
+)
 
 func BenchmarkFile_Data(b *testing.B) {
 	conf := &geoip.FileConfig{
@@ -207,8 +224,6 @@ func BenchmarkFile_Data(b *testing.B) {
 		assert.NoError(b, errSink)
 	})
 }
-
-var fileSink *geoip.File
 
 func BenchmarkNewFile(b *testing.B) {
 	conf := &geoip.FileConfig{

@@ -12,7 +12,7 @@ import (
 // FileCacheVersion is the version of cached data structure.  It must be
 // manually incremented on every change in [agd.Device], [agd.Profile], and any
 // file-cache structures.
-const FileCacheVersion = 7
+const FileCacheVersion = 9
 
 // CacheVersionError is returned from [FileCacheStorage.Load] method if the
 // stored cache version doesn't match current [FileCacheVersion].

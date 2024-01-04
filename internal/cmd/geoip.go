@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
@@ -47,11 +49,11 @@ func (c *geoIPConfig) validate() (err error) {
 // refresher have been created successfully or an error if not.
 func setupGeoIP(
 	geoIPPtr *geoip.File,
-	refrPtr *agd.RefreshWorker,
+	refrPtr *agdservice.RefreshWorker,
 	errCh chan<- error,
 	conf *geoIPConfig,
 	envs *environments,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 ) {
 	geoIP, err := envs.geoIP(conf)
 	if err != nil {
@@ -60,7 +62,7 @@ func setupGeoIP(
 		return
 	}
 
-	refr := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
+	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
 		Context:             ctxWithDefaultTimeout,
 		Refresher:           geoIP,
 		ErrColl:             errColl,
@@ -68,8 +70,9 @@ func setupGeoIP(
 		Interval:            conf.RefreshIvl.Duration,
 		RefreshOnShutdown:   false,
 		RoutineLogsAreDebug: false,
+		RandomizeStart:      false,
 	})
-	err = refr.Start()
+	err = refr.Start(context.Background())
 	if err != nil {
 		errCh <- fmt.Errorf("starting geoip refresher: %w", err)
 

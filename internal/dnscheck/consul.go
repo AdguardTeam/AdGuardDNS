@@ -7,13 +7,14 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
@@ -22,7 +23,6 @@ import (
 	"github.com/miekg/dns"
 	cache "github.com/patrickmn/go-cache"
 	"github.com/prometheus/client_golang/prometheus"
-	"golang.org/x/exp/slices"
 	"golang.org/x/time/rate"
 )
 
@@ -40,7 +40,7 @@ type Consul struct {
 	kv       consulKV
 	messages *dnsmsg.Constructor
 
-	errColl agd.ErrorCollector
+	errColl errcoll.Interface
 
 	domains      []string
 	nodeLocation string
@@ -65,7 +65,7 @@ type ConsulConfig struct {
 
 	// ErrColl is the error collector that is used to collect non-critical
 	// errors.
-	ErrColl agd.ErrorCollector
+	ErrColl errcoll.Interface
 
 	// Domains are the lower-cased domain names used to detect DNS check requests.
 	Domains []string
@@ -149,6 +149,8 @@ func (cc *Consul) Check(
 ) (resp *dns.Msg, err error) {
 	var matched bool
 	defer func() {
+		incErrMetrics("dns", err)
+
 		if !matched {
 			return
 		}
@@ -171,14 +173,13 @@ func (cc *Consul) Check(
 		return cc.resp(ri, req)
 	}
 
-	si := dnsserver.MustServerInfoFromContext(ctx)
-	inf := cc.newInfo(si.Proto.String(), ri)
+	inf := cc.newInfo(ri)
 
 	cc.addToCache(randomID, inf)
 
 	err = cc.kv.set(ctx, randomID, inf)
 	if err != nil {
-		agd.Collectf(ctx, cc.errColl, "dnscheck: consul setting: %w", err)
+		errcoll.Collectf(ctx, cc.errColl, "dnscheck: consul setting: %w", httpKVError{err: err})
 	}
 
 	return cc.resp(ri, req)
@@ -195,12 +196,12 @@ func (cc *Consul) addToCache(randomID string, inf *info) {
 
 // newInfo returns an information record with all available data about the
 // server and the request.  ri must not be nil.
-func (cc *Consul) newInfo(protoStr string, ri *agd.RequestInfo) (inf *info) {
+func (cc *Consul) newInfo(ri *agd.RequestInfo) (inf *info) {
 	inf = &info{
 		ServerGroupName: ri.ServerGroup,
 		ServerName:      ri.Server,
 
-		Protocol:     protoStr,
+		Protocol:     ri.Proto.String(),
 		NodeLocation: cc.nodeLocation,
 		NodeName:     cc.nodeName,
 
@@ -309,12 +310,9 @@ func (cc *Consul) serveCheckTest(ctx context.Context, w http.ResponseWriter, r *
 
 	err = json.NewEncoder(w).Encode(inf)
 	if err != nil {
-		agd.Collectf(ctx, cc.errColl, "dnscheck: http resp write error: %w", err)
+		errcoll.Collectf(ctx, cc.errColl, "dnscheck: http resp write error: %w", err)
 	}
 }
-
-// errRateLimited is returned by Consul.info when the request is rate limited.
-const errRateLimited errors.Error = "rate limited"
 
 // info returns an information record by the random request ID.
 func (cc *Consul) info(ctx context.Context, randomID string) (inf *info, err error) {
@@ -323,6 +321,8 @@ func (cc *Consul) info(ctx context.Context, randomID string) (inf *info, err err
 			"type":  "http",
 			"valid": metrics.BoolString(err == nil),
 		}).Inc()
+
+		incErrMetrics("http", err)
 	}()
 
 	cc.mu.Lock()
@@ -335,7 +335,7 @@ func (cc *Consul) info(ctx context.Context, randomID string) (inf *info, err err
 
 	inf, err = cc.kv.get(ctx, randomID)
 	if err != nil {
-		agd.Collectf(ctx, cc.errColl, "dnscheck: consul getting: %w", err)
+		errcoll.Collectf(ctx, cc.errColl, "dnscheck: consul getting: %w", httpKVError{err: err})
 
 		return nil, fmt.Errorf("getting from consul: %w", err)
 	}

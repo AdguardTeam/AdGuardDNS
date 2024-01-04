@@ -1,7 +1,6 @@
 package websvc_test
 
 import (
-	"context"
 	"io"
 	"net/http"
 	"net/netip"
@@ -10,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/testutil"
@@ -154,11 +154,11 @@ func startService(t *testing.T, c *websvc.Config) {
 
 	var err error
 	require.NotPanics(t, func() {
-		err = svc.Start()
+		err = svc.Start(agdtest.ContextWithTimeout(t, testTimeout))
 	})
 	require.NoError(t, err)
 
 	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return svc.Shutdown(context.Background())
+		return svc.Shutdown(agdtest.ContextWithTimeout(t, testTimeout))
 	})
 }

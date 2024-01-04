@@ -57,8 +57,10 @@ func ExampleNewServerDNS() {
 func ExampleWithMiddlewares() {
 	// Init a handler func function with middlewares.
 	forwarder := forward.NewHandler(&forward.HandlerConfig{
-		Address: netip.MustParseAddrPort("94.140.14.140:53"),
-		Network: forward.NetworkAny,
+		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
+			Network: forward.NetworkAny,
+			Address: netip.MustParseAddrPort("94.140.14.140:53"),
+		}},
 	})
 
 	middleware := querylog.NewLogMiddleware(os.Stdout)

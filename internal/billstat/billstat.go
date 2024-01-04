@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 )
 
 // Common Constants, Types, And Utilities
@@ -15,8 +16,8 @@ type Recorder interface {
 	Record(
 		ctx context.Context,
 		id agd.DeviceID,
-		ctry agd.Country,
-		asn agd.ASN,
+		ctry geoip.Country,
+		asn geoip.ASN,
 		start time.Time,
 		proto agd.Protocol,
 	)
@@ -32,8 +33,8 @@ type EmptyRecorder struct{}
 func (EmptyRecorder) Record(
 	_ context.Context,
 	_ agd.DeviceID,
-	_ agd.Country,
-	_ agd.ASN,
+	_ geoip.Country,
+	_ geoip.ASN,
 	_ time.Time,
 	_ agd.Protocol,
 ) {
@@ -51,10 +52,10 @@ type Record struct {
 	Time time.Time
 
 	// Country is the detected country of the client's IP address, if any.
-	Country agd.Country
+	Country geoip.Country
 
 	// ASN is the detected ASN of the client's IP address, if any.
-	ASN agd.ASN
+	ASN geoip.ASN
 
 	// Queries is the total number of Queries the device has performed since the
 	// most recent sync.  This value is an int32 to be in sync with the business

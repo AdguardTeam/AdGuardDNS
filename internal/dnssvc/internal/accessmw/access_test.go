@@ -10,13 +10,18 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/accessmw"
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+func TestMain(m *testing.M) {
+	testutil.DiscardLogOutput(m)
+}
+
 func TestMiddleware_Wrap(t *testing.T) {
-	am, accessErr := access.New([]string{
+	am, accessErr := access.NewGlobal([]string{
 		"block.test",
 		"UPPERCASE.test",
 		"||block_aaaa.test^$dnstype=AAAA",

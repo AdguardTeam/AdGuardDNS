@@ -18,7 +18,7 @@ func TestMain(m *testing.M) {
 const testReqDomain = "request-domain.example"
 
 // testServerInfo is the common server information structure for tests.
-var testServerInfo = dnsserver.ServerInfo{
+var testServerInfo = &dnsserver.ServerInfo{
 	Name:  "test_server",
 	Addr:  "127.0.0.1:80",
 	Proto: dnsserver.ProtoDNS,

@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
@@ -50,11 +49,8 @@ const (
 
 // reqInfoSpecialHandler returns a handler that can handle a special-domain
 // query based on the request info, as well as the handler's name for debugging.
-func (mw *Middleware) reqInfoSpecialHandler(
-	ri *agd.RequestInfo,
-	cl dnsmsg.Class,
-) (f reqInfoHandlerFunc, name string) {
-	if cl != dns.ClassINET {
+func (mw *Middleware) reqInfoSpecialHandler(ri *agd.RequestInfo) (f reqInfoHandlerFunc, name string) {
+	if ri.QClass != dns.ClassINET {
 		return nil, ""
 	}
 

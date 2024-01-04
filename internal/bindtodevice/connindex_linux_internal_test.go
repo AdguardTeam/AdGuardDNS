@@ -4,10 +4,10 @@ package bindtodevice
 
 import (
 	"net/netip"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"golang.org/x/exp/slices"
 )
 
 func TestSubnetCompare(t *testing.T) {

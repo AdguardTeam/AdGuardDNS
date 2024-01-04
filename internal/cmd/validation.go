@@ -19,6 +19,17 @@ func validatePositive[T numberOrDuration](prop string, v T) (err error) {
 	return nil
 }
 
+// validateProp returns an error wrapped with prop name if the given validator
+// func returns an error.
+func validateProp(prop string, validator func() error) (err error) {
+	err = validator()
+	if err != nil {
+		return fmt.Errorf("%s: %w", prop, err)
+	}
+
+	return nil
+}
+
 // netipAddr is the type constraint for the types from [netip], which we can
 // validate using [validateAddrs].
 type netipAddr interface {

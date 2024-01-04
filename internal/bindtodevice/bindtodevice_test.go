@@ -3,6 +3,7 @@ package bindtodevice_test
 import (
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
 	"github.com/AdguardTeam/golibs/testutil"
@@ -11,6 +12,9 @@ import (
 func TestMain(m *testing.M) {
 	testutil.DiscardLogOutput(m)
 }
+
+// testTimeout is a common timeout for tests.
+const testTimeout = 1 * time.Second
 
 // Common interface listener IDs for tests
 const (

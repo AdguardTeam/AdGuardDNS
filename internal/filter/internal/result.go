@@ -83,17 +83,19 @@ func (m *ResultModified) MatchedRule() (id agd.FilterListID, text agd.FilterRule
 func (*ResultModified) isResult() {}
 
 // Clone returns a deep clone of m.
-func (m *ResultModified) Clone() (clone *ResultModified) {
+func (m *ResultModified) Clone(c *dnsmsg.Cloner) (clone *ResultModified) {
+	msg := c.Clone(m.Msg)
+
 	return &ResultModified{
-		Msg:  dnsmsg.Clone(m.Msg),
+		Msg:  msg,
 		List: m.List,
 		Rule: m.Rule,
 	}
 }
 
 // CloneForReq returns a deep clone of m with Msg set as a reply to req, if any.
-func (m *ResultModified) CloneForReq(req *dns.Msg) (clone *ResultModified) {
-	msg := dnsmsg.Clone(m.Msg)
+func (m *ResultModified) CloneForReq(c *dnsmsg.Cloner, req *dns.Msg) (clone *ResultModified) {
+	msg := c.Clone(m.Msg)
 
 	// TODO(a.garipov): This will become invalid if Msg ever contains a
 	// non-success response, which is not the case currently.  If that happens,

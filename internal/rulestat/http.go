@@ -12,6 +12,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
@@ -99,10 +100,11 @@ func (s *HTTP) Collect(_ context.Context, id agd.FilterListID, text agd.FilterRu
 }
 
 // type check
-var _ agd.Refresher = (*HTTP)(nil)
+var _ agdservice.Refresher = (*HTTP)(nil)
 
-// Refresh implements the agd.Refresher interface for *HTTP.  It uploads the
-// collected statistics to s.u and starts collecting a new set of statistics.
+// Refresh implements the [agdservice.Refresher] interface for *HTTP.  It
+// uploads the collected statistics to s.u and starts collecting a new set of
+// statistics.
 func (s *HTTP) Refresh(ctx context.Context) (err error) {
 	err = s.refresh(ctx)
 

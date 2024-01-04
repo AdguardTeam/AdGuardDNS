@@ -13,6 +13,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/miekg/dns"
 )
@@ -37,14 +38,14 @@ func (Empty) Record(_ context.Context, _ *dns.Msg, _ *agd.RequestInfo) {}
 // Default is the default DNSDB implementation.
 type Default struct {
 	buffer  *atomic.Pointer[buffer]
-	errColl agd.ErrorCollector
+	errColl errcoll.Interface
 	maxSize int
 }
 
 // DefaultConfig is the default DNS database configuration structure.
 type DefaultConfig struct {
 	// ErrColl is used to collect HTTP errors.
-	ErrColl agd.ErrorCollector
+	ErrColl errcoll.Interface
 
 	// MaxSize is the maximum amount of records in the memory buffer.
 	MaxSize int

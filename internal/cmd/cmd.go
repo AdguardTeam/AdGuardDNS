@@ -11,6 +11,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/debugsvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
@@ -78,7 +79,7 @@ func Main() {
 	//
 	// See AGDNS-884.
 
-	geoIP, geoIPRefr := &geoip.File{}, &agd.RefreshWorker{}
+	geoIP, geoIPRefr := &geoip.File{}, &agdservice.RefreshWorker{}
 	geoIPErrCh := make(chan error, 1)
 
 	go setupGeoIP(geoIP, geoIPRefr, geoIPErrCh, c.GeoIP, envs, errColl)
@@ -93,11 +94,13 @@ func Main() {
 
 	// TODO(ameshkov): Consider making a separated max_size config for
 	// safe-browsing and adult-blocking filters.
-	maxFilterSize := int64(c.Filters.MaxSize.Bytes())
+	maxFilterSize := c.Filters.MaxSize.Bytes()
 
+	cloner := dnsmsg.NewCloner(metrics.ClonerStat{})
 	safeBrowsingHashes, safeBrowsingFilter, err := setupHashPrefixFilter(
 		c.SafeBrowsing,
 		filteringResolver,
+		cloner,
 		agd.FilterListIDSafeBrowsing,
 		envs.SafeBrowsingURL,
 		envs.FilterCachePath,
@@ -110,6 +113,7 @@ func Main() {
 	adultBlockingHashes, adultBlockingFilter, err := setupHashPrefixFilter(
 		c.AdultBlocking,
 		filteringResolver,
+		cloner,
 		agd.FilterListIDAdultBlocking,
 		envs.AdultBlockingURL,
 		envs.FilterCachePath,
@@ -123,6 +127,7 @@ func Main() {
 		// Reuse general safe browsing filter configuration.
 		c.SafeBrowsing,
 		filteringResolver,
+		cloner,
 		agd.FilterListIDNewRegDomains,
 		envs.NewRegDomainsURL,
 		envs.FilterCachePath,
@@ -137,6 +142,7 @@ func Main() {
 	fltStrgConf := c.Filters.toInternal(
 		errColl,
 		filteringResolver,
+		cloner,
 		envs,
 		safeBrowsingFilter,
 		adultBlockingFilter,
@@ -150,29 +156,36 @@ func Main() {
 	fltGroups, err := c.FilteringGroups.toInternal(fltStrg)
 	check(err)
 
-	// Network interface listener
+	// Access
+
+	accessGlobal, err := access.NewGlobal(
+		c.Access.BlockedQuestionDomains,
+		c.Access.BlockedClientSubnets,
+	)
+	check(err)
+
+	// Network interface listener and server groups
+
+	messages := dnsmsg.NewConstructor(
+		cloner,
+		&dnsmsg.BlockingModeNullIP{},
+		c.Filters.ResponseTTL.Duration,
+	)
 
 	btdCtrlConf, ctrlConf := c.Network.toInternal()
 
 	btdMgr, err := c.InterfaceListeners.toInternal(errColl, btdCtrlConf)
 	check(err)
 
-	err = btdMgr.Start()
+	srvGrps, err := c.ServerGroups.toInternal(messages, btdMgr, fltGroups, c.RateLimit, c.DNS)
+	check(err)
+
+	// Start the bind-to-device manager here, now that no further calls to
+	// btdMgr.ListenConfig are required.
+	err = btdMgr.Start(context.Background())
 	check(err)
 
 	sigHdlr.add(btdMgr)
-
-	// access
-
-	accessManager, err := access.New(c.Access.BlockedQuestionDomains, c.Access.BlockedClientSubnets)
-	check(err)
-
-	// Server groups
-
-	messages := dnsmsg.NewConstructor(&dnsmsg.BlockingModeNullIP{}, c.Filters.ResponseTTL.Duration)
-
-	srvGrps, err := c.ServerGroups.toInternal(messages, btdMgr, fltGroups)
-	check(err)
 
 	// TLS keys logging
 
@@ -227,14 +240,13 @@ func Main() {
 	webSvc := websvc.New(webConf)
 	// The web service is considered critical, so its Start method panics
 	// instead of returning an error.
-	_ = webSvc.Start()
+	_ = webSvc.Start(context.Background())
 
 	sigHdlr.add(webSvc)
 
 	// DNS service
 
-	fwdConf, err := c.Upstream.toInternal()
-	check(err)
+	fwdConf := c.Upstream.toInternal()
 
 	handler := forward.NewHandler(fwdConf)
 
@@ -246,8 +258,11 @@ func Main() {
 	}
 
 	dnsConf := &dnssvc.Config{
-		AccessManager:       accessManager,
 		Messages:            messages,
+		Cloner:              cloner,
+		ControlConf:         ctrlConf,
+		ConnLimiter:         connLimiter,
+		AccessManager:       accessGlobal,
 		SafeBrowsing:        hashprefix.NewMatcher(hashStorages),
 		BillStat:            billStatRec,
 		ProfileDB:           profDB,
@@ -261,9 +276,9 @@ func Main() {
 		QueryLog:            c.buildQueryLog(envs),
 		RuleStat:            ruleStat,
 		RateLimit:           rateLimiter,
-		ConnLimiter:         connLimiter,
 		FilteringGroups:     fltGroups,
 		ServerGroups:        srvGrps,
+		HandleTimeout:       c.DNS.HandleTimeout.Duration,
 		CacheSize:           c.Cache.Size,
 		ECSCacheSize:        c.Cache.ECSSize,
 		CacheMinTTL:         c.Cache.TTLOverride.Min.Duration,
@@ -271,7 +286,6 @@ func Main() {
 		UseECSCache:         c.Cache.Type == cacheTypeECS,
 		ResearchMetrics:     bool(envs.ResearchMetrics),
 		ResearchLogs:        bool(envs.ResearchLogs),
-		ControlConf:         ctrlConf,
 	}
 
 	dnsSvc, err := dnssvc.New(dnsConf)
@@ -283,14 +297,14 @@ func Main() {
 	check(err)
 
 	upstreamHealthcheckUpd := newUpstreamHealthcheck(handler, c.Upstream, errColl)
-	err = upstreamHealthcheckUpd.Start()
+	err = upstreamHealthcheckUpd.Start(context.Background())
 	check(err)
 
 	sigHdlr.add(upstreamHealthcheckUpd)
 
 	// The DNS service is considered critical, so its Start method panics
 	// instead of returning an error.
-	_ = dnsSvc.Start()
+	_ = dnsSvc.Start(context.Background())
 
 	sigHdlr.add(dnsSvc)
 
@@ -300,7 +314,7 @@ func Main() {
 
 	// The debug HTTP service is considered critical, so its Start method panics
 	// instead of returning an error.
-	_ = debugSvc.Start()
+	_ = debugSvc.Start(context.Background())
 
 	sigHdlr.add(debugSvc)
 
@@ -320,7 +334,7 @@ func Main() {
 //
 // TODO(a.garipov): Consider making into a helper in package agd and using
 // everywhere.
-func collectPanics(errColl agd.ErrorCollector) {
+func collectPanics(errColl errcoll.Interface) {
 	v := recover()
 	if v == nil {
 		return

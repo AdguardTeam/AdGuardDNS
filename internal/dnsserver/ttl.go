@@ -39,26 +39,22 @@ func isEmptyMessage(m *dns.Msg) (empty bool) {
 
 // minimalTTLMsgRRs gets minimal TTL from all message RRs.
 func minimalTTLMsgRRs(m *dns.Msg) (d time.Duration) {
-	minTTL := maximumDefaultTTL
+	minTTL32 := uint32(maximumDefaultTTL.Seconds())
+
 	for _, r := range m.Answer {
-		if r.Header().Ttl < uint32(minTTL.Seconds()) {
-			minTTL = time.Duration(r.Header().Ttl) * time.Second
-		}
+		minTTL32 = min(minTTL32, r.Header().Ttl)
 	}
+
 	for _, r := range m.Ns {
-		if r.Header().Ttl < uint32(minTTL.Seconds()) {
-			minTTL = time.Duration(r.Header().Ttl) * time.Second
-		}
+		minTTL32 = min(minTTL32, r.Header().Ttl)
 	}
 
 	for _, r := range m.Extra {
-		if r.Header().Rrtype == dns.TypeOPT {
-			// OPT records use TTL field for extended rcode and flags
-			continue
-		}
-		if r.Header().Ttl < uint32(minTTL.Seconds()) {
-			minTTL = time.Duration(r.Header().Ttl) * time.Second
+		// OPT records use TTL field for extended rcode and flags.
+		if h := r.Header(); h.Rrtype != dns.TypeOPT {
+			minTTL32 = min(minTTL32, h.Ttl)
 		}
 	}
-	return minTTL
+
+	return time.Duration(minTTL32) * time.Second
 }

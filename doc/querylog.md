@@ -249,6 +249,13 @@ rules to remember, which property means what.  The properties are:
 
     See [this IANA list][iana-rcode] for numeric values and their meanings.
 
+ *  <a href="#properties-ip" id="properties-ip" name="properties-ip">`ip`</a>:
+    The IP address of the client.  This field is omitted in case the IP logging
+    is turned off for the corresponding profile.  The short name `ip` stands for
+    “IP”.
+
+    **Example:** `1.2.3.4`
+
 See also [file `internal/querylog/entry.go`][file-entry.go] for an explanation
 of the properties, their names, and mnemonics.
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/httphdr"
@@ -23,14 +24,14 @@ import (
 // linkedIPProxy proxies selected requests to a remote address.
 type linkedIPProxy struct {
 	httpProxy *httputil.ReverseProxy
-	errColl   agd.ErrorCollector
+	errColl   errcoll.Interface
 	logPrefix string
 }
 
 // linkedIPHandler returns a linked IP proxy handler.
 func linkedIPHandler(
 	apiURL *url.URL,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 	name string,
 	timeout time.Duration,
 ) (h http.Handler) {
@@ -81,7 +82,7 @@ func linkedIPHandler(
 		ctx := r.Context()
 		reqID, _ := agd.RequestIDFromContext(ctx)
 		m, p := r.Method, r.URL.Path
-		agd.Collectf(ctx, errColl, "%s: proxying %s %s: req %s: %w", logPrefix, m, p, reqID, err)
+		errcoll.Collectf(ctx, errColl, "%s: proxying %s %s: req %s: %w", logPrefix, m, p, reqID, err)
 	}
 
 	return &linkedIPProxy{

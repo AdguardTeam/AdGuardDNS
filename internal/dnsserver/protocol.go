@@ -3,8 +3,7 @@ package dnsserver
 import (
 	"fmt"
 	"net"
-
-	"golang.org/x/exp/slices"
+	"slices"
 )
 
 // Protocol is a DNS protocol.

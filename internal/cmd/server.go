@@ -11,13 +11,13 @@ import (
 	"github.com/AdguardTeam/golibs/stringutil"
 )
 
-// Server configuration
-
 // toInternal returns the configuration of DNS servers for a single server
-// group.  srvs is assumed to be valid.
+// group.  srvs and other parts of the configuration are assumed to be valid.
 func (srvs servers) toInternal(
 	tlsConfig *agd.TLS,
 	btdMgr *bindtodevice.Manager,
+	ratelimitConf *rateLimitConfig,
+	dnsConf *dnsConfig,
 ) (dnsSrvs []*agd.Server, err error) {
 	dnsSrvs = make([]*agd.Server, 0, len(srvs))
 	for _, srv := range srvs {
@@ -28,29 +28,41 @@ func (srvs servers) toInternal(
 		}
 
 		name := agd.ServerName(srv.Name)
-		switch p := srv.Protocol; p {
-		case srvProtoDNS:
-			dnsSrvs = append(dnsSrvs, &agd.Server{
-				Name:            name,
-				BindData:        bindData,
-				Protocol:        agd.ProtoDNS,
-				LinkedIPEnabled: srv.LinkedIPEnabled,
-			})
-		case srvProtoDNSCrypt:
+		dnsSrv := &agd.Server{
+			Name:            name,
+			ReadTimeout:     dnsConf.ReadTimeout.Duration,
+			WriteTimeout:    dnsConf.WriteTimeout.Duration,
+			LinkedIPEnabled: srv.LinkedIPEnabled,
+			Protocol:        srv.Protocol.toInternal(),
+		}
+
+		tcpConf := &agd.TCPConfig{
+			IdleTimeout:        dnsConf.TCPIdleTimeout.Duration,
+			MaxPipelineCount:   ratelimitConf.TCP.MaxPipelineCount,
+			MaxPipelineEnabled: ratelimitConf.TCP.Enabled,
+		}
+
+		switch dnsSrv.Protocol {
+		case agd.ProtoDNS:
+			dnsSrv.TCPConf = tcpConf
+			dnsSrv.UDPConf = &agd.UDPConfig{
+				MaxRespSize: uint16(dnsConf.MaxUDPResponseSize.Bytes()),
+			}
+		case agd.ProtoDNSCrypt:
 			var dcConf *agd.DNSCryptConfig
 			dcConf, err = srv.DNSCrypt.toInternal()
 			if err != nil {
 				return nil, fmt.Errorf("server %q: dnscrypt: %w", srv.Name, err)
 			}
 
-			dnsSrvs = append(dnsSrvs, &agd.Server{
-				DNSCrypt:        dcConf,
-				Name:            name,
-				BindData:        bindData,
-				Protocol:        agd.ProtoDNSCrypt,
-				LinkedIPEnabled: srv.LinkedIPEnabled,
-			})
+			dnsSrv.DNSCrypt = dcConf
 		default:
+			dnsSrv.TCPConf = tcpConf
+			dnsSrv.QUICConf = &agd.QUICConfig{
+				MaxStreamsPerPeer: ratelimitConf.QUIC.MaxStreamsPerPeer,
+				QUICLimitsEnabled: ratelimitConf.QUIC.Enabled,
+			}
+
 			tlsConf := tlsConfig.Conf.Clone()
 
 			// Attach the functions that will count TLS handshake metrics.
@@ -62,14 +74,12 @@ func (srvs servers) toInternal(
 				tlsConf.Certificates,
 			)
 
-			dnsSrvs = append(dnsSrvs, &agd.Server{
-				TLS:             tlsConf,
-				Name:            name,
-				BindData:        bindData,
-				Protocol:        p.toInternal(),
-				LinkedIPEnabled: srv.LinkedIPEnabled,
-			})
+			dnsSrv.TLS = tlsConf
 		}
+
+		dnsSrv.SetBindData(bindData)
+
+		dnsSrvs = append(dnsSrvs, dnsSrv)
 	}
 
 	return dnsSrvs, nil
@@ -128,9 +138,13 @@ func (p serverProto) needsTLS() (ok bool) {
 }
 
 // toInternal returns the equivalent agd.Protocol value if there is one.  If
-// there is no such value, it returns agd.ProtoInvalid.
+// there is no such value, it returns [agd.ProtoInvalid].
 func (p serverProto) toInternal() (sp agd.Protocol) {
 	switch p {
+	case srvProtoDNS:
+		return agd.ProtoDNS
+	case srvProtoDNSCrypt:
+		return agd.ProtoDNSCrypt
 	case srvProtoHTTPS:
 		return agd.ProtoDoH
 	case srvProtoQUIC:
@@ -215,7 +229,7 @@ func (s *server) bindData(
 
 			bindData = append(bindData, &agd.ServerBindData{
 				ListenConfig: lc,
-				Address:      lc.Addr(),
+				PrefixAddr:   lc.Addr(),
 			})
 		}
 	}

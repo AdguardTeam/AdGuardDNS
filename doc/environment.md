@@ -9,12 +9,12 @@ sensitive configuration.  All other configuration is stored in the
  *  [`ADULT_BLOCKING_URL`](#ADULT_BLOCKING_URL)
  *  [`BILLSTAT_URL`](#BILLSTAT_URL)
  *  [`BLOCKED_SERVICE_INDEX_URL`](#BLOCKED_SERVICE_INDEX_URL)
+ *  [`CONFIG_PATH`](#CONFIG_PATH)
  *  [`CONSUL_ALLOWLIST_URL`](#CONSUL_ALLOWLIST_URL)
  *  [`CONSUL_DNSCHECK_KV_URL`](#CONSUL_DNSCHECK_KV_URL)
  *  [`CONSUL_DNSCHECK_SESSION_URL`](#CONSUL_DNSCHECK_SESSION_URL)
- *  [`CONFIG_PATH`](#CONFIG_PATH)
- *  [`FILTER_INDEX_URL`](#FILTER_INDEX_URL)
  *  [`FILTER_CACHE_PATH`](#FILTER_CACHE_PATH)
+ *  [`FILTER_INDEX_URL`](#FILTER_INDEX_URL)
  *  [`GENERAL_SAFE_SEARCH_URL`](#GENERAL_SAFE_SEARCH_URL)
  *  [`GEOIP_ASN_PATH` and `GEOIP_COUNTRY_PATH`](#GEOIP_ASN_PATH)
  *  [`LINKED_IP_TARGET_URL`](#LINKED_IP_TARGET_URL)
@@ -25,8 +25,8 @@ sensitive configuration.  All other configuration is stored in the
  *  [`PROFILES_CACHE_PATH`](#PROFILES_CACHE_PATH)
  *  [`PROFILES_URL`](#PROFILES_URL)
  *  [`QUERYLOG_PATH`](#QUERYLOG_PATH)
- *  [`RESEARCH_METRICS`](#RESEARCH_METRICS)
  *  [`RESEARCH_LOGS`](#RESEARCH_LOGS)
+ *  [`RESEARCH_METRICS`](#RESEARCH_METRICS)
  *  [`RULESTAT_URL`](#RULESTAT_URL)
  *  [`SAFE_BROWSING_URL`](#SAFE_BROWSING_URL)
  *  [`SENTRY_DSN`](#SENTRY_DSN)
@@ -49,9 +49,8 @@ The URL of source list of rules for adult blocking filter.
 
 ##  <a href="#BILLSTAT_URL" id="BILLSTAT_URL" name="BILLSTAT_URL">`BILLSTAT_URL`</a>
 
-The base backend URL for backend billing statistics uploader API.  Supports HTTP
-and GRPC protocols.  In case of HTTP the backend endpoint must reply with a 200
-status code on success.  See the [external HTTP API requirements
+The base backend URL for backend billing statistics uploader API.  Supports
+GRPC (`grpc://` and`grpcs://`) URLs.  See the [external HTTP API requirements
 section][ext-billstat].
 
 **Default:** No default value, the variable is **required.**
@@ -239,14 +238,12 @@ The profile cache is read on start and is later updated on every
 
 ##  <a href="#PROFILES_URL" id="PROFILES_URL" name="PROFILES_URL">`PROFILES_URL`</a>
 
-The base backend URL for profiles API.  Supports HTTP (`http://` and `https://`)
-and GRPC (`grpc://` and `grpcs://`) URLs.  In case of HTTP the backend endpoint
-must reply with a 200 status code on success.  See the [external API
-requirements section][ext-profiles].
+The base backend URL for profiles API.  Supports  GRPC (`grpc://` and`grpcs://`)
+URLs.  See the [external API requirements section][ext-profiles].
 
 **Default:** No default value, the variable is **required.**
 
-[ext-profiles]: externalhttp.md#profiles-backend
+[ext-profiles]: externalhttp.md#backend-profiles
 
 
 

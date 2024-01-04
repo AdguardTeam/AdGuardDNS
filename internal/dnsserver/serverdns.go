@@ -9,6 +9,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/miekg/dns"
 	"github.com/panjf2000/ants/v2"
 )
@@ -42,26 +43,33 @@ type ConfigDNS struct {
 	// not set it defaults to DefaultWriteTimeout.
 	WriteTimeout time.Duration
 
-	// UDPSize is the default buffer size to use to read incoming UDP messages.
-	// If not set it defaults to dns.MinMsgSize (512 B).
+	// UDPSize is the size of the buffers used to read incoming UDP messages.
+	// If not set it defaults to [dns.MinMsgSize], 512 B.
 	UDPSize int
 
-	// TCPSize is the default buffer size to use to read incoming TCP messages.
-	// If not set it defaults to dns.MinMsgSize (512 B).
-	// Note that there's a difference between TCP and UDP - incoming message
-	// may be bigger than TCPSize. In this case, we'll process it, but we
-	// won't use tcpPool.
+	// TCPSize is the initial size of the buffers used to read incoming TCP
+	// messages.  If not set it defaults to [dns.MinMsgSize], 512 B.
 	TCPSize int
 
-	// TCP idle timeout for multiple queries.
-	// If not set it defaults to DefaultTCPIdleTimeout.
+	// MaxUDPRespSize is the maximum size of DNS response over UDP protocol.
+	MaxUDPRespSize uint16
+
+	// TCPIdleTimeout is the timeout for waiting between multiple queries.  If
+	// not set it defaults to [DefaultTCPIdleTimeout].
 	TCPIdleTimeout time.Duration
+
+	// MaxPipelineCount is the maximum number of simultaneously processing TCP
+	// messages per one connection.  If MaxPipelineEnabled is true, it must be
+	// greater than zero.
+	MaxPipelineCount uint
+
+	// MaxPipelineEnabled, if true, enables TCP pipeline limiting.
+	MaxPipelineEnabled bool
 }
 
 // ServerDNS is a plain DNS server (e.g. it supports UDP and TCP protocols).
 type ServerDNS struct {
 	*ServerBase
-	conf ConfigDNS
 
 	// workerPool is a goroutine workerPool we use to process DNS queries.
 	// Complicated logic may require growing the goroutine's stack, and we
@@ -69,15 +77,22 @@ type ServerDNS struct {
 	// time on this is to reuse already existing goroutines.
 	workerPool *ants.Pool
 
-	// udpPool is a pool for UDP message buffers.
-	udpPool sync.Pool
+	// udpPool is a pool for UDP request buffers.
+	udpPool *syncutil.Pool[[]byte]
 
-	// tcpPool is a pool for TCP message buffers.
-	tcpPool sync.Pool
+	// tcpPool is a pool for TCP request buffers.
+	tcpPool *syncutil.Pool[[]byte]
+
+	// respPool is a pool for response buffers.
+	respPool *syncutil.Pool[[]byte]
 
 	// tcpConns is a set that is used to track active connections.
 	tcpConns   map[net.Conn]struct{}
-	tcpConnsMu sync.Mutex
+	tcpConnsMu *sync.Mutex
+
+	// TODO(ameshkov, a.garipov):  Only save the parameters a server actually
+	// needs.
+	conf ConfigDNS
 }
 
 // type check
@@ -102,6 +117,7 @@ func newServerDNS(proto Protocol, conf ConfigDNS) (s *ServerDNS) {
 	if conf.TCPIdleTimeout == 0 {
 		conf.TCPIdleTimeout = DefaultTCPIdleTimeout
 	}
+
 	// Use dns.MinMsgSize since 99% of DNS queries fit this size, so this is
 	// a sensible default.
 	if conf.UDPSize == 0 {
@@ -117,14 +133,17 @@ func newServerDNS(proto Protocol, conf ConfigDNS) (s *ServerDNS) {
 
 	s = &ServerDNS{
 		ServerBase: newServerBase(proto, conf.ConfigBase),
-		conf:       conf,
 		workerPool: newPoolNonblocking(),
-	}
 
-	// Initialize internal properties.
-	s.tcpConns = map[net.Conn]struct{}{}
-	s.udpPool.New = makePacketBuffer(conf.UDPSize)
-	s.tcpPool.New = makePacketBuffer(conf.TCPSize)
+		udpPool:  syncutil.NewSlicePool[byte](conf.UDPSize),
+		tcpPool:  syncutil.NewSlicePool[byte](conf.TCPSize),
+		respPool: syncutil.NewSlicePool[byte](dns.MinMsgSize),
+
+		tcpConns:   map[net.Conn]struct{}{},
+		tcpConnsMu: &sync.Mutex{},
+
+		conf: conf,
+	}
 
 	return s
 }
@@ -139,11 +158,10 @@ func (s *ServerDNS) Start(ctx context.Context) (err error) {
 	if s.started {
 		return ErrServerAlreadyStarted
 	}
-	s.started = true
 
 	log.Info("[%s]: Starting the server", s.Name())
 
-	ctx = ContextWithServerInfo(ctx, ServerInfo{
+	ctx = ContextWithServerInfo(ctx, &ServerInfo{
 		Name:  s.name,
 		Addr:  s.addr,
 		Proto: s.proto,
@@ -174,6 +192,8 @@ func (s *ServerDNS) Start(ctx context.Context) (err error) {
 		s.wg.Add(1)
 		go s.startServeTCP(ctx)
 	}
+
+	s.started = true
 
 	log.Info("[%s]: Server has been started", s.Name())
 
@@ -259,48 +279,44 @@ func (s *ServerDNS) unblockTCPConns() {
 	}
 }
 
-// makePacketBuffer returns a function that we use for byte buffer pools.
-func makePacketBuffer(size int) (f func() any) {
-	return func() any {
-		b := make([]byte, size)
-		return &b
-	}
-}
-
 // writeDeadlineSetter is an interface for connections that can set write
 // deadlines.
 type writeDeadlineSetter interface {
 	SetWriteDeadline(t time.Time) (err error)
 }
 
-// withWriteDeadline is a helper that takes the deadline of the context and the
-// write timeout into account.  It sets the write deadline on conn before
-// calling f and resets it once f is done.
+// withWriteDeadline is a helper that takes the deadline of the context and
+// timeout into account.  It sets the write deadline on conn before calling f
+// and resets it once f is done.
 func withWriteDeadline(
 	ctx context.Context,
-	writeTimeout time.Duration,
+	timeout time.Duration,
 	conn writeDeadlineSetter,
 	f func(),
 ) {
-	dl, hasDeadline := ctx.Deadline()
-	if !hasDeadline {
-		dl = time.Now().Add(writeTimeout)
-	}
+	// Add the given timeout and let context.WithTimeout decide which one is
+	// sooner.
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 
 	defer func() {
+		cancel()
+
 		err := conn.SetWriteDeadline(time.Time{})
 		if err != nil && !errors.Is(err, net.ErrClosed) {
-			// Consider deadline errors non-critical.  Ignore net.ErrClosed as
+			// Consider deadline errors non-critical.  Ignore [net.ErrClosed] as
 			// it is expected to happen when the client closes connections.
-			log.Error("removing write deadline: %s", err)
+			log.Error("dnsserver: removing deadlines: %s", err)
 		}
 	}()
 
+	// Since context.WithTimeout has been called, this should return a non-empty
+	// deadline.
+	dl, _ := ctx.Deadline()
 	err := conn.SetWriteDeadline(dl)
 	if err != nil && !errors.Is(err, net.ErrClosed) {
-		// Consider deadline errors non-critical.  Ignore net.ErrClosed as
-		// it is expected to happen when the client closes connections.
-		log.Error("setting write deadline: %s", err)
+		// Consider deadline errors non-critical.  Ignore [net.ErrClosed] as it
+		// is expected to happen when the client closes connections.
+		log.Error("dnsserver: setting deadlines: %s", err)
 	}
 
 	f()

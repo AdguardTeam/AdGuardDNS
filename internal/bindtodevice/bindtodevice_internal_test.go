@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Common timeout for tests
+// testTimeout is a common timeout for tests.
 const testTimeout = 1 * time.Second
 
 // Common addresses for tests.
@@ -24,5 +24,4 @@ var (
 // Common subnets for tests.
 var (
 	testSubnetIPv4 = netip.MustParsePrefix("1.2.3.0/24")
-	testSubnetIPv6 = netip.MustParsePrefix("1234:5678::/64")
 )

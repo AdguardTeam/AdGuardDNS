@@ -7,15 +7,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/stringutil"
 	"github.com/prometheus/client_golang/prometheus"
-	"golang.org/x/exp/slices"
 )
 
 // TLS Configuration And Utilities
@@ -217,9 +219,6 @@ func newTicketRotator(grps []*agd.ServerGroup) (tr *ticketRotator, err error) {
 	return tr, nil
 }
 
-// type check
-var _ agd.Refresher = (*ticketRotator)(nil)
-
 // sessTickLen is the length of a single TLS session ticket key in bytes.
 //
 // NOTE: Unlike Nginx, Go's crypto/tls doesn't use the random bytes from the
@@ -227,7 +226,10 @@ var _ agd.Refresher = (*ticketRotator)(nil)
 // 48 bytes of the hashed data as the key name, the AES key, and the HMAC key.
 const sessTickLen = 32
 
-// Refresh implements the agd.Refresher interface for *ticketRotator.
+// type check
+var _ agdservice.Refresher = (*ticketRotator)(nil)
+
+// Refresh implements the [agdservice.Refresher] interface for *ticketRotator.
 func (r *ticketRotator) Refresh(_ context.Context) (err error) {
 	for conf, files := range r.confs {
 		keys := make([][sessTickLen]byte, 0, len(files))
@@ -299,14 +301,14 @@ func enableTLSKeyLogging(grps []*agd.ServerGroup, keyLogFileName string) (err er
 func setupTicketRotator(
 	srvGrps []*agd.ServerGroup,
 	sigHdlr signalHandler,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 ) (err error) {
 	tickRot, err := newTicketRotator(srvGrps)
 	if err != nil {
 		return fmt.Errorf("setting up ticket rotator: %w", err)
 	}
 
-	refr := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
+	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
 		Context:   ctxWithDefaultTimeout,
 		Refresher: tickRot,
 		ErrColl:   errColl,
@@ -315,8 +317,9 @@ func setupTicketRotator(
 		Interval:            1 * time.Minute,
 		RefreshOnShutdown:   false,
 		RoutineLogsAreDebug: true,
+		RandomizeStart:      false,
 	})
-	err = refr.Start()
+	err = refr.Start(context.Background())
 	if err != nil {
 		return fmt.Errorf("starting ticket rotator refresh: %w", err)
 	}

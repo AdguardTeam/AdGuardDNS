@@ -3,7 +3,6 @@ package filter_test
 import (
 	"context"
 	"io"
-	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -155,6 +154,7 @@ func TestStorage_FilterFromContext_customAllow(t *testing.T) {
 	c := prepareConf(t)
 
 	c.SafeBrowsing, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
+		Cloner:          agdtest.NewCloner(),
 		Hashes:          hashes,
 		ErrColl:         errColl,
 		Resolver:        resolver,
@@ -252,6 +252,7 @@ func TestStorage_FilterFromContext_schedule(t *testing.T) {
 
 	// Use AdultBlocking, because SafeBrowsing is NOT affected by the schedule.
 	c.AdultBlocking, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
+		Cloner:          agdtest.NewCloner(),
 		Hashes:          hashes,
 		ErrColl:         errColl,
 		Resolver:        resolver,
@@ -754,6 +755,7 @@ func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
 	c := prepareConf(t)
 
 	c.SafeBrowsing, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
+		Cloner:          agdtest.NewCloner(),
 		Hashes:          hashes,
 		ErrColl:         errColl,
 		Resolver:        resolver,
@@ -842,32 +844,44 @@ func TestStorage_FilterFromContext_safeSearch(t *testing.T) {
 		GeneralSafeSearch: true,
 	}
 
+	ttl := uint32(agdtest.FilteredResponseTTLSec)
+
 	testCases := []struct {
-		wantIP      netip.Addr
 		name        string
 		host        string
+		want        []dns.RR
 		rrtype      uint16
 		wantLookups int
 	}{{
-		wantIP:      safeSearchIPRespIP4,
+		want: []dns.RR{
+			dnsservertest.NewA(safeSearchIPHost, ttl, safeSearchIPRespIP4),
+		},
 		name:        "ip4",
 		host:        safeSearchIPHost,
 		rrtype:      dns.TypeA,
 		wantLookups: 1,
 	}, {
-		wantIP:      safeSearchIPRespIP6,
+		want: []dns.RR{
+			dnsservertest.NewAAAA(safeSearchIPHost, ttl, safeSearchIPRespIP6),
+		},
 		name:        "ip6",
 		host:        safeSearchIPHost,
 		rrtype:      dns.TypeAAAA,
 		wantLookups: 1,
 	}, {
-		wantIP:      safeSearchIPRespIP4,
+		want: []dns.RR{
+			dnsservertest.NewCNAME(safeSearchHost, ttl, safeSearchRespHost),
+			dnsservertest.NewA(safeSearchRespHost, ttl, safeSearchIPRespIP4),
+		},
 		name:        "host_ip4",
 		host:        safeSearchHost,
 		rrtype:      dns.TypeA,
 		wantLookups: 1,
 	}, {
-		wantIP:      safeSearchIPRespIP6,
+		want: []dns.RR{
+			dnsservertest.NewCNAME(safeSearchHost, ttl, safeSearchRespHost),
+			dnsservertest.NewAAAA(safeSearchRespHost, ttl, safeSearchIPRespIP6),
+		},
 		name:        "host_ip6",
 		host:        safeSearchHost,
 		rrtype:      dns.TypeAAAA,
@@ -897,18 +911,7 @@ func TestStorage_FilterFromContext_safeSearch(t *testing.T) {
 
 			res := rm.Msg
 			require.NotNil(t, res)
-			require.Len(t, res.Answer, 1)
-
-			switch ans := res.Answer[0]; ans := ans.(type) {
-			case *dns.A:
-				assert.Equal(t, tc.rrtype, ans.Hdr.Rrtype)
-				assert.Equal(t, net.IP(tc.wantIP.AsSlice()), ans.A)
-			case *dns.AAAA:
-				assert.Equal(t, tc.rrtype, ans.Hdr.Rrtype)
-				assert.Equal(t, net.IP(tc.wantIP.AsSlice()), ans.AAAA)
-			default:
-				t.Fatalf("unexpected answer type %T(%[1]v)", ans)
-			}
+			require.Equal(t, tc.want, res.Answer)
 		})
 	}
 }

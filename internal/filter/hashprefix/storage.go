@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // Storage stores hashes of the filtered hostnames.  All methods are safe for
@@ -14,18 +15,28 @@ import (
 //
 // TODO(a.garipov): See if we could unexport this.
 type Storage struct {
-	// mu protects hashSuffixes.
-	mu           *sync.RWMutex
-	hashSuffixes map[Prefix][]suffix
+	// resetMu makes sure that only one reset is taking place at a time.  It
+	// also protects prev.
+	resetMu *sync.Mutex
+
+	// hashSuffixes contains the hashSuffixes map.  It is an atomic pointer to
+	// make sure that calls to [Storage.Reset] do not block [Storage.Matches]
+	// and thus filtering.
+	hashSuffixes *atomic.Pointer[suffixMap]
 }
+
+// suffixMap is a convenient alias for a map of has prefixes to its suffixes.
+type suffixMap = map[Prefix][]suffix
 
 // NewStorage returns a new hash storage containing hashes of the domain names
 // listed in hostnames, one domain name per line.
 func NewStorage(hostnames string) (s *Storage, err error) {
 	s = &Storage{
-		mu:           &sync.RWMutex{},
-		hashSuffixes: map[Prefix][]suffix{},
+		resetMu:      &sync.Mutex{},
+		hashSuffixes: &atomic.Pointer[suffixMap]{},
 	}
+
+	s.hashSuffixes.Store(&suffixMap{})
 
 	if hostnames != "" {
 		_, err = s.Reset(hostnames)
@@ -46,13 +57,11 @@ func (s *Storage) Hashes(prefs []Prefix) (hashes []string) {
 		return nil
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	// First, calculate the number of hashes to allocate the buffer.
+	hashSuffixes := *s.hashSuffixes.Load()
 	l := 0
 	for _, pref := range prefs {
-		hashSufs := s.hashSuffixes[pref]
+		hashSufs := hashSuffixes[pref]
 		l += len(hashSufs)
 	}
 
@@ -71,7 +80,7 @@ func (s *Storage) Hashes(prefs []Prefix) (hashes []string) {
 	// performance hit.
 	var buf [hashEncLen]byte
 	for _, pref := range prefs {
-		hashSufs := s.hashSuffixes[pref]
+		hashSufs := hashSuffixes[pref]
 		for _, suf := range hashSufs {
 			// nolint:looppointer // Slicing is safe; used for encoding.
 			hex.Encode(buf[:], pref[:])
@@ -113,22 +122,24 @@ func (s *Storage) Matches(host string) (ok bool) {
 	return false
 }
 
-// Reset resets the hosts in the index using the domain names listed in
-// hostnames, one domain name per line, and returns the total number of
-// processed rules.
-func (s *Storage) Reset(hostnames string) (n int, err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// loadHashSuffixes returns hash suffixes for the given prefix.  It is safe for
+// concurrent use.  sufs must not be modified.
+func (s *Storage) loadHashSuffixes(pref Prefix) (sufs []suffix, ok bool) {
+	suffixes := *s.hashSuffixes.Load()
+	sufs, ok = suffixes[pref]
 
-	// Delete all elements without allocating a new map to save space and
-	// improve performance.
-	//
-	// This is optimized, see https://github.com/golang/go/issues/20138.
-	//
-	// TODO(a.garipov): Use clear once golang/go#56351 is implemented.
-	for pref := range s.hashSuffixes {
-		delete(s.hashSuffixes, pref)
-	}
+	return sufs, ok
+}
+
+// Reset resets the hosts in the index using the domain names listed in
+// hostnames and returns the total number of processed rules.  hostnames should
+// be a list of valid, lowercased domain names, one per line, and may include
+// empty lines and comments ('#' at the first position).
+func (s *Storage) Reset(hostnames string) (n int, err error) {
+	s.resetMu.Lock()
+	defer s.resetMu.Unlock()
+
+	next := make(suffixMap, len(*s.hashSuffixes.Load()))
 
 	sc := bufio.NewScanner(strings.NewReader(hostnames))
 	for sc.Scan() {
@@ -140,7 +151,7 @@ func (s *Storage) Reset(hostnames string) (n int, err error) {
 		sum := sha256.Sum256([]byte(host))
 		pref := Prefix(sum[:PrefixLen])
 		suf := suffix(sum[PrefixLen:])
-		s.hashSuffixes[pref] = append(s.hashSuffixes[pref], suf)
+		next[pref] = append(next[pref], suf)
 
 		n++
 	}
@@ -150,16 +161,10 @@ func (s *Storage) Reset(hostnames string) (n int, err error) {
 		return 0, fmt.Errorf("scanning hosts: %w", err)
 	}
 
+	s.hashSuffixes.Store(&next)
+
+	// Do not try to clear and reuse the previous map.  Any attempt to do that
+	// in a thread-safe fashion will result in excessive locking and complexity.
+
 	return n, nil
-}
-
-// loadHashSuffixes returns hash suffixes for the given prefix.  It is safe for
-// concurrent use.  sufs must not be modified.
-func (s *Storage) loadHashSuffixes(pref Prefix) (sufs []suffix, ok bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	sufs, ok = s.hashSuffixes[pref]
-
-	return sufs, ok
 }

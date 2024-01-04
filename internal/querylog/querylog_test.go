@@ -6,6 +6,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
@@ -30,8 +31,8 @@ func testEntry() (e *querylog.Entry) {
 		RequestID:       testRequestID,
 		ProfileID:       "prof1234",
 		DeviceID:        "dev1234",
-		ClientCountry:   agd.CountryRU,
-		ResponseCountry: agd.CountryUS,
+		ClientCountry:   geoip.CountryRU,
+		ResponseCountry: geoip.CountryUS,
 		DomainFQDN:      "example.com.",
 		Protocol:        agd.ProtoDNS,
 		ClientASN:       1234,

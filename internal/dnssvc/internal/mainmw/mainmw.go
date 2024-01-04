@@ -1,0 +1,287 @@
+// Package mainmw contains the main middleware of AdGuard DNS.  It processes
+// filtering, debug DNS API, query logging, as well as statistics.
+package mainmw
+
+import (
+	"context"
+	"strconv"
+
+	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
+	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
+	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
+	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
+	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
+	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/syncutil"
+	"github.com/miekg/dns"
+)
+
+// Middleware is the main middleware of AdGuard DNS.
+type Middleware struct {
+	messages        *dnsmsg.Constructor
+	cloner          *dnsmsg.Cloner
+	fltCtxPool      *syncutil.Pool[filteringContext]
+	billStat        billstat.Recorder
+	errColl         errcoll.Interface
+	fltStrg         filter.Storage
+	geoIP           geoip.Interface
+	queryLog        querylog.Interface
+	ruleStat        rulestat.Interface
+	researchMetrics bool
+	researchLogs    bool
+}
+
+// Config is the configuration structure for the main middleware.  All fields
+// must be non-nil.
+type Config struct {
+	// Messages is the message constructor used to create blocked and other
+	// messages for this middleware.
+	Messages *dnsmsg.Constructor
+
+	// Cloner is used to clone messages more efficiently by disposing of parts
+	// of DNS responses for later reuse.
+	//
+	// TODO(a.garipov): Use.
+	Cloner *dnsmsg.Cloner
+
+	// BillStat is used to collect billing statistics.
+	BillStat billstat.Recorder
+
+	// ErrColl is the error collector that is used to collect critical and
+	// non-critical errors.
+	ErrColl errcoll.Interface
+
+	// FilterStorage is the storage of all filters.
+	FilterStorage filter.Storage
+
+	// GeoIP is the GeoIP database used to detect geographic data about IP
+	// addresses in requests and responses.
+	GeoIP geoip.Interface
+
+	// QueryLog is used to write the logs into.
+	QueryLog querylog.Interface
+
+	// RuleStat is used to collect statistics about matched filtering rules and
+	// rule lists.
+	RuleStat rulestat.Interface
+
+	// ResearchLogs controls whether logging of additional info for research
+	// purposes is enabled.  These logs may be overly verbose and are only
+	// required temporary, that's why it's controlled by a separate setting.
+	// This setting will only be used when ResearchMetrics is also set to true.
+	ResearchLogs bool
+
+	// ResearchMetrics controls whether research metrics are enabled or not.
+	// This is a set of metrics that we may need temporary, so its collection is
+	// controlled by a separate setting.
+	ResearchMetrics bool
+}
+
+// New returns a new main middleware.  c must not be nil.
+func New(c *Config) (mw *Middleware) {
+	return &Middleware{
+		messages: c.Messages,
+		cloner:   c.Cloner,
+		fltCtxPool: syncutil.NewPool[filteringContext](func() (v *filteringContext) {
+			return &filteringContext{}
+		}),
+		billStat:        c.BillStat,
+		errColl:         c.ErrColl,
+		fltStrg:         c.FilterStorage,
+		geoIP:           c.GeoIP,
+		queryLog:        c.QueryLog,
+		ruleStat:        c.RuleStat,
+		researchMetrics: c.ResearchMetrics,
+		researchLogs:    c.ResearchLogs,
+	}
+}
+
+// type check
+var _ dnsserver.Middleware = (*Middleware)(nil)
+
+// Wrap implements the [dnsserver.Middleware] interface for *Middleware
+//
+// TODO(a.garipov): Refactor and lower gocognit to 10 or below.
+func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
+	f := func(ctx context.Context, rw dnsserver.ResponseWriter, req *dns.Msg) (err error) {
+		defer func() { err = errors.Annotate(err, "main mw: %w") }()
+
+		fctx := mw.newFilteringContext(req)
+		defer mw.fltCtxPool.Put(fctx)
+
+		ri := agd.MustRequestInfoFromContext(ctx)
+		optlog.Debug2("processing request %q from %s", ri.ID, ri.RemoteIP)
+		defer optlog.Debug2("finished processing request %q from %s", ri.ID, ri.RemoteIP)
+
+		flt := mw.fltStrg.FilterFromContext(ctx, ri)
+		mw.filterRequest(ctx, fctx, flt, ri)
+
+		// Check the context error here, since the context could have already
+		// been canceled during filtering, e.g. while resolving a safe-search
+		// replacement domain.
+		err = ctx.Err()
+		if err != nil {
+			return afterFilteringError{err: err}
+		}
+
+		nwrw := internal.MakeNonWriter(rw)
+		err = next.ServeDNS(mw.nextParams(ctx, fctx, nwrw, ri))
+		if err != nil {
+			return err
+		}
+
+		fctx.originalResponse = nwrw.Msg()
+		mw.filterResponse(ctx, fctx, flt, ri)
+
+		mw.reportMetrics(fctx, ri)
+
+		mw.setFilteredResponse(ctx, fctx, ri)
+
+		if fctx.isDebug {
+			return mw.writeDebugResponse(ctx, fctx, rw)
+		}
+
+		err = rw.WriteMsg(ctx, fctx.originalRequest, fctx.filteredResponse)
+		if err != nil {
+			// Don't wrap the error, because it's informative enough as is.
+			return err
+		}
+
+		mw.recordQueryInfo(ctx, fctx, ri)
+
+		if fctx.filteredResponse != fctx.originalResponse {
+			mw.cloner.Dispose(fctx.originalResponse)
+		}
+
+		return nil
+	}
+
+	return dnsserver.HandlerFunc(f)
+}
+
+// nextParams is a helper that returns the parameters to call the next handler
+// with taking the filtering context into account.
+func (mw *Middleware) nextParams(
+	parent context.Context,
+	fctx *filteringContext,
+	origRW dnsserver.ResponseWriter,
+	ri *agd.RequestInfo,
+) (ctx context.Context, rw dnsserver.ResponseWriter, req *dns.Msg) {
+	ctx = parent
+
+	modReq := fctx.modifiedRequest
+	if modReq == nil {
+		return ctx, origRW, fctx.originalRequest
+	}
+
+	// Modified request is set only if the request was modified by a CNAME
+	// rewrite rule, so resolve the request as if it was for the rewritten name.
+	//
+	// Clone the request information and replace the host name with the
+	// rewritten one, since the request information from current context must
+	// only be accessed for reading, see [agd.RequestInfo].  Shallow copy is
+	// enough, because we only change the [agd.RequestInfo.Host] field, which is
+	// a string.
+	modReqInfo := &agd.RequestInfo{}
+	*modReqInfo = *ri
+	modReqInfo.Host = agdnet.NormalizeDomain(modReq.Question[0].Name)
+
+	ctx = agd.ContextWithRequestInfo(ctx, modReqInfo)
+
+	optlog.Debug2(
+		"mainmw: request for %q rewritten to %q by CNAME rewrite rule",
+		ri.Host,
+		modReqInfo.Host,
+	)
+
+	return ctx, origRW, modReq
+}
+
+// reportMetrics extracts filtering metrics data from the context and reports it
+// to Prometheus.
+func (mw *Middleware) reportMetrics(fctx *filteringContext, ri *agd.RequestInfo) {
+	var ctry, cont string
+	asn := "0"
+	if l := ri.Location; l != nil {
+		ctry, cont = string(l.Country), string(l.Continent)
+		asn = strconv.FormatUint(uint64(l.ASN), 10)
+	}
+
+	// Here and below stick to using WithLabelValues instead of With in order
+	// to avoid extra allocations on prometheus.Labels.
+
+	metrics.DNSSvcRequestByCountryTotal.WithLabelValues(cont, ctry).Inc()
+	metrics.DNSSvcRequestByASNTotal.WithLabelValues(ctry, asn).Inc()
+
+	id, _, isBlocked := filteringData(fctx)
+	metrics.DNSSvcRequestByFilterTotal.WithLabelValues(
+		string(id),
+		metrics.BoolString(ri.Profile == nil),
+	).Inc()
+
+	metrics.DNSSvcFilteringDuration.Observe(fctx.elapsed.Seconds())
+	metrics.DNSSvcUsersCountUpdate(ri.RemoteIP)
+
+	if mw.researchMetrics {
+		reportResearchMetrics(ri, fctx.originalResponse, id, isBlocked, mw.researchLogs)
+	}
+}
+
+// reportResearchMetrics reports research metrics to prometheus.
+func reportResearchMetrics(
+	ri *agd.RequestInfo,
+	origResp *dns.Msg,
+	fltID agd.FilterListID,
+	isBlocked bool,
+	researchLogs bool,
+) {
+	filteringEnabled := ri.FilteringGroup != nil &&
+		ri.FilteringGroup.RuleListsEnabled &&
+		len(ri.FilteringGroup.RuleListIDs) > 0
+
+	// The current research metrics only count queries that come to public DNS
+	// servers where filtering is enabled.
+	if !filteringEnabled || ri.Profile != nil {
+		return
+	}
+
+	var ctry string
+	var subdiv string
+	if l := ri.Location; l != nil {
+		if l.ASN == 212772 {
+			// Ignore AdGuard ASN specifically in order to avoid counting
+			// queries that come from the monitoring.  This part is ugly, but
+			// since these metrics are a one-time deal, this is acceptable.
+			//
+			// TODO(ameshkov): Think of a better way later if we need to do that
+			// again.
+			return
+		}
+
+		ctry = string(l.Country)
+		subdiv = l.TopSubdivision
+	}
+
+	metrics.ReportResearch(&metrics.ResearchData{
+		OriginalResponse: origResp,
+		FilterID:         string(fltID),
+		Country:          ctry,
+		TopSubdivision:   subdiv,
+		Host:             ri.Host,
+		QType:            ri.QType,
+		Blocked:          isBlocked,
+	}, researchLogs)
+}
+
+// reportf is a helper method for reporting non-critical errors.
+func (mw *Middleware) reportf(ctx context.Context, format string, args ...any) {
+	errcoll.Collectf(ctx, mw.errColl, "mainmw: "+format, args...)
+}

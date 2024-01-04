@@ -54,7 +54,8 @@ func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
 		// Assume that module dnsserver has already validated that the request
 		// always has exactly one question for us.
 		q := req.Question[0]
-		if blocked := mw.accessManager.IsBlockedHost(normalizeDomain(q.Name), q.Qtype); blocked {
+		normalizedDomain := agdnet.NormalizeQueryDomain(q.Name)
+		if mw.accessManager.IsBlockedHost(normalizedDomain, q.Qtype) {
 			metrics.AccessBlockedForHostTotal.Inc()
 
 			return nil
@@ -64,17 +65,4 @@ func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
 	}
 
 	return dnsserver.HandlerFunc(f)
-}
-
-// normalizeDomain returns a lowercased version of the host without the final
-// dot, unless the host is ".", in which case it returns the unchanged host.
-// That is the special case to allow matching queries like:
-//
-//	dig IN NS '.'
-func normalizeDomain(host string) (norm string) {
-	if host == "." {
-		return host
-	}
-
-	return agdnet.NormalizeDomain(host)
 }

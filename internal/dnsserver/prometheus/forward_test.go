@@ -21,8 +21,10 @@ func TestForwardMetricsListener_integration_request(t *testing.T) {
 
 	// Initialize a new forward.Handler and set the metrics listener.
 	handler := forward.NewHandler(&forward.HandlerConfig{
-		Address:         netip.MustParseAddrPort(addr),
-		Network:         forward.NetworkAny,
+		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
+			Network: forward.NetworkAny,
+			Address: netip.MustParseAddrPort(addr),
+		}},
 		MetricsListener: prometheus.NewForwardMetricsListener(0),
 	})
 

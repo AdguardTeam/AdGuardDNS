@@ -225,10 +225,10 @@ func newAnsFromString(
 	}
 
 	if rr == dns.TypeTXT {
-		return messages.NewAnsTXT(req, []string{str})
+		return messages.NewAnswerTXT(req, []string{str})
 	}
 
-	return messages.NewAnsPTR(req, str), nil
+	return messages.NewAnswerPTR(req, str), nil
 }
 
 // newAnsFromIP returns a new resource record with an IP address.  ip must be an
@@ -244,11 +244,13 @@ func newAnsFromIP(
 		return nil, fmt.Errorf("value for rr type %d has type %T, not net.IP", rr, v)
 	}
 
+	target := req.Question[0].Name
+
 	if rr == dns.TypeA {
-		return messages.NewAnsA(req, ip)
+		return messages.NewAnswerA(target, ip)
 	}
 
-	return messages.NewAnsAAAA(req, ip)
+	return messages.NewAnswerAAAA(target, ip)
 }
 
 // newAnswerMX returns a new resource record created from DNSMX rules value.

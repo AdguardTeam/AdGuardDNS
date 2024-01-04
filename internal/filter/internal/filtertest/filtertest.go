@@ -47,7 +47,7 @@ const Timeout = 1 * time.Second
 
 // FilterMaxSize is the maximum size of the downloadable rule-list for filtering
 // tests.
-const FilterMaxSize = 640 * int64(datasize.KB)
+const FilterMaxSize = 640 * uint64(datasize.KB)
 
 // PrepareRefreshable launches an HTTP server serving the given text and code,
 // as well as creates a cache file.  If code is zero, the server isn't started.

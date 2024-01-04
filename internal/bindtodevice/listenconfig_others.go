@@ -4,9 +4,12 @@ package bindtodevice
 
 import (
 	"context"
+	"fmt"
 	"net"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
+	"github.com/AdguardTeam/golibs/errors"
 )
 
 // ListenConfig is a [netext.ListenConfig] implementation that uses the
@@ -31,7 +34,10 @@ func (lc *ListenConfig) Listen(
 	network string,
 	address string,
 ) (l net.Listener, err error) {
-	return nil, errUnsupported
+	return nil, fmt.Errorf(
+		"bindtodevice: listen: %w; only supported on linux",
+		errors.ErrUnsupported,
+	)
 }
 
 // ListenPacket implements the [netext.ListenConfig] interface for
@@ -43,13 +49,15 @@ func (lc *ListenConfig) ListenPacket(
 	network string,
 	address string,
 ) (c net.PacketConn, err error) {
-	return nil, errUnsupported
+	return nil, fmt.Errorf(
+		"bindtodevice: listenpacket: %w; only supported on linux",
+		errors.ErrUnsupported,
+	)
 }
 
-// Addr returns the address on which lc accepts connections.  See
-// [agdnet.FormatPrefixAddr] for the format.
+// Addr returns the address on which lc accepts connections.
 //
 // It is only supported on Linux.
-func (lc *ListenConfig) Addr() (addr string) {
-	return ""
+func (lc *ListenConfig) Addr() (addr *agdnet.PrefixNetAddr) {
+	return nil
 }

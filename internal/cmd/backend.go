@@ -4,12 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/backend"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/timeutil"
@@ -34,6 +33,10 @@ type backendConfig struct {
 	// synchronization.
 	FullRefreshIvl timeutil.Duration `yaml:"full_refresh_interval"`
 
+	// FullRefreshRetryIvl is the interval between two retries of full
+	// synchronizations.
+	FullRefreshRetryIvl timeutil.Duration `yaml:"full_refresh_retry_interval"`
+
 	// BillStatIvl defines how often AdGuard DNS sends the billing statistics to
 	// the backend.
 	BillStatIvl timeutil.Duration `yaml:"bill_stat_interval"`
@@ -50,6 +53,8 @@ func (c *backendConfig) validate() (err error) {
 		return newMustBePositiveError("refresh_interval", c.RefreshIvl)
 	case c.FullRefreshIvl.Duration <= 0:
 		return newMustBePositiveError("full_refresh_interval", c.FullRefreshIvl)
+	case c.FullRefreshRetryIvl.Duration <= 0:
+		return newMustBePositiveError("full_refresh_retry_interval", c.FullRefreshRetryIvl)
 	case c.BillStatIvl.Duration <= 0:
 		return newMustBePositiveError("bill_stat_interval", c.BillStatIvl)
 	default:
@@ -64,7 +69,7 @@ func setupBackend(
 	conf *backendConfig,
 	envs *environments,
 	sigHdlr signalHandler,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 ) (profDB *profiledb.Default, rec *billstat.RuntimeRecorder, err error) {
 	rec, err = setupBillStat(conf, envs, sigHdlr, errColl)
 	if err != nil {
@@ -87,7 +92,7 @@ func setupBillStat(
 	conf *backendConfig,
 	envs *environments,
 	sigHdlr signalHandler,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 ) (rec *billstat.RuntimeRecorder, err error) {
 	apiURL := netutil.CloneURL(&envs.BillStatURL.URL)
 	billStatUploader, err := setupBillStatUploader(apiURL, errColl)
@@ -102,7 +107,7 @@ func setupBillStat(
 	refrIvl := conf.RefreshIvl.Duration
 	timeout := conf.Timeout.Duration
 
-	billStatRefr := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
+	billStatRefr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
 		Context: func() (ctx context.Context, cancel context.CancelFunc) {
 			return context.WithTimeout(context.Background(), timeout)
 		},
@@ -112,8 +117,9 @@ func setupBillStat(
 		Interval:            refrIvl,
 		RefreshOnShutdown:   true,
 		RoutineLogsAreDebug: true,
+		RandomizeStart:      false,
 	})
-	err = billStatRefr.Start()
+	err = billStatRefr.Start(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("starting bill stat recorder refresher: %w", err)
 	}
@@ -129,7 +135,7 @@ func setupProfDB(
 	conf *backendConfig,
 	envs *environments,
 	sigHdlr signalHandler,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 ) (profDB *profiledb.Default, err error) {
 	apiURL := netutil.CloneURL(&envs.ProfilesURL.URL)
 	profStrg, err := setupProfStorage(apiURL, errColl)
@@ -137,15 +143,21 @@ func setupProfDB(
 		return nil, fmt.Errorf("creating profile storage: %w", err)
 	}
 
-	profDB, err = profiledb.New(profStrg, conf.FullRefreshIvl.Duration, envs.ProfilesCachePath)
+	timeout := conf.Timeout.Duration
+	profDB, err = profiledb.New(&profiledb.Config{
+		Storage:          profStrg,
+		FullSyncIvl:      conf.FullRefreshIvl.Duration,
+		FullSyncRetryIvl: conf.FullRefreshRetryIvl.Duration,
+		InitialTimeout:   timeout,
+		CacheFilePath:    envs.ProfilesCachePath,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("creating default profile database: %w", err)
 	}
 
 	refrIvl := conf.RefreshIvl.Duration
-	timeout := conf.Timeout.Duration
 
-	profDBRefr := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
+	profDBRefr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
 		Context: func() (ctx context.Context, cancel context.CancelFunc) {
 			return context.WithTimeout(context.Background(), timeout)
 		},
@@ -155,8 +167,9 @@ func setupProfDB(
 		Interval:            refrIvl,
 		RefreshOnShutdown:   false,
 		RoutineLogsAreDebug: true,
+		RandomizeStart:      true,
 	})
-	err = profDBRefr.Start()
+	err = profDBRefr.Start(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("starting default profile database refresher: %w", err)
 	}
@@ -168,8 +181,6 @@ func setupProfDB(
 
 // Backend API URL schemes.
 const (
-	schemeHTTP  = "http"
-	schemeHTTPS = "https"
 	schemeGRPC  = "grpc"
 	schemeGRPCS = "grpcs"
 )
@@ -178,42 +189,32 @@ const (
 // provided API URL.
 func setupProfStorage(
 	apiURL *url.URL,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 ) (s profiledb.Storage, err error) {
-	switch apiURL.Scheme {
-	case schemeGRPC, schemeGRPCS:
+	scheme := apiURL.Scheme
+	if scheme == schemeGRPC || scheme == schemeGRPCS {
 		return backendpb.NewProfileStorage(&backendpb.ProfileStorageConfig{
 			Endpoint: apiURL,
 			ErrColl:  errColl,
 		})
-	case schemeHTTP, schemeHTTPS:
-		return backend.NewProfileStorage(&backend.ProfileStorageConfig{
-			BaseEndpoint: apiURL,
-			Now:          time.Now,
-			ErrColl:      errColl,
-		}), nil
-	default:
-		return nil, fmt.Errorf("invalid backend api url: %s", apiURL)
 	}
+
+	return nil, fmt.Errorf("invalid backend api url: %s", apiURL)
 }
 
 // setupBillStatUploader creates and returns a billstat uploader depending on
 // the provided API URL.
 func setupBillStatUploader(
 	apiURL *url.URL,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 ) (s billstat.Uploader, err error) {
-	switch apiURL.Scheme {
-	case schemeGRPC, schemeGRPCS:
+	scheme := apiURL.Scheme
+	if scheme == schemeGRPC || scheme == schemeGRPCS {
 		return backendpb.NewBillStat(&backendpb.BillStatConfig{
 			ErrColl:  errColl,
 			Endpoint: apiURL,
 		})
-	case schemeHTTP, schemeHTTPS:
-		return backend.NewBillStat(&backend.BillStatConfig{
-			BaseEndpoint: apiURL,
-		}), nil
-	default:
-		return nil, fmt.Errorf("invalid backend api url: %s", apiURL)
 	}
+
+	return nil, fmt.Errorf("invalid backend api url: %s", apiURL)
 }

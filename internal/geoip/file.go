@@ -8,7 +8,6 @@ import (
 	"os"
 	"sync"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
@@ -23,10 +22,10 @@ type FileConfig struct {
 	// AllTopASNs contains all subnets from CountryTopASNs.  While scanning the
 	// statistics data file this list is used as a dictionary to check if the
 	// current ASN included in CountryTopASNs.
-	AllTopASNs map[agd.ASN]struct{}
+	AllTopASNs map[ASN]struct{}
 
 	// CountryTopASNs is a mapping of a country to their top ASNs.
-	CountryTopASNs map[agd.Country]agd.ASN
+	CountryTopASNs map[Country]ASN
 
 	// ASNPath is the path to the GeoIP database of ASNs.
 	ASNPath string
@@ -45,8 +44,8 @@ type FileConfig struct {
 
 // File is a file implementation of [geoip.Interface].
 type File struct {
-	allTopASNs     map[agd.ASN]struct{}
-	countryTopASNs map[agd.Country]agd.ASN
+	allTopASNs     map[ASN]struct{}
+	countryTopASNs map[Country]ASN
 
 	// mu protects asn, country, country subnet maps, and caches against
 	// simultaneous access during a refresh.
@@ -59,11 +58,12 @@ type File struct {
 	// removing these.
 	//
 	// See AGDNS-710.
+	// TODO(a.garipov): Switch to locationSubnets instead?
 	ipv4CountrySubnets countrySubnets
 	ipv6CountrySubnets countrySubnets
 
-	ipv4TopASNSubnets asnSubnets
-	ipv6TopASNSubnets asnSubnets
+	ipv4LocationSubnets locationSubnets
+	ipv6LocationSubnets locationSubnets
 
 	ipCache   gcache.Cache
 	hostCache gcache.Cache
@@ -76,10 +76,37 @@ type File struct {
 }
 
 // countrySubnets is a country-to-subnet mapping.
-type countrySubnets map[agd.Country]netip.Prefix
+type countrySubnets map[Country]netip.Prefix
 
-// asnSubnets is an ASN-to-subnet mapping.
-type asnSubnets map[agd.ASN]netip.Prefix
+// locationSubnets is a locationKey-to-subnet mapping.
+type locationSubnets map[locationKey]netip.Prefix
+
+// locationKey represents a key for locationSubnets mapping.
+type locationKey struct {
+	country        Country
+	topSubdivision string
+	asn            ASN
+}
+
+// newLocationKey returns a key for locationKey-to-subnet mapping.  The location
+// with determined subdivision is used only for certain countries with the
+// purpose to limit the total amount of items in the mapping.
+//
+// See AGDNS-1622.
+func newLocationKey(asn ASN, ctry Country, subdiv string) (l locationKey) {
+	switch ctry {
+	case CountryRU, CountryUS, CountryCN, CountryIN:
+		return locationKey{
+			asn:            asn,
+			country:        ctry,
+			topSubdivision: subdiv,
+		}
+	default:
+		return locationKey{
+			asn: asn,
+		}
+	}
+}
 
 // NewFile returns a new GeoIP database that reads information from a file.
 func NewFile(c *FileConfig) (f *File, err error) {
@@ -130,7 +157,8 @@ func ipToCacheKey(ip netip.Addr) (k any) {
 var _ Interface = (*File)(nil)
 
 // SubnetByLocation implements the Interface interface for *File.  fam must be
-// either [netutil.AddrFamilyIPv4] or [netutil.AddrFamilyIPv6].
+// either [netutil.AddrFamilyIPv4] or [netutil.AddrFamilyIPv6].  l must not be
+// nil.
 //
 // The process of the subnet selection is as follows:
 //
@@ -147,40 +175,39 @@ var _ Interface = (*File)(nil)
 //     subnet is returned.  If the information about the most used ASNs is not
 //     available, the first subnet from the country that is broad enough (see
 //     resetCountrySubnets) is chosen.
-func (f *File) SubnetByLocation(
-	c agd.Country,
-	asn agd.ASN,
-	fam netutil.AddrFamily,
-) (n netip.Prefix, err error) {
-	var topASNSubnets asnSubnets
+func (f *File) SubnetByLocation(l *Location, fam netutil.AddrFamily) (n netip.Prefix, err error) {
 	var ctrySubnets countrySubnets
+	var locSubnets locationSubnets
 
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
 	switch fam {
 	case netutil.AddrFamilyIPv4:
-		topASNSubnets = f.ipv4TopASNSubnets
 		ctrySubnets = f.ipv4CountrySubnets
+		locSubnets = f.ipv4LocationSubnets
 	case netutil.AddrFamilyIPv6:
-		topASNSubnets = f.ipv6TopASNSubnets
 		ctrySubnets = f.ipv6CountrySubnets
+		locSubnets = f.ipv6LocationSubnets
 	default:
 		panic(fmt.Errorf("geoip: unsupported addr fam %s", fam))
 	}
 
+	locKey := newLocationKey(l.ASN, l.Country, l.TopSubdivision)
+
 	var ok bool
-	if n, ok = topASNSubnets[asn]; ok {
+	if n, ok = locSubnets[locKey]; ok {
+		// First lookup in location map.
 		return n, nil
-	} else if asn, ok = f.countryTopASNs[c]; ok {
+	} else if l.ASN, ok = f.countryTopASNs[l.Country]; ok {
 		// Technically, if there is an entry in countryTopASNs then that entry
 		// also always exists in topASNSubnets, but let's be defensive about it.
-		if n, ok = topASNSubnets[asn]; ok {
+		if n, ok = locSubnets[newLocationKey(l.ASN, CountryNone, "")]; ok {
 			return n, nil
 		}
 	}
 
-	if n, ok = ctrySubnets[c]; ok {
+	if n, ok = ctrySubnets[l.Country]; ok {
 		return n, nil
 	}
 
@@ -189,7 +216,7 @@ func (f *File) SubnetByLocation(
 
 // Data implements the Interface interface for *File.  If ip is netip.Addr{},
 // Data tries to lookup and return the data based on host, unless it's empty.
-func (f *File) Data(host string, ip netip.Addr) (l *agd.Location, err error) {
+func (f *File) Data(host string, ip netip.Addr) (l *Location, err error) {
 	if ip == (netip.Addr{}) {
 		return f.dataByHost(host), nil
 	} else if ip.Is4In6() {
@@ -204,7 +231,7 @@ func (f *File) Data(host string, ip netip.Addr) (l *agd.Location, err error) {
 	if err == nil {
 		metrics.GeoIPCacheLookupsHits.Inc()
 
-		return locVal.(*agd.Location), nil
+		return locVal.(*Location), nil
 	} else if !errors.Is(err, gcache.KeyNotFoundError) {
 		// Shouldn't happen, since we don't set a serialization function.
 		panic(fmt.Errorf("getting from ip cache: %w", err))
@@ -220,7 +247,7 @@ func (f *File) Data(host string, ip netip.Addr) (l *agd.Location, err error) {
 		return nil, fmt.Errorf("looking up asn: %w", err)
 	}
 
-	l = &agd.Location{
+	l = &Location{
 		ASN: asn,
 	}
 
@@ -236,7 +263,7 @@ func (f *File) Data(host string, ip netip.Addr) (l *agd.Location, err error) {
 }
 
 // dataByHost returns GeoIP data that has been cached previously.
-func (f *File) dataByHost(host string) (l *agd.Location) {
+func (f *File) dataByHost(host string) (l *Location) {
 	locVal, err := f.hostCache.Get(host)
 	if err != nil {
 		if errors.Is(err, gcache.KeyNotFoundError) {
@@ -251,7 +278,7 @@ func (f *File) dataByHost(host string) (l *agd.Location) {
 
 	metrics.GeoIPHostCacheLookupsHits.Inc()
 
-	return locVal.(*agd.Location)
+	return locVal.(*Location)
 }
 
 // asnResult is used to retrieve autonomous system number data from a GeoIP
@@ -262,7 +289,7 @@ type asnResult struct {
 
 // lookupASN looks up and returns the autonomous system number part of the GeoIP
 // data for ip.
-func (f *File) lookupASN(ip netip.Addr) (asn agd.ASN, err error) {
+func (f *File) lookupASN(ip netip.Addr) (asn ASN, err error) {
 	// TODO(a.garipov): Remove AsSlice if oschwald/maxminddb-golang#88 is done.
 	var res asnResult
 	err = f.asn.Lookup(ip.AsSlice(), &res)
@@ -270,7 +297,7 @@ func (f *File) lookupASN(ip netip.Addr) (asn agd.ASN, err error) {
 		return 0, fmt.Errorf("looking up asn: %w", err)
 	}
 
-	return agd.ASN(res.ASN), nil
+	return ASN(res.ASN), nil
 }
 
 // countryResult is used to retrieve the continent and country data from a GeoIP
@@ -289,7 +316,7 @@ type countryResult struct {
 
 // setCtry looks up and sets the country, continent and the subdivision parts
 // of the GeoIP data for ip into loc.  loc must not be nil.
-func (f *File) setCtry(loc *agd.Location, ip netip.Addr) (err error) {
+func (f *File) setCtry(loc *Location, ip netip.Addr) (err error) {
 	// TODO(a.garipov): Remove AsSlice if oschwald/maxminddb-golang#88 is done.
 	var res countryResult
 	err = f.country.Lookup(ip.AsSlice(), &res)
@@ -297,12 +324,12 @@ func (f *File) setCtry(loc *agd.Location, ip netip.Addr) (err error) {
 		return fmt.Errorf("looking up country: %w", err)
 	}
 
-	loc.Country, err = agd.NewCountry(res.Country.ISOCode)
+	loc.Country, err = NewCountry(res.Country.ISOCode)
 	if err != nil {
 		return fmt.Errorf("converting country: %w", err)
 	}
 
-	loc.Continent, err = agd.NewContinent(res.Continent.Code)
+	loc.Continent, err = NewContinent(res.Continent.Code)
 	if err != nil {
 		return fmt.Errorf("converting continent: %w", err)
 	}
@@ -315,7 +342,7 @@ func (f *File) setCtry(loc *agd.Location, ip netip.Addr) (err error) {
 }
 
 // setCaches sets the GeoIP data into the caches.
-func (f *File) setCaches(host string, ipCacheKey any, l *agd.Location) {
+func (f *File) setCaches(host string, ipCacheKey any, l *Location) {
 	err := f.ipCache.Set(ipCacheKey, l)
 	if err != nil {
 		// Shouldn't happen, since we don't set a serialization function.
@@ -333,15 +360,9 @@ func (f *File) setCaches(host string, ipCacheKey any, l *agd.Location) {
 	}
 }
 
-// type check
-var _ agd.Refresher = (*File)(nil)
-
-// Refresh implements the agd.Refresher interface for *File.  It reopens the
-// GeoIP database files.
+// Refresh implements the [agdservice.Refresher] interface for *File.  It
+// reopens the GeoIP database files.
 func (f *File) Refresh(_ context.Context) (err error) {
-	var wg sync.WaitGroup
-	wg.Add(2)
-
 	asn, err := geoIPFromFile(f.asnPath)
 	if err != nil {
 		metrics.GeoIPUpdateStatus.WithLabelValues(f.asnPath).Set(0)
@@ -356,60 +377,18 @@ func (f *File) Refresh(_ context.Context) (err error) {
 		return fmt.Errorf("reading country geoip: %w", err)
 	}
 
-	var asnErr, ctryErr error
-
-	go func() {
-		defer wg.Done()
-
-		var ipv4, ipv6 asnSubnets
-		ipv4, ipv6, asnErr = f.resetTopASNSubnets(asn)
-
-		if asnErr != nil {
-			metrics.GeoIPUpdateStatus.WithLabelValues(f.asnPath).Set(0)
-
-			asnErr = fmt.Errorf("resetting geoip: top asn subnet data: %w", asnErr)
-		}
-
-		f.mu.Lock()
-		defer f.mu.Unlock()
-
-		f.ipv4TopASNSubnets, f.ipv6TopASNSubnets = ipv4, ipv6
-	}()
-
-	go func() {
-		defer wg.Done()
-
-		var ipv4, ipv6 countrySubnets
-		ipv4, ipv6, ctryErr = resetCountrySubnets(country)
-
-		if ctryErr != nil {
-			metrics.GeoIPUpdateStatus.WithLabelValues(f.countryPath).Set(0)
-
-			ctryErr = fmt.Errorf("resetting geoip: country subnet data: %w", ctryErr)
-		}
-
-		f.mu.Lock()
-		defer f.mu.Unlock()
-
-		f.ipv4CountrySubnets, f.ipv6CountrySubnets = ipv4, ipv6
-	}()
-
-	wg.Wait()
-
-	if asnErr != nil {
-		return asnErr
+	err = f.resetSubnetMappings(asn, country)
+	if err != nil {
+		return fmt.Errorf("resetting geoip: %w", err)
 	}
-	if ctryErr != nil {
-		return ctryErr
-	}
-
-	f.mu.Lock()
-	defer f.mu.Unlock()
 
 	metrics.GeoIPUpdateTime.WithLabelValues(f.asnPath).SetToCurrentTime()
 	metrics.GeoIPUpdateStatus.WithLabelValues(f.asnPath).Set(1)
 	metrics.GeoIPUpdateTime.WithLabelValues(f.countryPath).SetToCurrentTime()
 	metrics.GeoIPUpdateStatus.WithLabelValues(f.countryPath).Set(1)
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
 
 	f.asn, f.country = asn, country
 
@@ -422,6 +401,54 @@ func (f *File) Refresh(_ context.Context) (err error) {
 	f.ipCache = gcache.New(f.ipCacheSize).LRU().Build()
 
 	return nil
+}
+
+// resetSubnetMappings refreshes mapping from GeoIP data.
+func (f *File) resetSubnetMappings(asn, country *maxminddb.Reader) (err error) {
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	var locErr, ctryErr error
+
+	go func() {
+		defer wg.Done()
+
+		var ipv4, ipv6 locationSubnets
+		ipv4, ipv6, locErr = f.resetLocationSubnets(asn, country)
+
+		if locErr != nil {
+			metrics.GeoIPUpdateStatus.WithLabelValues(f.countryPath).Set(0)
+
+			locErr = fmt.Errorf("location subnet data: %w", locErr)
+		}
+
+		f.mu.Lock()
+		defer f.mu.Unlock()
+
+		f.ipv4LocationSubnets, f.ipv6LocationSubnets = ipv4, ipv6
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		var ipv4, ipv6 countrySubnets
+		ipv4, ipv6, ctryErr = resetCountrySubnets(country)
+
+		if ctryErr != nil {
+			metrics.GeoIPUpdateStatus.WithLabelValues(f.countryPath).Set(0)
+
+			ctryErr = fmt.Errorf("country subnet data: %w", ctryErr)
+		}
+
+		f.mu.Lock()
+		defer f.mu.Unlock()
+
+		f.ipv4CountrySubnets, f.ipv6CountrySubnets = ipv4, ipv6
+	}()
+
+	wg.Wait()
+
+	return errors.Annotate(errors.Join(ctryErr, locErr), "refreshing: %w")
 }
 
 // geoIPFromFile reads the entire content of the file at fn and returns an

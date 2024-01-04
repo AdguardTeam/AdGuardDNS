@@ -54,11 +54,9 @@ func newDefaultProfileDB(tb testing.TB, devices <-chan []*agd.Device) (db *profi
 
 		return &profiledb.StorageResponse{
 			Profiles: []*agd.Profile{{
-				BlockingMode: dnsmsg.BlockingModeCodec{
-					Mode: &dnsmsg.BlockingModeNullIP{},
-				},
-				ID:        profiledbtest.ProfileID,
-				DeviceIDs: devIDs,
+				BlockingMode: &dnsmsg.BlockingModeNullIP{},
+				ID:           profiledbtest.ProfileID,
+				DeviceIDs:    devIDs,
 			}},
 			Devices: devices,
 		}, nil
@@ -68,7 +66,13 @@ func newDefaultProfileDB(tb testing.TB, devices <-chan []*agd.Device) (db *profi
 		OnProfiles: onProfiles,
 	}
 
-	db, err := profiledb.New(ps, 1*time.Minute, "none")
+	db, err := profiledb.New(&profiledb.Config{
+		Storage:          ps,
+		FullSyncIvl:      1 * time.Minute,
+		FullSyncRetryIvl: 1 * time.Minute,
+		InitialTimeout:   testTimeout,
+		CacheFilePath:    "none",
+	})
 	require.NoError(tb, err)
 
 	return db
@@ -303,7 +307,13 @@ func TestDefaultProfileDB_fileCache_success(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	db, err := profiledb.New(ps, 1*time.Minute, cacheFilePath)
+	db, err := profiledb.New(&profiledb.Config{
+		Storage:          ps,
+		FullSyncIvl:      1 * time.Minute,
+		FullSyncRetryIvl: 1 * time.Minute,
+		InitialTimeout:   testTimeout,
+		CacheFilePath:    cacheFilePath,
+	})
 	require.NoError(t, err)
 	require.NotNil(t, db)
 
@@ -335,7 +345,13 @@ func TestDefaultProfileDB_fileCache_badVersion(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	db, err := profiledb.New(ps, 1*time.Minute, cacheFilePath)
+	db, err := profiledb.New(&profiledb.Config{
+		Storage:          ps,
+		FullSyncIvl:      1 * time.Minute,
+		FullSyncRetryIvl: 1 * time.Minute,
+		InitialTimeout:   testTimeout,
+		CacheFilePath:    cacheFilePath,
+	})
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
 	assert.True(t, storageCalled)

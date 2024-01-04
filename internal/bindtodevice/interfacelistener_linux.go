@@ -8,24 +8,24 @@ import (
 	"net"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdsync"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/syncutil"
 )
 
 // interfaceListener contains information about a single interface listener.
 type interfaceListener struct {
 	conns         *connIndex
 	listenConf    *net.ListenConfig
-	bodyPool      *agdsync.TypedPool[[]byte]
-	oobPool       *agdsync.TypedPool[[]byte]
+	bodyPool      *syncutil.Pool[[]byte]
+	oobPool       *syncutil.Pool[[]byte]
 	writeRequests chan *packetConnWriteReq
 	done          chan unit
-	errColl       agd.ErrorCollector
+	errColl       errcoll.Interface
 	ifaceName     string
 	port          uint16
 }
@@ -37,7 +37,7 @@ func (l *interfaceListener) listenTCP(errCh chan<- error) {
 	defer log.OnPanic("interfaceListener.listenTCP")
 
 	ctx := context.Background()
-	addrStr := netutil.JoinHostPort("0.0.0.0", int(l.port))
+	addrStr := netutil.JoinHostPort("0.0.0.0", l.port)
 	tcpListener, err := l.listenConf.Listen(ctx, "tcp", addrStr)
 
 	errCh <- err
@@ -62,7 +62,7 @@ func (l *interfaceListener) listenTCP(errCh chan<- error) {
 		var conn net.Conn
 		conn, err = tcpListener.Accept()
 		if err != nil {
-			agd.Collectf(ctx, l.errColl, "%s: accepting: %w", logPrefix, err)
+			errcoll.Collectf(ctx, l.errColl, "%s: accepting: %w", logPrefix, err)
 
 			continue
 		}
@@ -78,7 +78,7 @@ func (l *interfaceListener) processConn(conn net.Conn, logPrefix string) {
 	raddr := conn.RemoteAddr()
 	if lsnr := l.conns.listener(laddr.Addr()); lsnr != nil {
 		if !lsnr.send(conn) {
-			log.Info("%s: from raddr %s: channel for laddr %s is closed", logPrefix, raddr, laddr)
+			optlog.Debug3("%s: from raddr %s: channel for laddr %s is closed", logPrefix, raddr, laddr)
 		}
 
 		return
@@ -90,7 +90,7 @@ func (l *interfaceListener) processConn(conn net.Conn, logPrefix string) {
 
 	err := conn.Close()
 	if err != nil {
-		log.Debug("%s: from raddr %s: closing: %s", logPrefix, raddr, err)
+		optlog.Debug3("%s: from raddr %s: closing: %s", logPrefix, raddr, err)
 	}
 }
 
@@ -101,7 +101,7 @@ func (l *interfaceListener) listenUDP(errCh chan<- error) {
 	defer log.OnPanic("interfaceListener.listenUDP")
 
 	ctx := context.Background()
-	addrStr := netutil.JoinHostPort("0.0.0.0", int(l.port))
+	addrStr := netutil.JoinHostPort("0.0.0.0", l.port)
 	packetConn, err := l.listenConf.ListenPacket(ctx, "udp", addrStr)
 	if err != nil {
 		errCh <- err
@@ -131,7 +131,7 @@ func (l *interfaceListener) listenUDP(errCh chan<- error) {
 
 		err = l.readUDP(udpConn, logPrefix)
 		if err != nil {
-			agd.Collectf(ctx, l.errColl, "%s: reading session: %w", logPrefix, err)
+			errcoll.Collectf(ctx, l.errColl, "%s: reading session: %w", logPrefix, err)
 		}
 	}
 }
@@ -179,7 +179,7 @@ func (l *interfaceListener) readUDP(c *net.UDPConn, logPrefix string) (err error
 	}
 
 	if !chanPacketConn.send(sess) {
-		log.Info("%s: channel for laddr %s is closed", logPrefix, laddr)
+		optlog.Debug2("%s: channel for laddr %s is closed", logPrefix, laddr)
 	}
 
 	return nil
@@ -194,7 +194,7 @@ func (l *interfaceListener) writeUDP(c *net.UDPConn) {
 		var req *packetConnWriteReq
 		select {
 		case <-l.done:
-			log.Info("%s: done", logPrefix)
+			optlog.Debug1("%s: done", logPrefix)
 
 			return
 		case req = <-l.writeRequests:

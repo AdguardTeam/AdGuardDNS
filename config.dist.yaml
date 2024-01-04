@@ -24,15 +24,13 @@ ratelimit:
         subnet_key_len: 48
     # The time during which to count the number of times a client has hit the
     # rate limit for a back off.
-    #
-    # TODO(a.garipov): Rename to "backoff_period" along with others.
-    back_off_period: 10m
+    backoff_period: 10m
     # How many times a client hits the rate limit before being held in the back
     # off.
-    back_off_count: 1000
+    backoff_count: 1000
     # How much a client that has hit the rate limit too often stays in the back
     # off.
-    back_off_duration: 30m
+    backoff_duration: 30m
 
     # Configuration for the allowlist.
     allowlist:
@@ -51,6 +49,19 @@ ratelimit:
         # wait for the number to decrease below resume.
         stop: 1000
         resume: 800
+
+    # Configuration of QUIC streams limiting.
+    quic:
+        enabled: true
+        # The maximum number of concurrent streams that a peer is allowed to
+        # open.
+        max_streams_per_peer: 100
+
+    # Configuration of TCP pipeline limiting.
+    tcp:
+        enabled: true
+        # The maximum number of processing TCP messages per one connection.
+        max_pipeline_count: 100
 
 # Access settings.
 access:
@@ -78,17 +89,42 @@ cache:
 
 # DNS upstream configuration.
 upstream:
-    server: '8.8.8.8:53'
-    timeout: 2s
+    servers:
+      - address: 'tcp://1.1.1.1:53'
+        timeout: 2s
+      - address: '8.8.4.4:53'
+        timeout: 2s
     fallback:
-      - 1.1.1.1:53
-      - 8.8.8.8:53
+        servers:
+          - address: '1.1.1.1:53'
+            timeout: 1s
+          - address: '8.8.8.8:53'
+            timeout: 1s
     healthcheck:
         enabled: true
         interval: 2s
         timeout: 1s
         backoff_duration: 30s
         domain_template: '${RANDOM}.neverssl.com'
+
+# Common DNS settings.
+#
+# TODO(a.garipov): Consider making these settings per-server-group.
+dns:
+    # The timeout for any read from a UDP connection or the first read from
+    # a TCP/TLS connection.  It currently doesn't affect DNSCrypt, QUIC, or
+    # HTTPS.
+    read_timeout: 2s
+    # The timeout for consecutive reads from a TCP/TLS connection.  It currently
+    # doesn't affect DNSCrypt, QUIC, or HTTPS.
+    tcp_idle_timeout: 30s
+    # The timeout for writing to a UDP or TCP/TLS connection.  It currently
+    # doesn't affect DNSCrypt, QUIC, or HTTPS.
+    write_timeout: 2s
+    # The timeout for the entire handling of a single query.
+    handle_timeout: 1s
+    # UDP response size limit.
+    max_udp_response_size: 1024B
 
 # DNSDB configuration.
 dnsdb:
@@ -106,6 +142,9 @@ backend:
     refresh_interval: 15s
     # How often AdGuard DNS performs full synchronization.
     full_refresh_interval: 24h
+    # How long to wait before attempting a new full synchronization after a
+    # failure.
+    full_refresh_retry_interval: 1h
     # How often AdGuard DNS sends the billing statistics to the backend.
     bill_stat_interval: 15s
 

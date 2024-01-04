@@ -34,6 +34,6 @@ func BenchmarkMiddleware_Get(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		msgSink, _, _ = mw.get(req, cr)
+		msgSink, _ = mw.get(req, cr)
 	}
 }

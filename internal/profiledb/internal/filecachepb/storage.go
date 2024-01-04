@@ -75,11 +75,6 @@ func (s *Storage) Store(c *internal.FileCache) (err error) {
 		return fmt.Errorf("encoding protobuf: %w", err)
 	}
 
-	err = renameio.WriteFile(s.path, b, 0o600)
-	if err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		return err
-	}
-
-	return nil
+	// Don't wrap the error, because it's informative enough as is.
+	return renameio.WriteFile(s.path, b, 0o600)
 }

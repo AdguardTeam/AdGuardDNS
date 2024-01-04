@@ -6,11 +6,16 @@ The easiest way to use it is to create a new handler using NewHandler and then
 use it in your DNS server:
 
 	conf.Handler = forward.NewHandler(&forward.HandlerConfig{
-		Address:           netip.MustParseAddrPort("8.8.8.8:53"),
-		FallbackAddresses: []netip.AddrPort{
-			netip.MustParseAddrPort("1.1.1.1:53"),
-		},
-		Timeout: 5 * time.Second,
+		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
+			Network: forward.NetworkAny,
+			Address: netip.MustParseAddrPort("94.140.14.140:53"),
+			Timeout: 5 * time.Second,
+		}},
+		FallbackAddresses: []*forward.UpstreamPlainConfig{{
+			Network: forward.NetworkAny,
+			Address: netip.MustParseAddrPort("1.1.1.1:53"),
+			Timeout: 5 * time.Second,
+		}},
 	})
 	srv := dnsserver.NewServerDNS(conf)
 	err := srv.Start(context.Background())
@@ -24,8 +29,7 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/netip"
-	"sync/atomic"
+	"sync"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
@@ -41,36 +45,42 @@ type Handler struct {
 	// metrics is a listener for the handler events.
 	metrics MetricsListener
 
-	// upstream is the main upstream where this handler forwards DNS queries.
-	upstream Upstream
-
 	// rand is a random-number generator that is not cryptographically secure
 	// and is used for randomized upstream selection and other non-sensitive
 	// tasks.
 	rand *rand.Rand
 
+	// activeUpstreamsMu protects activeUpstreams.
+	activeUpstreamsMu *sync.RWMutex
+
 	// hcDomainTmpl is the template for domains used to perform healthcheck
 	// requests.
 	hcDomainTmpl string
 
+	// upstreams is a list of all upstreams where this handler can forward DNS
+	// queries with its last failed healthcheck timestamps.
+	upstreams []*upstreamStatus
+
+	// activeUpstreams is a list of active upstreams where this handler forwards
+	// DNS queries.  This slice is updated by healthcheck mechanics.
+	activeUpstreams []Upstream
+
 	// fallbacks is a list of fallback DNS servers.
 	fallbacks []Upstream
-
-	// lastFailedHealthcheck contains the Unix time of the last time of failed
-	// healthcheck.
-	lastFailedHealthcheck atomic.Int64
-
-	// timeout specifies the query timeout for upstreams and fallbacks.
-	timeout time.Duration
 
 	// hcBackoffTime specifies the delay before returning to the main upstream
 	// after failed healthcheck probe.
 	hcBackoff time.Duration
+}
 
-	// useFallbacks is true if the main upstream server failed health check
-	// probes and therefore the fallback upstream servers should be used for
-	// resolving.
-	useFallbacks atomic.Bool
+// upstreamStatus contains upstream with its last failed healthcheck time.
+type upstreamStatus struct {
+	// upstream is an upstream where the handler can forward DNS queries.
+	upstream Upstream
+
+	// lastFailedHealthcheck contains the time of the last failed healthcheck
+	// or zero if the last healthcheck succeeded.
+	lastFailedHealthcheck time.Time
 }
 
 // ErrNoResponse is returned from Handler's methods when the desired response
@@ -80,13 +90,6 @@ const ErrNoResponse = errors.Error("no response")
 
 // HandlerConfig is the configuration structure for [NewHandler].
 type HandlerConfig struct {
-	// Address is the address of the main upstream to which the handler forwards
-	// all DNS queries.
-	Address netip.AddrPort
-
-	// Network is the network protocol for the main upstream address.
-	Network Network
-
 	// MetricsListener is the optional listener for the handler events.  Set it
 	// if you want to keep track of what the handler does and record performance
 	// metrics.  If not set, EmptyMetricsListener is used.
@@ -99,14 +102,15 @@ type HandlerConfig struct {
 	// return a NOERROR response.
 	HealthcheckDomainTmpl string
 
-	// FallbackAddresses are the optional fallback DNS servers. A fallback
-	// server is used either the main upstream returns an error or when the main
-	// upstream returns a SERVFAIL response.
-	FallbackAddresses []netip.AddrPort
+	// UpstreamsAddresses is a list of upstream configurations of the main
+	// upstreams where the handler forwards all DNS queries.  Items must no be
+	// nil.
+	UpstreamsAddresses []*UpstreamPlainConfig
 
-	// Timeout is the optional query timeout for upstreams and fallbacks.  If
-	// not set, there is no timeout.
-	Timeout time.Duration
+	// FallbackAddresses are the optional fallback upstream configurations.  A
+	// fallback server is used either the main upstream returns an error or when
+	// the main upstream returns a SERVFAIL response.
+	FallbackAddresses []*UpstreamPlainConfig
 
 	// HealthcheckBackoffDuration is the healthcheck query backoff duration.  If
 	// the main upstream is down, queries will not be routed back to the main
@@ -124,14 +128,10 @@ type HandlerConfig struct {
 // handler only support plain DNS upstreams.  c must not be nil.
 func NewHandler(c *HandlerConfig) (h *Handler) {
 	h = &Handler{
-		upstream: NewUpstreamPlain(&UpstreamPlainConfig{
-			Network: c.Network,
-			Address: c.Address,
-		}),
-		rand:         rand.New(&rand.LockedSource{}),
-		hcDomainTmpl: c.HealthcheckDomainTmpl,
-		timeout:      c.Timeout,
-		hcBackoff:    c.HealthcheckBackoffDuration,
+		rand:              rand.New(&rand.LockedSource{}),
+		activeUpstreamsMu: &sync.RWMutex{},
+		hcDomainTmpl:      c.HealthcheckDomainTmpl,
+		hcBackoff:         c.HealthcheckBackoffDuration,
 	}
 
 	h.rand.Seed(uint64(time.Now().UnixNano()))
@@ -142,12 +142,20 @@ func NewHandler(c *HandlerConfig) (h *Handler) {
 		h.metrics = &EmptyMetricsListener{}
 	}
 
-	h.fallbacks = make([]Upstream, len(c.FallbackAddresses))
-	for i, addr := range c.FallbackAddresses {
-		h.fallbacks[i] = NewUpstreamPlain(&UpstreamPlainConfig{
-			Network: NetworkAny,
-			Address: addr,
+	h.upstreams = make([]*upstreamStatus, 0, len(c.UpstreamsAddresses))
+	h.activeUpstreams = make([]Upstream, 0, len(c.UpstreamsAddresses))
+	for _, upsConf := range c.UpstreamsAddresses {
+		u := NewUpstreamPlain(upsConf)
+		h.activeUpstreams = append(h.activeUpstreams, u)
+		h.upstreams = append(h.upstreams, &upstreamStatus{
+			upstream:              u,
+			lastFailedHealthcheck: time.Time{},
 		})
+	}
+
+	h.fallbacks = make([]Upstream, 0, len(c.FallbackAddresses))
+	for _, upsConf := range c.FallbackAddresses {
+		h.fallbacks = append(h.fallbacks, NewUpstreamPlain(upsConf))
 	}
 
 	if c.HealthcheckInitDuration > 0 {
@@ -167,10 +175,14 @@ var _ io.Closer = &Handler{}
 
 // Close implements the [io.Closer] interface for *Handler.
 func (h *Handler) Close() (err error) {
-	errs := make([]error, len(h.fallbacks)+1)
-	errs[0] = h.upstream.Close()
-	for i, f := range h.fallbacks {
-		errs[i+1] = f.Close()
+	errs := make([]error, 0, len(h.upstreams)+len(h.fallbacks))
+
+	for _, u := range h.upstreams {
+		errs = append(errs, u.upstream.Close())
+	}
+
+	for _, f := range h.fallbacks {
+		errs = append(errs, f.Close())
 	}
 
 	err = errors.Join(errs...)
@@ -184,18 +196,21 @@ func (h *Handler) Close() (err error) {
 // type check
 var _ dnsserver.Handler = &Handler{}
 
-// ServeDNS implements the dnsserver.Handler interface for *Handler.
+// ServeDNS implements the [dnsserver.Handler] interface for *Handler.
 func (h *Handler) ServeDNS(
 	ctx context.Context,
 	rw dnsserver.ResponseWriter,
 	req *dns.Msg,
 ) (err error) {
-	defer func() { err = annotate(err, h.upstream) }()
+	var ups, fallbackUps Upstream
+	defer func() { err = annotate(err, ups, fallbackUps) }()
 
-	useFallbacks := h.useFallbacks.Load()
+	ups = h.pickActiveUpstream()
+	useFallbacks := ups == nil
+
 	var resp *dns.Msg
 	if !useFallbacks {
-		resp, err = h.exchange(ctx, h.upstream, req)
+		resp, err = h.exchange(ctx, ups, req)
 
 		var netErr net.Error
 		// Network error means that something is wrong with the upstream, we
@@ -205,8 +220,8 @@ func (h *Handler) ServeDNS(
 
 	if useFallbacks && len(h.fallbacks) > 0 {
 		i := h.rand.Intn(len(h.fallbacks))
-		f := h.fallbacks[i]
-		resp, err = h.exchange(ctx, f, req)
+		fallbackUps = h.fallbacks[i]
+		resp, err = h.exchange(ctx, fallbackUps, req)
 	}
 
 	if err != nil {
@@ -232,22 +247,39 @@ func (h *Handler) exchange(
 	req *dns.Msg,
 ) (resp *dns.Msg, err error) {
 	startTime := time.Now()
+	nw := NetworkAny
 	defer func() {
-		h.metrics.OnForwardRequest(ctx, u, req, resp, startTime, err)
+		h.metrics.OnForwardRequest(ctx, u, req, resp, nw, startTime, err)
 	}()
 
-	if h.timeout > 0 {
-		var cancel func()
-		ctx, cancel = context.WithTimeout(ctx, h.timeout)
-		defer cancel()
-	}
+	resp, nw, err = u.Exchange(ctx, req)
 
-	return u.Exchange(ctx, req)
+	return resp, err
 }
 
-// Refresh makes sure that the main upstream is accessible.  In case the
-// upstream is down, requests are redirected to fallbacks.  When the upstream is
-// detected to be up again, requests are redirected back to it.
+// Refresh implements the [agdservice.Refresher] interface for *Handler.
+//
+// It checks the accessibility of main upstreams and updates handler's list of
+// active upstreams.  In case all main upstreams are down, it returns an error
+// and when all requests are redirected to the fallbacks.  When any of the main
+// upstreams is detected to be up again, requests are redirected back to the
+// main upstreams.
 func (h *Handler) Refresh(ctx context.Context) (err error) {
 	return h.refresh(ctx, false)
+}
+
+// pickActiveUpstream returns an active upstream randomly picked from the slice
+// of active main upstream servers.  Returns nil when active upstreams list is
+// empty and fallbacks should be used.
+func (h *Handler) pickActiveUpstream() (u Upstream) {
+	h.activeUpstreamsMu.RLock()
+	defer h.activeUpstreamsMu.RUnlock()
+
+	if len(h.activeUpstreams) == 0 {
+		return nil
+	}
+
+	i := h.rand.Intn(len(h.activeUpstreams))
+
+	return h.activeUpstreams[i]
 }

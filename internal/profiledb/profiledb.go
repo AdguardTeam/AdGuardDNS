@@ -6,17 +6,17 @@ import (
 	"fmt"
 	"net/netip"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecachepb"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
-	"golang.org/x/exp/maps"
-	"golang.org/x/exp/slices"
 )
 
 // Interface is the local database of user profiles and devices.
@@ -39,6 +39,27 @@ type Interface interface {
 	ProfileByLinkedIP(ctx context.Context, ip netip.Addr) (p *agd.Profile, d *agd.Device, err error)
 }
 
+// Config represents the profile database configuration.
+type Config struct {
+	// Storage returns the data for this profile DB.
+	Storage Storage
+
+	// CacheFilePath is the path to the profile cache file.  If cacheFilePath is
+	// the string "none", filesystem cache is disabled.
+	CacheFilePath string
+
+	// FullSyncIvl is the interval between two full synchronizations with the
+	// storage.
+	FullSyncIvl time.Duration
+
+	// FullSyncRetryIvl is the interval between two retries of full
+	// synchronizations with the storage.
+	FullSyncRetryIvl time.Duration
+
+	// InitialTimeout is the timeout for initial refresh.
+	InitialTimeout time.Duration
+}
+
 // Default is the default in-memory implementation of the [Interface] interface
 // that can refresh itself from the provided storage.
 type Default struct {
@@ -46,8 +67,8 @@ type Default struct {
 	// linkedIPToDeviceID, and dedicatedIPToDeviceID maps.
 	mapsMu *sync.RWMutex
 
-	// refreshMu protects syncTime and lastFullSync.  These are only used within
-	// Refresh, so this is also basically a refresh serializer.
+	// refreshMu serializes Refresh calls and access to all values used inside
+	// of it.
 	refreshMu *sync.Mutex
 
 	// cache is the filesystem-cache storage used by this profile database.
@@ -77,45 +98,52 @@ type Default struct {
 	// requests to the storage, unless it's a full synchronization.
 	syncTime time.Time
 
-	// lastFullSync is the time of the last full synchronization.
+	// lastFullSync is the time of the last successful full synchronization.
 	lastFullSync time.Time
+
+	// lastFullSyncError is the time of the last unsuccessful attempt at a full
+	// synchronization.  If the last full synchronization was successful, this
+	// field is time.Time{}.
+	lastFullSyncError time.Time
 
 	// fullSyncIvl is the interval between two full synchronizations with the
 	// storage.
 	fullSyncIvl time.Duration
+
+	// fullSyncRetryIvl is the interval between two retries of full
+	// synchronizations with the storage.
+	fullSyncRetryIvl time.Duration
 }
 
 // New returns a new default in-memory profile database with a filesystem cache.
-// The initial refresh is performed immediately with the constant timeout of 1
-// minute, beyond which an empty profiledb is returned.  If cacheFilePath is the
-// string "none", filesystem cache is disabled.  db is never nil.
-func New(
-	s Storage,
-	fullSyncIvl time.Duration,
-	cacheFilePath string,
-) (db *Default, err error) {
+// The initial refresh is performed immediately with the given timeout, beyond
+// which an empty profiledb is returned.  If cacheFilePath is the string "none",
+// filesystem cache is disabled.  db is never nil.
+func New(conf *Config) (db *Default, err error) {
 	var cacheStorage internal.FileCacheStorage
-	if cacheFilePath == "none" {
+	if conf.CacheFilePath == "none" {
 		cacheStorage = internal.EmptyFileCacheStorage{}
-	} else if ext := filepath.Ext(cacheFilePath); ext == ".pb" {
-		cacheStorage = filecachepb.New(cacheFilePath)
+	} else if ext := filepath.Ext(conf.CacheFilePath); ext == ".pb" {
+		cacheStorage = filecachepb.New(conf.CacheFilePath)
 	} else {
-		return nil, fmt.Errorf("file %q is not protobuf", cacheFilePath)
+		return nil, fmt.Errorf("file %q is not protobuf", conf.CacheFilePath)
 	}
 
 	db = &Default{
 		mapsMu:                &sync.RWMutex{},
 		refreshMu:             &sync.Mutex{},
 		cache:                 cacheStorage,
-		storage:               s,
+		storage:               conf.Storage,
 		syncTime:              time.Time{},
 		lastFullSync:          time.Time{},
+		lastFullSyncError:     time.Time{},
 		profiles:              make(map[agd.ProfileID]*agd.Profile),
 		devices:               make(map[agd.DeviceID]*agd.Device),
 		deviceIDToProfileID:   make(map[agd.DeviceID]agd.ProfileID),
 		linkedIPToDeviceID:    make(map[netip.Addr]agd.DeviceID),
 		dedicatedIPToDeviceID: make(map[netip.Addr]agd.DeviceID),
-		fullSyncIvl:           fullSyncIvl,
+		fullSyncIvl:           conf.FullSyncIvl,
+		fullSyncRetryIvl:      conf.FullSyncRetryIvl,
 	}
 
 	err = db.loadFileCache()
@@ -123,11 +151,7 @@ func New(
 		log.Error("profiledb: fs cache: loading: %s", err)
 	}
 
-	// initialTimeout defines the maximum duration of the first attempt to load
-	// the profiledb.
-	const initialTimeout = 1 * time.Minute
-
-	ctx, cancel := context.WithTimeout(context.Background(), initialTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), conf.InitialTimeout)
 	defer cancel()
 
 	log.Info("profiledb: initial refresh")
@@ -149,14 +173,16 @@ func New(
 }
 
 // type check
-var _ agd.Refresher = (*Default)(nil)
+var _ agdservice.Refresher = (*Default)(nil)
 
-// Refresh implements the [Refresher] interface for *Default.  It updates the
-// internal maps and the synchronization time using the data it receives from
-// the storage.
+// Refresh implements the [agdservice.Refresher] interface for *Default.  It
+// updates the internal maps and the synchronization time using the data it
+// receives from the storage.
+//
+// TODO(a.garipov): Consider splitting the full refresh logic into a separate
+// method.
 func (db *Default) Refresh(ctx context.Context) (err error) {
-	sinceLastFullSync := time.Since(db.lastFullSync)
-	isFullSync := sinceLastFullSync >= db.fullSyncIvl
+	sinceLastAttempt, isFullSync := db.needsFullSync()
 
 	var totalProfiles, totalDevices int
 	startTime := time.Now()
@@ -181,18 +207,10 @@ func (db *Default) Refresh(ctx context.Context) (err error) {
 	db.refreshMu.Lock()
 	defer db.refreshMu.Unlock()
 
-	syncTime := db.syncTime
-	if isFullSync {
-		log.Info("profiledb: full sync, %s since %s", sinceLastFullSync, db.lastFullSync)
-
-		syncTime = time.Time{}
-	}
-
-	resp, err := db.storage.Profiles(ctx, &StorageRequest{
-		SyncTime: syncTime,
-	})
+	resp, err := db.fetchProfiles(ctx, sinceLastAttempt, isFullSync)
 	if err != nil {
-		return fmt.Errorf("updating profiles: %w", err)
+		// Don't wrap the error, because it's informative enough as is.
+		return err
 	}
 
 	profiles := resp.Profiles
@@ -209,6 +227,7 @@ func (db *Default) Refresh(ctx context.Context) (err error) {
 	db.syncTime = resp.SyncTime
 	if isFullSync {
 		db.lastFullSync = time.Now()
+		db.lastFullSyncError = time.Time{}
 
 		err = db.cache.Store(&internal.FileCache{
 			SyncTime: resp.SyncTime,
@@ -225,6 +244,61 @@ func (db *Default) Refresh(ctx context.Context) (err error) {
 	totalDevices = len(db.devices)
 
 	return nil
+}
+
+// fetchProfiles fetches the profiles and devices from the storage.  It returns
+// the response and the error, if any.  If isFullSync is true, the last full
+// synchronization error time is updated on error.  It must only be called under
+// the refreshMu lock.
+func (db *Default) fetchProfiles(
+	ctx context.Context,
+	sinceLastAttempt time.Duration,
+	isFullSync bool,
+) (sr *StorageResponse, err error) {
+	syncTime := db.syncTime
+	if isFullSync {
+		log.Info("profiledb: full sync, %s since last attempt", sinceLastAttempt)
+
+		syncTime = time.Time{}
+	}
+
+	sr, err = db.storage.Profiles(ctx, &StorageRequest{
+		SyncTime: syncTime,
+	})
+	if err == nil {
+		return sr, nil
+	}
+
+	if isFullSync {
+		db.lastFullSyncError = time.Now()
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		metrics.IncrementCond(
+			isFullSync,
+			metrics.ProfilesSyncFullTimeouts,
+			metrics.ProfilesSyncPartTimeouts,
+		)
+	}
+
+	return nil, fmt.Errorf("updating profiles: %w", err)
+}
+
+// needsFullSync determines if a full synchronization is necessary.  If the last
+// full synchronization was successful, it returns true if it's time for a new
+// one.  Otherwise, it returns true if it's time for a retry.
+func (db *Default) needsFullSync() (sinceFull time.Duration, isFull bool) {
+	lastFull := db.lastFullSync
+	sinceFull = time.Since(lastFull)
+	if db.lastFullSyncError.IsZero() {
+		return sinceFull, sinceFull >= db.fullSyncIvl
+	}
+
+	log.Info("profiledb: warning: %s since last successful full sync at %s", sinceFull, lastFull)
+
+	sinceLastError := time.Since(db.lastFullSyncError)
+
+	return sinceLastError, sinceLastError >= db.fullSyncRetryIvl
 }
 
 // loadFileCache loads the profiles data from the filesystem cache.
@@ -278,11 +352,11 @@ func (db *Default) setProfiles(profiles []*agd.Profile, devices []*agd.Device, i
 	defer db.mapsMu.Unlock()
 
 	if isFullSync {
-		maps.Clear(db.profiles)
-		maps.Clear(db.devices)
-		maps.Clear(db.deviceIDToProfileID)
-		maps.Clear(db.linkedIPToDeviceID)
-		maps.Clear(db.dedicatedIPToDeviceID)
+		clear(db.profiles)
+		clear(db.devices)
+		clear(db.deviceIDToProfileID)
+		clear(db.linkedIPToDeviceID)
+		clear(db.dedicatedIPToDeviceID)
 	}
 
 	for _, p := range profiles {

@@ -9,7 +9,9 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/resultcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
@@ -22,6 +24,9 @@ import (
 
 // FilterConfig is the hash-prefix filter configuration structure.
 type FilterConfig struct {
+	// Cloner is used to clone messages taken from filtering-result cache.
+	Cloner *dnsmsg.Cloner
+
 	// Hashes are the hostname hashes for this filter.
 	Hashes *Storage
 
@@ -29,7 +34,7 @@ type FilterConfig struct {
 	URL *url.URL
 
 	// ErrColl is used to collect non-critical and rare errors.
-	ErrColl agd.ErrorCollector
+	ErrColl errcoll.Interface
 
 	// Resolver is used to resolve hosts for the hash-prefix filter.
 	Resolver agdnet.Resolver
@@ -59,17 +64,18 @@ type FilterConfig struct {
 	CacheSize int
 
 	// MaxSize is the maximum size in bytes of the downloadable rule-list.
-	MaxSize int64
+	MaxSize uint64
 }
 
 // Filter is a filter that matches hosts by their hashes based on a
 // hash-prefix table.
 type Filter struct {
+	cloner   *dnsmsg.Cloner
 	hashes   *Storage
 	refr     *internal.Refreshable
 	resCache *resultcache.Cache[*internal.ResultModified]
 	resolver agdnet.Resolver
-	errColl  agd.ErrorCollector
+	errColl  errcoll.Interface
 	id       agd.FilterListID
 	repHost  string
 }
@@ -78,6 +84,7 @@ type Filter struct {
 func NewFilter(c *FilterConfig) (f *Filter, err error) {
 	id := c.ID
 	f = &Filter{
+		cloner:   c.Cloner,
 		hashes:   c.Hashes,
 		resCache: resultcache.New[*internal.ResultModified](c.CacheSize),
 		resolver: c.Resolver,
@@ -126,7 +133,7 @@ func (f *Filter) FilterRequest(
 			return nil, nil
 		}
 
-		return rm.CloneForReq(req), nil
+		return rm.CloneForReq(f.cloner, req), nil
 	}
 
 	fam, ok := isFilterable(qt)
@@ -169,7 +176,7 @@ func (f *Filter) FilterRequest(
 	// down the pipeline don't interfere with the cached value.
 	//
 	// See AGDNS-359.
-	f.resCache.Set(cacheKey, rm.Clone())
+	f.resCache.Set(cacheKey, rm.Clone(f.cloner))
 	f.updateCacheSizeMetrics(f.resCache.ItemCount())
 
 	return rm, nil
@@ -219,7 +226,7 @@ func (f *Filter) filteredResponse(
 
 	ips, err := f.resolver.LookupNetIP(ctx, fam, f.repHost)
 	if err != nil {
-		agd.Collectf(ctx, f.errColl, "filter %s: resolving: %w", f.id, err)
+		errcoll.Collectf(ctx, f.errColl, "filter %s: resolving: %w", f.id, err)
 
 		return ri.Messages.NewMsgSERVFAIL(req), nil
 	}
@@ -263,17 +270,13 @@ func (f *Filter) updateCacheLookupsMetrics(hit bool) {
 		panic(fmt.Errorf("unsupported filter list id %s", id))
 	}
 
-	if hit {
-		hitsMetric.Inc()
-	} else {
-		missesMetric.Inc()
-	}
+	metrics.IncrementCond(hit, hitsMetric, missesMetric)
 }
 
 // type check
-var _ agd.Refresher = (*Filter)(nil)
+var _ agdservice.Refresher = (*Filter)(nil)
 
-// Refresh implements the [agd.Refresher] interface for *hashPrefixFilter.
+// Refresh implements the [agdservice.Refresher] interface for *Filter.
 func (f *Filter) Refresh(ctx context.Context) (err error) {
 	return f.refresh(ctx, false)
 }

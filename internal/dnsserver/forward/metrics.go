@@ -7,22 +7,23 @@ import (
 	"github.com/miekg/dns"
 )
 
-// MetricsListener is an interface that is used for monitoring the
-// forward.Handler state.  The handler user may opt to supply a metrics
-// interface implementation that would increment different kinds of metrics
-// (for instance, prometheus metrics).
+// MetricsListener is an interface that is used for monitoring the [Handler]
+// state.  The handler user may opt to supply the metrics interface
+// implementation that would increment different kinds of metrics (for instance,
+// prometheus metrics).
 type MetricsListener interface {
 	// OnForwardRequest is called when an upstream has finished processing a
-	// request.
-	// ctx is the context that has been passed to the handler's ServeDNS
-	// function, ups is the Upstream that has been used for that, req and resp
-	// are the DNS query and response (response can be nil), startTime is the
-	// time when the upstream started processing the request, err is the
-	// error if it happened.
+	// request.  ctx is the context that has been passed to the handler's
+	// ServeDNS function, ups is the [Upstream] that has been used for that, req
+	// and resp are the DNS request and response (response can be nil), nw is
+	// the network type over which the upstream has finished processing request,
+	// startTime is the timestamp when the upstream has started processing the
+	// request, err is the error if it happened.
 	OnForwardRequest(
 		ctx context.Context,
 		ups Upstream,
 		req, resp *dns.Msg,
+		nw Network,
 		startTime time.Time,
 		err error,
 	)
@@ -44,6 +45,7 @@ func (e *EmptyMetricsListener) OnForwardRequest(
 	_ context.Context,
 	_ Upstream,
 	_, _ *dns.Msg,
+	_ Network,
 	_ time.Time,
 	_ error,
 ) {

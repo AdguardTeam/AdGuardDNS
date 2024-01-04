@@ -9,13 +9,18 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdprotobuf"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/errors"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -24,7 +29,7 @@ import (
 type ProfileStorageConfig struct {
 	// ErrColl is the error collector that is used to collect critical and
 	// non-critical errors.
-	ErrColl agd.ErrorCollector
+	ErrColl errcoll.Interface
 
 	// Endpoint is the backend API URL.  The scheme should be either "grpc" or
 	// "grpcs".
@@ -35,7 +40,7 @@ type ProfileStorageConfig struct {
 // that retrieves the profile and device information from the business logic
 // backend.  It is safe for concurrent use.
 type ProfileStorage struct {
-	errColl agd.ErrorCollector
+	errColl errcoll.Interface
 
 	// client is the current GRPC client.
 	client DNSServiceClient
@@ -66,7 +71,7 @@ func (s *ProfileStorage) Profiles(
 ) (resp *profiledb.StorageResponse, err error) {
 	stream, err := s.client.GetDNSProfiles(ctx, toProtobuf(req))
 	if err != nil {
-		return nil, fmt.Errorf("loading profiles: %w", err)
+		return nil, fmt.Errorf("loading profiles: %w", fixGRPCError(err))
 	}
 	defer func() { err = errors.WithDeferred(err, stream.CloseSend()) }()
 
@@ -76,7 +81,7 @@ func (s *ProfileStorage) Profiles(
 	}
 
 	stats := &profilesCallStats{
-		isFullSync: req.SyncTime == time.Time{},
+		isFullSync: req.SyncTime.IsZero(),
 	}
 
 	for {
@@ -87,7 +92,7 @@ func (s *ProfileStorage) Profiles(
 				break
 			}
 
-			return nil, fmt.Errorf("receiving profile: %w", profErr)
+			return nil, fmt.Errorf("receiving profile: %w", fixGRPCError(profErr))
 		}
 		stats.endRecv()
 
@@ -115,11 +120,27 @@ func (s *ProfileStorage) Profiles(
 	return resp, nil
 }
 
+// fixGRPCError wraps GRPC error if needed.  As the GRPC deadline error is not
+// correctly wrapped, this helper detects it by the status code and replaces it
+// with a simple DeadlineExceeded error.
+//
+// See https://github.com/grpc/grpc-go/issues/4822.
+//
+// TODO(d.kolyshev): Remove after the grpc-go issue is fixed.
+func fixGRPCError(err error) (wErr error) {
+	st, ok := status.FromError(err)
+	if ok && st.Code() == codes.DeadlineExceeded {
+		err = fmt.Errorf("grpc: %w", context.DeadlineExceeded)
+	}
+
+	return err
+}
+
 // toInternal converts the protobuf-encoded data into a profile structure.
 func (x *DNSProfile) toInternal(
 	ctx context.Context,
 	updTime time.Time,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 ) (profile *agd.Profile, devices []*agd.Device, err error) {
 	if x == nil {
 		return nil, nil, fmt.Errorf("profile is nil")
@@ -159,11 +180,13 @@ func (x *DNSProfile) toInternal(
 		FilteredResponseTTL: fltRespTTL,
 		FilteringEnabled:    x.FilteringEnabled,
 		SafeBrowsing:        x.SafeBrowsing.toInternal(),
+		Access:              x.Access.toInternal(ctx, errColl),
 		RuleListsEnabled:    listsEnabled,
 		QueryLogEnabled:     x.QueryLogEnabled,
 		Deleted:             x.Deleted,
 		BlockPrivateRelay:   x.BlockPrivateRelay,
 		BlockFirefoxCanary:  x.BlockFirefoxCanary,
+		IPLogEnabled:        x.IpLogEnabled,
 	}, devices, nil
 }
 
@@ -171,7 +194,7 @@ func (x *DNSProfile) toInternal(
 // one.  If x is nil, toInternal returns nil.
 func (x *ParentalSettings) toInternal(
 	ctx context.Context,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 ) (s *agd.ParentalProtectionSettings, err error) {
 	if x == nil {
 		return nil, nil
@@ -206,11 +229,61 @@ func (x *SafeBrowsingSettings) toInternal() (sb *agd.SafeBrowsingSettings) {
 	}
 }
 
+// toInternal converts protobuf access settings to an internal structure.  If x
+// is nil, toInternal returns [access.EmptyProfile].
+func (x *AccessSettings) toInternal(
+	ctx context.Context,
+	errColl errcoll.Interface,
+) (a access.Profile) {
+	if x == nil || !x.Enabled {
+		return access.EmptyProfile{}
+	}
+
+	return access.NewDefaultProfile(&access.ProfileConfig{
+		AllowedNets:          cidrRangeToInternal(ctx, errColl, x.AllowlistCidr),
+		BlockedNets:          cidrRangeToInternal(ctx, errColl, x.BlocklistCidr),
+		AllowedASN:           asnToInternal(x.AllowlistAsn),
+		BlockedASN:           asnToInternal(x.BlocklistAsn),
+		BlocklistDomainRules: x.BlocklistDomainRules,
+	})
+}
+
+// cidrRangeToInternal is a helper that converts a slice of CidrRange to the
+// slice of [netip.Prefix].
+func cidrRangeToInternal(
+	ctx context.Context,
+	errColl errcoll.Interface,
+	cidrs []*CidrRange,
+) (out []netip.Prefix) {
+	for i, c := range cidrs {
+		addr, ok := netip.AddrFromSlice(c.Address)
+		if !ok {
+			reportf(ctx, errColl, "invalid cidr at index %d: %w", i)
+
+			continue
+		}
+
+		out = append(out, netip.PrefixFrom(addr, int(c.Prefix)))
+	}
+
+	return out
+}
+
+// asnToInternal is a helper that converts a slice of ASNs to the slice of
+// [geoip.ASN].
+func asnToInternal(asns []uint32) (out []geoip.ASN) {
+	for _, asn := range asns {
+		out = append(out, geoip.ASN(asn))
+	}
+
+	return out
+}
+
 // blockedSvcsToInternal is a helper that converts the blocked service IDs from
 // the backend response to AdGuard DNS blocked service IDs.
 func blockedSvcsToInternal(
 	ctx context.Context,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 	respSvcs []string,
 ) (svcs []agd.BlockedServiceID) {
 	l := len(respSvcs)
@@ -277,35 +350,33 @@ func (x *ScheduleSettings) toInternal() (sch *agd.ParentalProtectionSchedule, er
 // blockingModeToInternal converts a protobuf blocking-mode sum-type to an
 // internal one.  If pbm is nil, blockingModeToInternal returns a null-IP
 // blocking mode.
-func blockingModeToInternal(pbm isDNSProfile_BlockingMode) (m dnsmsg.BlockingModeCodec, err error) {
+func blockingModeToInternal(pbm isDNSProfile_BlockingMode) (m dnsmsg.BlockingMode, err error) {
 	switch pbm := pbm.(type) {
 	case nil:
-		m.Mode = &dnsmsg.BlockingModeNullIP{}
+		return &dnsmsg.BlockingModeNullIP{}, nil
 	case *DNSProfile_BlockingModeCustomIp:
 		custom := &dnsmsg.BlockingModeCustomIP{}
 		err = custom.IPv4.UnmarshalBinary(pbm.BlockingModeCustomIp.Ipv4)
 		if err != nil {
-			return dnsmsg.BlockingModeCodec{}, fmt.Errorf("bad custom ipv4: %w", err)
+			return nil, fmt.Errorf("bad custom ipv4: %w", err)
 		}
 
 		err = custom.IPv6.UnmarshalBinary(pbm.BlockingModeCustomIp.Ipv6)
 		if err != nil {
-			return dnsmsg.BlockingModeCodec{}, fmt.Errorf("bad custom ipv6: %w", err)
+			return nil, fmt.Errorf("bad custom ipv6: %w", err)
 		}
 
-		m.Mode = custom
+		return custom, nil
 	case *DNSProfile_BlockingModeNxdomain:
-		m.Mode = &dnsmsg.BlockingModeNXDOMAIN{}
+		return &dnsmsg.BlockingModeNXDOMAIN{}, nil
 	case *DNSProfile_BlockingModeNullIp:
-		m.Mode = &dnsmsg.BlockingModeNullIP{}
+		return &dnsmsg.BlockingModeNullIP{}, nil
 	case *DNSProfile_BlockingModeRefused:
-		m.Mode = &dnsmsg.BlockingModeREFUSED{}
+		return &dnsmsg.BlockingModeREFUSED{}, nil
 	default:
 		// Consider unhandled type-switch cases programmer errors.
-		panic(fmt.Errorf("bad pb blocking mode %T(%[1]v)", pbm))
+		return nil, fmt.Errorf("bad pb blocking mode %T(%[1]v)", pbm)
 	}
-
-	return m, nil
 }
 
 // devicesToInternal is a helper that converts the devices from protobuf to
@@ -313,7 +384,7 @@ func blockingModeToInternal(pbm isDNSProfile_BlockingMode) (m dnsmsg.BlockingMod
 func devicesToInternal(
 	ctx context.Context,
 	ds []*DeviceSettings,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 ) (out []*agd.Device, ids []agd.DeviceID) {
 	l := len(ds)
 	if l == 0 {
@@ -379,7 +450,7 @@ func (ds *DeviceSettings) toInternal() (dev *agd.Device, err error) {
 func rulesToInternal(
 	ctx context.Context,
 	respRules []string,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 ) (rules []agd.FilterRuleText) {
 	l := len(respRules)
 	if l == 0 {
@@ -406,7 +477,7 @@ func rulesToInternal(
 // false and nil.
 func (x *RuleListsSettings) toInternal(
 	ctx context.Context,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 ) (enabled bool, filterLists []agd.FilterListID) {
 	if x == nil {
 		return false, nil

@@ -20,11 +20,10 @@ type Handler interface {
 	// specified ResponseWriter.
 	//
 	// It accepts context.Context argument which has some additional info
-	// attached to it.  This context always contains ServerInfo which can be
-	// retrieved using ServerInfoFromContext or MustServerInfoFromContext.
-	// Also, it always contains request's start time that can be retrieved
-	// using StartTimeFromContext.  Finally, it also must contain ClientInfo
-	// that can be retrieved using MustClientInfoFromContext.
+	// attached to it.  This context always contains [ServerInfo] which can be
+	// retrieved using [ServerInfoFromContext] or [MustServerInfoFromContext].
+	// It also must contain [RequestInfo] that can be retrieved with
+	// [RequestInfoFromContext] or [MustRequestInfoFromContext].
 	ServeDNS(context.Context, ResponseWriter, *dns.Msg) (err error)
 }
 
@@ -95,5 +94,7 @@ type ResponseWriter interface {
 	//
 	// Handlers must not modify req and resp after the call to WriteMsg, since
 	// their ResponseWriter implementation may be a recorder.
+	//
+	// TODO(a.garipov): Store bytes written to the socket.
 	WriteMsg(ctx context.Context, req, resp *dns.Msg) error
 }

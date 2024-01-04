@@ -24,22 +24,36 @@ go="${GO:-go}"
 readonly go
 
 (
-    cd ./internal/agd/
-    "$go" run ./country_generate.go
+	cd ./internal/geoip/
+	"$go" run ./country_generate.go
 )
 
 (
-    cd ./internal/geoip/
-    "$go" run ./asntops_generate.go
+	cd ./internal/geoip/
+	"$go" run ./asntops_generate.go
 )
 
 (
-    cd ./internal/profiledb/internal/filecachepb/
+	cd ./internal/ecscache/
+	"$go" run ./ecsblocklist_generate.go
+	# Force format code, because it's not possible to make an accurate template
+	# for a long list of strings with different lengths.
+	gofumpt -l -w ./ecsblocklist.go
+)
+
+(
+	cd ./internal/profiledb/internal/filecachepb/
 	protoc --go_opt=paths=source_relative --go_out=. ./filecache.proto
 )
 
 (
-    cd ./internal/backendpb/
-	protoc --go_opt=paths=source_relative --go_out=.\
-	--go-grpc_opt=paths=source_relative --go-grpc_out=. ./backend.proto
+	cd ./internal/backendpb/
+	protoc\
+		--go-grpc_opt=Mbackend.proto=./backendpb\
+		--go-grpc_opt=paths=source_relative\
+		--go-grpc_out=.\
+		--go_opt=Mbackend.proto=./backendpb\
+		--go_opt=paths=source_relative\
+		--go_out=.\
+		./backend.proto
 )

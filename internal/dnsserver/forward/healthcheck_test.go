@@ -44,13 +44,17 @@ func TestHandler_Refresh(t *testing.T) {
 	upstream, _ := dnsservertest.RunDNSServer(t, handlerFunc)
 	fallback, _ := dnsservertest.RunDNSServer(t, defaultHandler)
 	handler := forward.NewHandler(&forward.HandlerConfig{
-		Address:               netip.MustParseAddrPort(upstream.LocalUDPAddr().String()),
-		Network:               forward.NetworkAny,
+		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
+			Network: forward.NetworkAny,
+			Address: netip.MustParseAddrPort(upstream.LocalUDPAddr().String()),
+			Timeout: testTimeout,
+		}},
 		HealthcheckDomainTmpl: "${RANDOM}.upstream-check.example",
-		FallbackAddresses: []netip.AddrPort{
-			netip.MustParseAddrPort(fallback.LocalUDPAddr().String()),
-		},
-		Timeout: testTimeout,
+		FallbackAddresses: []*forward.UpstreamPlainConfig{{
+			Network: forward.NetworkAny,
+			Address: netip.MustParseAddrPort(fallback.LocalUDPAddr().String()),
+			Timeout: testTimeout,
+		}},
 		// Make sure that the handler routes queries back to the main upstream
 		// immediately.
 		HealthcheckBackoffDuration: 0,

@@ -81,3 +81,16 @@ func ParseSubnets(strs ...string) (subnets []netip.Prefix, err error) {
 func NormalizeDomain(fqdn string) (host string) {
 	return strings.ToLower(strings.TrimSuffix(fqdn, "."))
 }
+
+// NormalizeQueryDomain returns a lowercased version of the host without the
+// final dot, unless the host is ".", in which case it returns the unchanged
+// host.  That is the special case to allow matching queries like:
+//
+//	dig IN NS '.'
+func NormalizeQueryDomain(host string) (norm string) {
+	if host == "." {
+		return host
+	}
+
+	return NormalizeDomain(host)
+}

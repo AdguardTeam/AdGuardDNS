@@ -9,7 +9,6 @@ import (
 	"math"
 	"net/netip"
 
-	"github.com/AdguardTeam/golibs/mathutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 )
@@ -152,8 +151,7 @@ func SetMinTTL(r *dns.Msg, minTTL uint32) {
 	for _, rr := range r.Answer {
 		h := rr.Header()
 
-		// TODO(d.kolyshev): Use built-in max in go 1.21.
-		h.Ttl = mathutil.Max(h.Ttl, minTTL)
+		h.Ttl = max(h.Ttl, minTTL)
 	}
 }
 
@@ -206,5 +204,21 @@ func getTTLIfLower(r dns.RR, ttl uint32) (res uint32) {
 		// Go on.
 	}
 
-	return mathutil.Min(r.Header().Ttl, ttl)
+	return min(r.Header().Ttl, ttl)
+}
+
+// appendIfNotNil returns nil if original is nil.  Otherwise, it appends
+// original to clones and returns it.
+//
+// TODO(a.garipov): Consider moving to module golibs.
+func appendIfNotNil[T any](clones, original []T) (res []T) {
+	if len(original) == 0 {
+		if original == nil {
+			return nil
+		}
+
+		return []T{}
+	}
+
+	return append(clones, original...)
 }

@@ -71,7 +71,7 @@ func (l *LogMiddleware) Wrap(h dnsserver.Handler) (wrapped dnsserver.Handler) {
 				req.Id,
 				qTypeStr,
 				hostname,
-				requestInfo.RequestSize,
+				req.Len(),
 			),
 		)
 
@@ -80,13 +80,14 @@ func (l *LogMiddleware) Wrap(h dnsserver.Handler) (wrapped dnsserver.Handler) {
 		rsize := 0
 		if recW.Resp != nil {
 			rcode = recW.Resp.Rcode
-			rsize = requestInfo.ResponseSize
+			// TODO(a.garipov): Count bytes written to the socket only once with
+			// [dnsserver.ResponseWriter].
+			rsize = recW.Resp.Len()
 		}
 		sb.WriteString(fmt.Sprintf("%d %d ", rcode, rsize))
 
 		// Duration
-		startTime := dnsserver.MustStartTimeFromContext(ctx)
-		elapsed := time.Since(startTime)
+		elapsed := time.Since(requestInfo.StartTime)
 		sb.WriteString(fmt.Sprintf("%s\n", elapsed))
 
 		// Suppress errors, it's not that important for a query log

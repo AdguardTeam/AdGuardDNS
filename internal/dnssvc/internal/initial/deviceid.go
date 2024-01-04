@@ -129,10 +129,10 @@ func deviceIDFromContext(
 	proto agd.Protocol,
 	wildcards []string,
 ) (id agd.DeviceID, err error) {
-	ci := dnsserver.MustClientInfoFromContext(ctx)
+	ri := dnsserver.MustRequestInfoFromContext(ctx)
 
 	if proto == agd.ProtoDoH {
-		id, err = deviceIDFromDoHURL(ci.URL)
+		id, err = deviceIDFromDoHURL(ri.URL)
 		if err != nil {
 			return "", &deviceIDError{
 				err: err,
@@ -151,7 +151,7 @@ func deviceIDFromContext(
 		return "", nil
 	}
 
-	cliSrvName := ci.TLSServerName
+	cliSrvName := ri.TLSServerName
 	id, err = deviceIDFromClientServerName(cliSrvName, wildcards)
 	if err != nil {
 		return "", &deviceIDError{

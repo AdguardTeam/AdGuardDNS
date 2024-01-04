@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -21,7 +22,6 @@ import (
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/exp/slices"
 	"golang.org/x/sys/unix"
 )
 
@@ -105,8 +105,8 @@ func TestListenControl(t *testing.T) {
 	})
 }
 
-// SubtestListenControlTCP is a shared subtest that uses lc to dial a listener and
-// perform two-way communication using the resulting connection.
+// SubtestListenControlTCP is a shared subtest that uses lc to dial a listener
+// and perform two-way communication using the resulting connection.
 func SubtestListenControlTCP(
 	t *testing.T,
 	lc netext.ListenConfig,
@@ -120,7 +120,7 @@ func SubtestListenControlTCP(
 	require.NoError(t, err)
 	testutil.CleanupAndRequireSuccess(t, lsnr.Close)
 
-	// Make sure we can work with [prefixNetAddr] as well.
+	// Make sure we can work with [agdnet.PrefixNetAddr] as well.
 	addrStr, _, _ := strings.Cut(lsnr.Addr().String(), "/")
 	addr, err := netip.ParseAddrPort(addrStr)
 	require.NoError(t, err)
@@ -201,7 +201,7 @@ func SubtestListenControlUDP(
 	require.NoError(t, err)
 	testutil.CleanupAndRequireSuccess(t, packetConn.Close)
 
-	// Make sure we can work with [prefixNetAddr] as well.
+	// Make sure we can work with [agdnet.PrefixNetAddr] as well.
 	addrStr, _, _ := strings.Cut(packetConn.LocalAddr().String(), "/")
 	addr, err := netip.ParseAddrPort(addrStr)
 	require.NoError(t, err)
@@ -501,8 +501,7 @@ func BenchmarkReadPacketSession(b *testing.B) {
 		Type:  unix.IP_ORIGDSTADDR,
 	}
 
-	// TODO(a.garipov): Use binary.NativeEndian in Go 1.21 here and below.
-	err := binary.Write(oobBuf, binary.LittleEndian, ctrlMsgHdr)
+	err := binary.Write(oobBuf, binary.NativeEndian, ctrlMsgHdr)
 	require.NoError(b, err)
 
 	pktInfo := unix.Inet4Pktinfo{
@@ -510,7 +509,7 @@ func BenchmarkReadPacketSession(b *testing.B) {
 		Addr:     *(*[4]byte)(testRAddr.IP),
 	}
 
-	err = binary.Write(oobBuf, binary.LittleEndian, pktInfo)
+	err = binary.Write(oobBuf, binary.NativeEndian, pktInfo)
 	require.NoError(b, err)
 
 	oobData := oobBuf.Bytes()

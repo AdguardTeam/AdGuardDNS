@@ -7,9 +7,6 @@ import (
 
 // Common Constants, Types, And Utilities
 
-// unit is a convenient alias for struct{}.
-type unit = struct{}
-
 // firstNonIDRune returns the first non-printable or non-ASCII rune and its
 // index.  If slashes is true, it also looks for slashes.  If there are no such
 // runes, i is -1.

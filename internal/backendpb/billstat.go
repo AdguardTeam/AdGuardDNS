@@ -8,6 +8,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -17,7 +18,7 @@ import (
 type BillStatConfig struct {
 	// ErrColl is the error collector that is used to collect critical and
 	// non-critical errors.
-	ErrColl agd.ErrorCollector
+	ErrColl errcoll.Interface
 
 	// Endpoint is the backend API URL.  The scheme should be either "grpc" or
 	// "grpcs".
@@ -46,7 +47,7 @@ func NewBillStat(c *BillStatConfig) (b *BillStat, err error) {
 // TODO(a.garipov): Consider uniting with [ProfileStorage] into a single
 // backendpb.Client.
 type BillStat struct {
-	errColl agd.ErrorCollector
+	errColl errcoll.Interface
 
 	// client is the current GRPC client.
 	client DNSServiceClient

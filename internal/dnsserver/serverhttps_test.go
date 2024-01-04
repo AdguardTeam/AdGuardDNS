@@ -357,7 +357,7 @@ func TestServerHTTPS_0RTT(t *testing.T) {
 		return srv.Shutdown(context.Background())
 	})
 
-	quicTracer := &dnsservertest.QUICTracer{}
+	quicTracer := dnsservertest.NewQUICTracer()
 
 	// quicConfig with TokenStore set so that 0-RTT was enabled.
 	quicConfig := &quic.Config{
@@ -398,7 +398,7 @@ func testDoH3Exchange(
 	req := dnsservertest.NewReq("example.org.", dns.TypeA, dns.ClassINET)
 	req.RecursionDesired = true
 
-	httpReq, err := createDoHRequest("https", http.MethodGet, req)
+	httpReq, err := newDoHRequest(http.MethodGet, req, true)
 	require.NoError(t, err)
 
 	// Send the request and check the response.
@@ -429,7 +429,7 @@ func mustDoHReq(
 ) (resp *dns.Msg) {
 	t.Helper()
 
-	client, err := createDoHClient(httpsAddr, tlsConfig)
+	client, err := newDoHClient(httpsAddr, tlsConfig)
 	require.NoError(t, err)
 
 	proto := "https"
@@ -441,7 +441,7 @@ func mustDoHReq(
 	if json {
 		httpReq, err = createJSONRequest(proto, method, requestWireformat, req)
 	} else {
-		httpReq, err = createDoHRequest(proto, method, req)
+		httpReq, err = newDoHRequest(method, req, tlsConfig != nil)
 	}
 	require.NoError(t, err)
 
@@ -467,7 +467,8 @@ func mustDoHReq(
 	return resp
 }
 
-func createDoHClient(httpsAddr net.Addr, tlsConfig *tls.Config) (client *http.Client, err error) {
+// newDoHClient is a helper that creates a DoH client for a test or a benchmark.
+func newDoHClient(httpsAddr net.Addr, tlsConfig *tls.Config) (client *http.Client, err error) {
 	if dnsserver.NetworkFromAddr(httpsAddr) == dnsserver.NetworkUDP {
 		return createDoH3Client(httpsAddr, tlsConfig, nil)
 	}
@@ -534,7 +535,9 @@ func createDoH3Client(
 	}, nil
 }
 
-func createDoHRequest(proto, method string, msg *dns.Msg) (r *http.Request, err error) {
+// newDoHRequest is a helper that creates a DoH request for a test or a
+// benchmark.
+func newDoHRequest(method string, msg *dns.Msg, isSecure bool) (r *http.Request, err error) {
 	// Prepare message
 	var buf []byte
 	buf, err = msg.Pack()
@@ -542,16 +545,27 @@ func createDoHRequest(proto, method string, msg *dns.Msg) (r *http.Request, err 
 		return nil, err
 	}
 
-	// Prepare the *http.Request with the DNS message.
-	requestURL := proto + "://test.local" + dnsserver.PathDoH
-	if method == http.MethodPost {
-		bb := bytes.NewBuffer(buf)
-		r, err = http.NewRequest(method, requestURL, bb)
-	} else {
-		requestURL = requestURL + "?dns=" + base64.RawURLEncoding.EncodeToString(buf)
-		r, err = http.NewRequest(method, requestURL, nil)
+	proto := "https"
+	if !isSecure {
+		proto = "http"
 	}
 
+	// Prepare the *http.Request with the DNS message.
+	requestURL := &url.URL{
+		Scheme: proto,
+		Host:   "test.local",
+		Path:   dnsserver.PathDoH,
+	}
+
+	if method == http.MethodPost {
+		r, err = http.NewRequest(method, requestURL.String(), bytes.NewBuffer(buf))
+	} else {
+		requestURL.RawQuery = url.Values{
+			"dns": []string{base64.RawURLEncoding.EncodeToString(buf)},
+		}.Encode()
+
+		r, err = http.NewRequest(method, requestURL.String(), nil)
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -6,9 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/stretchr/testify/require"
 )
 
@@ -51,11 +53,9 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 			},
 			Enabled: true,
 		},
-		BlockingMode: dnsmsg.BlockingModeCodec{
-			Mode: &dnsmsg.BlockingModeNullIP{},
-		},
-		ID:        ProfileID,
-		DeviceIDs: []agd.DeviceID{dev.ID},
+		BlockingMode: &dnsmsg.BlockingModeNullIP{},
+		ID:           ProfileID,
+		DeviceIDs:    []agd.DeviceID{dev.ID},
 		RuleListIDs: []agd.FilterListID{
 			"adguard_dns_filter",
 		},
@@ -69,9 +69,17 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 			BlockDangerousDomains:       true,
 			BlockNewlyRegisteredDomains: false,
 		},
+		Access: access.NewDefaultProfile(&access.ProfileConfig{
+			AllowedNets:          []netip.Prefix{netip.MustParsePrefix("1.1.1.0/24")},
+			BlockedNets:          []netip.Prefix{netip.MustParsePrefix("2.2.2.0/24")},
+			AllowedASN:           []geoip.ASN{1},
+			BlockedASN:           []geoip.ASN{2},
+			BlocklistDomainRules: []string{"block.test"},
+		}),
 		RuleListsEnabled:   true,
 		QueryLogEnabled:    true,
 		BlockPrivateRelay:  true,
 		BlockFirefoxCanary: true,
+		IPLogEnabled:       true,
 	}, dev
 }

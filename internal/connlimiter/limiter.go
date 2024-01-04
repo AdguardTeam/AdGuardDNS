@@ -53,7 +53,7 @@ func New(c *Config) (l *Limiter, err error) {
 
 // Limit wraps lsnr to control the number of active connections.  srvInfo is
 // used for logging and metrics.
-func (l *Limiter) Limit(lsnr net.Listener, srvInfo dnsserver.ServerInfo) (limited net.Listener) {
+func (l *Limiter) Limit(lsnr net.Listener, srvInfo *dnsserver.ServerInfo) (limited net.Listener) {
 	name, addr := srvInfo.Name, srvInfo.Addr
 	proto := srvInfo.Proto.String()
 

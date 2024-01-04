@@ -5,8 +5,7 @@ package bindtodevice
 import (
 	"fmt"
 	"net/netip"
-
-	"golang.org/x/exp/slices"
+	"slices"
 )
 
 // connIndex is the data structure that contains the channel listeners and

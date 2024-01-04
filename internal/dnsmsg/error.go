@@ -29,3 +29,7 @@ var _ errors.Wrapper = BadECSError{}
 func (err BadECSError) Unwrap() (unwrapped error) {
 	return err.Err
 }
+
+// IsSentryReportable implements the [errcoll.SentryReportableError] interface
+// for BadECSError.
+func (err BadECSError) IsSentryReportable() (ok bool) { return false }

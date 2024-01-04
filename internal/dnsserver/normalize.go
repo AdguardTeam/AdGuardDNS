@@ -14,25 +14,33 @@ const responsePaddingMaxSize = 32
 // respPadBuf is a fixed buffer to draw on for padding.
 var respPadBuf [responsePaddingMaxSize]byte
 
-// normalize adds an OPT record that the reflects the intent from request.
-// It also truncates the response and pads response if needed.
+// normalizeTCP adds an OPT record that reflects the intent from request over
+// TCP.  It also truncates and pads the response if needed.  When the request
+// was over TCP, we set the maximum allowed response size at 64K.
+func normalizeTCP(proto Protocol, req, resp *dns.Msg) {
+	normalize(NetworkTCP, proto, req, resp, dns.MaxMsgSize)
+}
+
+// normalize adds an OPT record that reflects the intent from request.  It also
+// truncates and pads the response if needed.
 //
 // TODO(ameshkov): Consider adding EDNS0COOKIE support.
-func normalize(network Network, proto Protocol, req, resp *dns.Msg) {
+func normalize(network Network, proto Protocol, req, resp *dns.Msg, maxMsgSize uint16) {
 	reqOpt := req.IsEdns0()
 	if reqOpt == nil {
-		truncate(resp, dnsSize(network, req))
+		truncate(resp, maxDNSSize(network, 0, maxMsgSize))
 		resp.Compress = true
 
 		return
 	}
 
 	var respOpt *dns.OPT
+	ednsUDPSize := reqOpt.UDPSize()
 	if respOpt = resp.IsEdns0(); respOpt != nil {
 		respOpt.Hdr.Name = "."
 		respOpt.Hdr.Rrtype = dns.TypeOPT
 		respOpt.SetVersion(0)
-		respOpt.SetUDPSize(reqOpt.UDPSize())
+		respOpt.SetUDPSize(ednsUDPSize)
 
 		// OPT record allows storing additional info in the TTL field:
 		// https://datatracker.ietf.org/doc/html/rfc6891#section-6.1.3
@@ -57,7 +65,7 @@ func normalize(network Network, proto Protocol, req, resp *dns.Msg) {
 	}
 
 	// Make sure that we don't send messages larger than the protocol supports.
-	truncate(resp, dnsSize(network, req))
+	truncate(resp, maxDNSSize(network, ednsUDPSize, maxMsgSize))
 
 	// Always compress the response.
 	resp.Compress = true
@@ -80,25 +88,16 @@ func truncate(resp *dns.Msg, size int) {
 	}
 }
 
-// dnsSize returns the buffer size *advertised* in the requests OPT record.
-// Or when the request was over TCP, we return the maximum allowed size of 64K.
-// network can be either "tcp" or "udp".
-func dnsSize(network Network, r *dns.Msg) (n int) {
-	var size uint16
-	if o := r.IsEdns0(); o != nil {
-		size = o.UDPSize()
-	}
-
+// maxDNSSize returns the maximum buffer size for this network.  For
+// [NetworkTCP], it returns [dns.MaxMsgSize].  For [NetworkUDP], it takes into
+// account the advertised size in the requests EDNS(0) OPT record, if any, and
+// the given maximum value.
+func maxDNSSize(network Network, ednsUDPSize, maxMsgSize uint16) (n int) {
 	if network != NetworkUDP {
 		return dns.MaxMsgSize
 	}
 
-	if size < dns.MinMsgSize {
-		return dns.MinMsgSize
-	}
-
-	// normalize size
-	return int(size)
+	return int(max(min(ednsUDPSize, maxMsgSize), dns.MinMsgSize))
 }
 
 // filterUnsupportedOptions filters out unsupported EDNS0 options.  The

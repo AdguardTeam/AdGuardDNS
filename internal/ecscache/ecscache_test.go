@@ -14,11 +14,13 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/ecscache"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
 )
 
 func TestMain(m *testing.M) {
@@ -203,7 +205,7 @@ func TestMiddleware_Wrap_noECS(t *testing.T) {
 			withCache := newWithCache(
 				t,
 				handler,
-				agd.CountryNone,
+				geoip.CountryNone,
 				netutil.ZeroPrefix(netutil.AddrFamilyIPv4),
 				minTTL,
 				tc.minTTL != nil,
@@ -228,17 +230,16 @@ func TestMiddleware_Wrap_noECS(t *testing.T) {
 	}
 }
 
-func TestMiddleware_Wrap_ecs(t *testing.T) {
-	aReqNoECS := dnsservertest.NewReq(reqHostname, dns.TypeA, dns.ClassINET)
+const prefixLen = 24
+
+// newAReq returns new test A request with ECS option.
+func newAReq(hostname string, ip net.IP) (req *dns.Msg) {
+	aReqNoECS := dnsservertest.NewReq(hostname, dns.TypeA, dns.ClassINET)
 	aReqNoECS.SetEdns0(dnsmsg.DefaultEDNSUDPSize, false)
 
-	aReq := aReqNoECS.Copy()
-	opt := aReq.Extra[len(aReq.Extra)-1].(*dns.OPT)
+	req = aReqNoECS.Copy()
+	opt := req.Extra[len(req.Extra)-1].(*dns.OPT)
 
-	const prefixLen = 24
-
-	ip := net.IP{1, 2, 3, 0}
-	subnet := netip.PrefixFrom(netip.AddrFrom4([4]byte(ip)), prefixLen)
 	opt.Option = append(opt.Option, &dns.EDNS0_SUBNET{
 		Code:          dns.EDNS0SUBNET,
 		Family:        uint16(netutil.AddrFamilyIPv4),
@@ -247,7 +248,18 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 		Address:       ip,
 	})
 
-	const ctry = agd.CountryAD
+	return req
+}
+
+func TestMiddleware_Wrap_ecs(t *testing.T) {
+	aReqNoECS := dnsservertest.NewReq(reqHostname, dns.TypeA, dns.ClassINET)
+
+	ip := net.IP{1, 2, 3, 0}
+	aReq := newAReq(reqHostname, ip)
+	fakeECSReq := newAReq(maps.Keys(ecscache.FakeECSFQDNs)[0], ip)
+
+	subnet := netip.PrefixFrom(netip.AddrFrom4([4]byte(ip)), prefixLen)
+	const ctry = geoip.CountryAD
 
 	defaultCtrySubnet := netip.MustParsePrefix("1.2.0.0/16")
 	ecsExtra := dnsservertest.NewECSExtra(
@@ -260,14 +272,14 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 	testCases := []struct {
 		req        *dns.Msg
 		respECS    dns.RR
-		ecs        *agd.ECS
+		wantECS    *agd.ECS
 		ctrySubnet netip.Prefix
 		name       string
 	}{{
 		req:     aReq,
 		respECS: ecsExtra,
-		ecs: &agd.ECS{
-			Location: &agd.Location{
+		wantECS: &agd.ECS{
+			Location: &geoip.Location{
 				Country: ctry,
 			},
 			Subnet: subnet,
@@ -278,8 +290,8 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 	}, {
 		req:     aReq,
 		respECS: ecsExtra,
-		ecs: &agd.ECS{
-			Location: &agd.Location{
+		wantECS: &agd.ECS{
+			Location: &geoip.Location{
 				Country: ctry,
 			},
 			Subnet: subnet,
@@ -290,13 +302,13 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 	}, {
 		req:        aReqNoECS,
 		respECS:    ecsExtra,
-		ecs:        nil,
+		wantECS:    nil,
 		ctrySubnet: defaultCtrySubnet,
 		name:       "edns_no_ecs",
 	}, {
 		req:        aReq,
 		respECS:    ecsExtra,
-		ecs:        nil,
+		wantECS:    nil,
 		ctrySubnet: defaultCtrySubnet,
 		name:       "country_from_ip",
 	}, {
@@ -307,15 +319,27 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 			0,
 			0,
 		),
-		ecs: &agd.ECS{
-			Location: &agd.Location{
-				Country: agd.CountryNone,
+		wantECS: &agd.ECS{
+			Location: &geoip.Location{
+				Country: geoip.CountryNone,
 			},
 			Subnet: netutil.ZeroPrefix(netutil.AddrFamilyIPv4),
 			Scope:  0,
 		},
 		ctrySubnet: defaultCtrySubnet,
 		name:       "zero_ecs",
+	}, {
+		req:     fakeECSReq,
+		respECS: ecsExtra,
+		wantECS: &agd.ECS{
+			Location: &geoip.Location{
+				Country: ctry,
+			},
+			Subnet: netutil.ZeroPrefix(netutil.AddrFamilyIPv4),
+			Scope:  0,
+		},
+		ctrySubnet: defaultCtrySubnet,
+		name:       "fake_ecs_domain",
 	}}
 
 	const N = 5
@@ -344,10 +368,10 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 
 			withCache := newWithCache(t, handler, ctry, tc.ctrySubnet, 0, false)
 			ri := &agd.RequestInfo{
-				Location: &agd.Location{
+				Location: &geoip.Location{
 					Country: ctry,
 				},
-				ECS:      tc.ecs,
+				ECS:      tc.wantECS,
 				Host:     tc.req.Question[0].Name,
 				RemoteIP: remoteIP,
 			}
@@ -357,46 +381,38 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 				msg = exchange(t, ri, withCache, tc.req)
 			}
 			require.NotNil(t, msg)
-
 			assert.Equal(t, 1, numReq)
 
 			require.NotEmpty(t, msg.Answer)
 			assert.Equal(t, defaultTTL, msg.Answer[0].Header().Ttl)
 
-			respOpt := msg.IsEdns0()
-			if tc.ecs == nil {
-				if respOpt != nil {
-					require.Empty(t, respOpt.Option)
-				}
-
-				return
-			}
-
-			require.Len(t, respOpt.Option, 1)
-			subnetOpt := testutil.RequireTypeAssert[*dns.EDNS0_SUBNET](t, respOpt.Option[0])
-
-			assert.Equal(t, net.IP(tc.ecs.Subnet.Addr().AsSlice()), subnetOpt.Address)
-			assert.Equal(t, uint8(tc.ecs.Subnet.Bits()), subnetOpt.SourceNetmask)
-			assert.Equal(t, uint8(tc.ecs.Subnet.Bits()), subnetOpt.SourceScope)
+			assertEDNSOpt(t, tc.wantECS, msg.IsEdns0())
 		})
 	}
 }
 
+// assertEDNSOpt is a helper function that checks ECS and EDNS0 options.
+func assertEDNSOpt(t *testing.T, ecs *agd.ECS, edns *dns.OPT) {
+	t.Helper()
+
+	if ecs == nil {
+		if edns != nil {
+			assert.Empty(t, edns.Option)
+		}
+
+		return
+	}
+
+	require.Len(t, edns.Option, 1)
+	subnetOpt := testutil.RequireTypeAssert[*dns.EDNS0_SUBNET](t, edns.Option[0])
+
+	assert.Equal(t, net.IP(ecs.Subnet.Addr().AsSlice()), subnetOpt.Address)
+	assert.Equal(t, uint8(ecs.Subnet.Bits()), subnetOpt.SourceNetmask)
+	assert.Equal(t, uint8(ecs.Subnet.Bits()), subnetOpt.SourceScope)
+}
+
 func TestMiddleware_Wrap_ecsOrder(t *testing.T) {
 	// Helper values and functions
-
-	const respSendTimeout = 1 * time.Second
-
-	newResp := func(t *testing.T, req *dns.Msg, answer, extra dns.RR) (resp *dns.Msg) {
-		t.Helper()
-
-		return dnsservertest.NewResp(
-			dns.RcodeSuccess,
-			req,
-			dnsservertest.SectionAnswer{answer},
-			dnsservertest.SectionExtra{extra},
-		)
-	}
 
 	reqNoECS := dnsservertest.NewReq(reqHostname, dns.TypeA, dns.ClassINET)
 	reqNoECS.SetEdns0(dnsmsg.DefaultEDNSUDPSize, false)
@@ -423,7 +439,7 @@ func TestMiddleware_Wrap_ecsOrder(t *testing.T) {
 		Address:       netutil.IPv4Zero(),
 	})
 
-	const ctry = agd.CountryAD
+	const ctry = geoip.CountryAD
 
 	ctrySubnet := netip.PrefixFrom(remoteIP, 16).Masked()
 	ctryECS := dnsservertest.NewECSExtra(
@@ -434,38 +450,17 @@ func TestMiddleware_Wrap_ecsOrder(t *testing.T) {
 	)
 	zeroECS := dnsservertest.NewECSExtra(netutil.IPv4Zero(), uint16(netutil.AddrFamilyIPv4), 0, 0)
 
-	pt := testutil.PanicT{}
-	respCh := make(chan *dns.Msg, 1)
-	handler := dnsserver.HandlerFunc(
-		func(ctx context.Context, rw dnsserver.ResponseWriter, req *dns.Msg) error {
-			resp, ok := testutil.RequireReceive(pt, respCh, respSendTimeout)
-			require.True(pt, ok)
-
-			return rw.WriteMsg(ctx, req, resp)
-		},
-	)
-
 	answerA := dnsservertest.NewA(reqHostname, defaultTTL, netip.MustParseAddr("1.2.3.4"))
 	answerB := dnsservertest.NewA(reqHostname, defaultTTL, netip.MustParseAddr("5.6.7.8"))
 
 	// Tests
 
-	// request is a single request in a sequence.  answer and extra are
-	// prerequisites for configuring handler's response before resolving msg,
-	// those should be nil when the response is expected to come from cache.
-	type request = struct {
-		answer  dns.RR
-		extra   dns.RR
-		msg     *dns.Msg
-		wantAns []dns.RR
-	}
-
 	testCases := []struct {
 		name     string
-		sequence []request
+		sequence sequence
 	}{{
 		name: "no_ecs_first",
-		sequence: []request{{
+		sequence: sequence{{
 			answer:  answerA,
 			extra:   ctryECS,
 			msg:     reqNoECS,
@@ -478,7 +473,7 @@ func TestMiddleware_Wrap_ecsOrder(t *testing.T) {
 		}},
 	}, {
 		name: "ecs_first",
-		sequence: []request{{
+		sequence: sequence{{
 			answer:  answerA,
 			extra:   ctryECS,
 			msg:     reqWithECS,
@@ -491,7 +486,7 @@ func TestMiddleware_Wrap_ecsOrder(t *testing.T) {
 		}},
 	}, {
 		name: "zero_after_no_ecs",
-		sequence: []request{{
+		sequence: sequence{{
 			answer:  answerA,
 			extra:   ctryECS,
 			msg:     reqNoECS,
@@ -504,7 +499,7 @@ func TestMiddleware_Wrap_ecsOrder(t *testing.T) {
 		}},
 	}, {
 		name: "different_caches",
-		sequence: []request{{
+		sequence: sequence{{
 			answer:  answerA,
 			extra:   ctryECS,
 			msg:     reqWithECS,
@@ -527,7 +522,7 @@ func TestMiddleware_Wrap_ecsOrder(t *testing.T) {
 		}},
 	}, {
 		name: "no_ecs_upstream",
-		sequence: []request{{
+		sequence: sequence{{
 			answer:  answerA,
 			extra:   zeroECS,
 			msg:     reqZeroECS,
@@ -551,35 +546,80 @@ func TestMiddleware_Wrap_ecsOrder(t *testing.T) {
 	}}
 
 	for _, tc := range testCases {
-		withCache := newWithCache(t, handler, ctry, ctrySubnet, 0, false)
-
 		t.Run(tc.name, func(t *testing.T) {
-			for i, req := range tc.sequence {
-				if req.answer != nil && req.extra != nil {
-					resp := newResp(t, req.msg, req.answer, req.extra)
-					testutil.RequireSend(t, respCh, resp, respSendTimeout)
-				}
-
-				subnet, _, err := dnsmsg.ECSFromMsg(req.msg)
-				require.NoError(t, err)
-
-				ri := &agd.RequestInfo{
-					Location: &agd.Location{Country: ctry},
-					ECS:      nil,
-					Host:     req.msg.Question[0].Name,
-					RemoteIP: remoteIP,
-				}
-				if subnet != (netip.Prefix{}) {
-					ri.ECS = &agd.ECS{Subnet: subnet, Scope: 0}
-				}
-
-				// Make sure each step succeeded.
-				require.True(t, t.Run(fmt.Sprintf("step_%d", i), func(t *testing.T) {
-					got := exchange(t, ri, withCache, req.msg)
-					assert.Equal(t, req.wantAns, got.Answer)
-				}))
-			}
+			tc.sequence.run(t, ctry, ctrySubnet)
 		})
+	}
+}
+
+// request is a single request in a sequence.  answer and extra are
+// prerequisites for configuring handler's response before resolving msg,
+// those should be nil when the response is expected to come from cache.
+type request = struct {
+	answer  dns.RR
+	extra   dns.RR
+	msg     *dns.Msg
+	wantAns []dns.RR
+}
+
+// sequence is a list of requests.
+type sequence []request
+
+// run is a helper method for testing ECS cache middleware with sequence of
+// ordered requests.
+func (s sequence) run(t *testing.T, ctry geoip.Country, ctrySubnet netip.Prefix) {
+	t.Helper()
+
+	const respSendTimeout = 1 * time.Second
+
+	newResp := func(t *testing.T, req *dns.Msg, answer, extra dns.RR) (resp *dns.Msg) {
+		t.Helper()
+
+		return dnsservertest.NewResp(
+			dns.RcodeSuccess,
+			req,
+			dnsservertest.SectionAnswer{answer},
+			dnsservertest.SectionExtra{extra},
+		)
+	}
+
+	pt := testutil.PanicT{}
+	respCh := make(chan *dns.Msg, 1)
+	handler := dnsserver.HandlerFunc(
+		func(ctx context.Context, rw dnsserver.ResponseWriter, req *dns.Msg) error {
+			resp, ok := testutil.RequireReceive(pt, respCh, respSendTimeout)
+			require.True(pt, ok)
+
+			return rw.WriteMsg(ctx, req, resp)
+		},
+	)
+
+	withCache := newWithCache(t, handler, ctry, ctrySubnet, 0, false)
+
+	for i, req := range s {
+		if req.answer != nil && req.extra != nil {
+			resp := newResp(t, req.msg, req.answer, req.extra)
+			testutil.RequireSend(t, respCh, resp, respSendTimeout)
+		}
+
+		subnet, _, err := dnsmsg.ECSFromMsg(req.msg)
+		require.NoError(t, err)
+
+		ri := &agd.RequestInfo{
+			Location: &geoip.Location{Country: ctry},
+			ECS:      nil,
+			Host:     req.msg.Question[0].Name,
+			RemoteIP: remoteIP,
+		}
+		if subnet != (netip.Prefix{}) {
+			ri.ECS = &agd.ECS{Subnet: subnet, Scope: 0}
+		}
+
+		// Make sure each step succeeded.
+		require.True(t, t.Run(fmt.Sprintf("step_%d", i), func(t *testing.T) {
+			got := exchange(t, ri, withCache, req.msg)
+			assert.Equal(t, req.wantAns, got.Answer)
+		}))
 	}
 }
 
@@ -610,7 +650,7 @@ func exchange(
 func newWithCache(
 	t testing.TB,
 	h dnsserver.Handler,
-	wantCtry agd.Country,
+	wantCtry geoip.Country,
 	geoIPNet netip.Prefix,
 	minTTL time.Duration,
 	useTTLOverride bool,
@@ -622,15 +662,14 @@ func newWithCache(
 	// TODO(a.garipov): Actually test ASNs once we have the data.
 	geoIP := &agdtest.GeoIP{
 		OnSubnetByLocation: func(
-			ctry agd.Country,
-			_ agd.ASN,
+			l *geoip.Location,
 			_ netutil.AddrFamily,
 		) (n netip.Prefix, err error) {
-			require.Equal(pt, wantCtry, ctry)
+			require.Equal(pt, wantCtry, l.Country)
 
 			return geoIPNet, nil
 		},
-		OnData: func(_ string, _ netip.Addr) (_ *agd.Location, _ error) {
+		OnData: func(_ string, _ netip.Addr) (_ *geoip.Location, _ error) {
 			panic("not implemented")
 		},
 	}
@@ -638,6 +677,7 @@ func newWithCache(
 	return dnsserver.WithMiddlewares(
 		h,
 		ecscache.NewMiddleware(&ecscache.MiddlewareConfig{
+			Cloner:         agdtest.NewCloner(),
 			GeoIP:          geoIP,
 			Size:           100,
 			ECSSize:        100,

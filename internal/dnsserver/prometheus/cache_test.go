@@ -31,8 +31,9 @@ func TestCacheMetricsListener_integration_cache(t *testing.T) {
 	// set both hits and misses.
 	for i := 0; i < 10; i++ {
 		ctx := dnsserver.ContextWithServerInfo(context.Background(), testServerInfo)
-		ctx = dnsserver.ContextWithStartTime(ctx, time.Now())
-		ctx = dnsserver.ContextWithClientInfo(ctx, dnsserver.ClientInfo{})
+		ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
+			StartTime: time.Now(),
+		})
 
 		nrw := dnsserver.NewNonWriterResponseWriter(testUDPAddr, testUDPAddr)
 

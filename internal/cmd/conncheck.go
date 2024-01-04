@@ -86,21 +86,9 @@ func connectivityCheck(c *dnssvc.Config, connCheck *connCheckConfig) (err error)
 func requireIPv6ConnCheck(serverGroups []*agd.ServerGroup) (ok bool) {
 	for _, srvGrp := range serverGroups {
 		for _, s := range srvGrp.Servers {
-			if containsIPv6BindAddress(s.BindData) {
+			if s.HasIPv6() {
 				return true
 			}
-		}
-	}
-
-	return false
-}
-
-// containsIPv6BindAddress returns true if provided bindData contains valid IPv6
-// address.
-func containsIPv6BindAddress(bindData []*agd.ServerBindData) (ok bool) {
-	for _, bData := range bindData {
-		if addr := bData.AddrPort; addr.Addr().Is6() {
-			return true
 		}
 	}
 

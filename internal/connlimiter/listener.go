@@ -20,6 +20,10 @@ import (
 type limitListener struct {
 	net.Listener
 
+	// serverInfo is used for logging and metrics in both the listener itself
+	// and in its conns.  It's never nil.
+	serverInfo *dnsserver.ServerInfo
+
 	// counterCond is the condition variable that protects counter and isClosed
 	// through its locker, as well as signals when connections can be accepted
 	// again or when the listener has been closed.
@@ -34,10 +38,6 @@ type limitListener struct {
 	// waitingHist is the metrics histogram of how much a connection spends
 	// waiting for an accept.
 	waitingHist prometheus.Observer
-
-	// serverInfo is used for logging and metrics in both the listener itself
-	// and in its conns.
-	serverInfo dnsserver.ServerInfo
 
 	// isClosed shows whether this listener has been closed.
 	isClosed bool

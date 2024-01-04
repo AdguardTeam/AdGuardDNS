@@ -50,16 +50,13 @@ func (s *ServerTLS) Start(ctx context.Context) (err error) {
 		return errors.Error("tls config is required")
 	}
 
-	// TODO(ameshkov): Consider only setting s.started to true once the
-	// listeners are up.
 	if s.started {
 		return ErrServerAlreadyStarted
 	}
-	s.started = true
 
 	log.Info("[%s]: Starting the server", s.name)
 
-	ctx = ContextWithServerInfo(ctx, ServerInfo{
+	ctx = ContextWithServerInfo(ctx, &ServerInfo{
 		Name:  s.name,
 		Addr:  s.addr,
 		Proto: s.proto,
@@ -75,6 +72,10 @@ func (s *ServerTLS) Start(ctx context.Context) (err error) {
 	if s.tcpListener != nil {
 		go s.startServeTCP(ctx)
 	}
+
+	// TODO(ameshkov): Consider only setting s.started to true once the
+	// listeners are up.
+	s.started = true
 
 	log.Info("[%s]: Server has been started", s.Name())
 

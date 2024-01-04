@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/golibs/netutil"
@@ -49,8 +51,9 @@ type filtersConfig struct {
 // toInternal converts c to the filter storage configuration for the DNS server.
 // cacheDir must exist.  c is assumed to be valid.
 func (c *filtersConfig) toInternal(
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 	resolver agdnet.Resolver,
+	cloner *dnsmsg.Cloner,
 	envs *environments,
 	safeBrowsing *hashprefix.Filter,
 	adultBlocking *hashprefix.Filter,
@@ -67,6 +70,7 @@ func (c *filtersConfig) toInternal(
 		Now:                       time.Now,
 		ErrColl:                   errColl,
 		Resolver:                  resolver,
+		Cloner:                    cloner,
 		CacheDir:                  envs.FilterCachePath,
 		CustomFilterCacheSize:     c.CustomFilterCacheSize,
 		SafeSearchCacheSize:       c.SafeSearchCacheSize,
@@ -75,7 +79,7 @@ func (c *filtersConfig) toInternal(
 		RuleListCacheSize:  c.RuleListCache.Size,
 		RefreshIvl:         c.RefreshIvl.Duration,
 		UseRuleListCache:   c.RuleListCache.Enabled,
-		MaxRuleListSize:    int64(c.MaxSize.Bytes()),
+		MaxRuleListSize:    c.MaxSize.Bytes(),
 	}
 }
 
@@ -133,7 +137,7 @@ func (c *fltRuleListCache) validate() (err error) {
 func setupFilterStorage(
 	conf *filter.DefaultStorageConfig,
 	sigHdlr signalHandler,
-	errColl agd.ErrorCollector,
+	errColl errcoll.Interface,
 	refreshTimeout time.Duration,
 ) (strg *filter.DefaultStorage, err error) {
 	strg, err = filter.NewDefaultStorage(conf)
@@ -141,7 +145,7 @@ func setupFilterStorage(
 		return nil, fmt.Errorf("creating default filter storage: %w", err)
 	}
 
-	refr := agd.NewRefreshWorker(&agd.RefreshWorkerConfig{
+	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
 		Context: func() (ctx context.Context, cancel context.CancelFunc) {
 			return context.WithTimeout(context.Background(), refreshTimeout)
 		},
@@ -151,8 +155,9 @@ func setupFilterStorage(
 		Interval:            conf.RefreshIvl,
 		RefreshOnShutdown:   false,
 		RoutineLogsAreDebug: false,
+		RandomizeStart:      false,
 	})
-	err = refr.Start()
+	err = refr.Start(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("starting default filter storage update: %w", err)
 	}

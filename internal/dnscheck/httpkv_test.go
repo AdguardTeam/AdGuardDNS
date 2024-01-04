@@ -18,7 +18,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
@@ -152,11 +151,6 @@ func TestHTTPKV(t *testing.T) {
 	dnsCk, err := dnscheck.NewConsul(conf)
 	require.NoError(t, err)
 
-	ctx := context.Background()
-	ctx = dnsserver.ContextWithServerInfo(ctx, dnsserver.ServerInfo{
-		Proto: agd.ProtoDNS,
-	})
-
 	req := dnsservertest.CreateMessage(randomid+"-"+localDomain, dns.TypeA)
 	ri := &agd.RequestInfo{
 		Device:      &agd.Device{ID: "some-device-id"},
@@ -166,8 +160,10 @@ func TestHTTPKV(t *testing.T) {
 		Host:        randomid + "-" + localDomain,
 		RemoteIP:    testRemoteIP,
 		QType:       dns.TypeA,
+		Proto:       agd.ProtoDNS,
 	}
 
+	ctx := context.Background()
 	_, err = dnsCk.Check(ctx, req, ri)
 	require.NoError(t, err)
 	dnscheck.FlushConsulCache(t, dnsCk)

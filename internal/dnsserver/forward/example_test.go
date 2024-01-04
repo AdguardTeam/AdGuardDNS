@@ -15,11 +15,16 @@ func ExampleNewHandler() {
 			Name: "srv",
 			Addr: "127.0.0.1:0",
 			Handler: forward.NewHandler(&forward.HandlerConfig{
-				Address: netip.MustParseAddrPort("8.8.8.8:53"),
-				Network: forward.NetworkAny,
-				FallbackAddresses: []netip.AddrPort{
-					netip.MustParseAddrPort("1.1.1.1:53"),
-				},
+				UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
+					Network: forward.NetworkAny,
+					Address: netip.MustParseAddrPort("8.8.8.8:53"),
+					Timeout: testTimeout,
+				}},
+				FallbackAddresses: []*forward.UpstreamPlainConfig{{
+					Network: forward.NetworkAny,
+					Address: netip.MustParseAddrPort("1.1.1.1:53"),
+					Timeout: testTimeout,
+				}},
 			}),
 		},
 	}

@@ -22,8 +22,8 @@ func TestMain(m *testing.M) {
 const testTimeout = 1 * time.Second
 
 // newTimeoutCtx is a test helper that returns a context with a timeout of
-// [testTimeout] and its cancel function being called in the test cleanup.
-// It should not be used where cancellation is expected sooner.
+// [testTimeout] and its cancel function being called in the test cleanup.  It
+// should not be used where cancelation is expected sooner.
 func newTimeoutCtx(tb testing.TB, parent context.Context) (ctx context.Context) {
 	tb.Helper()
 
@@ -38,9 +38,11 @@ func TestHandler_ServeDNS(t *testing.T) {
 
 	// No-fallbacks handler.
 	handler := forward.NewHandler(&forward.HandlerConfig{
-		Address: netip.MustParseAddrPort(addr),
-		Network: forward.NetworkAny,
-		Timeout: testTimeout,
+		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
+			Network: forward.NetworkAny,
+			Address: netip.MustParseAddrPort(addr),
+			Timeout: testTimeout,
+		}},
 	})
 
 	req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
@@ -58,12 +60,16 @@ func TestHandler_ServeDNS(t *testing.T) {
 func TestHandler_ServeDNS_fallbackNetError(t *testing.T) {
 	srv, _ := dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
 	handler := forward.NewHandler(&forward.HandlerConfig{
-		Address: netip.MustParseAddrPort("127.0.0.1:0"),
-		Network: forward.NetworkAny,
-		FallbackAddresses: []netip.AddrPort{
-			netip.MustParseAddrPort(srv.LocalUDPAddr().String()),
-		},
-		Timeout: testTimeout,
+		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
+			Network: forward.NetworkAny,
+			Address: netip.MustParseAddrPort("127.0.0.1:0"),
+			Timeout: testTimeout,
+		}},
+		FallbackAddresses: []*forward.UpstreamPlainConfig{{
+			Network: forward.NetworkAny,
+			Address: netip.MustParseAddrPort(srv.LocalUDPAddr().String()),
+			Timeout: testTimeout,
+		}},
 	})
 
 	req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
