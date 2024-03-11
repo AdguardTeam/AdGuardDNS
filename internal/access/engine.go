@@ -29,7 +29,8 @@ func newBlockedHostEngine(rules []string) (e *blockedHostEngine) {
 	}
 }
 
-// isBlocked returns true if the req is blocked by this engine.
+// isBlocked returns true if the req is blocked by this engine.  req must have
+// exactly one question.
 func (e *blockedHostEngine) isBlocked(req *dns.Msg) (blocked bool) {
 	e.initOnce.Do(func() {
 		start := time.Now()

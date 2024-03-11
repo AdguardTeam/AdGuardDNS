@@ -30,6 +30,9 @@ const testProfileID agd.ProfileID = "prof1234"
 // TestUpdTime is the common update time for tests.
 var TestUpdTime = time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 
+// testBind includes any IPv4 address.
+var testBind = netip.MustParsePrefix("0.0.0.0/0")
+
 func TestDNSProfile_ToInternal(t *testing.T) {
 	ctx := context.Background()
 
@@ -40,7 +43,7 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 	}
 
 	t.Run("success", func(t *testing.T) {
-		got, gotDevices, err := NewTestDNSProfile(t).toInternal(ctx, TestUpdTime, errColl)
+		got, gotDevices, err := NewTestDNSProfile(t).toInternal(ctx, TestUpdTime, testBind, errColl)
 		require.NoError(t, err)
 
 		assert.Equal(t, newProfile(t), got)
@@ -57,18 +60,44 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		got, gotDevices, err := newDNSProfileWithBadData(t).toInternal(
 			ctx,
 			TestUpdTime,
+			testBind,
 			savingErrColl,
 		)
 		require.NoError(t, err)
-		require.Error(t, errCollErr)
+		testutil.AssertErrorMsg(t, "backendpb: invalid device settings:"+
+			" dedicated ips: ip at index 0: unexpected slice size", errCollErr)
 
 		assert.Equal(t, newProfile(t), got)
 		assert.Equal(t, newDevices(t), gotDevices)
 	})
 
+	t.Run("invalid_device_ded_ip", func(t *testing.T) {
+		var errCollErr error
+		savingErrColl := &agdtest.ErrorCollector{
+			OnCollect: func(_ context.Context, err error) {
+				errCollErr = err
+			},
+		}
+
+		bindSet := netip.MustParsePrefix("2.2.2.2/32")
+		got, gotDevices, err := NewTestDNSProfile(t).toInternal(
+			ctx,
+			TestUpdTime,
+			bindSet,
+			savingErrColl,
+		)
+		require.NoError(t, err)
+		testutil.AssertErrorMsg(t, "backendpb: invalid device settings:"+
+			" dedicated ip \"1.1.1.2\" is not in bind data", errCollErr)
+
+		assert.NotEqual(t, newProfile(t), got)
+		assert.NotEqual(t, newDevices(t), gotDevices)
+		assert.Len(t, gotDevices, 1)
+	})
+
 	t.Run("empty", func(t *testing.T) {
 		var emptyDNSProfile *DNSProfile
-		_, _, err := emptyDNSProfile.toInternal(ctx, TestUpdTime, errColl)
+		_, _, err := emptyDNSProfile.toInternal(ctx, TestUpdTime, testBind, errColl)
 		testutil.AssertErrorMsg(t, "profile is nil", err)
 	})
 
@@ -78,7 +107,7 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 			Deleted: true,
 		}
 
-		got, gotDevices, err := dp.toInternal(ctx, TestUpdTime, errColl)
+		got, gotDevices, err := dp.toInternal(ctx, TestUpdTime, testBind, errColl)
 		require.NoError(t, err)
 		require.NotNil(t, got)
 
@@ -91,7 +120,7 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		dp := NewTestDNSProfile(t)
 		dp.Parental.Schedule.Tmz = "invalid"
 
-		_, _, err := dp.toInternal(ctx, TestUpdTime, errColl)
+		_, _, err := dp.toInternal(ctx, TestUpdTime, testBind, errColl)
 		testutil.AssertErrorMsg(t, "parental: schedule: loading timezone: unknown time zone invalid", err)
 	})
 
@@ -102,7 +131,7 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 			End:   nil,
 		}
 
-		_, _, err := dp.toInternal(ctx, TestUpdTime, errColl)
+		_, _, err := dp.toInternal(ctx, TestUpdTime, testBind, errColl)
 		testutil.AssertErrorMsg(t, "parental: schedule: weekday Sunday: bad day range: end 0 less than start 16", err)
 	})
 
@@ -111,7 +140,7 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		bm := dp.BlockingMode.(*DNSProfile_BlockingModeCustomIp)
 		bm.BlockingModeCustomIp.Ipv4 = []byte("1")
 
-		_, _, err := dp.toInternal(ctx, TestUpdTime, errColl)
+		_, _, err := dp.toInternal(ctx, TestUpdTime, testBind, errColl)
 		testutil.AssertErrorMsg(t, "blocking mode: bad custom ipv4: unexpected slice size", err)
 	})
 
@@ -120,7 +149,7 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		bm := dp.BlockingMode.(*DNSProfile_BlockingModeCustomIp)
 		bm.BlockingModeCustomIp.Ipv6 = []byte("1")
 
-		_, _, err := dp.toInternal(ctx, TestUpdTime, errColl)
+		_, _, err := dp.toInternal(ctx, TestUpdTime, testBind, errColl)
 		testutil.AssertErrorMsg(t, "blocking mode: bad custom ipv6: unexpected slice size", err)
 	})
 
@@ -128,7 +157,7 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		dp := NewTestDNSProfile(t)
 		dp.BlockingMode = nil
 
-		got, gotDevices, err := dp.toInternal(ctx, TestUpdTime, errColl)
+		got, gotDevices, err := dp.toInternal(ctx, TestUpdTime, testBind, errColl)
 		require.NoError(t, err)
 		require.NotNil(t, got)
 
@@ -143,7 +172,7 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		dp := NewTestDNSProfile(t)
 		dp.Access = nil
 
-		got, _, err := dp.toInternal(ctx, TestUpdTime, errColl)
+		got, _, err := dp.toInternal(ctx, TestUpdTime, testBind, errColl)
 		require.NoError(t, err)
 		require.NotNil(t, got)
 
@@ -157,7 +186,7 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 			Enabled: false,
 		}
 
-		got, _, err := dp.toInternal(ctx, TestUpdTime, errColl)
+		got, _, err := dp.toInternal(ctx, TestUpdTime, testBind, errColl)
 		require.NoError(t, err)
 		require.NotNil(t, got)
 
@@ -451,7 +480,7 @@ func BenchmarkDNSProfile_ToInternal(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		profSink, _, errSink = dp.toInternal(ctx, TestUpdTime, errColl)
+		profSink, _, errSink = dp.toInternal(ctx, TestUpdTime, testBind, errColl)
 	}
 
 	require.NotNil(b, profSink)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -30,7 +31,7 @@ func TestServerQUIC_integration_query(t *testing.T) {
 	require.NoError(t, err)
 
 	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(context.Background())
+		return srv.Shutdown(contextWithTimeout(t, testTimeout))
 	})
 
 	// Open a QUIC connection.
@@ -41,28 +42,29 @@ func TestServerQUIC_integration_query(t *testing.T) {
 		return conn.CloseWithError(0, "")
 	})
 
-	// Send multiple queries to the DNS server in parallel
+	const queriesNum = 100
+
 	wg := &sync.WaitGroup{}
+	wg.Add(queriesNum)
 
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-
-		// Create a test message.
+	for i := 0; i < queriesNum; i++ {
 		req := dnsservertest.NewReq("example.org.", dns.TypeA, dns.ClassINET)
 		req.RecursionDesired = true
 
-		// Even requests are sent as if it's an old draft client.
-		doqDraft := i%2 == 0
 		go func() {
 			defer wg.Done()
 
-			resp := sendQUICMessage(t, conn, req, doqDraft)
-			assert.NotNil(t, resp)
+			resp, reqErr := sendQUICMessage(conn, req)
+			// Do not use require, as this is a separate goroutine.
+			if !assert.NoError(t, reqErr) || !assert.NotNil(t, resp) {
+				return
+			}
+
 			assert.True(t, resp.Response)
 
 			// EDNS0 padding is only present when request also has padding opt.
 			paddingOpt := dnsservertest.FindEDNS0Option[*dns.EDNS0_PADDING](resp)
-			require.Nil(t, paddingOpt)
+			assert.Nil(t, paddingOpt)
 		}()
 	}
 
@@ -78,7 +80,7 @@ func TestServerQUIC_integration_ENDS0Padding(t *testing.T) {
 	require.NoError(t, err)
 
 	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(context.Background())
+		return srv.Shutdown(contextWithTimeout(t, testTimeout))
 	})
 
 	// Open a QUIC connection.
@@ -92,7 +94,7 @@ func TestServerQUIC_integration_ENDS0Padding(t *testing.T) {
 	req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
 	req.Extra = []dns.RR{dnsservertest.NewEDNS0Padding(req.Len(), dns.DefaultMsgSize)}
 
-	resp := sendQUICMessage(t, conn, req, false)
+	resp := requireSendQUICMessage(t, conn, req)
 	require.NotNil(t, resp)
 	require.Equal(t, dns.RcodeSuccess, resp.Rcode)
 	require.True(t, resp.Response)
@@ -112,7 +114,7 @@ func TestServerQUIC_integration_0RTT(t *testing.T) {
 	require.NoError(t, err)
 
 	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(context.Background())
+		return srv.Shutdown(contextWithTimeout(t, testTimeout))
 	})
 
 	quicTracer := dnsservertest.NewQUICTracer()
@@ -150,7 +152,7 @@ func TestServerQUIC_integration_largeQuery(t *testing.T) {
 	require.NoError(t, err)
 
 	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(context.Background())
+		return srv.Shutdown(contextWithTimeout(t, testTimeout))
 	})
 
 	// Open a QUIC connection.
@@ -174,7 +176,7 @@ func TestServerQUIC_integration_largeQuery(t *testing.T) {
 		},
 	}
 
-	resp := sendQUICMessage(t, conn, req, false)
+	resp := requireSendQUICMessage(t, conn, req)
 	require.NotNil(t, resp)
 	require.True(t, resp.Response)
 }
@@ -202,64 +204,77 @@ func testQUICExchange(
 	req := dnsservertest.NewReq("example.org.", dns.TypeA, dns.ClassINET)
 	req.RecursionDesired = true
 
-	resp := sendQUICMessage(t, conn, req, false)
+	resp := requireSendQUICMessage(t, conn, req)
 	require.NotNil(t, resp)
 }
 
 // sendQUICMessage is a test helper that sends a test QUIC message.
 func sendQUICMessage(
-	t testing.TB,
 	conn quic.Connection,
 	req *dns.Msg,
-	doqDraft bool,
-) (resp *dns.Msg) {
-	t.Helper()
-
+) (resp *dns.Msg, err error) {
 	stream, err := conn.OpenStreamSync(context.Background())
-	require.NoError(t, err)
-
-	defer log.OnCloserError(stream, log.DEBUG)
-
-	data, err := req.Pack()
-	require.NoError(t, err)
-
-	var buf []byte
-	if doqDraft {
-		buf = data
-	} else {
-		buf = make([]byte, 2+len(data))
-		binary.BigEndian.PutUint16(buf, uint16(len(data)))
-		copy(buf[2:], data)
+	if err != nil {
+		return nil, fmt.Errorf("opening stream: %w", err)
 	}
 
+	defer log.OnCloserError(stream, log.ERROR)
+
+	data, err := req.Pack()
+	if err != nil {
+		return nil, fmt.Errorf("packing: %w", err)
+	}
+
+	buf := make([]byte, 2+len(data))
+	binary.BigEndian.PutUint16(buf, uint16(len(data)))
+	copy(buf[2:], data)
+
 	err = writeQUICStream(buf, stream)
-	require.NoError(t, err)
+	if err != nil {
+		return nil, fmt.Errorf("writing: %w", err)
+	}
 
 	// Closes the write-direction of the stream and sends a STREAM FIN packet.
 	// A DoQ client MUST send a FIN packet to indicate that the query is
 	// finished.
 	err = stream.Close()
-	require.NoError(t, err)
+	if err != nil {
+		return nil, fmt.Errorf("closing stream: %w", err)
+	}
 
-	// Now read the response.
 	respBytes := make([]byte, dns.MaxMsgSize)
 	n, err := stream.Read(respBytes)
-	if !errors.Is(err, io.EOF) {
-		require.NoError(t, err)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("reading stream: %w", err)
 	}
 
-	require.GreaterOrEqual(t, n, dnsserver.DNSHeaderSize)
+	if n < dnsserver.DNSHeaderSize {
+		return nil, fmt.Errorf("read %d, want %d", n, dnsserver.DNSHeaderSize)
+	}
 
-	// Unpack the response.
 	reply := &dns.Msg{}
-	if doqDraft {
-		err = reply.Unpack(respBytes[:n])
-	} else {
-		err = reply.Unpack(respBytes[2:n])
+	err = reply.Unpack(respBytes[2:n])
+	if err != nil {
+		return nil, fmt.Errorf("unpacking: %w", err)
 	}
+
+	return reply, nil
+}
+
+// requireSendQUICMessage is a test helper that sends a test QUIC message and
+// requires it to succeed.  It must not be used in a goroutine with the outer
+// test's t.
+func requireSendQUICMessage(
+	t testing.TB,
+	conn quic.Connection,
+	req *dns.Msg,
+) (resp *dns.Msg) {
+	t.Helper()
+
+	resp, err := sendQUICMessage(conn, req)
 	require.NoError(t, err)
 
-	return reply
+	return resp
 }
 
 // writeQUICStream writes buf to the specified QUIC stream in chunks.  This way

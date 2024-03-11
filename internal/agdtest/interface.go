@@ -39,7 +39,7 @@ var _ access.Interface = (*AccessManager)(nil)
 // AccessManager is a [access.Interface] for tests.
 type AccessManager struct {
 	OnIsBlockedHost func(host string, qt uint16) (blocked bool)
-	OnIsBlockedIP   func(ip netip.Addr) (blocked bool, rule string)
+	OnIsBlockedIP   func(ip netip.Addr) (blocked bool)
 }
 
 // IsBlockedHost implements the [access.Interface] interface for *AccessManager.
@@ -48,7 +48,7 @@ func (a *AccessManager) IsBlockedHost(host string, qt uint16) (blocked bool) {
 }
 
 // IsBlockedIP implements the [access.Interface] interface for *AccessManager.
-func (a *AccessManager) IsBlockedIP(ip netip.Addr) (blocked bool, rule string) {
+func (a *AccessManager) IsBlockedIP(ip netip.Addr) (blocked bool) {
 	return a.OnIsBlockedIP(ip)
 }
 

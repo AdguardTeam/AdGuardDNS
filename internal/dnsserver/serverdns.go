@@ -108,6 +108,8 @@ func NewServerDNS(conf ConfigDNS) (s *ServerDNS) {
 // server with a TLS layer on top of it.
 func newServerDNS(proto Protocol, conf ConfigDNS) (s *ServerDNS) {
 	// Init default settings first.
+	//
+	// TODO(a.garipov): Use cmp.Or in Go 1.22.
 	if conf.ReadTimeout == 0 {
 		conf.ReadTimeout = DefaultReadTimeout
 	}

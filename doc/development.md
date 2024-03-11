@@ -315,8 +315,8 @@ Open `http://127.0.0.1:8081/metrics` to see the server's metrics.
 DNSCrypt is a bit trickier.  You need to open `dnscrypt.yml` and use values from
 there to generate an SDNS stamp on <https://dnscrypt.info/stamps>.
 
-**NOTE:**  The example below is for a test configuration that won't work for
-you.
+ >  [!NOTE]
+ >  The example below is for a test configuration that won't work for you.
 
 ```sh
 dnslookup example.org sdns://AQcAAAAAAAAADjEyNy4wLjAuMTo1NDQzIAbKgP3dmXybr1DaKIFgKjsc8zSFX4rgT_hFgymSq6w1FzIuZG5zY3J5cHQtY2VydC50ZXN0ZG5z

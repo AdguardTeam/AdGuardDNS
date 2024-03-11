@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -16,8 +17,10 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
 	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
+	"github.com/AdguardTeam/golibs/service"
 	"github.com/caarlos0/env/v7"
 	"github.com/getsentry/sentry-go"
 )
@@ -56,6 +59,7 @@ type environments struct {
 
 	LogTimestamp    strictBool `env:"LOG_TIMESTAMP" envDefault:"1"`
 	LogVerbose      strictBool `env:"VERBOSE" envDefault:"0"`
+	ProfilesEnabled strictBool `env:"PROFILES_ENABLED" envDefault:"1"`
 	ResearchMetrics strictBool `env:"RESEARCH_METRICS" envDefault:"0"`
 	ResearchLogs    strictBool `env:"RESEARCH_LOGS" envDefault:"0"`
 }
@@ -71,8 +75,9 @@ func readEnvs() (envs *environments, err error) {
 	return envs, nil
 }
 
-// configureLogs sets the configuration for the plain text logs.
-func (envs *environments) configureLogs() {
+// configureLogs sets the configuration for the plain text logs.  It also
+// returns a [slog.Logger] for code that uses it.
+func (envs *environments) configureLogs() (slogLogger *slog.Logger) {
 	var flags int
 	if envs.LogTimestamp {
 		flags = log.LstdFlags | log.Lmicroseconds
@@ -83,6 +88,13 @@ func (envs *environments) configureLogs() {
 	if envs.LogVerbose {
 		log.SetLevel(log.DEBUG)
 	}
+
+	return slogutil.New(&slogutil.Config{
+		Output:       os.Stdout,
+		Format:       slogutil.FormatAdGuardLegacy,
+		AddTimestamp: bool(envs.LogTimestamp),
+		Verbose:      bool(envs.LogVerbose),
+	})
 }
 
 // buildErrColl builds and returns an error collector from environment.
@@ -158,7 +170,7 @@ func (envs *environments) debugConf(dnsDB dnsdb.Interface) (conf *debugsvc.Confi
 // buildRuleStat returns a filtering rule statistics collector from environment and
 // registers its refresher in sigHdlr, if necessary.
 func (envs *environments) buildRuleStat(
-	sigHdlr signalHandler,
+	sigHdlr *service.SignalHandler,
 	errColl errcoll.Interface,
 ) (r rulestat.Interface, err error) {
 	if envs.RuleStatURL == nil {
@@ -187,7 +199,7 @@ func (envs *environments) buildRuleStat(
 		return nil, fmt.Errorf("starting rulestat refresher: %w", err)
 	}
 
-	sigHdlr.add(refr)
+	sigHdlr.Add(refr)
 
 	return httpRuleStat, nil
 }

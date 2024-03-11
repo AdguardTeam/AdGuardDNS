@@ -200,6 +200,7 @@ func (c *Constructor) AppendDebugExtra(req, resp *dns.Msg, str string) (err erro
 	// positive numbers, but we need a ceiling operation here.
 	strNum := (strLen + MaxTXTStringLen - 1) / MaxTXTStringLen
 
+	// TODO(a.garipov): Use slices.Chunk in Go 1.23.
 	newStr := make([]string, strNum)
 	for i := 0; i < strNum; i++ {
 		start := i * MaxTXTStringLen

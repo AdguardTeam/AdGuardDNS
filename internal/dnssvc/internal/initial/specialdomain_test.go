@@ -198,9 +198,10 @@ func TestMiddleware_ServeDNS_specialDomain(t *testing.T) {
 					Protocol:        agd.ProtoDNS,
 					LinkedIPEnabled: true,
 				},
-				ProfileDB: db,
-				GeoIP:     geoIP,
-				ErrColl:   errColl,
+				ProfileDB:        db,
+				GeoIP:            geoIP,
+				ErrColl:          errColl,
+				ProfileDBEnabled: true,
 			})
 
 			h := mw.Wrap(handler)

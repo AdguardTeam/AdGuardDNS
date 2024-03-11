@@ -23,6 +23,15 @@ var DevicesNewCountGauge = promauto.NewGauge(prometheus.GaugeOpts{
 	Help:      "The number of user devices that were changed or added since the previous sync.",
 })
 
+// DevicesInvalidTotal is a gauge with the number of invalid user devices loaded
+// from the backend.
+var DevicesInvalidTotal = promauto.NewCounter(prometheus.CounterOpts{
+	Name:      "devices_invalid_total",
+	Subsystem: subsystemBackend,
+	Namespace: namespace,
+	Help:      "The total number of invalid user devices loaded from the backend.",
+})
+
 // ProfilesCountGauge is a gauge with the total number of user profiles loaded
 // from the backend.
 var ProfilesCountGauge = promauto.NewGauge(prometheus.GaugeOpts{

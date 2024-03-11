@@ -24,6 +24,9 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/service"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
 
@@ -41,7 +44,8 @@ func Main() {
 	envs, err := readEnvs()
 	check(err)
 
-	envs.configureLogs()
+	// TODO(a.garipov): Use slog everywhere.
+	slogLogger := envs.configureLogs()
 
 	// Signal service startup now that we have the logs set up.
 	log.Info("main: starting adguard dns")
@@ -70,7 +74,9 @@ func Main() {
 
 	// Signal handler
 
-	sigHdlr := newSignalHandler()
+	sigHdlr := service.NewSignalHandler(&service.SignalHandlerConfig{
+		Logger: slogLogger.With(slogutil.KeyPrefix, service.SignalHandlerPrefix),
+	})
 
 	// GeoIP database
 
@@ -160,7 +166,7 @@ func Main() {
 
 	accessGlobal, err := access.NewGlobal(
 		c.Access.BlockedQuestionDomains,
-		c.Access.BlockedClientSubnets,
+		netutil.UnembedPrefixes(c.Access.BlockedClientSubnets),
 	)
 	check(err)
 
@@ -180,12 +186,14 @@ func Main() {
 	srvGrps, err := c.ServerGroups.toInternal(messages, btdMgr, fltGroups, c.RateLimit, c.DNS)
 	check(err)
 
+	ctx := context.Background()
+
 	// Start the bind-to-device manager here, now that no further calls to
 	// btdMgr.ListenConfig are required.
-	err = btdMgr.Start(context.Background())
+	err = btdMgr.Start(ctx)
 	check(err)
 
-	sigHdlr.add(btdMgr)
+	sigHdlr.Add(btdMgr)
 
 	// TLS keys logging
 
@@ -202,7 +210,7 @@ func Main() {
 
 	// Profiles database and billing statistics
 
-	profDB, billStatRec, err := setupBackend(c.Backend, envs, sigHdlr, errColl)
+	profDB, billStatRec, err := setupBackend(c.Backend, srvGrps, envs, sigHdlr, errColl)
 	check(err)
 
 	// DNS checker
@@ -230,7 +238,7 @@ func Main() {
 	// Wait for long-running GeoIP initialization.
 	check(<-geoIPErrCh)
 
-	sigHdlr.add(geoIPRefr)
+	sigHdlr.Add(geoIPRefr)
 
 	// Web service
 
@@ -240,9 +248,9 @@ func Main() {
 	webSvc := websvc.New(webConf)
 	// The web service is considered critical, so its Start method panics
 	// instead of returning an error.
-	_ = webSvc.Start(context.Background())
+	_ = webSvc.Start(ctx)
 
-	sigHdlr.add(webSvc)
+	sigHdlr.Add(webSvc)
 
 	// DNS service
 
@@ -284,6 +292,7 @@ func Main() {
 		CacheMinTTL:         c.Cache.TTLOverride.Min.Duration,
 		UseCacheTTLOverride: c.Cache.TTLOverride.Enabled,
 		UseECSCache:         c.Cache.Type == cacheTypeECS,
+		ProfileDBEnabled:    bool(envs.ProfilesEnabled),
 		ResearchMetrics:     bool(envs.ResearchMetrics),
 		ResearchLogs:        bool(envs.ResearchLogs),
 	}
@@ -297,16 +306,16 @@ func Main() {
 	check(err)
 
 	upstreamHealthcheckUpd := newUpstreamHealthcheck(handler, c.Upstream, errColl)
-	err = upstreamHealthcheckUpd.Start(context.Background())
+	err = upstreamHealthcheckUpd.Start(ctx)
 	check(err)
 
-	sigHdlr.add(upstreamHealthcheckUpd)
+	sigHdlr.Add(upstreamHealthcheckUpd)
 
 	// The DNS service is considered critical, so its Start method panics
 	// instead of returning an error.
-	_ = dnsSvc.Start(context.Background())
+	_ = dnsSvc.Start(ctx)
 
-	sigHdlr.add(dnsSvc)
+	sigHdlr.Add(dnsSvc)
 
 	// Debug HTTP-service
 
@@ -314,9 +323,9 @@ func Main() {
 
 	// The debug HTTP service is considered critical, so its Start method panics
 	// instead of returning an error.
-	_ = debugSvc.Start(context.Background())
+	_ = debugSvc.Start(ctx)
 
-	sigHdlr.add(debugSvc)
+	sigHdlr.Add(debugSvc)
 
 	// Signal that the server is started.
 	metrics.SetUpGauge(
@@ -327,7 +336,7 @@ func Main() {
 		runtime.Version(),
 	)
 
-	os.Exit(sigHdlr.handle())
+	os.Exit(sigHdlr.Handle(ctx))
 }
 
 // collectPanics reports all panics in Main.  It should be called in a defer.

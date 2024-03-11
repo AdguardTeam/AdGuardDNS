@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"strings"
 
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/stringutil"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/AdguardTeam/urlfilter/filterlist"
@@ -23,26 +24,20 @@ type Interface interface {
 
 	// IsBlockedIP returns the status of the IP address blocking as well as the
 	// rule that blocked it.
-	IsBlockedIP(ip netip.Addr) (blocked bool, rule string)
+	IsBlockedIP(ip netip.Addr) (blocked bool)
 }
 
 // Global controls IP and client blocking that takes place before all other
 // processing.  Global is safe for concurrent use.
 type Global struct {
-	blockedIPs      map[netip.Addr]string
 	blockedHostsEng *urlfilter.DNSEngine
-	blockedNets     []netip.Prefix
+	blockedNets     netutil.SubnetSet
 }
 
 // NewGlobal create a new Global from provided parameters.
-func NewGlobal(blockedDomains, blockedSubnets []string) (g *Global, err error) {
+func NewGlobal(blockedDomains []string, blockedSubnets []netip.Prefix) (g *Global, err error) {
 	g = &Global{
-		blockedIPs: map[netip.Addr]string{},
-	}
-
-	err = processAccessList(blockedSubnets, g.blockedIPs, &g.blockedNets)
-	if err != nil {
-		return nil, fmt.Errorf("adding blocked hosts: %w", err)
+		blockedNets: netutil.SliceSubnetSet(blockedSubnets),
 	}
 
 	b := &strings.Builder{}
@@ -68,24 +63,6 @@ func NewGlobal(blockedDomains, blockedSubnets []string) (g *Global, err error) {
 	return g, nil
 }
 
-// processAccessList is a helper for processing a list of strings, each of them
-// could be an IP address or a CIDR.
-func processAccessList(strs []string, ips map[netip.Addr]string, nets *[]netip.Prefix) (err error) {
-	for _, s := range strs {
-		var ip netip.Addr
-		var ipnet netip.Prefix
-		if ip, err = netip.ParseAddr(s); err == nil {
-			ips[ip] = ip.String()
-		} else if ipnet, err = netip.ParsePrefix(s); err == nil {
-			*nets = append(*nets, ipnet)
-		} else {
-			return fmt.Errorf("cannot parse subnet or ip address: %q", s)
-		}
-	}
-
-	return nil
-}
-
 // type check
 var _ Interface = (*Global)(nil)
 
@@ -104,16 +81,6 @@ func (g *Global) IsBlockedHost(host string, qt uint16) (blocked bool) {
 }
 
 // IsBlockedIP implements the [Interface] interface for *Global.
-func (g *Global) IsBlockedIP(ip netip.Addr) (blocked bool, rule string) {
-	if ipStr, ok := g.blockedIPs[ip]; ok {
-		return true, ipStr
-	}
-
-	for _, ipnet := range g.blockedNets {
-		if ipnet.Contains(ip) {
-			return true, ipnet.String()
-		}
-	}
-
-	return false, ""
+func (g *Global) IsBlockedIP(ip netip.Addr) (blocked bool) {
+	return g.blockedNets.Contains(ip)
 }

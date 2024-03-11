@@ -23,6 +23,7 @@ sensitive configuration.  All other configuration is stored in the
  *  [`LOG_TIMESTAMP`](#LOG_TIMESTAMP)
  *  [`NEW_REG_DOMAINS_URL`](#NEW_REG_DOMAINS_URL)
  *  [`PROFILES_CACHE_PATH`](#PROFILES_CACHE_PATH)
+ *  [`PROFILES_ENABLED`](#PROFILES_ENABLED)
  *  [`PROFILES_URL`](#PROFILES_URL)
  *  [`QUERYLOG_PATH`](#QUERYLOG_PATH)
  *  [`RESEARCH_LOGS`](#RESEARCH_LOGS)
@@ -233,6 +234,14 @@ The profile cache is read on start and is later updated on every
 **Default:** `./profilecache.pb`.
 
 [conf-backend-full_refresh_interval]: configuration.md#backend-full_refresh_interval
+
+
+
+##  <a href="#PROFILES_ENABLED" id="PROFILES_ENABLED" name="PROFILES_ENABLED">`PROFILES_ENABLED`</a>
+
+If `0`, disables user profiles and devices recognition and billing.
+
+**Default:** `1`.
 
 
 

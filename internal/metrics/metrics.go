@@ -35,6 +35,16 @@ const (
 	subsystemWebSvc       = "websvc"
 )
 
+const (
+	// dontStoreLabel is a label that signals that the metric should not be
+	// stored in the long-term storage.
+	dontStoreLabel = "do_not_store_metric"
+
+	// dontStoreLabelValue is a positive value of the [dontStoreLabel] label to
+	// avoid calling [BoolString] every time.
+	dontStoreLabelValue = "1"
+)
+
 // SetUpGauge signals that the server has been started.  Use a function here to
 // avoid circular dependencies.
 func SetUpGauge(version, buildtime, branch, revision, goversion string) {

@@ -10,12 +10,12 @@ import (
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/mapsutil"
+	"github.com/AdguardTeam/golibs/service"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/miekg/dns"
 )
@@ -211,12 +211,12 @@ func (m *Manager) validateIfaceSubnet(ifaceName string, subnet netip.Prefix) (er
 }
 
 // type check
-var _ agdservice.Interface = (*Manager)(nil)
+var _ service.Interface = (*Manager)(nil)
 
-// Start implements the [agdservice.Interface] interface for *Manager.  If m is
+// Start implements the [service.Interface] interface for *Manager.  If m is
 // nil, Start returns nil, since this feature is optional.
 //
-// TODO(a.garipov): Consider an interface solution.
+// TODO(a.garipov): Consider an interface solution instead of the nil exception.
 //
 // TODO(a.garipov): Use the context for cancelation.
 func (m *Manager) Start(_ context.Context) (err error) {
@@ -249,12 +249,15 @@ func (m *Manager) Start(_ context.Context) (err error) {
 	return nil
 }
 
-// Shutdown implements the [agdservice.Interface] interface for *Manager.  If m
-// is nil, Shutdown returns nil, since this feature is optional.
-//
-// TODO(a.garipov): Consider an interface solution.
+// Shutdown implements the [service.Interface] interface for *Manager.  Shutdown
+// does not actually wait for all sockets to close.  If m is nil, Shutdown
+// returns nil, since this feature is optional.
 //
 // TODO(a.garipov): Consider waiting for all sockets to close.
+//
+// TODO(a.garipov): Use the context for cancelation.
+//
+// TODO(a.garipov): Consider an interface solution instead of the nil exception.
 func (m *Manager) Shutdown(_ context.Context) (err error) {
 	if m == nil {
 		return nil

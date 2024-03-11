@@ -28,8 +28,9 @@ configuration file with comments.
  *  [Filtering groups](#filtering_groups)
  *  [Network interface listeners](#interface_listeners)
  *  [Server groups](#server_groups)
-     *  [TLS](#server_groups-*-tls)
+     *  [Block-page redirecting](#server_groups-*-block_page_redirect)
      *  [DDR](#server_groups-*-ddr)
+     *  [TLS](#server_groups-*-tls)
      *  [Servers](#server_groups-*-servers-*)
  *  [Connectivity check](#connectivity-check)
  *  [Network settings](#network)
@@ -108,9 +109,10 @@ Currently, there are the following recommendations for parameters
     TCP sockets.  That is, if the instance currently has a maximum of 100 000
     TCP sockets in use every day, `resume` should be set to about `120000`.
 
-**NOTE:** The number of active stream-connections includes sockets that are
-in the process of accepting new connections but have not yet accepted one.  That
-means that `resume` should be greater than the number of bound addresses.
+ >  [!NOTE]
+ >  The number of active stream-connections includes sockets that are in the
+ >  process of accepting new connections but have not yet accepted one.  That
+ >  means that `resume` should be greater than the number of bound addresses.
 
 These recommendations are to be revised based on the metrics.
 
@@ -776,7 +778,7 @@ The `filters` object has the following properties:
  *  <a href="#filters-refresh_timeout" id="filters-refresh_timeout" name="filters-refresh_timeout">`refresh_timeout`</a>:
     The timeout for the *entire* filter update operation, as a human-readable
     duration.  Be aware that each individual refresh operation also has its own
-    hardcoded 30s timeout.
+    hardcoded 3m timeout.
 
     **Example:** `5m`.
 
@@ -890,9 +892,10 @@ The items of the `filtering_groups` array have the following properties:
 
 ##  <a href="#interface_listeners" id="interface_listeners" name="interface_listeners">Network interface listeners</a>
 
-**NOTE:** The network interface listening works only on Linux with
-`SO_BINDTODEVICE` support (2.0.30 and later) and properly setup IP routes.  See
-the [section on testing `SO_BINDTODEVICE` using Docker][dev-btd].
+ >  [!NOTE]
+ >  The network interface listening works only on Linux with `SO_BINDTODEVICE`
+ >  support (2.0.30 and later) and properly setup IP routes.  See the [section
+ >  on testing `SO_BINDTODEVICE` using Docker][dev-btd].
 
 The `interface_listeners` object has the following properties:
 
@@ -936,52 +939,83 @@ The items of the `server_groups` array have the following properties:
 
     **Example:** `default`.
 
- *  `tls`: The optional TLS configuration object.  See
-    [below](#server_groups-*-tls).
+ *  `block_page_redirect`: The block-page redirect configuration object.  See
+    [below](#server_groups-*-block_page_redirect).
 
  *  `ddr`: The DDR configuration object.  See [below](#server_groups-*-ddr).
+
+ *  `tls`: The TLS configuration object.  See [below](#server_groups-*-tls).
+
+     >  [!NOTE]
+     >  The `tls` object is optional unless the [`servers`
+     >  array](#server_groups-*-servers-*) contains at least one item with an
+     >  encrypted protocol.
 
  *  `servers`: Server configuration for this filtering group.  See
     [below](#server_groups-*-servers-*).
 
 
 
-   ###  <a href="#server_groups-*-tls" id="server_groups-*-tls" name="server_groups-*-tls">TLS</a>
+   ###  <a href="#server_groups-*-block_page_redirect" id="server_groups-*-block_page_redirect" name="server_groups-*-block_page_redirect">Block-page redirecting</a>
 
- *  <a href="#sg-*-tls-certificates" id="sg-*-tls-certificates" name="sg-*-tls-certificates">`certificates`</a>:
-    The array of objects with paths to the certificate and the private key for
-    this server group.
+The block-page redirect configuration object.  If enabled, AdGuard DNS responds
+with the configured IP addresses to “redirect” users to an informative block
+page.
+
+ *  <a href="#sg-*-bpr-enabled" id="sg-*-bpr-enabled" name="sg-*-bpr-enabled">`enabled`</a>:
+
+    Shows if the block-page redirect is enabled.  If `false`, the fields below
+    can be skipped.
+
+ *  <a href="#sg-*-bpr-ipv4" id="sg-*-bpr-ipv4" name="sg-*-bpr-ipv4">`ipv4`</a>:
+
+    Arrays of IPv4 addresses with which to respond to blocked `A` queries.
+
+    If `enabled` is true, `ipv4`, `ipv6`, or both must be filled.
+
+ *  <a href="#sg-*-bpr-ipv6" id="sg-*-bpr-ipv6" name="sg-*-bpr-ipv6">`ipv6`</a>:
+
+    Arrays of IPv6 addresses with which to respond to blocked `AAAA` queries.
+
+    If `enabled` is true, `ipv4`, `ipv6`, or both must be filled.
+
+ *  <a href="#sg-*-bpr-apply" id="sg-*-bpr-apply" name="sg-*-bpr-apply">`apply`</a>:
+
+    Request parameters based on which the block-page redirect is always
+    performed.  For requests matching these parameters, both `skip` and
+    `probability` are
+    ignored.
 
     **Property example:**
 
     ```yaml
-    'certificates':
-      - 'certificate': '/etc/dns/cert.crt'
-        'key': '/etc/dns/cert.key'
+    apply:
+        client:
+          - address: '192.168.0.0/16'
+          - address: '1.2.3.4'
     ```
 
- *  <a href="#sg-*-tls-session_keys" id="sg-*-tls-session_keys" name="sg-*-tls-session_keys">`session_keys`</a>:
-    The array of file paths from which the each server's TLS session keys are
-    updated.  Session ticket key files must contain at least 32 bytes.
+ *  <a href="#sg-*-bpr-skip" id="sg-*-bpr-skip" name="sg-*-bpr-skip">`skip`</a>:
+
+    Request parameters based on which the block-page redirect is never
+    performed.  For requests matching these parameters, `probability` is
+    ignored.
 
     **Property example:**
 
     ```yaml
-    'session_keys':
-      - './private/key_1'
-      - './private/key_2'
+    skip:
+        client:
+          - address: '1.2.0.0/16'
+          - address: '5.6.7.8'
+        question:
+          - domain: 'do-not-show-block.site.example'
     ```
 
- *  <a href="#sg-*-tls-device_id_wildcards" id="sg-*-tls-device_id_wildcards" name="sg-*-tls-device_id_wildcards">`device_id_wildcards`</a>:
-    The array of domain name wildcards to use to detect clients' device IDs.
-    Use this to prevent conflicts when using certificates for subdomains.
+ *  <a href="#sg-*-bpr-probability" id="sg-*-bpr-probability" name="sg-*-bpr-probability">`probability`</a>:
 
-    **Property example:**
-
-    ```yaml
-    'device_id_wildcards':
-      - '*.d.dns.example.com'
-    ```
+    The probability of responding with the block page IPs based on remote
+    address.  Must be between `0.0` and `1.0`.
 
 
 
@@ -1059,6 +1093,45 @@ collected the required data was not self-describing and flexible enough.
     The public domain name to DDR record template mapping.  The format of the
     values is the same as in the [`device_records`](#sg-*-ddr-device_records)
     above.
+
+
+
+   ###  <a href="#server_groups-*-tls" id="server_groups-*-tls" name="server_groups-*-tls">TLS</a>
+
+ *  <a href="#sg-*-tls-certificates" id="sg-*-tls-certificates" name="sg-*-tls-certificates">`certificates`</a>:
+    The array of objects with paths to the certificate and the private key for
+    this server group.
+
+    **Property example:**
+
+    ```yaml
+    'certificates':
+      - 'certificate': '/etc/dns/cert.crt'
+        'key': '/etc/dns/cert.key'
+    ```
+
+ *  <a href="#sg-*-tls-session_keys" id="sg-*-tls-session_keys" name="sg-*-tls-session_keys">`session_keys`</a>:
+    The array of file paths from which the each server's TLS session keys are
+    updated.  Session ticket key files must contain at least 32 bytes.
+
+    **Property example:**
+
+    ```yaml
+    'session_keys':
+      - './private/key_1'
+      - './private/key_2'
+    ```
+
+ *  <a href="#sg-*-tls-device_id_wildcards" id="sg-*-tls-device_id_wildcards" name="sg-*-tls-device_id_wildcards">`device_id_wildcards`</a>:
+    The array of domain name wildcards to use to detect clients' device IDs.
+    Use this to prevent conflicts when using certificates for subdomains.
+
+    **Property example:**
+
+    ```yaml
+    'device_id_wildcards':
+      - '*.d.dns.example.com'
+    ```
 
 
 

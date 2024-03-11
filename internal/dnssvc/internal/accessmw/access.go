@@ -45,7 +45,7 @@ func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
 		defer func() { err = errors.Annotate(err, "access mw: %w") }()
 
 		rAddr := netutil.NetAddrToAddrPort(rw.RemoteAddr()).Addr()
-		if blocked, _ := mw.accessManager.IsBlockedIP(rAddr); blocked {
+		if blocked := mw.accessManager.IsBlockedIP(rAddr); blocked {
 			metrics.AccessBlockedForSubnetTotal.Inc()
 
 			return nil

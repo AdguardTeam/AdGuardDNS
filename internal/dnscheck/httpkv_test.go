@@ -209,7 +209,75 @@ func TestHTTPKV(t *testing.T) {
 
 		dnsCk.ServeHTTP(rw, r)
 		assert.Equal(t, http.StatusInternalServerError, rw.Code)
+		assert.Equal(t, wantResp, rw.Body.String())
+	})
+}
 
+// newKVErrorServer returns URLs emulating behavior of Consul KV database
+// server returning HTTP errors.
+func newKVErrorServer(t *testing.T) (kv, sess *url.URL) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+
+	u, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+
+	return u.JoinPath(kvPath), u.JoinPath(sessPath)
+}
+
+func TestHTTPKV_status_error(t *testing.T) {
+	const (
+		randomid    = "randomid"
+		localDomain = "example.local"
+	)
+
+	conf := &dnscheck.ConsulConfig{
+		Messages: &dnsmsg.Constructor{},
+		ErrColl: &agdtest.ErrorCollector{
+			OnCollect: func(_ context.Context, _ error) {},
+		},
+		Domains:      []string{localDomain},
+		NodeLocation: "some-node-location",
+		NodeName:     "some-node-name",
+		TTL:          1 * time.Minute,
+	}
+
+	conf.ConsulKVURL, conf.ConsulSessionURL = newKVErrorServer(t)
+	dnsCk, err := dnscheck.NewConsul(conf)
+	require.NoError(t, err)
+
+	req := dnsservertest.CreateMessage(randomid+"-"+localDomain, dns.TypeA)
+	ri := &agd.RequestInfo{
+		Device:      &agd.Device{ID: "some-device-id"},
+		Profile:     &agd.Profile{ID: "some-profile-id"},
+		ServerGroup: "some-server-group-name",
+		Server:      "some-server-name",
+		Host:        randomid + "-" + localDomain,
+		RemoteIP:    testRemoteIP,
+		QType:       dns.TypeA,
+		Proto:       agd.ProtoDNS,
+	}
+
+	_, err = dnsCk.Check(context.Background(), req, ri)
+	require.NoError(t, err)
+
+	dnscheck.FlushConsulCache(t, dnsCk)
+
+	t.Run("fail", func(t *testing.T) {
+		const wantResp = `getting from consul: response for key "randomid": server "": ` +
+			`status code error: expected 200, got 500` + "\n"
+
+		r := httptest.NewRequest(http.MethodGet, (&url.URL{
+			Scheme: "http",
+			Host:   randomid + "-" + localDomain,
+			Path:   "/dnscheck/test",
+		}).String(), strings.NewReader(""))
+		rw := httptest.NewRecorder()
+
+		dnsCk.ServeHTTP(rw, r)
+		assert.Equal(t, http.StatusInternalServerError, rw.Code)
 		assert.Equal(t, wantResp, rw.Body.String())
 	})
 }

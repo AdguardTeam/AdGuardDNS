@@ -13,10 +13,9 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/service"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
-
-// DNS upstream configuration
 
 // upstreamConfig is the upstream module configuration.
 type upstreamConfig struct {
@@ -160,9 +159,9 @@ func newUpstreamHealthcheck(
 	handler *forward.Handler,
 	conf *upstreamConfig,
 	errColl errcoll.Interface,
-) (refr agdservice.Interface) {
+) (refr service.Interface) {
 	if !conf.Healthcheck.Enabled {
-		return agdservice.Empty{}
+		return service.Empty{}
 	}
 
 	return agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{

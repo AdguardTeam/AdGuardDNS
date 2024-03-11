@@ -66,10 +66,10 @@ var compatProtoDQ = []string{"doq-i00", "doq-i02", "doq-i03", "dq"}
 // ConfigQUIC is a struct that needs to be passed to NewServerQUIC to
 // initialize a new ServerQUIC instance.
 type ConfigQUIC struct {
-	ConfigBase
-
 	// TLSConfig is the TLS configuration for QUIC.
 	TLSConfig *tls.Config
+
+	ConfigBase
 
 	// MaxStreamsPerPeer is the maximum number of concurrent streams that a peer
 	// is allowed to open.
@@ -82,8 +82,6 @@ type ConfigQUIC struct {
 // ServerQUIC is a DNS-over-QUIC server implementation.
 type ServerQUIC struct {
 	*ServerBase
-
-	conf ConfigQUIC
 
 	// pool is a goroutine pool we use to process DNS queries.  Complicated
 	// logic may require growing the goroutine's stack and we experienced it
@@ -100,6 +98,10 @@ type ServerQUIC struct {
 
 	// quicListener is a listener that we use to accept DoQ connections.
 	quicListener *quic.Listener
+
+	// TODO(a.garipov): Remove this and only save the values a server actually
+	// uses.
+	conf ConfigQUIC
 }
 
 // quicBytePoolSize is the size for the QUIC byte pools.
@@ -120,10 +122,10 @@ func NewServerQUIC(conf ConfigQUIC) (s *ServerQUIC) {
 
 	s = &ServerQUIC{
 		ServerBase: newServerBase(ProtoDoQ, conf.ConfigBase),
-		conf:       conf,
 		pool:       newPoolNonblocking(),
 		reqPool:    syncutil.NewSlicePool[byte](quicBytePoolSize),
 		respPool:   syncutil.NewSlicePool[byte](quicBytePoolSize),
+		conf:       conf,
 	}
 
 	return s
@@ -207,7 +209,6 @@ func (s *ServerQUIC) shutdown() (err error) {
 	s.started = false
 
 	// Now close all listeners
-	s.closeListeners()
 	err = s.quicListener.Close()
 	if err != nil {
 		// Log this error but do not return it
@@ -242,6 +243,12 @@ func (s *ServerQUIC) serveQUIC(ctx context.Context, l *quic.Listener) (err error
 	// Wait until all conns are processed before exiting this method
 	defer wg.Wait()
 
+	// Use a context that is canceled once this connection ends to mitigate
+	// quic-go's mishandling of contexts.  See TODO in serveQUICConn.
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithCancel(ctx)
+	defer cancel()
+
 	for s.isStarted() {
 		err = s.acceptQUICConn(ctx, l, wg)
 		if err != nil {
@@ -251,7 +258,6 @@ func (s *ServerQUIC) serveQUIC(ctx context.Context, l *quic.Listener) (err error
 
 			return err
 		}
-
 	}
 
 	return nil
@@ -294,7 +300,7 @@ func (s *ServerQUIC) acceptQUICConn(
 }
 
 // serveQUICConnAsync wraps serveQUICConn call and handles all possible errors
-// that might happen there. It also makes sure that the WaitGroup will be
+// that might happen there.  It also makes sure that the WaitGroup will be
 // decremented.
 func (s *ServerQUIC) serveQUICConnAsync(
 	ctx context.Context,
@@ -331,6 +337,21 @@ func (s *ServerQUIC) serveQUICConn(ctx context.Context, conn quic.Connection) (e
 		// bidirectional stream.
 		var stream quic.Stream
 		acceptCtx, cancel := context.WithDeadline(ctx, time.Now().Add(maxQUICIdleTimeout))
+
+		// For some reason AcceptStream below seems to get stuck even when
+		// acceptCtx is canceled.  As a mitigation, check the context manually
+		// right before feeding it into AcceptStream.
+		//
+		// TODO(a.garipov): Try to reproduce and report.
+		select {
+		case <-acceptCtx.Done():
+			cancel()
+
+			return fmt.Errorf("checking accept ctx: %w", acceptCtx.Err())
+		default:
+			// Go on.
+		}
+
 		stream, err = conn.AcceptStream(acceptCtx)
 		// Make sure to call the cancel function to avoid leaks.
 		cancel()
@@ -396,9 +417,7 @@ func (s *ServerQUIC) serveQUICStream(
 	// that stream.
 	defer log.OnCloserError(stream, log.DEBUG)
 
-	var msg *dns.Msg
-	var doqDraft bool
-	msg, doqDraft, err = s.readQUICMsg(ctx, stream)
+	msg, err := s.readQUICMsg(ctx, stream)
 	if err != nil {
 		closeQUICConn(conn, DOQCodeProtocolError)
 
@@ -435,15 +454,7 @@ func (s *ServerQUIC) serveQUICStream(
 	bufPtr := s.respPool.Get()
 	defer s.respPool.Put(bufPtr)
 
-	// Depending on the DoQ version we either write a 2-bytes prefixed message
-	// or just write the message (for old draft versions).
-	var b []byte
-	if doqDraft {
-		// TODO(ameshkov): remove draft support in the late 2023.
-		b, err = resp.PackBuffer(*bufPtr)
-	} else {
-		b, err = packWithPrefix(resp, *bufPtr)
-	}
+	b, err := packWithPrefix(resp, *bufPtr)
 	if err != nil {
 		closeQUICConn(conn, DOQCodeProtocolError)
 
@@ -464,7 +475,7 @@ func (s *ServerQUIC) serveQUICStream(
 func (s *ServerQUIC) readQUICMsg(
 	ctx context.Context,
 	stream quic.Stream,
-) (m *dns.Msg, doqDraft bool, err error) {
+) (m *dns.Msg, err error) {
 	bufPtr := s.reqPool.Get()
 	defer s.reqPool.Put(bufPtr)
 
@@ -485,35 +496,29 @@ func (s *ServerQUIC) readQUICMsg(
 	// received.
 	if n < DNSHeaderSize {
 		if err != nil {
-			return nil, false, fmt.Errorf("failed to read QUIC message: %w", err)
+			return nil, fmt.Errorf("failed to read QUIC message: %w", err)
 		}
 		s.metrics.OnInvalidMsg(ctx)
 
-		return nil, false, dns.ErrShortRead
+		return nil, dns.ErrShortRead
 	}
 
-	// Note that we support both the old drafts and the new RFC. In the old
-	// draft DNS messages were not prefixed with the message length.
+	// TODO(a.garipov): DRY logic with the TCP one.
 	m = &dns.Msg{}
-
-	// We're checking if the first two bytes contain the length of the message.
-	// According to the spec, the DNS message ID is 0 so the first two bytes
-	// will be zero in the case of an old draft implementation so this check
-	// should be reliable.
 	packetLen := binary.BigEndian.Uint16(buf[:2])
-	if packetLen == uint16(n-2) {
+	wantLen := uint16(n - 2)
+	if packetLen == wantLen {
 		err = m.Unpack(buf[2:])
 	} else {
-		err = m.Unpack(buf)
-		doqDraft = true
+		err = fmt.Errorf("bad buffer size %d, want %d", packetLen, wantLen)
 	}
-
 	if err != nil {
 		s.metrics.OnInvalidMsg(ctx)
-		return nil, false, err
+
+		return nil, err
 	}
 
-	return m, doqDraft, nil
+	return m, nil
 }
 
 // readAll reads from r until an error or io.EOF into the specified buffer buf.
@@ -558,7 +563,10 @@ func (s *ServerQUIC) listenQUIC(ctx context.Context) (err error) {
 		return err
 	}
 
+	// Save this for s.LocalUDPAddr.  Do not close it separately as ql closes
+	// the underlying connection.
 	s.udpListener = conn
+
 	s.quicListener = ql
 
 	return nil

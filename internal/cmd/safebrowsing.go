@@ -14,6 +14,7 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
+	"github.com/AdguardTeam/golibs/service"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
 
@@ -99,7 +100,7 @@ func setupHashPrefixFilter(
 	url *urlutil.URL,
 	cachePath string,
 	maxSize uint64,
-	sigHdlr signalHandler,
+	sigHdlr *service.SignalHandler,
 	errColl errcoll.Interface,
 ) (strg *hashprefix.Storage, flt *hashprefix.Filter, err error) {
 	fltConf, err := conf.toInternal(errColl, resolver, cloner, id, url, cachePath, maxSize)
@@ -127,7 +128,7 @@ func setupHashPrefixFilter(
 		return nil, nil, fmt.Errorf("starting refresher for hash prefix filter %s: %w", id, err)
 	}
 
-	sigHdlr.add(refr)
+	sigHdlr.Add(refr)
 
 	return fltConf.Hashes, flt, nil
 }

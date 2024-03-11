@@ -4,8 +4,6 @@
 package agdnet
 
 import (
-	"fmt"
-	"net/netip"
 	"strings"
 )
 
@@ -46,33 +44,6 @@ func AndroidMetricDomainReplacement(fqdn string) (repl string) {
 	}
 
 	return ""
-}
-
-// ParseSubnets parses IP networks, including single-address ones, from strings.
-func ParseSubnets(strs ...string) (subnets []netip.Prefix, err error) {
-	subnets = make([]netip.Prefix, len(strs))
-	for i, s := range strs {
-		// Detect if this is a CIDR or an IP early, so that the path to
-		// returning an error is shorter.
-		if strings.Contains(s, "/") {
-			subnets[i], err = netip.ParsePrefix(s)
-			if err != nil {
-				return nil, fmt.Errorf("subnet at idx %d: %w", i, err)
-			}
-
-			continue
-		}
-
-		var ip netip.Addr
-		ip, err = netip.ParseAddr(s)
-		if err != nil {
-			return nil, fmt.Errorf("ip at idx %d: %w", i, err)
-		}
-
-		subnets[i] = netip.PrefixFrom(ip, ip.BitLen())
-	}
-
-	return subnets, nil
 }
 
 // NormalizeDomain returns lowercased version of the host without the final dot.

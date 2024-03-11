@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/consul"
@@ -13,6 +12,8 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/service"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 )
@@ -64,7 +65,7 @@ type rateLimitConfig struct {
 // allowListConfig is the consul allow list configuration.
 type allowListConfig struct {
 	// List contains IPs and CIDRs.
-	List []string `yaml:"list"`
+	List []netutil.Prefix `yaml:"list"`
 
 	// RefreshIvl time between two updates of allow list from the Consul URL.
 	RefreshIvl timeutil.Duration `yaml:"refresh_interval"`
@@ -138,14 +139,10 @@ func (c *rateLimitConfig) validate() (err error) {
 func setupRateLimiter(
 	conf *rateLimitConfig,
 	consulAllowlist *url.URL,
-	sigHdlr signalHandler,
+	sigHdlr *service.SignalHandler,
 	errColl errcoll.Interface,
 ) (rateLimiter *ratelimit.Backoff, connLimiter *connlimiter.Limiter, err error) {
-	allowSubnets, err := agdnet.ParseSubnets(conf.Allowlist.List...)
-	if err != nil {
-		return nil, nil, fmt.Errorf("parsing allowlist subnets: %w", err)
-	}
-
+	allowSubnets := netutil.UnembedPrefixes(conf.Allowlist.List)
 	allowlist := ratelimit.NewDynamicAllowlist(allowSubnets, nil)
 	refresher, err := consul.NewAllowlistRefresher(allowlist, consulAllowlist)
 	if err != nil {
@@ -168,7 +165,7 @@ func setupRateLimiter(
 		return nil, nil, fmt.Errorf("starting allowlist refresher: %w", err)
 	}
 
-	sigHdlr.add(refr)
+	sigHdlr.Add(refr)
 
 	return ratelimit.NewBackoff(conf.toInternal(allowlist)), conf.ConnectionLimit.toInternal(), nil
 }

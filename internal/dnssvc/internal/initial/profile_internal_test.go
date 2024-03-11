@@ -101,8 +101,9 @@ func TestMiddleware_profile(t *testing.T) {
 			srv.LinkedIPEnabled = tc.linkedIPEnabled
 
 			mw := New(&Config{
-				Server:    srv,
-				ProfileDB: newProfileDB(t, prof, dev, tc.wantByWhat),
+				Server:           srv,
+				ProfileDB:        newProfileDB(t, prof, dev, tc.wantByWhat),
+				ProfileDBEnabled: true,
 			})
 
 			ctx := context.Background()
@@ -196,8 +197,9 @@ func TestMiddleware_profileByAddrs(t *testing.T) {
 			srv.LinkedIPEnabled = tc.linkedIPEnabled
 
 			mw := New(&Config{
-				Server:    srv,
-				ProfileDB: newProfileDB(t, prof, dev, tc.wantByWhat),
+				Server:           srv,
+				ProfileDB:        newProfileDB(t, prof, dev, tc.wantByWhat),
+				ProfileDBEnabled: true,
 			})
 
 			ctx := context.Background()

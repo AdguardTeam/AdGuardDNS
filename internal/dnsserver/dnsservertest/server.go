@@ -189,12 +189,12 @@ func RunLocalQUICServer(
 	tlsConfig *tls.Config,
 ) (s *dnsserver.ServerQUIC, addr *net.UDPAddr, err error) {
 	conf := dnsserver.ConfigQUIC{
+		TLSConfig: tlsConfig,
 		ConfigBase: dnsserver.ConfigBase{
 			Name:    "test",
 			Addr:    "127.0.0.1:0",
 			Handler: h,
 		},
-		TLSConfig: tlsConfig,
 	}
 
 	s = dnsserver.NewServerQUIC(conf)
@@ -209,7 +209,7 @@ func RunLocalQUICServer(
 
 	addr, ok := s.LocalUDPAddr().(*net.UDPAddr)
 	if !ok {
-		return nil, nil, fmt.Errorf("invalid listen addr: %s", addr)
+		return nil, nil, fmt.Errorf("invalid listen addr: %T(%[1]v)", s.LocalUDPAddr())
 	}
 
 	return s, addr, nil

@@ -8,7 +8,7 @@
 # Makefile.  Bump this number every time a significant change is made to
 # this Makefile.
 #
-# AdGuard-Project-Version: 2
+# AdGuard-Project-Version: 4
 
 # Don't name these macros "GO" etc., because GNU Make apparently makes
 # them exported environment variables with the literal value of
@@ -23,7 +23,7 @@ VERBOSE.MACRO = $${VERBOSE:-0}
 BRANCH = $$( git rev-parse --abbrev-ref HEAD )
 GOAMD64 = v1
 GOPROXY = https://goproxy.cn|https://proxy.golang.org|direct
-GOTOOLCHAIN = go1.21.5
+GOTOOLCHAIN = go1.21.8
 RACE = 0
 REVISION = $$( git rev-parse --short HEAD )
 VERSION = 0
@@ -59,6 +59,8 @@ go-lint:  ; $(ENV)          "$(SHELL)" ./scripts/make/go-lint.sh
 go-test:  ; $(ENV) RACE='1' "$(SHELL)" ./scripts/make/go-test.sh
 go-tools: ; $(ENV)          "$(SHELL)" ./scripts/make/go-tools.sh
 
+go-upd-tools: ; $(ENV) "$(SHELL)" ./scripts/make/go-upd-tools.sh
+
 go-check: go-tools go-lint go-test
 
 # A quick check to make sure that all operating systems relevant to the
@@ -72,12 +74,5 @@ go-os-check:
 	env GOOS='windows' "$(GO.MACRO)" vet ./internal/dnsserver/...
 
 txt-lint:  ; $(ENV) "$(SHELL)" ./scripts/make/txt-lint.sh
-
-# TODO(a.garipov): Consider adding to scripts/ and the common project
-# structure.
-go-upd-tools:
-	cd ./internal/tools/ &&\
-		"$(GO.MACRO)" get -u &&\
-		"$(GO.MACRO)" mod tidy
 
 sync-github: ; $(ENV) "$(SHELL)" ./scripts/make/github-sync.sh

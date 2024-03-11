@@ -42,8 +42,9 @@ rules to remember, which property means what.  The properties are:
     alpha-2][wiki-iso] country code, if any.  If none could be detected, this
     property is absent.  The short name `c` stands for “client country”.
 
-    **NOTE:** AdGuard DNS uses the common user-assigned ISO 3166-1 alpha-2 code
-    `XK` for the partially-recognized state of the Republic of Kosovo.
+     >  [!NOTE]
+     >  AdGuard DNS uses the common user-assigned ISO 3166-1 alpha-2 code `XK`
+     >  for the partially-recognized state of the Republic of Kosovo.
 
     **Example:** `"AU"`
 
@@ -53,8 +54,9 @@ rules to remember, which property means what.  The properties are:
     could be detected, this property is absent.  The short name `d` stands for
     “destination”.
 
-    **NOTE:** AdGuard DNS uses the common user-assigned ISO 3166-1 alpha-2 code
-    `XK` for the partially-recognized state of the Republic of Kosovo.
+     >  [!NOTE]
+     >  AdGuard DNS uses the common user-assigned ISO 3166-1 alpha-2 code `XK`
+     >  for the partially-recognized state of the Republic of Kosovo.
 
     **Example:** `"US"`
 

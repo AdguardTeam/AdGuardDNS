@@ -27,8 +27,9 @@ The response is sent with the `Transfer-Encoding` set to `chunked` and with an
 HTTP trailer named `X-Error` which describes errors that might have occurred
 during the database dump.
 
-**NOTE:**  For legacy software reasons, despite the endpoint being a `GET` one,
-it rotates the database, and so changes the internal state.
+ >  [!NOTE]
+ >  For legacy software reasons, despite the endpoint being a `GET` one, it
+ >  rotates the database, and so changes the internal state.
 
 
 

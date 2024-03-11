@@ -10,10 +10,10 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/service"
 )
 
 // Config is the AdGuard DNS web service configuration structure.
@@ -201,11 +201,16 @@ func blockPageServers(
 }
 
 // type check
-var _ agdservice.Interface = (*Service)(nil)
+var _ service.Interface = (*Service)(nil)
 
-// Start implements the [agdservice.Interface] interface for *Service.  svc may
-// be nil.  It panics if one of the servers could not start.
-func (svc *Service) Start(ctx context.Context) (err error) {
+// Start implements the [service.Interface] interface for *Service.  It starts
+// serving all endpoints but does not wait for them to actually go online.  svc
+// may be nil.  err is always nil; if any endpoint fails to start, it panics.
+//
+// TODO(a.garipov): Wait for the services to go online.
+//
+// TODO(a.garipov): Use the context for cancelation.
+func (svc *Service) Start(_ context.Context) (err error) {
 	if svc == nil {
 		return nil
 	}
@@ -261,8 +266,8 @@ func mustStartServer(srv *http.Server) {
 	}
 }
 
-// Shutdown implements the [agdservice.Interface] interface for *Service.  svc
-// may be nil.
+// Shutdown implements the [service.Interface] interface for *Service.  svc may
+// be nil.
 func (svc *Service) Shutdown(ctx context.Context) (err error) {
 	if svc == nil {
 		return nil

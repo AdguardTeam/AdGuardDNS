@@ -12,6 +12,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/service"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 )
@@ -136,7 +137,7 @@ func (c *fltRuleListCache) validate() (err error) {
 // registers its refresher in the signal handler.
 func setupFilterStorage(
 	conf *filter.DefaultStorageConfig,
-	sigHdlr signalHandler,
+	sigHdlr *service.SignalHandler,
 	errColl errcoll.Interface,
 	refreshTimeout time.Duration,
 ) (strg *filter.DefaultStorage, err error) {
@@ -162,7 +163,7 @@ func setupFilterStorage(
 		return nil, fmt.Errorf("starting default filter storage update: %w", err)
 	}
 
-	sigHdlr.add(refr)
+	sigHdlr.Add(refr)
 
 	return strg, nil
 }

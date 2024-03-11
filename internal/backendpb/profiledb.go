@@ -16,8 +16,10 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/netutil"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -27,6 +29,9 @@ import (
 // ProfileStorageConfig is the configuration for the business logic backend
 // profile storage.
 type ProfileStorageConfig struct {
+	// BindSet is the subnet set created from DNS servers listening addresses.
+	BindSet netutil.SubnetSet
+
 	// ErrColl is the error collector that is used to collect critical and
 	// non-critical errors.
 	ErrColl errcoll.Interface
@@ -40,6 +45,7 @@ type ProfileStorageConfig struct {
 // that retrieves the profile and device information from the business logic
 // backend.  It is safe for concurrent use.
 type ProfileStorage struct {
+	bindSet netutil.SubnetSet
 	errColl errcoll.Interface
 
 	// client is the current GRPC client.
@@ -56,6 +62,7 @@ func NewProfileStorage(c *ProfileStorageConfig) (s *ProfileStorage, err error) {
 	}
 
 	return &ProfileStorage{
+		bindSet: c.BindSet,
 		client:  client,
 		errColl: c.ErrColl,
 	}, nil
@@ -97,7 +104,7 @@ func (s *ProfileStorage) Profiles(
 		stats.endRecv()
 
 		stats.startDec()
-		prof, devices, profErr := profile.toInternal(ctx, time.Now(), s.errColl)
+		prof, devices, profErr := profile.toInternal(ctx, time.Now(), s.bindSet, s.errColl)
 		if profErr != nil {
 			reportf(ctx, s.errColl, "loading profile: %w", profErr)
 
@@ -140,6 +147,7 @@ func fixGRPCError(err error) (wErr error) {
 func (x *DNSProfile) toInternal(
 	ctx context.Context,
 	updTime time.Time,
+	bindSet netutil.SubnetSet,
 	errColl errcoll.Interface,
 ) (profile *agd.Profile, devices []*agd.Device, err error) {
 	if x == nil {
@@ -156,7 +164,7 @@ func (x *DNSProfile) toInternal(
 		return nil, nil, fmt.Errorf("blocking mode: %w", err)
 	}
 
-	devices, deviceIds := devicesToInternal(ctx, x.Devices, errColl)
+	devices, deviceIds := devicesToInternal(ctx, x.Devices, bindSet, errColl)
 	listsEnabled, listIDs := x.RuleLists.toInternal(ctx, errColl)
 
 	profID, err := agd.NewProfileID(x.DnsId)
@@ -384,6 +392,7 @@ func blockingModeToInternal(pbm isDNSProfile_BlockingMode) (m dnsmsg.BlockingMod
 func devicesToInternal(
 	ctx context.Context,
 	ds []*DeviceSettings,
+	bindSet netutil.SubnetSet,
 	errColl errcoll.Interface,
 ) (out []*agd.Device, ids []agd.DeviceID) {
 	l := len(ds)
@@ -393,9 +402,10 @@ func devicesToInternal(
 
 	out = make([]*agd.Device, 0, l)
 	for _, d := range ds {
-		dev, err := d.toInternal()
+		dev, err := d.toInternal(bindSet)
 		if err != nil {
 			reportf(ctx, errColl, "invalid device settings: %w", err)
+			metrics.DevicesInvalidTotal.Inc()
 
 			continue
 		}
@@ -409,7 +419,7 @@ func devicesToInternal(
 
 // toInternal is a helper that converts device settings from backend protobuf
 // response to AdGuard DNS device object.
-func (ds *DeviceSettings) toInternal() (dev *agd.Device, err error) {
+func (ds *DeviceSettings) toInternal(bindSet netutil.SubnetSet) (dev *agd.Device, err error) {
 	if ds == nil {
 		return nil, fmt.Errorf("device is nil")
 	}
@@ -424,6 +434,13 @@ func (ds *DeviceSettings) toInternal() (dev *agd.Device, err error) {
 	dedicatedIPs, err = agdprotobuf.ByteSlicesToIPs(ds.DedicatedIps)
 	if err != nil {
 		return nil, fmt.Errorf("dedicated ips: %w", err)
+	}
+
+	// TODO(d.kolyshev): Extract business logic validation.
+	for _, addr := range dedicatedIPs {
+		if !bindSet.Contains(addr) {
+			return nil, fmt.Errorf("dedicated ip %q is not in bind data", addr)
+		}
 	}
 
 	id, err := agd.NewDeviceID(ds.Id)

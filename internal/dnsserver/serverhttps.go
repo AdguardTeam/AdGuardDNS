@@ -246,8 +246,16 @@ func (s *ServerHTTPS) shutdown(ctx context.Context) (err error) {
 
 	s.started = false
 
-	// First step, close the active listener right away.
-	s.closeListeners()
+	// First step, close the active TCP listener right away.  Don't close the
+	// UDP one, as if there is one, it is closed by closing the QUIC listener.
+	//
+	// TODO(a.garipov): Fix this mess.
+	if s.tcpListener != nil {
+		err = s.tcpListener.Close()
+		if err != nil {
+			log.Info("[%s]: Failed to close NetworkTCP listener: %v", s.Name(), err)
+		}
+	}
 
 	// Second, shutdown the HTTP server.
 	err = s.httpServer.Shutdown(ctx)

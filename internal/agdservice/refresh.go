@@ -7,6 +7,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/service"
 	"golang.org/x/exp/rand"
 )
 
@@ -111,17 +112,17 @@ func NewRefreshWorker(c *RefreshWorkerConfig) (w *RefreshWorker) {
 }
 
 // type check
-var _ Interface = (*RefreshWorker)(nil)
+var _ service.Interface = (*RefreshWorker)(nil)
 
-// Start implements the [Interface] interface for *RefreshWorker.  err is always
-// nil.
+// Start implements the [service.Interface] interface for *RefreshWorker.  err
+// is always nil.
 func (w *RefreshWorker) Start(_ context.Context) (err error) {
 	go w.refreshInALoop()
 
 	return nil
 }
 
-// Shutdown implements the [Interface] interface for *RefreshWorker.
+// Shutdown implements the [service.Interface] interface for *RefreshWorker.
 func (w *RefreshWorker) Shutdown(ctx context.Context) (err error) {
 	if w.refrOnShutdown {
 		err = w.refr.Refresh(ctx)

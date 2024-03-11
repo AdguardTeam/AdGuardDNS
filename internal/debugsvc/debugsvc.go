@@ -7,10 +7,10 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/pprofutil"
+	"github.com/AdguardTeam/golibs/service"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -69,11 +69,15 @@ func startServer(s *server) {
 }
 
 // type check
-var _ agdservice.Interface = (*Service)(nil)
+var _ service.Interface = (*Service)(nil)
 
-// Start implements the [agdservice.Interface] interface for *Service.  It
-// starts serving all endpoints.  err is always nil, if any endpoint fails to
-// start, it panics.
+// Start implements the [service.Interface] interface for *Service.  It starts
+// serving all endpoints but does not wait for them to actually go online.  err
+// is always nil, if any endpoint fails to start, it panics.
+//
+// TODO(a.garipov): Wait for the services to go online.
+//
+// TODO(a.garipov): Use the context for cancelation.
 func (svc *Service) Start(_ context.Context) (err error) {
 	for _, srv := range svc.servers {
 		go startServer(srv)
@@ -82,8 +86,8 @@ func (svc *Service) Start(_ context.Context) (err error) {
 	return nil
 }
 
-// Shutdown implements the [agdservice.Interface] interface for *Service.  It
-// stops serving all endpoints.
+// Shutdown implements the [service.Interface] interface for *Service.  It stops
+// serving all endpoints.
 func (svc *Service) Shutdown(ctx context.Context) (err error) {
 	srvNum := 0
 	for _, srv := range svc.servers {

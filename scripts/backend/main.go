@@ -95,11 +95,11 @@ func mockDNSProfile() (dp *backendpb.DNSProfile) {
 	}
 
 	devices := []*backendpb.DeviceSettings{{
-		Id:               "118ffe93",
-		Name:             "118ffe93-name",
+		Id:               "test",
+		Name:             "test-name",
 		FilteringEnabled: false,
 		LinkedIp:         []byte{1, 1, 1, 1},
-		DedicatedIps:     [][]byte{{1, 1, 1, 2}},
+		DedicatedIps:     [][]byte{{127, 0, 0, 1}},
 	}}
 
 	return &backendpb.DNSProfile{

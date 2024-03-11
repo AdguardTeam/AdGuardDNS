@@ -55,6 +55,10 @@ type Middleware struct {
 
 	// errColl collects and reports the errors considered non-critical.
 	errColl errcoll.Interface
+
+	// profilesEnabled is true, if user devices and profiles recognition is
+	// enabled.
+	profilesEnabled bool
 }
 
 // Config is the configuration structure for the initial middleware.  All fields
@@ -80,6 +84,10 @@ type Config struct {
 
 	// ErrColl collects and reports the errors considered non-critical.
 	ErrColl errcoll.Interface
+
+	// ProfileDBEnabled is true, if user devices and profiles recognition is
+	// enabled.
+	ProfileDBEnabled bool
 }
 
 // New returns a new initial middleware.  c must not be nil.
@@ -92,9 +100,10 @@ func New(c *Config) (mw *Middleware) {
 		pool: syncutil.NewPool(func() (v *agd.RequestInfo) {
 			return &agd.RequestInfo{}
 		}),
-		db:      c.ProfileDB,
-		geoIP:   c.GeoIP,
-		errColl: c.ErrColl,
+		db:              c.ProfileDB,
+		geoIP:           c.GeoIP,
+		errColl:         c.ErrColl,
+		profilesEnabled: c.ProfileDBEnabled,
 	}
 }
 
@@ -219,6 +228,10 @@ func (mw *Middleware) newRequestInfo(
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
+	}
+
+	if !mw.profilesEnabled {
+		return ri, nil
 	}
 
 	// Add the profile information, if any.

@@ -11,6 +11,49 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
 
 
+##  AGDNS-1954 / Build 719
+
+ *  The objects within `server_groups` array have a new property
+    `block_page_redirect`:
+
+    ```yaml
+    block_page_redirect:
+        enabled: true
+        ipv4:
+          - address: '127.0.0.1'
+          - address: '127.0.0.2'
+        ipv6:
+          - address: '::1'
+          - address: '::2'
+        apply:
+            client:
+              - address: '192.168.0.0/16'
+              - address: '1.2.3.4'
+        skip:
+            client:
+              - address: '1.2.0.0/16'
+            question:
+              - domain: 'do-not-show-block.site.example'
+        probability: 0.01
+    ```
+
+    For server groups that do not require a block-page redirect, set:
+
+    ```yaml
+    block_page_redirect:
+        enabled: false
+    ```
+
+
+
+##  AGDNS-1888 / Build 717
+
+ *  The new environment variable `PROFILES_ENABLED` has been added.  With `0`
+    value it disables user profiles and devices recognition, and billing.  Its
+    default value is `1`.  Adjust the value, if necessary.
+
+
+
 ##  AGDNS-1761 / Build 702
 
  *  The property `upstream` has been modified. Its property `timeout` has been

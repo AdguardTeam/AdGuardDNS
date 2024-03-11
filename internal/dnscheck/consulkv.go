@@ -76,6 +76,15 @@ func (kv *httpKV) get(ctx context.Context, key string) (inf *info, err error) {
 	}
 	defer func() { err = errors.WithDeferred(err, httpResp.Body.Close()) }()
 
+	// Note that, if no key exists at the given path, a 404 is returned instead
+	// of a normal 200 response.
+	//
+	// See https://developer.hashicorp.com/consul/api-docs/kv#read-key.
+	err = agdhttp.CheckStatus(httpResp, http.StatusOK)
+	if err != nil {
+		return nil, fmt.Errorf("response for key %q: %w", key, err)
+	}
+
 	var resp []*consulKVResponse
 	err = json.NewDecoder(httpResp.Body).Decode(&resp)
 	if err != nil {
@@ -153,6 +162,14 @@ func (kv *httpKV) set(ctx context.Context, key string, inf *info) (err error) {
 	}
 	defer func() { err = errors.WithDeferred(err, sessHTTPResp.Body.Close()) }()
 
+	// Status 200 is expected.
+	//
+	// See https://developer.hashicorp.com/consul/api-docs/session.
+	err = agdhttp.CheckStatus(sessHTTPResp, http.StatusOK)
+	if err != nil {
+		return fmt.Errorf("getting session for key %q: %w", key, err)
+	}
+
 	sessResp := &consulSessionResponse{}
 	err = json.NewDecoder(sessHTTPResp.Body).Decode(sessResp)
 	if err != nil {
@@ -175,6 +192,14 @@ func (kv *httpKV) set(ctx context.Context, key string, inf *info) (err error) {
 		return fmt.Errorf("setting key %q in consul: %w", key, err)
 	}
 	defer func() { err = errors.WithDeferred(err, resp.Body.Close()) }()
+
+	// Status 200 is expected.
+	//
+	// See https://github.com/hashicorp/consul/blob/main/api/kv.go#L224.
+	err = agdhttp.CheckStatus(resp, http.StatusOK)
+	if err != nil {
+		return fmt.Errorf("setting key %q: %w", key, err)
+	}
 
 	return nil
 }

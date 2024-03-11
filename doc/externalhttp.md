@@ -30,9 +30,11 @@ document should set the `Server` header in their replies.
 
 This is the service to which the [`BILLSTAT_URL`][env-billstat_url] environment
 variable points.  Supports `grpc(s)` URLs.  The service must correspond to
-`./internal/backendpb/backend.proto`.
+`./internal/backendpb/backend.proto`.  This service can be disabled with the
+[`PROFILES_ENABLED`][env-profiles_enabled] environment variable.
 
 [env-billstat_url]: environment.md#BILLSTAT_URL
+[env-profiles_enabled]: environment.md#PROFILES_ENABLED
 
 
 
@@ -40,7 +42,8 @@ variable points.  Supports `grpc(s)` URLs.  The service must correspond to
 
 This is the service to which the [`PROFILES_URL`][env-profiles_url] environment
 variable points.  Supports `grpc(s)` URLs.  The service must correspond to
-`./internal/backendpb/backend.proto`.
+`./internal/backendpb/backend.proto`.  This service can be disabled with the
+[`PROFILES_ENABLED`][env-profiles_enabled] environment variable.
 
 [env-profiles_url]: environment.md#PROFILES_URL
 

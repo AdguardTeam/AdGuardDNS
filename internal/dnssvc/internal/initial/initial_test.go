@@ -181,6 +181,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 				ErrColl: &agdtest.ErrorCollector{
 					OnCollect: func(_ context.Context, _ error) { panic("not implemented") },
 				},
+				ProfileDBEnabled: true,
 			})
 
 			ctx := context.Background()
@@ -301,6 +302,7 @@ func TestMiddleware_Wrap_error(t *testing.T) {
 		ErrColl: &agdtest.ErrorCollector{
 			OnCollect: func(_ context.Context, _ error) { panic("not implemented") },
 		},
+		ProfileDBEnabled: true,
 	})
 
 	ctx := context.Background()
@@ -517,6 +519,7 @@ func TestMiddleware_Wrap_access(t *testing.T) {
 				ErrColl: &agdtest.ErrorCollector{
 					OnCollect: func(_ context.Context, _ error) { panic("not implemented") },
 				},
+				ProfileDBEnabled: true,
 			})
 
 			ctx := context.Background()
@@ -565,13 +568,14 @@ func newServers() (srvs map[agd.ServerName]*agd.Server) {
 
 func newServerGroup(srvs []*agd.Server) (srvGrp *agd.ServerGroup) {
 	srvGrp = &agd.ServerGroup{
-		TLS: &agd.TLS{
-			DeviceIDWildcards: []string{"*.d." + resolverName},
-		},
+		BlockPageRedirect: &agd.BlockPageRedirect{},
 		DDR: &agd.DDR{
 			DeviceTargets: stringutil.NewSet(),
 			PublicTargets: stringutil.NewSet(),
 			Enabled:       true,
+		},
+		TLS: &agd.TLS{
+			DeviceIDWildcards: []string{"*.d." + resolverName},
 		},
 		Name:    "test_server_group",
 		Servers: srvs,
@@ -605,13 +609,14 @@ var errSink error
 func BenchmarkMiddleware_Wrap(b *testing.B) {
 	const devIDTarget = "dns.example.com"
 	srvGrp := &agd.ServerGroup{
-		TLS: &agd.TLS{
-			DeviceIDWildcards: []string{"*." + devIDTarget},
-		},
+		BlockPageRedirect: &agd.BlockPageRedirect{},
 		DDR: &agd.DDR{
 			DeviceTargets: stringutil.NewSet(),
 			PublicTargets: stringutil.NewSet(),
 			Enabled:       true,
+		},
+		TLS: &agd.TLS{
+			DeviceIDWildcards: []string{"*." + devIDTarget},
 		},
 		Name: agd.ServerGroupName("test_server_group"),
 		Servers: []*agd.Server{
@@ -708,6 +713,7 @@ func BenchmarkMiddleware_Wrap(b *testing.B) {
 			ErrColl: &agdtest.ErrorCollector{
 				OnCollect: func(_ context.Context, _ error) { panic("not implemented") },
 			},
+			ProfileDBEnabled: true,
 		})
 
 		h := mw.Wrap(handler)
@@ -753,6 +759,7 @@ func BenchmarkMiddleware_Wrap(b *testing.B) {
 			ErrColl: &agdtest.ErrorCollector{
 				OnCollect: func(_ context.Context, _ error) { panic("not implemented") },
 			},
+			ProfileDBEnabled: true,
 		})
 
 		h := mw.Wrap(handler)
@@ -806,6 +813,7 @@ func BenchmarkMiddleware_Wrap(b *testing.B) {
 			ErrColl: &agdtest.ErrorCollector{
 				OnCollect: func(_ context.Context, _ error) { panic("not implemented") },
 			},
+			ProfileDBEnabled: true,
 		})
 
 		h := mw.Wrap(handler)
@@ -864,6 +872,7 @@ func BenchmarkMiddleware_Wrap(b *testing.B) {
 			ErrColl: &agdtest.ErrorCollector{
 				OnCollect: func(_ context.Context, _ error) { panic("not implemented") },
 			},
+			ProfileDBEnabled: true,
 		})
 
 		h := mw.Wrap(handler)

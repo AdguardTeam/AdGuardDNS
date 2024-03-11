@@ -12,7 +12,6 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
@@ -34,6 +33,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/service"
 	"github.com/miekg/dns"
 )
 
@@ -143,6 +143,10 @@ type Config struct {
 	// UseECSCache shows if the EDNS Client Subnet (ECS) aware cache should be
 	// used.
 	UseECSCache bool
+
+	// ProfileDBEnabled is true, if user devices and profiles recognition is
+	// enabled.
+	ProfileDBEnabled bool
 
 	// ResearchMetrics controls whether research metrics are enabled or not.
 	// This is a set of metrics that we may need temporary, so its collection is
@@ -267,10 +271,10 @@ func mustStartListener(
 }
 
 // type check
-var _ agdservice.Interface = (*Service)(nil)
+var _ service.Interface = (*Service)(nil)
 
-// Start implements the [agdservice.Interface] interface for *Service.  It
-// panics if one of the listeners could not start.
+// Start implements the [service.Interface] interface for *Service.  It panics
+// if one of the listeners could not start.
 func (svc *Service) Start(_ context.Context) (err error) {
 	for _, g := range svc.groups {
 		for _, s := range g.servers {
@@ -298,7 +302,7 @@ func shutdownListeners(ctx context.Context, listeners []*listener) (err error) {
 	return nil
 }
 
-// Shutdown implements the [agdservice.Interface] interface for *Service.
+// Shutdown implements the [service.Interface] interface for *Service.
 func (svc *Service) Shutdown(ctx context.Context) (err error) {
 	var errs []error
 	for _, g := range svc.groups {
@@ -512,13 +516,14 @@ func newServers(
 		})
 
 		imw := initial.New(&initial.Config{
-			Messages:       c.Messages,
-			FilteringGroup: fg,
-			ServerGroup:    srvGrp,
-			Server:         s,
-			ProfileDB:      c.ProfileDB,
-			GeoIP:          c.GeoIP,
-			ErrColl:        c.ErrColl,
+			Messages:         c.Messages,
+			FilteringGroup:   fg,
+			ServerGroup:      srvGrp,
+			Server:           s,
+			ProfileDB:        c.ProfileDB,
+			GeoIP:            c.GeoIP,
+			ErrColl:          c.ErrColl,
+			ProfileDBEnabled: c.ProfileDBEnabled,
 		})
 
 		h := dnsserver.WithMiddlewares(

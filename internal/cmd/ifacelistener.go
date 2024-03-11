@@ -41,7 +41,6 @@ func (c *interfaceListenersConfig) toInternal(
 			return errors.Annotate(m.Add(id, l.Interface, l.Port, ctrlConf), "adding listener %q: %w", id)
 		},
 	)
-
 	if err != nil {
 		return nil, err
 	}

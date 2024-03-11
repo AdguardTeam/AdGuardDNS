@@ -16,6 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/service"
 	"github.com/AdguardTeam/golibs/stringutil"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -300,7 +301,7 @@ func enableTLSKeyLogging(grps []*agd.ServerGroup, keyLogFileName string) (err er
 // registers its refresher in the signal handler.
 func setupTicketRotator(
 	srvGrps []*agd.ServerGroup,
-	sigHdlr signalHandler,
+	sigHdlr *service.SignalHandler,
 	errColl errcoll.Interface,
 ) (err error) {
 	tickRot, err := newTicketRotator(srvGrps)
@@ -324,7 +325,7 @@ func setupTicketRotator(
 		return fmt.Errorf("starting ticket rotator refresh: %w", err)
 	}
 
-	sigHdlr.add(refr)
+	sigHdlr.Add(refr)
 
 	return nil
 }

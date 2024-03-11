@@ -101,8 +101,8 @@ func newTestService(
 		OnIsBlockedHost: func(host string, qt uint16) (blocked bool) {
 			return false
 		},
-		OnIsBlockedIP: func(ip netip.Addr) (blocked bool, rule string) {
-			return false, ""
+		OnIsBlockedIP: func(ip netip.Addr) (blocked bool) {
+			return false
 		},
 	}
 
@@ -228,16 +228,18 @@ func newTestService(
 			},
 		},
 		ServerGroups: []*agd.ServerGroup{{
-			TLS: &agd.TLS{
-				DeviceIDWildcards: []string{dnssvctest.DeviceIDWildcard},
-			},
+			BlockPageRedirect: &agd.BlockPageRedirect{},
 			DDR: &agd.DDR{
 				Enabled: true,
+			},
+			TLS: &agd.TLS{
+				DeviceIDWildcards: []string{dnssvctest.DeviceIDWildcard},
 			},
 			Name:           testSrvGrpName,
 			FilteringGroup: testFltGrpID,
 			Servers:        []*agd.Server{srv},
 		}},
+		ProfileDBEnabled: true,
 	}
 
 	svc, err := dnssvc.New(c)

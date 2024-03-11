@@ -597,7 +597,6 @@ func createJSONRequest(
 
 	requestURL := fmt.Sprintf("%s://test.local%s?%s", proto, dnsserver.PathJSON, q.Encode())
 	r, err = http.NewRequest(method, requestURL, nil)
-
 	if err != nil {
 		return nil, err
 	}

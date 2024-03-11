@@ -131,7 +131,7 @@ func matchASNs(asns []geoip.ASN, l *geoip.Location) (ok bool) {
 }
 
 // isBlockedByHostsEng returns true if the req is blocked by
-// BlocklistDomainRules.
+// BlocklistDomainRules.  req must have exactly one question.
 func (p *DefaultProfile) isBlockedByHostsEng(req *dns.Msg) (blocked bool) {
 	return p.blockedHostsEng.isBlocked(req)
 }

@@ -3,14 +3,18 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"net/url"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
+	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/service"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
 
@@ -67,17 +71,22 @@ func (c *backendConfig) validate() (err error) {
 // handler.
 func setupBackend(
 	conf *backendConfig,
+	grps []*agd.ServerGroup,
 	envs *environments,
-	sigHdlr signalHandler,
+	sigHdlr *service.SignalHandler,
 	errColl errcoll.Interface,
-) (profDB *profiledb.Default, rec *billstat.RuntimeRecorder, err error) {
+) (profDB profiledb.Interface, rec billstat.Recorder, err error) {
+	if !envs.ProfilesEnabled {
+		return &profiledb.Disabled{}, billstat.EmptyRecorder{}, nil
+	}
+
 	rec, err = setupBillStat(conf, envs, sigHdlr, errColl)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, nil, err
 	}
 
-	profDB, err = setupProfDB(conf, envs, sigHdlr, errColl)
+	profDB, err = setupProfDB(conf, grps, envs, sigHdlr, errColl)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, nil, err
@@ -91,7 +100,7 @@ func setupBackend(
 func setupBillStat(
 	conf *backendConfig,
 	envs *environments,
-	sigHdlr signalHandler,
+	sigHdlr *service.SignalHandler,
 	errColl errcoll.Interface,
 ) (rec *billstat.RuntimeRecorder, err error) {
 	apiURL := netutil.CloneURL(&envs.BillStatURL.URL)
@@ -124,7 +133,7 @@ func setupBillStat(
 		return nil, fmt.Errorf("starting bill stat recorder refresher: %w", err)
 	}
 
-	sigHdlr.add(billStatRefr)
+	sigHdlr.Add(billStatRefr)
 
 	return rec, nil
 }
@@ -133,12 +142,14 @@ func setupBillStat(
 // registers its refresher in the signal handler.
 func setupProfDB(
 	conf *backendConfig,
+	grps []*agd.ServerGroup,
 	envs *environments,
-	sigHdlr signalHandler,
+	sigHdlr *service.SignalHandler,
 	errColl errcoll.Interface,
 ) (profDB *profiledb.Default, err error) {
 	apiURL := netutil.CloneURL(&envs.ProfilesURL.URL)
-	profStrg, err := setupProfStorage(apiURL, errColl)
+	bindSet := collectBindSubnetSet(grps)
+	profStrg, err := setupProfStorage(apiURL, bindSet, errColl)
 	if err != nil {
 		return nil, fmt.Errorf("creating profile storage: %w", err)
 	}
@@ -174,9 +185,38 @@ func setupProfDB(
 		return nil, fmt.Errorf("starting default profile database refresher: %w", err)
 	}
 
-	sigHdlr.add(profDBRefr)
+	sigHdlr.Add(profDBRefr)
 
 	return profDB, nil
+}
+
+// collectBindSubnetSet returns a subnet set with IP addresses of servers in the
+// provided server groups grps.
+func collectBindSubnetSet(grps []*agd.ServerGroup) (s netutil.SubnetSet) {
+	var serverPrefixes []netip.Prefix
+	allSingleIP := true
+	for _, grp := range grps {
+		for _, srv := range grp.Servers {
+			for _, p := range srv.BindDataPrefixes() {
+				allSingleIP = allSingleIP && p.IsSingleIP()
+				serverPrefixes = append(serverPrefixes, p)
+			}
+		}
+	}
+
+	// In cases where an installation only has single-IP prefixes in bind
+	// interfaces, or no bind interfaces at all, only check the dedicated IPs in
+	// profiles for validity.
+	//
+	// TODO(a.garipov): Do not load profiles on such installations at all, as
+	// they don't really need them.  See AGDNS-1888.
+	if allSingleIP {
+		log.Info("warning: all bind ifaces are single-ip; only checking validity of dedicated ips")
+
+		return netutil.SubnetSetFunc(netip.Addr.IsValid)
+	}
+
+	return netutil.SliceSubnetSet(serverPrefixes)
 }
 
 // Backend API URL schemes.
@@ -189,11 +229,13 @@ const (
 // provided API URL.
 func setupProfStorage(
 	apiURL *url.URL,
+	bindSet netutil.SubnetSet,
 	errColl errcoll.Interface,
 ) (s profiledb.Storage, err error) {
 	scheme := apiURL.Scheme
 	if scheme == schemeGRPC || scheme == schemeGRPCS {
 		return backendpb.NewProfileStorage(&backendpb.ProfileStorageConfig{
+			BindSet:  bindSet,
 			Endpoint: apiURL,
 			ErrColl:  errColl,
 		})

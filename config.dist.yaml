@@ -274,7 +274,7 @@ filters:
     # FILTER_INDEX_URL environment variable.
     refresh_interval: 1h
     # The timeout for the entire filter update operation.  Be aware that each
-    # individual refresh operation also has its own hardcoded 30s timeout.
+    # individual refresh operation also has its own hardcoded 3m timeout.
     refresh_timeout: 5m
     # MaxSize is the maximum size of the downloadable filtering rule-list.
     max_size: 256MB
@@ -351,15 +351,38 @@ server_groups:
   - name: 'adguard_dns_default'
     # This filtering_group is used for all anonymous clients.
     filtering_group: 'default'
-    tls:
-        certificates:
-          - certificate: './test/cert.crt'
-            key: './test/cert.key'
-        session_keys:
-          - './test/tls_key_1'
-          - './test/tls_key_2'
-        device_id_wildcards:
-          - '*.dns.example.com'
+    # Settings for redirection to a block page.
+    block_page_redirect:
+        # If enabled is false, other fields can be skipped.
+        enabled: true
+        # Addresses to use for A queries.  If enabled is true, ipv4, ipv6, or
+        # both must be filled.
+        ipv4:
+          - address: '127.0.0.1'
+          - address: '127.0.0.2'
+        # Addresses to use for AAAA queries.  If enabled is true, ipv4, ipv6, or
+        # both must be filled.
+        ipv6:
+          - address: '::1'
+          - address: '::2'
+        # Request parameters based on which the block page is always shown.  For
+        # requests matching these parameters, both skip and probability are
+        # ignored.
+        apply:
+            client:
+              - address: '192.168.0.0/16'
+              - address: '1.2.3.4'
+        # Request parameters based on which the block page is never shown.  For
+        # requests matching these parameters, probability is ignored.
+        skip:
+            client:
+              - address: '1.2.0.0/16'
+              - address: '5.6.7.8'
+            question:
+              - domain: 'do-not-show-block.site.example'
+        # The probability of responding with the block page IPs based on remote
+        # address.  Must be between 0.0 and 1.0.
+        probability: 0.01
     ddr:
         enabled: true
         # Device ID domain name suffix to DDR record template mapping.  Keep in
@@ -386,6 +409,15 @@ server_groups:
                   - '127.0.0.1'
                 ipv6_hints:
                   - '::1'
+    tls:
+        certificates:
+          - certificate: './test/cert.crt'
+            key: './test/cert.key'
+        session_keys:
+          - './test/tls_key_1'
+          - './test/tls_key_2'
+        device_id_wildcards:
+          - '*.dns.example.com'
     servers:
       - name: 'default_dns'
         # See README for the list of protocol values.

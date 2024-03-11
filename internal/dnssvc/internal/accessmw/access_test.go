@@ -25,9 +25,9 @@ func TestMiddleware_Wrap(t *testing.T) {
 		"block.test",
 		"UPPERCASE.test",
 		"||block_aaaa.test^$dnstype=AAAA",
-	}, []string{
-		"1.1.1.1",
-		"2.2.2.0/8",
+	}, []netip.Prefix{
+		netip.MustParsePrefix("1.1.1.1/32"),
+		netip.MustParsePrefix("2.2.2.0/8"),
 	})
 	require.NoError(t, accessErr)
 

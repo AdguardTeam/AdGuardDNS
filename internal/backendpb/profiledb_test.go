@@ -1,8 +1,9 @@
 package backendpb_test
 
 import (
-	context "context"
+	"context"
 	"net"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"testing"
@@ -52,6 +53,7 @@ func BenchmarkProfileStorage_Profiles(b *testing.B) {
 	require.NoError(b, err)
 
 	s, err := backendpb.NewProfileStorage(&backendpb.ProfileStorageConfig{
+		BindSet: netip.MustParsePrefix("0.0.0.0/0"),
 		ErrColl: errColl,
 		Endpoint: &url.URL{
 			Scheme: "grpc",

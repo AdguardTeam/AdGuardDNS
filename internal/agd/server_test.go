@@ -13,27 +13,31 @@ import (
 
 // Common variables for tests.
 var (
+	addrV4             = netip.MustParseAddr("1.2.3.4")
 	bindDataAddrPortV4 = &agd.ServerBindData{
-		AddrPort: netip.MustParseAddrPort("1.2.3.4:53"),
+		AddrPort: netip.AddrPortFrom(addrV4, 53),
 	}
 
+	addrV6             = netip.MustParseAddr("1234::cdef")
 	bindDataAddrPortV6 = &agd.ServerBindData{
-		AddrPort: netip.MustParseAddrPort("[1234::cdef]:53"),
+		AddrPort: netip.AddrPortFrom(addrV6, 53),
 	}
 
+	prefixV4      = netip.MustParsePrefix("1.2.3.0/24")
 	bindDataIface = &agd.ServerBindData{
 		ListenConfig: &agdtest.ListenConfig{},
 		PrefixAddr: &agdnet.PrefixNetAddr{
-			Prefix: netip.MustParsePrefix("1.2.3.0/24"),
+			Prefix: prefixV4,
 			Net:    "",
 			Port:   53,
 		},
 	}
 
+	singleIPPrefixV4      = netip.MustParsePrefix("1.2.3.4/32")
 	bindDataIfaceSingleIP = &agd.ServerBindData{
 		ListenConfig: &agdtest.ListenConfig{},
 		PrefixAddr: &agdnet.PrefixNetAddr{
-			Prefix: netip.MustParsePrefix("1.2.3.4/32"),
+			Prefix: singleIPPrefixV4,
 			Net:    "",
 			Port:   53,
 		},
@@ -103,6 +107,41 @@ func TestServer_BindsToInterfaces(t *testing.T) {
 
 	s.SetBindData([]*agd.ServerBindData{bindDataIfaceSingleIP})
 	assert.True(t, s.BindsToInterfaces())
+}
+
+func TestServer_BindDataPrefixes(t *testing.T) {
+	testCases := []struct {
+		bindData *agd.ServerBindData
+		name     string
+		want     []netip.Prefix
+	}{{
+		bindData: bindDataAddrPortV4,
+		want:     []netip.Prefix{netip.PrefixFrom(addrV4, addrV4.BitLen())},
+		name:     "addr_port_v4",
+	}, {
+		bindData: bindDataAddrPortV6,
+		want:     []netip.Prefix{netip.PrefixFrom(addrV6, addrV6.BitLen())},
+		name:     "addr_port_v6",
+	}, {
+		bindData: bindDataIface,
+		want:     []netip.Prefix{prefixV4},
+		name:     "prefix",
+	}, {
+		bindData: bindDataIfaceSingleIP,
+		want:     []netip.Prefix{singleIPPrefixV4},
+		name:     "prefix_single_ip",
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &agd.Server{}
+			require.NotPanics(t, func() {
+				s.SetBindData([]*agd.ServerBindData{tc.bindData})
+			})
+
+			assert.Equal(t, tc.want, s.BindDataPrefixes())
+		})
+	}
 }
 
 func TestServer_HasAddr(t *testing.T) {

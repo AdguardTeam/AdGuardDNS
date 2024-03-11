@@ -17,7 +17,7 @@ func TestGlobal_IsBlockedHost(t *testing.T) {
 		"||block_aaaa.test^$dnstype=AAAA",
 		"||allowlist.test^",
 		"@@||allow.allowlist.test^",
-	}, []string{})
+	}, nil)
 	require.NoError(t, err)
 
 	testCases := []struct {
@@ -76,44 +76,38 @@ func TestGlobal_IsBlockedHost(t *testing.T) {
 }
 
 func TestGlobal_IsBlockedIP(t *testing.T) {
-	global, err := access.NewGlobal([]string{}, []string{
-		"1.1.1.1",
-		"2.2.2.0/8",
+	global, err := access.NewGlobal([]string{}, []netip.Prefix{
+		netip.MustParsePrefix("1.1.1.1/32"),
+		netip.MustParsePrefix("2.2.2.0/8"),
 	})
 	require.NoError(t, err)
 
 	testCases := []struct {
-		want     assert.BoolAssertionFunc
-		ip       netip.Addr
-		wantRule string
-		name     string
+		want assert.BoolAssertionFunc
+		ip   netip.Addr
+		name string
 	}{{
-		want:     assert.False,
-		wantRule: "",
-		name:     "pass",
-		ip:       netip.MustParseAddr("1.1.1.0"),
+		want: assert.False,
+		name: "pass",
+		ip:   netip.MustParseAddr("1.1.1.0"),
 	}, {
-		want:     assert.True,
-		wantRule: "1.1.1.1",
-		name:     "block_ip",
-		ip:       netip.MustParseAddr("1.1.1.1"),
+		want: assert.True,
+		name: "block_ip",
+		ip:   netip.MustParseAddr("1.1.1.1"),
 	}, {
-		want:     assert.False,
-		wantRule: "",
-		name:     "pass_subnet",
-		ip:       netip.MustParseAddr("1.2.2.2"),
+		want: assert.False,
+		name: "pass_subnet",
+		ip:   netip.MustParseAddr("1.2.2.2"),
 	}, {
-		want:     assert.True,
-		wantRule: "2.2.2.0/8",
-		name:     "block_subnet",
-		ip:       netip.MustParseAddr("2.2.2.2"),
+		want: assert.True,
+		name: "block_subnet",
+		ip:   netip.MustParseAddr("2.2.2.2"),
 	}}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			blocked, rule := global.IsBlockedIP(tc.ip)
+			blocked := global.IsBlockedIP(tc.ip)
 			tc.want(t, blocked)
-			assert.Equal(t, tc.wantRule, rule)
 		})
 	}
 }

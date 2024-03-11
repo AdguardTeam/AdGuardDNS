@@ -39,6 +39,39 @@ type Interface interface {
 	ProfileByLinkedIP(ctx context.Context, ip netip.Addr) (p *agd.Profile, d *agd.Device, err error)
 }
 
+// type check
+var _ Interface = (*Disabled)(nil)
+
+// Disabled is a profile database that panics on any call.
+type Disabled struct{}
+
+// profilesDBUnexpectedCall is a panic message template for lookup methods when
+// profiles database is disabled.
+const profilesDBUnexpectedCall string = "profiles db: unexpected call to %s"
+
+// ProfileByDeviceID implements the [Interface] interface for *Disabled.
+func (d *Disabled) ProfileByDeviceID(
+	_ context.Context,
+	_ agd.DeviceID,
+) (_ *agd.Profile, _ *agd.Device, _ error) {
+	panic(fmt.Errorf(profilesDBUnexpectedCall, "ProfileByDeviceID"))
+}
+
+// ProfileByDedicatedIP implements the [Interface] interface for *Disabled.
+func (d *Disabled) ProfileByDedicatedIP(
+	_ context.Context, _ netip.Addr,
+) (_ *agd.Profile, _ *agd.Device, _ error) {
+	panic(fmt.Errorf(profilesDBUnexpectedCall, "ProfileByDedicatedIP"))
+}
+
+// ProfileByLinkedIP implements the [Interface] interface for *Disabled.
+func (d *Disabled) ProfileByLinkedIP(
+	_ context.Context,
+	_ netip.Addr,
+) (_ *agd.Profile, _ *agd.Device, _ error) {
+	panic(fmt.Errorf(profilesDBUnexpectedCall, "ProfileByLinkedIP"))
+}
+
 // Config represents the profile database configuration.
 type Config struct {
 	// Storage returns the data for this profile DB.

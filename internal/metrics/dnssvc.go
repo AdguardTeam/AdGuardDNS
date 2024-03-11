@@ -21,6 +21,9 @@ var DNSSvcRequestByASNTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Namespace: namespace,
 	Subsystem: subsystemDNSSvc,
 	Help:      "The number of processed DNS requests labeled by country and ASN.",
+	ConstLabels: prometheus.Labels{
+		dontStoreLabel: dontStoreLabelValue,
+	},
 }, []string{"country", "asn"})
 
 // DNSSvcRequestByFilterTotal is a counter with the total number of queries

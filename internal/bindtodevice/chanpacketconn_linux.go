@@ -106,6 +106,9 @@ func (c *chanPacketConn) LocalAddr() (addr net.Addr) { return c.laddr }
 // *chanPacketConn.
 func (c *chanPacketConn) ReadFrom(b []byte) (n int, raddr net.Addr, err error) {
 	n, sess, err := c.readFromSession(b, "ReadFrom")
+	if sess == nil {
+		return 0, nil, err
+	}
 
 	return n, sess.RemoteAddr(), err
 }
@@ -121,6 +124,13 @@ func (c *chanPacketConn) readFromSession(
 	b []byte,
 	fnName string,
 ) (n int, s netext.PacketSession, err error) {
+	var sess *packetSession
+	defer func() {
+		if sess != nil {
+			n = copy(b, sess.readBody)
+		}
+	}()
+
 	var deadline time.Time
 	func() {
 		c.deadlineMu.RLock()
@@ -137,16 +147,19 @@ func (c *chanPacketConn) readFromSession(
 	}
 	defer stopTimer()
 
-	sess, err := receiveWithTimer(c.sessions, timerCh)
+	sess, err = receiveWithTimer(c.sessions, timerCh)
 	if err != nil {
 		err = fmt.Errorf("receiving: %w", err)
 
-		return 0, nil, wrapConnError(tnChanPConn, fnName, c.laddr, err)
+		// Prevent netext.PacketSession((*packetSession)(nil)).
+		if sess != nil {
+			s = sess
+		}
+
+		return 0, s, wrapConnError(tnChanPConn, fnName, c.laddr, err)
 	}
 
-	n = copy(b, sess.readBody)
-
-	return n, sess, nil
+	return 0, sess, nil
 }
 
 // timerFromDeadline converts a deadline value into a timer channel.  stopTimer

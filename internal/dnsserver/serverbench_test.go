@@ -313,7 +313,7 @@ func BenchmarkServeQUIC(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		resp := sendQUICMessage(b, sess, req, false)
+		resp := requireSendQUICMessage(b, sess, req)
 		require.NotNil(b, resp)
 		require.True(b, resp.Response)
 	}

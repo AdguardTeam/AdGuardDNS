@@ -474,7 +474,7 @@ func (s *ServerBase) waitShutdown(ctx context.Context) (err error) {
 // isStarted returns true if the server is started.
 func (s *ServerBase) isStarted() (started bool) {
 	s.lock.RLock()
-	started = s.started
-	s.lock.RUnlock()
-	return started
+	defer s.lock.RUnlock()
+
+	return s.started
 }
