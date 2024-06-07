@@ -42,52 +42,39 @@ func newTestRefresher(t *testing.T, respErr error) (refr *agdtest.Refresher, syn
 	return refr, syncCh
 }
 
-// newRefrConf returns worker configuration.
-func newRefrConf(
+// newRefrConfig returns worker configuration.
+func newRefrConfig(
 	t *testing.T,
 	refr agdservice.Refresher,
 	ivl time.Duration,
 	refrOnShutDown bool,
-	errCh chan sig,
 ) (conf *agdservice.RefreshWorkerConfig) {
 	t.Helper()
-
-	pt := testutil.PanicT{}
-
-	errColl := &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, _ error) {
-			testutil.RequireSend(pt, errCh, sig{}, testTimeout)
-		},
-	}
 
 	return &agdservice.RefreshWorkerConfig{
 		Context: func() (ctx context.Context, cancel context.CancelFunc) {
 			return context.WithTimeout(context.Background(), testTimeout)
 		},
-		Refresher:           refr,
-		ErrColl:             errColl,
-		Name:                name,
-		Interval:            ivl,
-		RefreshOnShutdown:   refrOnShutDown,
-		RoutineLogsAreDebug: false,
-		RandomizeStart:      false,
+		Refresher:         refr,
+		Name:              name,
+		Interval:          ivl,
+		RefreshOnShutdown: refrOnShutDown,
+		RandomizeStart:    false,
 	}
 }
 
 func TestRefreshWorker(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		refr, syncCh := newTestRefresher(t, nil)
-		errCh := make(chan sig, 1)
 
-		w := agdservice.NewRefreshWorker(newRefrConf(t, refr, testIvl, false, errCh))
+		w := agdservice.NewRefreshWorker(newRefrConfig(t, refr, testIvl, false))
 
-		err := w.Start(agdtest.ContextWithTimeout(t, testTimeout))
+		err := w.Start(testutil.ContextWithTimeout(t, testTimeout))
 		require.NoError(t, err)
 
 		testutil.RequireReceive(t, syncCh, testTimeout)
-		require.Empty(t, errCh)
 
-		err = w.Shutdown(agdtest.ContextWithTimeout(t, testTimeout))
+		err = w.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
 		require.NoError(t, err)
 	})
 
@@ -95,12 +82,12 @@ func TestRefreshWorker(t *testing.T) {
 		refr, syncCh := newTestRefresher(t, nil)
 		errCh := make(chan sig, 1)
 
-		w := agdservice.NewRefreshWorker(newRefrConf(t, refr, testIvlLong, true, errCh))
+		w := agdservice.NewRefreshWorker(newRefrConfig(t, refr, testIvlLong, true))
 
-		err := w.Start(agdtest.ContextWithTimeout(t, testTimeout))
+		err := w.Start(testutil.ContextWithTimeout(t, testTimeout))
 		require.NoError(t, err)
 
-		err = w.Shutdown(agdtest.ContextWithTimeout(t, testTimeout))
+		err = w.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
 		require.NoError(t, err)
 
 		testutil.RequireReceive(t, syncCh, testTimeout)
@@ -109,33 +96,29 @@ func TestRefreshWorker(t *testing.T) {
 
 	t.Run("error", func(t *testing.T) {
 		errRefr, syncCh := newTestRefresher(t, testError)
-		errCh := make(chan sig, 1)
 
-		w := agdservice.NewRefreshWorker(newRefrConf(t, errRefr, testIvl, false, errCh))
+		w := agdservice.NewRefreshWorker(newRefrConfig(t, errRefr, testIvl, false))
 
-		err := w.Start(agdtest.ContextWithTimeout(t, testTimeout))
+		err := w.Start(testutil.ContextWithTimeout(t, testTimeout))
 		require.NoError(t, err)
 
 		testutil.RequireReceive(t, syncCh, testTimeout)
-		testutil.RequireReceive(t, errCh, testTimeout)
 
-		err = w.Shutdown(agdtest.ContextWithTimeout(t, testTimeout))
+		err = w.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
 		require.NoError(t, err)
 	})
 
 	t.Run("error_on_shutdown", func(t *testing.T) {
 		errRefr, syncCh := newTestRefresher(t, testError)
-		errCh := make(chan sig, 1)
 
-		w := agdservice.NewRefreshWorker(newRefrConf(t, errRefr, testIvlLong, true, errCh))
+		w := agdservice.NewRefreshWorker(newRefrConfig(t, errRefr, testIvlLong, true))
 
-		err := w.Start(agdtest.ContextWithTimeout(t, testTimeout))
+		err := w.Start(testutil.ContextWithTimeout(t, testTimeout))
 		require.NoError(t, err)
 
-		err = w.Shutdown(agdtest.ContextWithTimeout(t, testTimeout))
+		err = w.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
 		assert.ErrorIs(t, err, testError)
 
 		testutil.RequireReceive(t, syncCh, testTimeout)
-		require.Empty(t, errCh)
 	})
 }

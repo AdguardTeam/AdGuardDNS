@@ -9,9 +9,9 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
-	"github.com/AdguardTeam/golibs/stringutil"
 	"github.com/miekg/dns"
 )
 
@@ -50,8 +50,8 @@ func (c *ddrConfig) toInternal(msgs *dnsmsg.Constructor) (conf *agd.DDR) {
 func ddrRecsToSVCBTmpls(
 	msgs *dnsmsg.Constructor,
 	records map[string]*ddrRecord,
-) (targets *stringutil.Set, tmpls []*dns.SVCB) {
-	targets = stringutil.NewSet()
+) (targets *container.MapSet[string], tmpls []*dns.SVCB) {
+	targets = container.NewMapSet[string]()
 	for target, r := range records {
 		target = strings.TrimPrefix(target, "*.")
 		targets.Add(target)

@@ -5,6 +5,7 @@ import (
 	"net/netip"
 	"unicode/utf8"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdpasswd"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
 )
@@ -16,6 +17,9 @@ import (
 // NOTE: Do not change fields of this structure without incrementing
 // [internal/profiledb/internal.FileCacheVersion].
 type Device struct {
+	// Auth defines authentication settings of this device.  It's never nil.
+	Auth *AuthSettings
+
 	// ID is the unique ID of the device.
 	ID DeviceID
 
@@ -103,4 +107,21 @@ func NewDeviceName(s string) (n DeviceName, err error) {
 	}
 
 	return DeviceName(s), nil
+}
+
+// AuthSettings are the authentication settings of a device.
+//
+// NOTE: Do not change fields of this structure without incrementing
+// [internal/profiledb/internal.FileCacheVersion].
+type AuthSettings struct {
+	// PasswordHash is the hash of the auth password.  It is never nil.
+	PasswordHash agdpasswd.Authenticator
+
+	// Enabled tells whether the authentication should be enabled at all.
+	// This must be true in order for all parameters to work.
+	Enabled bool
+
+	// DoHAuthOnly defines if the device should only be authenticated through
+	// DoH protocol.
+	DoHAuthOnly bool
 }

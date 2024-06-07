@@ -5,8 +5,8 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/stringutil"
 )
 
 // Filtering Groups Configuration
@@ -94,7 +94,7 @@ func (g *filteringGroup) validate() (err error) {
 		return errors.Error("no parental")
 	}
 
-	fltIDs := stringutil.NewSet()
+	fltIDs := container.NewMapSet[string]()
 	for i, fltID := range g.RuleLists.IDs {
 		if fltIDs.Has(fltID) {
 			return fmt.Errorf("rule_lists: at index %d: duplicate id %q", i, fltID)
@@ -160,7 +160,7 @@ func (groups filteringGroups) validate() (err error) {
 		return errors.Error("no filtering_groups")
 	}
 
-	ids := stringutil.NewSet()
+	ids := container.NewMapSet[string]()
 	for i, g := range groups {
 		err = g.validate()
 		if err != nil {

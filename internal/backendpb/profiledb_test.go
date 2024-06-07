@@ -81,7 +81,7 @@ func BenchmarkProfileStorage_Profiles(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		respSink, errSink = s.Profiles(ctx, req)
 	}
 

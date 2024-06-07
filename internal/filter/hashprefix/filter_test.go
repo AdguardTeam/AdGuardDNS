@@ -15,21 +15,254 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
-	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestFilter_FilterRequest(t *testing.T) {
-	cachePath, srvURL := filtertest.PrepareRefreshable(t, nil, testHost, http.StatusOK)
+func TestFilter_FilterRequest_host(t *testing.T) {
+	testCases := []struct {
+		name       string
+		host       string
+		replHost   string
+		wantRule   agd.FilterRuleText
+		qType      dnsmsg.RRType
+		wantResult bool
+	}{{
+		name:       "host_not_a_or_aaaa",
+		host:       testHost,
+		replHost:   testReplHost,
+		wantRule:   "",
+		qType:      dns.TypeTXT,
+		wantResult: false,
+	}, {
+		name:       "host_success",
+		host:       testHost,
+		replHost:   testReplHost,
+		wantRule:   testHost,
+		qType:      dns.TypeA,
+		wantResult: true,
+	}, {
+		name:       "host_success_subdomain",
+		host:       "a.b.c." + testHost,
+		replHost:   testReplHost,
+		wantRule:   testHost,
+		qType:      dns.TypeA,
+		wantResult: true,
+	}, {
+		name:       "host_no_match",
+		host:       testOtherHost,
+		replHost:   testReplHost,
+		wantRule:   "",
+		qType:      dns.TypeA,
+		wantResult: false,
+	}, {
+		name:       "ip_not_a_or_aaaa",
+		host:       testHost,
+		replHost:   filtertest.SafeBrowsingReplIPv4Str,
+		wantRule:   "",
+		qType:      dns.TypeTXT,
+		wantResult: false,
+	}, {
+		name:       "ip_success",
+		host:       testHost,
+		replHost:   filtertest.SafeBrowsingReplIPv4Str,
+		wantRule:   testHost,
+		qType:      dns.TypeA,
+		wantResult: true,
+	}, {
+		name:       "ip_success_subdomain",
+		host:       "a.b.c." + testHost,
+		replHost:   filtertest.SafeBrowsingReplIPv4Str,
+		wantRule:   testHost,
+		qType:      dns.TypeA,
+		wantResult: true,
+	}, {
+		name:       "ip_no_match",
+		replHost:   filtertest.SafeBrowsingReplIPv4Str,
+		host:       testOtherHost,
+		wantRule:   "",
+		qType:      dns.TypeA,
+		wantResult: false,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFilter(t, tc.replHost)
+
+			req := dnsservertest.NewReq(
+				dns.Fqdn(tc.host),
+				tc.qType,
+				dns.ClassINET,
+			)
+			ri := &agd.RequestInfo{
+				Messages: agdtest.NewConstructor(),
+				Host:     tc.host,
+				QType:    tc.qType,
+			}
+
+			ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
+
+			r, err := f.FilterRequest(ctx, req, ri)
+			require.NoError(t, err)
+
+			var wantRes internal.Result
+			if tc.wantResult {
+				if tc.replHost == testReplHost {
+					wantRes = newModReqResult(req, tc.wantRule)
+				} else {
+					wantRes = newModRespResult(t, req, ri.Messages, filtertest.SafeBrowsingReplIPv4)
+				}
+			}
+
+			assert.Equal(t, wantRes, r)
+		})
+	}
+
+	require.True(t, t.Run("cached_success", func(t *testing.T) {
+		f := newFilter(t, testReplHost)
+
+		req := dnsservertest.NewReq(
+			dns.Fqdn(testHost),
+			dns.TypeA,
+			dns.ClassINET,
+		)
+		ri := &agd.RequestInfo{
+			Messages: agdtest.NewConstructor(),
+			Host:     testHost,
+			QType:    dns.TypeA,
+		}
+
+		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
+
+		original, err := f.FilterRequest(ctx, req, ri)
+		require.NoError(t, err)
+
+		cached, err := f.FilterRequest(ctx, req, ri)
+		require.NoError(t, err)
+
+		// Do not check the ID as it is new for every clone.
+		originalRM := testutil.RequireTypeAssert[*internal.ResultModifiedRequest](t, original)
+		cachedRM := testutil.RequireTypeAssert[*internal.ResultModifiedRequest](t, cached)
+		cachedRM.Msg.Id = originalRM.Msg.Id
+
+		assert.Equal(t, cached, original)
+	}))
+
+	require.True(t, t.Run("cached_no_match", func(t *testing.T) {
+		f := newFilter(t, testReplHost)
+
+		req := dnsservertest.NewReq(
+			dns.Fqdn(testOtherHost),
+			dns.TypeA,
+			dns.ClassINET,
+		)
+		ri := &agd.RequestInfo{
+			Messages: agdtest.NewConstructor(),
+			Host:     testOtherHost,
+			QType:    dns.TypeA,
+		}
+
+		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
+
+		r, err := f.FilterRequest(ctx, req, ri)
+		require.NoError(t, err)
+
+		cached, err := f.FilterRequest(ctx, req, ri)
+		require.NoError(t, err)
+
+		assert.Equal(t, cached, r)
+	}))
+
+	require.True(t, t.Run("https", func(t *testing.T) {
+		f := newFilter(t, testReplHost)
+
+		req := dnsservertest.NewReq(dns.Fqdn(testHost), dns.TypeHTTPS, dns.ClassINET)
+		ri := &agd.RequestInfo{
+			Messages: agdtest.NewConstructor(),
+			Host:     testHost,
+			QType:    dns.TypeHTTPS,
+		}
+
+		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
+
+		r, err := f.FilterRequest(ctx, req, ri)
+		require.NoError(t, err)
+		require.NotNil(t, r)
+
+		assert.Equal(t, newModReqResult(req, testHost), r)
+	}))
+
+	require.True(t, t.Run("https_ip", func(t *testing.T) {
+		f := newFilter(t, filtertest.SafeBrowsingReplIPv4Str)
+
+		req := dnsservertest.NewReq(dns.Fqdn(testHost), dns.TypeHTTPS, dns.ClassINET)
+		ri := &agd.RequestInfo{
+			Messages: agdtest.NewConstructor(),
+			Host:     testHost,
+			QType:    dns.TypeHTTPS,
+		}
+
+		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
+
+		r, err := f.FilterRequest(ctx, req, ri)
+		require.NoError(t, err)
+		require.NotNil(t, r)
+
+		m := testutil.RequireTypeAssert[*internal.ResultModifiedResponse](t, r)
+		require.NotNil(t, m.Msg)
+		require.Len(t, m.Msg.Question, 1)
+
+		assert.Equal(t, m.Msg.Question[0].Qtype, dns.TypeHTTPS)
+		assert.Len(t, m.Msg.Answer, 0)
+	}))
+}
+
+// newModRespResult is a helper for creating modified results for tests.
+func newModRespResult(
+	tb testing.TB,
+	req *dns.Msg,
+	messages *dnsmsg.Constructor,
+	replIP netip.Addr,
+) (r *internal.ResultModifiedResponse) {
+	tb.Helper()
+
+	resp, err := messages.NewIPRespMsg(req, replIP)
+	require.NoError(tb, err)
+
+	return &internal.ResultModifiedResponse{
+		Msg:  resp,
+		List: testFltListID,
+		Rule: testHost,
+	}
+}
+
+// newModReqResult is a helper for creating modified results for tests.
+func newModReqResult(
+	req *dns.Msg,
+	rule agd.FilterRuleText,
+) (r *internal.ResultModifiedRequest) {
+	req = dnsmsg.Clone(req)
+	req.Question[0].Name = dns.Fqdn(testReplHost)
+
+	return &internal.ResultModifiedRequest{
+		Msg:  req,
+		List: testFltListID,
+		Rule: rule,
+	}
+}
+
+// newFilter is a helper constructor for tests.
+func newFilter(tb testing.TB, replHost string) (f *hashprefix.Filter) {
+	tb.Helper()
+
+	cachePath, srvURL := filtertest.PrepareRefreshable(tb, nil, testHost, http.StatusOK)
 
 	strg, err := hashprefix.NewStorage("")
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
-	replIP := netip.MustParseAddr("1.2.3.4")
-	f, err := hashprefix.NewFilter(&hashprefix.FilterConfig{
+	f, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
 		Cloner: agdtest.NewCloner(),
 		Hashes: strg,
 		URL:    srvURL,
@@ -38,168 +271,17 @@ func TestFilter_FilterRequest(t *testing.T) {
 				panic("not implemented")
 			},
 		},
-		Resolver: &agdtest.Resolver{
-			OnLookupNetIP: func(
-				_ context.Context,
-				_ netutil.AddrFamily,
-				_ string,
-			) (ips []netip.Addr, err error) {
-				return []netip.Addr{replIP}, nil
-			},
-		},
 		ID:              agd.FilterListIDAdultBlocking,
 		CachePath:       cachePath,
-		ReplacementHost: "repl.example",
+		ReplacementHost: replHost,
 		Staleness:       filtertest.Staleness,
 		CacheTTL:        filtertest.CacheTTL,
 		CacheSize:       1,
 		MaxSize:         filtertest.FilterMaxSize,
 	})
-	require.NoError(t, err)
-
-	messages := agdtest.NewConstructor()
-
-	testCases := []struct {
-		name       string
-		host       string
-		qType      dnsmsg.RRType
-		wantResult bool
-	}{{
-		name:       "not_a_or_aaaa",
-		host:       testHost,
-		qType:      dns.TypeTXT,
-		wantResult: false,
-	}, {
-		name:       "success",
-		host:       testHost,
-		qType:      dns.TypeA,
-		wantResult: true,
-	}, {
-		name:       "success_subdomain",
-		host:       "a.b.c." + testHost,
-		qType:      dns.TypeA,
-		wantResult: true,
-	}, {
-		name:       "no_match",
-		host:       testOtherHost,
-		qType:      dns.TypeA,
-		wantResult: false,
-	}}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			req := dnsservertest.NewReq(
-				dns.Fqdn(tc.host),
-				tc.qType,
-				dns.ClassINET,
-			)
-			ri := &agd.RequestInfo{
-				Messages: messages,
-				Host:     tc.host,
-				QType:    tc.qType,
-			}
-
-			ctx, cancel := context.WithTimeout(context.Background(), filtertest.Timeout)
-			t.Cleanup(cancel)
-
-			var r internal.Result
-			r, err = f.FilterRequest(ctx, req, ri)
-			require.NoError(t, err)
-
-			if tc.wantResult {
-				wantRes := newModifiedResult(t, req, messages, replIP)
-				assert.Equal(t, wantRes, r)
-			} else {
-				assert.Nil(t, r)
-			}
-		})
-	}
-
-	t.Run("cached_success", func(t *testing.T) {
-		req := dnsservertest.NewReq(
-			dns.Fqdn(testHost),
-			dns.TypeA,
-			dns.ClassINET,
-		)
-		ri := &agd.RequestInfo{
-			Messages: messages,
-			Host:     testHost,
-			QType:    dns.TypeA,
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), filtertest.Timeout)
-		t.Cleanup(cancel)
-
-		var r internal.Result
-		r, err = f.FilterRequest(ctx, req, ri)
-		require.NoError(t, err)
-
-		wantRes := newModifiedResult(t, req, messages, replIP)
-		assert.Equal(t, wantRes, r)
-	})
-
-	t.Run("cached_no_match", func(t *testing.T) {
-		req := dnsservertest.NewReq(
-			dns.Fqdn(testOtherHost),
-			dns.TypeA,
-			dns.ClassINET,
-		)
-		ri := &agd.RequestInfo{
-			Messages: messages,
-			Host:     testOtherHost,
-			QType:    dns.TypeA,
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), filtertest.Timeout)
-		t.Cleanup(cancel)
-
-		var r internal.Result
-		r, err = f.FilterRequest(ctx, req, ri)
-		require.NoError(t, err)
-
-		assert.Nil(t, r)
-	})
-
-	t.Run("https", func(t *testing.T) {
-		req := dnsservertest.NewReq(dns.Fqdn(testHost), dns.TypeHTTPS, dns.ClassINET)
-		ri := &agd.RequestInfo{
-			Messages: messages,
-			Host:     testHost,
-			QType:    dns.TypeHTTPS,
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), filtertest.Timeout)
-		t.Cleanup(cancel)
-
-		var r internal.Result
-		r, err = f.FilterRequest(ctx, req, ri)
-		require.NoError(t, err)
-		require.NotNil(t, r)
-
-		m := testutil.RequireTypeAssert[*internal.ResultModified](t, r)
-		require.NotNil(t, m.Msg)
-		require.Len(t, m.Msg.Question, 1)
-
-		assert.Equal(t, m.Msg.Question[0].Qtype, dns.TypeHTTPS)
-		assert.Len(t, m.Msg.Answer, 0)
-	})
-}
-
-// newModifiedResult is a helper for creating modified results for tests.
-func newModifiedResult(
-	tb testing.TB,
-	req *dns.Msg,
-	messages *dnsmsg.Constructor,
-	replIP netip.Addr,
-) (r *internal.ResultModified) {
-	resp, err := messages.NewIPRespMsg(req, replIP)
 	require.NoError(tb, err)
 
-	return &internal.ResultModified{
-		Msg:  resp,
-		List: testFltListID,
-		Rule: testHost,
-	}
+	return f
 }
 
 func TestFilter_Refresh(t *testing.T) {
@@ -218,18 +300,9 @@ func TestFilter_Refresh(t *testing.T) {
 				panic("not implemented")
 			},
 		},
-		Resolver: &agdtest.Resolver{
-			OnLookupNetIP: func(
-				_ context.Context,
-				_ netutil.AddrFamily,
-				_ string,
-			) (ips []netip.Addr, err error) {
-				panic("not implemented")
-			},
-		},
 		ID:              agd.FilterListIDAdultBlocking,
 		CachePath:       cachePath,
-		ReplacementHost: "",
+		ReplacementHost: testReplHost,
 		Staleness:       filtertest.Staleness,
 		CacheTTL:        filtertest.CacheTTL,
 		CacheSize:       1,
@@ -237,8 +310,7 @@ func TestFilter_Refresh(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), filtertest.Timeout)
-	t.Cleanup(cancel)
+	ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 
 	err = f.Refresh(ctx)
 	assert.NoError(t, err)
@@ -264,7 +336,6 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	strg, err := hashprefix.NewStorage("")
 	require.NoError(t, err)
 
-	replIP := netip.MustParseAddr("1.2.3.4")
 	fconf := &hashprefix.FilterConfig{
 		Cloner: agdtest.NewCloner(),
 		Hashes: strg,
@@ -274,18 +345,9 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 				panic("not implemented")
 			},
 		},
-		Resolver: &agdtest.Resolver{
-			OnLookupNetIP: func(
-				_ context.Context,
-				_ netutil.AddrFamily,
-				_ string,
-			) (ips []netip.Addr, err error) {
-				return []netip.Addr{replIP}, nil
-			},
-		},
 		ID:              agd.FilterListIDAdultBlocking,
 		CachePath:       cachePath,
-		ReplacementHost: "repl.example",
+		ReplacementHost: testReplHost,
 		Staleness:       filtertest.Staleness,
 		CacheTTL:        filtertest.CacheTTL,
 		CacheSize:       1,
@@ -309,60 +371,48 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	testOtherHostReq := dnsservertest.NewReq(dns.Fqdn(testOtherHost), dns.TypeA, dns.ClassINET)
 	testOtherReqInfo := &agd.RequestInfo{Messages: messages, Host: testOtherHost, QType: dns.TypeA}
 
-	t.Run("hit_cached_host", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), filtertest.Timeout)
-		t.Cleanup(cancel)
+	require.True(t, t.Run("hit_cached_host", func(t *testing.T) {
+		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 
 		var r internal.Result
 		r, err = f.FilterRequest(ctx, testOtherHostReq, testOtherReqInfo)
 		require.NoError(t, err)
 
-		var resp *dns.Msg
-		resp, err = messages.NewIPRespMsg(testOtherHostReq, replIP)
-		require.NoError(t, err)
+		assert.Equal(t, newModReqResult(testOtherHostReq, testOtherHost), r)
+	}))
 
-		assert.Equal(t, &internal.ResultModified{
-			Msg:  resp,
-			List: testFltListID,
-			Rule: testOtherHost,
-		}, r)
-	})
-
-	t.Run("refresh", func(t *testing.T) {
+	require.True(t, t.Run("refresh", func(t *testing.T) {
 		// Make the cache stale.
 		now := time.Now()
 		err = os.Chtimes(cachePath, now, now.Add(-2*fconf.Staleness))
 		require.NoError(t, err)
 
-		ctx, cancel := context.WithTimeout(context.Background(), filtertest.Timeout)
-		t.Cleanup(cancel)
+		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 
 		err = f.Refresh(ctx)
 		assert.NoError(t, err)
 
 		testutil.RequireReceive(t, refrCh, filtertest.Timeout)
-	})
+	}))
 
-	t.Run("previously_cached", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), filtertest.Timeout)
-		t.Cleanup(cancel)
+	require.True(t, t.Run("previously_cached", func(t *testing.T) {
+		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 
 		var r internal.Result
 		r, err = f.FilterRequest(ctx, testOtherHostReq, testOtherReqInfo)
 		require.NoError(t, err)
 
 		assert.Nil(t, r)
-	})
+	}))
 
-	t.Run("new_host", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), filtertest.Timeout)
-		t.Cleanup(cancel)
+	require.True(t, t.Run("new_host", func(t *testing.T) {
+		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 
 		var r internal.Result
 		r, err = f.FilterRequest(ctx, testHostReq, testReqInfo)
 		require.NoError(t, err)
 
-		wantRes := newModifiedResult(t, testHostReq, messages, replIP)
+		wantRes := newModReqResult(testHostReq, testHost)
 		assert.Equal(t, wantRes, r)
-	})
+	}))
 }

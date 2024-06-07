@@ -25,11 +25,14 @@ type webConfig struct {
 	// LinkedIP is the optional linked IP web server.
 	LinkedIP *linkedIPServer `yaml:"linked_ip"`
 
-	// SafeBrowsing is the optional safe browsing block page web server.
-	SafeBrowsing *blockPageServer `yaml:"safe_browsing"`
-
 	// AdultBlocking is the optional adult blocking block page web server.
 	AdultBlocking *blockPageServer `yaml:"adult_blocking"`
+
+	// GeneralBlocking is the optional general block-page web server.
+	GeneralBlocking *blockPageServer `yaml:"general_blocking"`
+
+	// SafeBrowsing is the optional safe browsing block page web server.
+	SafeBrowsing *blockPageServer `yaml:"safe_browsing"`
 
 	// RootRedirectURL is the URL to which non-DNS and non-Debug HTTP requests
 	// are redirected.  If not set, a 404 page is shown.
@@ -84,6 +87,11 @@ func (c *webConfig) toInternal(
 	conf.AdultBlocking, err = c.AdultBlocking.toInternal()
 	if err != nil {
 		return nil, fmt.Errorf("converting adult_blocking: %w", err)
+	}
+
+	conf.GeneralBlocking, err = c.GeneralBlocking.toInternal()
+	if err != nil {
+		return nil, fmt.Errorf("converting general_blocking: %w", err)
 	}
 
 	conf.SafeBrowsing, err = c.SafeBrowsing.toInternal()
@@ -146,14 +154,19 @@ func (c *webConfig) validate() (err error) {
 		return fmt.Errorf("linked_ip: %w", err)
 	}
 
-	err = c.SafeBrowsing.validate()
-	if err != nil {
-		return fmt.Errorf("safe_browsing: %w", err)
-	}
-
 	err = c.AdultBlocking.validate()
 	if err != nil {
 		return fmt.Errorf("adult_blocking: %w", err)
+	}
+
+	err = c.GeneralBlocking.validate()
+	if err != nil {
+		return fmt.Errorf("general_blocking: %w", err)
+	}
+
+	err = c.SafeBrowsing.validate()
+	if err != nil {
+		return fmt.Errorf("safe_browsing: %w", err)
 	}
 
 	err = c.StaticContent.validate()

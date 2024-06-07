@@ -14,7 +14,7 @@ type additionalInfo map[string]string
 
 // validateAdditionalInfo return an error is the section is invalid.
 func (c additionalInfo) validate() (err error) {
-	return mapsutil.OrderedRangeError(c, func(k, _ string) (keyErr error) {
+	return mapsutil.SortedRangeError(c, func(k, _ string) (keyErr error) {
 		if model.LabelName(k).IsValid() {
 			return nil
 		}

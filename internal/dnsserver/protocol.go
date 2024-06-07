@@ -85,7 +85,7 @@ func (p Protocol) IsStdEncrypted() (ok bool) {
 // Used for a kind of validation.
 type Network string
 
-// Network enum members. Note that we use "tcp" and "udp" strings so that
+// Network enum members.  Note that we use "tcp" and "udp" strings so that
 // we could use these constants when calling golang net package functions.
 const (
 	NetworkTCP Network = "tcp"

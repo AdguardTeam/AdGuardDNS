@@ -34,6 +34,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/log"
 	"github.com/miekg/dns"
 	"golang.org/x/exp/rand"
 )
@@ -265,6 +266,10 @@ func (h *Handler) exchange(
 // upstreams is detected to be up again, requests are redirected back to the
 // main upstreams.
 func (h *Handler) Refresh(ctx context.Context) (err error) {
+	// TODO(a.garipov):  Use slog.
+	log.Debug("upstream_healthcheck_refresh: started")
+	defer log.Debug("upstream_healthcheck_refresh: finished")
+
 	return h.refresh(ctx, false)
 }
 

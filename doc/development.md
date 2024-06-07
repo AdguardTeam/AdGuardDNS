@@ -13,7 +13,7 @@
 
 Development is supported on Linux and macOS (aka Darwin) systems.
 
-1.  Install Go 1.21 or later.
+1.  Install Go 1.22 or later.
 
 1.  Call `make init` to set up the Git pre-commit hook.
 
@@ -219,15 +219,15 @@ curl 'https://raw.githubusercontent.com/maxmind/MaxMind-DB/main/test-data/GeoIP2
 
 You'll need to supply the following:
 
- *  [`ADULT_BLOCKING_URL`](#env-ADULT_BLOCKING_URL)
- *  [`BILLSTAT_URL`](#env-BILLSTAT_URL)
- *  [`CONSUL_ALLOWLIST_URL`](#env-CONSUL_ALLOWLIST_URL)
- *  [`GENERAL_SAFE_SEARCH_URL`](#env-GENERAL_SAFE_SEARCH_URL)
- *  [`LINKED_IP_TARGET_URL`](#env-LINKED_IP_TARGET_URL)
- *  [`NEW_REG_DOMAINS_URL`](#env-NEW_REG_DOMAINS_URL)
- *  [`PROFILES_URL`](#env-PROFILES_URL)
- *  [`SAFE_BROWSING_URL`](#env-SAFE_BROWSING_URL)
- *  [`YOUTUBE_SAFE_SEARCH_URL`](#env-YOUTUBE_SAFE_SEARCH_URL)
+ *  [`ADULT_BLOCKING_URL`][env-ADULT_BLOCKING_URL]
+ *  [`BILLSTAT_URL`][env-BILLSTAT_URL]
+ *  [`CONSUL_ALLOWLIST_URL`][env-CONSUL_ALLOWLIST_URL]
+ *  [`GENERAL_SAFE_SEARCH_URL`][env-GENERAL_SAFE_SEARCH_URL]
+ *  [`LINKED_IP_TARGET_URL`][env-LINKED_IP_TARGET_URL]
+ *  [`NEW_REG_DOMAINS_URL`][env-NEW_REG_DOMAINS_URL]
+ *  [`PROFILES_URL`][env-PROFILES_URL]
+ *  [`SAFE_BROWSING_URL`][env-SAFE_BROWSING_URL]
+ *  [`YOUTUBE_SAFE_SEARCH_URL`][env-YOUTUBE_SAFE_SEARCH_URL]
 
 See the [external HTTP API documentation][externalhttp].
 
@@ -279,6 +279,16 @@ env \
     YOUTUBE_SAFE_SEARCH_URL='https://adguardteam.github.io/HostlistsRegistry/assets/youtube_safe_search.txt' \
     ./AdGuardDNS
 ```
+
+[env-ADULT_BLOCKING_URL]:      environment.md#ADULT_BLOCKING_URL
+[env-BILLSTAT_URL]:            environment.md#BILLSTAT_URL
+[env-CONSUL_ALLOWLIST_URL]:    environment.md#CONSUL_ALLOWLIST_URL
+[env-GENERAL_SAFE_SEARCH_URL]: environment.md#GENERAL_SAFE_SEARCH_URL
+[env-LINKED_IP_TARGET_URL]:    environment.md#LINKED_IP_TARGET_URL
+[env-NEW_REG_DOMAINS_URL]:     environment.md#NEW_REG_DOMAINS_URL
+[env-PROFILES_URL]:            environment.md#PROFILES_URL
+[env-SAFE_BROWSING_URL]:       environment.md#SAFE_BROWSING_URL
+[env-YOUTUBE_SAFE_SEARCH_URL]: environment.md#YOUTUBE_SAFE_SEARCH_URL
 
 [externalhttp]: externalhttp.md
 

@@ -2,6 +2,7 @@ package consul_test
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/consul"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/golibs/testutil"
@@ -70,12 +72,18 @@ func TestNewAllowlistRefresher(t *testing.T) {
 		u := handleWithURL(t, http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
 			pt := testutil.PanicT{}
 
-			_, err := rw.Write([]byte(testCases[i].resp))
+			_, err := io.WriteString(rw, testCases[i].resp)
 			require.NoError(pt, err)
 		}))
 
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := consul.NewAllowlistRefresher(al, u)
+			errColl := &agdtest.ErrorCollector{
+				OnCollect: func(_ context.Context, err error) {
+					panic("not implemented")
+				},
+			}
+
+			_, err := consul.NewAllowlistRefresher(al, u, errColl)
 			require.NoError(t, err)
 
 			for _, ip := range tc.wantAllow {
@@ -104,10 +112,18 @@ func TestNewAllowlistRefresher(t *testing.T) {
 		}))
 		wantErr := &agdhttp.StatusError{}
 
-		_, err := consul.NewAllowlistRefresher(al, u)
+		var gotCollErr error
+		errColl := &agdtest.ErrorCollector{
+			OnCollect: func(_ context.Context, err error) {
+				gotCollErr = err
+			},
+		}
+
+		_, err := consul.NewAllowlistRefresher(al, u, errColl)
 		require.ErrorAs(t, err, &wantErr)
 
 		assert.Equal(t, wantErr.Got, status)
+		assert.ErrorAs(t, gotCollErr, &wantErr)
 	})
 }
 
@@ -116,11 +132,18 @@ func TestAllowlistRefresher_Refresh_deadline(t *testing.T) {
 	u := handleWithURL(t, http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
 		pt := testutil.PanicT{}
 
-		_, err := rw.Write([]byte(`[]`))
+		_, err := io.WriteString(rw, `[]`)
 		require.NoError(pt, err)
 	}))
 
-	c, err := consul.NewAllowlistRefresher(al, u)
+	var gotCollErr error
+	errColl := &agdtest.ErrorCollector{
+		OnCollect: func(_ context.Context, err error) {
+			gotCollErr = err
+		},
+	}
+
+	c, err := consul.NewAllowlistRefresher(al, u, errColl)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -128,4 +151,5 @@ func TestAllowlistRefresher_Refresh_deadline(t *testing.T) {
 
 	err = c.Refresh(ctx)
 	assert.ErrorIs(t, err, context.Canceled)
+	assert.ErrorIs(t, gotCollErr, context.Canceled)
 }

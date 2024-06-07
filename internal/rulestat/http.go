@@ -13,33 +13,28 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
 )
 
-// HTTP Uploader Rulestat
-
-// StatFilterListID is the ID of the filtering rule list for which we collect
-// statistics.  This is a temporary restriction.
-//
-// TODO(ameshkov): Consider making configurable
-const StatFilterListID agd.FilterListID = "adguard_dns_filter"
-
-// StatFilterListLegacyID is the ID of the filtering rule list for which we
+// statFilterListLegacyID is the ID of the filtering rule list for which we
 // collect statistics, as understood and accepted by the current backend.  This
 // is a temporary restriction.
 //
 // TODO(ameshkov): Consider making the backend accept the current IDs.
-const StatFilterListLegacyID agd.FilterListID = "15"
+const statFilterListLegacyID agd.FilterListID = "15"
 
 // HTTP is the filtering rule statistics collector that uploads the statistics
 // to the given URL when it's refreshed.
 //
 // TODO(a.garipov): Add tests.
 type HTTP struct {
-	url  *url.URL
-	http *agdhttp.Client
+	url     *url.URL
+	http    *agdhttp.Client
+	errColl errcoll.Interface
 
 	// mu protects stats and recordedHits.
 	mu           *sync.Mutex
@@ -53,6 +48,9 @@ type statsSet = map[agd.FilterListID]map[agd.FilterRuleText]uint64
 // HTTPConfig is the configuration structure for the filtering rule statistics
 // collector that uploads the statistics to a URL.  All fields are required.
 type HTTPConfig struct {
+	// ErrColl is used to collect errors during refreshes.
+	ErrColl errcoll.Interface
+
 	// URL is the URL to which the statistics is uploaded.
 	URL *url.URL
 }
@@ -60,13 +58,15 @@ type HTTPConfig struct {
 // NewHTTP returns a new statistics collector with HTTP upload.
 func NewHTTP(c *HTTPConfig) (s *HTTP) {
 	return &HTTP{
-		mu:    &sync.Mutex{},
-		stats: statsSet{},
-		url:   netutil.CloneURL(c.URL),
+		url: netutil.CloneURL(c.URL),
 		http: agdhttp.NewClient(&agdhttp.ClientConfig{
 			// TODO(ameshkov): Consider making configurable.
 			Timeout: 30 * time.Second,
 		}),
+		errColl: c.ErrColl,
+
+		mu:    &sync.Mutex{},
+		stats: statsSet{},
 	}
 }
 
@@ -75,11 +75,11 @@ var _ Interface = (*HTTP)(nil)
 
 // Collect implements the Interface interface for *HTTP.
 func (s *HTTP) Collect(_ context.Context, id agd.FilterListID, text agd.FilterRuleText) {
-	if id != StatFilterListID {
+	if id != agd.FilterListIDAdGuardDNS {
 		return
 	}
 
-	id = StatFilterListLegacyID
+	id = statFilterListLegacyID
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -106,15 +106,22 @@ var _ agdservice.Refresher = (*HTTP)(nil)
 // uploads the collected statistics to s.u and starts collecting a new set of
 // statistics.
 func (s *HTTP) Refresh(ctx context.Context) (err error) {
-	err = s.refresh(ctx)
+	// TODO(a.garipov):  Use slog.
+	log.Info("rulestat_refresh: started")
+	defer log.Info("rulestat_refresh: finished")
 
-	if err == nil {
-		metrics.RuleStatUploadTimestamp.SetToCurrentTime()
+	err = s.refresh(ctx)
+	if err != nil {
+		errcoll.Collectf(ctx, s.errColl, "rulestat_refresh: %w", err)
+		metrics.SetStatusGauge(metrics.RuleStatUploadStatus, err)
+
+		return err
 	}
 
-	metrics.SetStatusGauge(metrics.RuleStatUploadStatus, err)
+	metrics.RuleStatUploadTimestamp.SetToCurrentTime()
+	metrics.SetStatusGauge(metrics.RuleStatUploadStatus, nil)
 
-	return err
+	return nil
 }
 
 // refresh uploads the collected statistics and resets the collected stats.
@@ -135,13 +142,8 @@ func (s *HTTP) refresh(ctx context.Context) (err error) {
 	}
 	defer func() { err = errors.WithDeferred(err, httpResp.Body.Close()) }()
 
-	err = agdhttp.CheckStatus(httpResp, http.StatusOK)
-	if err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		return err
-	}
-
-	return nil
+	// Don't wrap the error, because it's informative enough as is.
+	return agdhttp.CheckStatus(httpResp, http.StatusOK)
 }
 
 // replaceStats replaced the current stats of s with a new set and returns the

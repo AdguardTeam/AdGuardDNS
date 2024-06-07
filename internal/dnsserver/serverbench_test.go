@@ -61,14 +61,13 @@ func BenchmarkServeDNS(b *testing.B) {
 
 			b.ReportAllocs()
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				_, err = conn.Write(msg)
 				require.NoError(b, err)
 
 				err = readMsg(resBuf, tc.network, conn)
 				require.NoError(b, err)
 			}
-			b.StopTimer()
 		})
 	}
 }
@@ -130,7 +129,7 @@ func BenchmarkServeTLS(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_, err = conn.Write(msg)
 		require.NoError(b, err)
 
@@ -147,7 +146,6 @@ func BenchmarkServeTLS(b *testing.B) {
 
 		require.GreaterOrEqual(b, n, dnsserver.DNSHeaderSize)
 	}
-	b.StopTimer()
 }
 
 func BenchmarkServeDoH(b *testing.B) {
@@ -207,7 +205,7 @@ func BenchmarkServeDoH(b *testing.B) {
 
 			b.ReportAllocs()
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				var res *http.Response
 				res, err = client.Do(req)
 				require.NoError(b, err)
@@ -271,13 +269,12 @@ func BenchmarkServeDNSCrypt(b *testing.B) {
 
 			b.ReportAllocs()
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				var resp *dns.Msg
 				resp, err = client.ExchangeConn(conn, req, ri)
 				require.NoError(b, err)
 				require.True(b, resp.Response)
 			}
-			b.StopTimer()
 		})
 	}
 }
@@ -312,10 +309,9 @@ func BenchmarkServeQUIC(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		resp := requireSendQUICMessage(b, sess, req)
 		require.NotNil(b, resp)
 		require.True(b, resp.Response)
 	}
-	b.StopTimer()
 }

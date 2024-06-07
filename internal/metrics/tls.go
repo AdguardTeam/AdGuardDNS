@@ -3,6 +3,7 @@ package metrics
 import (
 	"crypto/tls"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/AdguardTeam/golibs/netutil"
@@ -108,10 +109,8 @@ func TLSMetricsAfterHandshake(
 func TLSMetricsBeforeHandshake(proto string) (f func(*tls.ClientHelloInfo) (*tls.Config, error)) {
 	return func(info *tls.ClientHelloInfo) (*tls.Config, error) {
 		var maxVersion uint16
-		for _, v := range info.SupportedVersions {
-			if v > maxVersion {
-				maxVersion = v
-			}
+		if len(info.SupportedVersions) > 0 {
+			maxVersion = slices.Max(info.SupportedVersions)
 		}
 
 		supProtos := make([]string, len(info.SupportedProtos))

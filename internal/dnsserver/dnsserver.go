@@ -14,7 +14,7 @@ import (
 )
 
 // Handler is an interface that defines how the DNS server would process DNS
-// queries. Inspired by net/http.Server and it's Handler.
+// queries.  Inspired by net/http.Server and it's Handler.
 type Handler interface {
 	// ServeDNS should process the request and write a DNS response to the
 	// specified ResponseWriter.
@@ -28,7 +28,7 @@ type Handler interface {
 }
 
 // The HandlerFunc type is an adapter to allow the use of ordinary functions
-// as DNS handlers. If f is a function with the appropriate signature,
+// as DNS handlers.  If f is a function with the appropriate signature,
 // HandlerFunc(f) is a Handler that calls f.
 type HandlerFunc func(context.Context, ResponseWriter, *dns.Msg) (err error)
 

@@ -59,8 +59,8 @@ var ProfilesSyncTime = promauto.NewGauge(prometheus.GaugeOpts{
 	Help:      "The time when the user profiles were synced last time.",
 })
 
-// ProfilesSyncStatus is a gauge with the profiles sync status. Set it to 1
-// if the sync was successful. Otherwise, set it to 0.
+// ProfilesSyncStatus is a gauge with the profiles sync status.  Set it to 1
+// if the sync was successful.  Otherwise, set it to 0.
 var ProfilesSyncStatus = promauto.NewGauge(prometheus.GaugeOpts{
 	Name:      "profiles_sync_status",
 	Subsystem: subsystemBackend,

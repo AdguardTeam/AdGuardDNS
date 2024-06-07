@@ -315,7 +315,7 @@ func TestServerDNS_integration_tcpQueriesPipelining(t *testing.T) {
 	const queriesNum = 100
 
 	sentIDs := make(map[uint16]string, queriesNum)
-	for i := 0; i < queriesNum; i++ {
+	for i := range queriesNum {
 		name := fmt.Sprintf("host%d.org", i)
 		req := dnsservertest.CreateMessage(name, dns.TypeA)
 		req.Id = uint16(i + 1)
@@ -341,7 +341,7 @@ func TestServerDNS_integration_tcpQueriesPipelining(t *testing.T) {
 
 	// Read the responses and check their IDs.
 	receivedIDs := make(map[uint16]string, queriesNum)
-	for i := 0; i < queriesNum; i++ {
+	for range queriesNum {
 		err = conn.SetReadDeadline(time.Now().Add(time.Second))
 		require.NoError(t, err)
 
@@ -466,7 +466,6 @@ func TestServerDNS_integration_tcpMsgIgnore(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

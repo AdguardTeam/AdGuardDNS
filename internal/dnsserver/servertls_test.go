@@ -90,7 +90,6 @@ func TestServerTLS_integration_msgIgnore(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -168,7 +167,7 @@ func TestServerTLS_integration_queriesPipelining(t *testing.T) {
 	// those queries IDs
 	count := 100
 	ids := map[uint16]bool{}
-	for i := 0; i < count; i++ {
+	for i := range count {
 		req := new(dns.Msg)
 		req.Id = uint16(i)
 		req.RecursionDesired = true
@@ -191,7 +190,7 @@ func TestServerTLS_integration_queriesPipelining(t *testing.T) {
 	}
 
 	// Now read the responses and check their IDs
-	for i := 0; i < count; i++ {
+	for range count {
 		_ = conn.SetReadDeadline(time.Now().Add(time.Millisecond * 100))
 		l := make([]byte, 2)
 		_, err = conn.Read(l)

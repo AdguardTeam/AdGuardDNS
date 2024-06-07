@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/miekg/dns"
 )
 
@@ -69,12 +70,9 @@ type recordKey struct {
 	qt     dnsmsg.RRType
 }
 
-// unit is a convenient alias for struct{}.
-type unit = struct{}
-
 // recordValue contains the values for a single record key.
 type recordValue struct {
-	answers map[recordAnswer]unit
+	answers *container.MapSet[recordAnswer]
 	hits    uint64
 }
 

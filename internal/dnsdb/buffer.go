@@ -5,6 +5,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/miekg/dns"
 )
 
@@ -63,7 +64,7 @@ func (b *buffer) all() (records []*record) {
 	defer b.mu.Unlock()
 
 	for key, val := range b.entries {
-		if len(val.answers) == 0 {
+		if val.answers.Len() == 0 {
 			records = append(records, &record{
 				target: key.target,
 				hits:   val.hits,
@@ -73,7 +74,7 @@ func (b *buffer) all() (records []*record) {
 			continue
 		}
 
-		for a := range val.answers {
+		val.answers.Range(func(a recordAnswer) (cont bool) {
 			records = append(records, &record{
 				target: key.target,
 				answer: a.value,
@@ -81,24 +82,26 @@ func (b *buffer) all() (records []*record) {
 				rrType: a.rrType,
 				rcode:  a.rcode,
 			})
-		}
+
+			return true
+		})
 	}
 
 	return records
 }
 
-// toAnswerSet converts a slice of [dns.RR] to a map that can easier be
+// toAnswerSet converts a slice of [dns.RR] to a set that can easier be
 // serialized to a csv.
-func toAnswerSet(answers []dns.RR, rc dnsmsg.RCode) (answerSet map[recordAnswer]unit) {
-	answerSet = map[recordAnswer]unit{}
+func toAnswerSet(answers []dns.RR, rc dnsmsg.RCode) (answerSet *container.MapSet[recordAnswer]) {
+	answerSet = container.NewMapSet[recordAnswer]()
 	for _, a := range answers {
 		ansStr := answerString(a)
 		if ansStr != "" {
-			answerSet[recordAnswer{
+			answerSet.Add(recordAnswer{
 				value:  ansStr,
 				rrType: a.Header().Rrtype,
 				rcode:  rc,
-			}] = unit{}
+			})
 		}
 	}
 

@@ -188,7 +188,7 @@ func TestUserCounter_simple(t *testing.T) {
 	for d, h := now.Day(), now.Hour(); now.Day() == d; h = now.Hour() {
 		t.Run(strconv.Itoa(now.Hour()), func(t *testing.T) {
 			for ; now.Hour() == h; now = now.Add(1 * time.Minute) {
-				for i := 0; i < ipsPerMinute; i++ {
+				for range ipsPerMinute {
 					c.record(now, randIP(t, r, netutil.AddrFamilyIPv4), true)
 				}
 			}
@@ -213,7 +213,7 @@ func BenchmarkUserCounter_Estimate(b *testing.B) {
 	sparseCounter := newUserCounter()
 	for d, now := zeroTime.Day(), zeroTime; d == now.Day(); now = now.Add(time.Minute) {
 		r := rand.New(rand.NewSource(randSeed))
-		for i := 0; i < n; i++ {
+		for range n {
 			sparseCounter.record(now, randIP(b, r, netutil.AddrFamilyIPv6), true)
 		}
 	}
@@ -221,7 +221,7 @@ func BenchmarkUserCounter_Estimate(b *testing.B) {
 	seqCounter := newUserCounter()
 	for d, now := zeroTime.Day(), zeroTime; d == now.Day(); now = now.Add(time.Minute) {
 		addr := netip.AddrFrom16([16]byte{})
-		for i := 0; i < n; i++ {
+		for range n {
 			addr = addr.Next()
 			seqCounter.record(now, addr, true)
 		}
@@ -230,7 +230,7 @@ func BenchmarkUserCounter_Estimate(b *testing.B) {
 	b.Run("sparse", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			uint64Sink, uint64Sink = sparseCounter.estimate()
 		}
 	})
@@ -238,7 +238,7 @@ func BenchmarkUserCounter_Estimate(b *testing.B) {
 	b.Run("sequential", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			uint64Sink, uint64Sink = seqCounter.estimate()
 		}
 	})

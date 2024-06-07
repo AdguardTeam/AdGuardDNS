@@ -11,9 +11,8 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
@@ -24,7 +23,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/serviceblock"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/log"
-	"github.com/bluele/gcache"
 )
 
 // Storage is a storage for filters.
@@ -88,6 +86,10 @@ type DefaultStorage struct {
 	// often the filter rule lists are updated from the index.
 	refreshIvl time.Duration
 
+	// ruleListRefreshTimeout is the timeout for the filter update operation of
+	// each rule-list.
+	ruleListRefreshTimeout time.Duration
+
 	// RuleListCacheSize defines the size of the LRU cache of rule-list
 	// filtering results.
 	ruleListCacheSize int
@@ -143,14 +145,9 @@ type DefaultStorageConfig struct {
 	// Now is a function that returns current time.
 	Now func() (now time.Time)
 
-	// ErrColl is used to collect non-critical and rare errors.
+	// ErrColl is used to collect non-critical and rare errors as well as
+	// refresh errors.
 	ErrColl errcoll.Interface
-
-	// Resolver is used to resolve hosts in safe search.
-	Resolver agdnet.Resolver
-
-	// Cloner is used to clone messages taken from filtering-result caches.
-	Cloner *dnsmsg.Cloner
 
 	// CacheDir is the path to the directory where the cached filter files are
 	// put.  The directory must exist.
@@ -179,6 +176,14 @@ type DefaultStorageConfig struct {
 	// staleness, which can cause issues.  Consider splitting the two.
 	RefreshIvl time.Duration
 
+	// IndexRefreshTimeout is the timeout for the filter rule-list index update
+	// operation.
+	IndexRefreshTimeout time.Duration
+
+	// RuleListRefreshTimeout is the timeout for the filter update operation of
+	// each rule-list.
+	RuleListRefreshTimeout time.Duration
+
 	// UseRuleListCache, if true, enables rule list cache.
 	UseRuleListCache bool
 
@@ -187,38 +192,34 @@ type DefaultStorageConfig struct {
 	MaxRuleListSize uint64
 }
 
+// svcIdxRefreshTimeout is the default timeout to use when fetching the
+// blocked-service index.
+const svcIdxRefreshTimeout = 3 * time.Minute
+
 // NewDefaultStorage returns a new filter storage.  c must not be nil.
 func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage, err error) {
 	genSafeSearch := safesearch.New(&safesearch.Config{
-		Cloner: c.Cloner,
 		Refreshable: &internal.RefreshableConfig{
 			URL:       c.GeneralSafeSearchRulesURL,
 			ID:        agd.FilterListIDGeneralSafeSearch,
 			CachePath: filepath.Join(c.CacheDir, string(agd.FilterListIDGeneralSafeSearch)),
 			Staleness: c.RefreshIvl,
-			// TODO(ameshkov): Consider making configurable.
-			Timeout: internal.DefaultFilterRefreshTimeout,
-			MaxSize: c.MaxRuleListSize,
+			Timeout:   c.RuleListRefreshTimeout,
+			MaxSize:   c.MaxRuleListSize,
 		},
-		Resolver:  c.Resolver,
-		ErrColl:   c.ErrColl,
 		CacheTTL:  c.SafeSearchCacheTTL,
 		CacheSize: c.SafeSearchCacheSize,
 	})
 
 	ytSafeSearch := safesearch.New(&safesearch.Config{
-		Cloner: c.Cloner,
 		Refreshable: &internal.RefreshableConfig{
 			URL:       c.YoutubeSafeSearchRulesURL,
 			ID:        agd.FilterListIDYoutubeSafeSearch,
 			CachePath: filepath.Join(c.CacheDir, string(agd.FilterListIDYoutubeSafeSearch)),
 			Staleness: c.RefreshIvl,
-			// TODO(ameshkov): Consider making configurable.
-			Timeout: internal.DefaultFilterRefreshTimeout,
-			MaxSize: c.MaxRuleListSize,
+			Timeout:   c.RuleListRefreshTimeout,
+			MaxSize:   c.MaxRuleListSize,
 		},
-		Resolver:  c.Resolver,
-		ErrColl:   c.ErrColl,
 		CacheTTL:  c.SafeSearchCacheTTL,
 		CacheSize: c.SafeSearchCacheSize,
 	})
@@ -229,8 +230,7 @@ func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage, err error) {
 		ID:        "rule_list_index",
 		CachePath: filepath.Join(c.CacheDir, ruleListIndexFilename),
 		Staleness: c.RefreshIvl,
-		// TODO(ameshkov): Consider making configurable.
-		Timeout: internal.DefaultFilterRefreshTimeout,
+		Timeout:   c.IndexRefreshTimeout,
 		// TODO(a.garipov): Consider using a different limit here.
 		MaxSize: c.MaxRuleListSize,
 	})
@@ -242,7 +242,7 @@ func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage, err error) {
 		CachePath: filepath.Join(c.CacheDir, serviceIndexFilename),
 		Staleness: c.RefreshIvl,
 		// TODO(ameshkov): Consider making configurable.
-		Timeout: internal.DefaultFilterRefreshTimeout,
+		Timeout: svcIdxRefreshTimeout,
 		// TODO(a.garipov): Consider using a different limit here.
 		MaxSize: c.MaxRuleListSize,
 	})
@@ -259,14 +259,17 @@ func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage, err error) {
 		now:           c.Now,
 		errColl:       c.ErrColl,
 		customFilters: custom.New(
-			gcache.New(c.CustomFilterCacheSize).LRU().Build(),
+			&agdcache.LRUConfig{
+				Size: c.CustomFilterCacheSize,
+			},
 			c.ErrColl,
 		),
-		cacheDir:          c.CacheDir,
-		refreshIvl:        c.RefreshIvl,
-		ruleListCacheSize: c.RuleListCacheSize,
-		useRuleListCache:  c.UseRuleListCache,
-		maxRuleListSize:   c.MaxRuleListSize,
+		cacheDir:               c.CacheDir,
+		refreshIvl:             c.RefreshIvl,
+		ruleListRefreshTimeout: c.RuleListRefreshTimeout,
+		ruleListCacheSize:      c.RuleListCacheSize,
+		maxRuleListSize:        c.MaxRuleListSize,
+		useRuleListCache:       c.UseRuleListCache,
 	}
 
 	err = s.refresh(context.Background(), true)
@@ -478,7 +481,32 @@ const strgLogPrefix = "filter storage: refresh"
 
 // Refresh implements the [agdservice.Refresher] interface for *DefaultStorage.
 func (s *DefaultStorage) Refresh(ctx context.Context) (err error) {
-	return s.refresh(ctx, false)
+	// TODO(a.garipov):  Use slog.
+	log.Info("filters_refresh: started")
+	defer log.Info("filters_refresh: finished")
+
+	err = s.refresh(ctx, false)
+	if err != nil {
+		errcoll.Collectf(ctx, s.errColl, "filters_refresh: %w", enrichFromContext(ctx, err))
+	}
+
+	return err
+}
+
+// enrichFromContext adds information from ctx to origErr if it can assume that
+// origErr is caused by ctx being canceled.
+func enrichFromContext(ctx context.Context, origErr error) (err error) {
+	if ctx.Err() == nil {
+		return origErr
+	}
+
+	// Assume that a deadline is always present here in non-test code.
+	dl, _ := ctx.Deadline()
+
+	// Strip monotonic-clock values.
+	dl = dl.Truncate(0)
+
+	return fmt.Errorf("storage refresh with deadline at %s: %w", dl, origErr)
 }
 
 // refresh is the inner method of Refresh that allows accepting stale files.  It
@@ -500,26 +528,32 @@ func (s *DefaultStorage) refresh(ctx context.Context, acceptStale bool) (err err
 	ruleLists := make(filteringRuleLists, len(resp.Filters))
 	for _, fl := range fls {
 		s.addRuleList(ctx, ruleLists, fl, acceptStale)
+
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			// If the context has already been canceled, no need to continue, as
+			// the other refreshes won't be able to finish either way.
+			err = fmt.Errorf("after refreshing rule lists: %w", ctxErr)
+			log.Error("filters_refresh: %s", err)
+
+			return err
+		}
 	}
 
 	log.Info("%s: got %d filter lists from index after compilation", strgLogPrefix, len(ruleLists))
 
 	err = s.services.Refresh(ctx, s.ruleListCacheSize, s.useRuleListCache, acceptStale)
 	if err != nil {
-		const errFmt = "refreshing blocked services: %w"
-		errcoll.Collectf(ctx, s.errColl, errFmt, err)
-
-		return fmt.Errorf(errFmt, err)
+		return fmt.Errorf("refreshing blocked services: %w", err)
 	}
 
 	err = s.genSafeSearch.Refresh(ctx, acceptStale)
 	if err != nil {
-		return fmt.Errorf("refreshing safe search: %w", err)
+		return fmt.Errorf("refreshing general safe search: %w", err)
 	}
 
 	err = s.ytSafeSearch.Refresh(ctx, acceptStale)
 	if err != nil {
-		return fmt.Errorf("refreshing safe search: %w", err)
+		return fmt.Errorf("refreshing youtube safe search: %w", err)
 	}
 
 	s.setRuleLists(ruleLists)
@@ -548,9 +582,8 @@ func (s *DefaultStorage) addRuleList(
 			ID:        fl.id,
 			CachePath: filepath.Join(s.cacheDir, fltIDStr),
 			Staleness: s.refreshIvl,
-			// TODO(ameshkov): Consider making configurable.
-			Timeout: internal.DefaultFilterRefreshTimeout,
-			MaxSize: s.maxRuleListSize,
+			Timeout:   s.ruleListRefreshTimeout,
+			MaxSize:   s.maxRuleListSize,
 		},
 		s.ruleListCacheSize,
 		s.useRuleListCache,
@@ -566,7 +599,7 @@ func (s *DefaultStorage) addRuleList(
 		return
 	}
 
-	errcoll.Collectf(ctx, s.errColl, "%s: refreshing %q: %w", strgLogPrefix, fl.id, err)
+	errcoll.Collectf(ctx, s.errColl, "%s: %w", strgLogPrefix, err)
 	metrics.FilterUpdatedStatus.WithLabelValues(fltIDStr).Set(0)
 
 	// If we can't get the new filter, and there is an old version of the same

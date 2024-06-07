@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/testutil"
 )
 
@@ -27,15 +28,16 @@ const (
 
 // Test ASN data.
 var (
+	allTopASNs = container.NewMapSet(
+		countryTopASNs[geoip.CountryAU],
+		countryTopASNs[geoip.CountryJP],
+		countryTopASNs[geoip.CountryUS],
+	)
+
 	countryTopASNs = map[geoip.Country]geoip.ASN{
 		geoip.CountryAU: 1221,
 		geoip.CountryJP: 2516,
 		geoip.CountryUS: 7922,
-	}
-	allTopASNs = map[geoip.ASN]struct{}{
-		countryTopASNs[geoip.CountryAU]: {},
-		countryTopASNs[geoip.CountryJP]: {},
-		countryTopASNs[geoip.CountryUS]: {},
 	}
 )
 

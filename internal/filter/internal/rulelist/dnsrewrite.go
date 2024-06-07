@@ -1,4 +1,4 @@
-package composite
+package rulelist
 
 import (
 	"fmt"
@@ -14,15 +14,16 @@ import (
 	"github.com/miekg/dns"
 )
 
-// processDNSRewrites processes $dnsrewrite rules dnsr and creates a filtering
-// result, if necessary.  res.List, if any, is set to [agd.FilterListIDCustom].
-func processDNSRewrites(
+// ProcessDNSRewrites processes $dnsrewrite rules dnsr and creates a filtering
+// result, if id allows it.  res.List, if any, is set to id.
+func ProcessDNSRewrites(
 	messages *dnsmsg.Constructor,
 	req *dns.Msg,
 	dnsr []*rules.NetworkRule,
 	host string,
-) (res *internal.ResultModified) {
-	if len(dnsr) == 0 {
+	id agd.FilterListID,
+) (res internal.Result) {
+	if len(dnsr) == 0 || !id.SupportsDNSRewrite() {
 		return nil
 	}
 
@@ -38,9 +39,9 @@ func processDNSRewrites(
 		req = dnsmsg.Clone(req)
 		req.Question[0].Name = dns.Fqdn(resCanonName)
 
-		return &internal.ResultModified{
+		return &internal.ResultModifiedRequest{
 			Msg:  req,
-			List: agd.FilterListIDCustom,
+			List: id,
 			Rule: dnsRewriteResult.ResRuleText,
 		}
 	}
@@ -49,9 +50,9 @@ func processDNSRewrites(
 		resp := messages.NewRespMsg(req)
 		resp.Rcode = dnsRewriteResult.RCode
 
-		return &internal.ResultModified{
+		return &internal.ResultModifiedResponse{
 			Msg:  resp,
-			List: agd.FilterListIDCustom,
+			List: id,
 			Rule: dnsRewriteResult.ResRuleText,
 		}
 	}
@@ -61,9 +62,9 @@ func processDNSRewrites(
 		return nil
 	}
 
-	return &internal.ResultModified{
+	return &internal.ResultModifiedResponse{
 		Msg:  resp,
-		List: agd.FilterListIDCustom,
+		List: id,
 	}
 }
 

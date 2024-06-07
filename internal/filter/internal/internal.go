@@ -23,10 +23,6 @@ type Interface interface {
 	FilterResponse(ctx context.Context, resp *dns.Msg, ri *agd.RequestInfo) (r Result, err error)
 }
 
-// DefaultFilterRefreshTimeout is the default timeout to use when fetching
-// filter lists data.
-const DefaultFilterRefreshTimeout = 3 * time.Minute
-
 // DefaultResolveTimeout is the default timeout for resolving hosts for
 // safe-search and safe-browsing filters.
 //

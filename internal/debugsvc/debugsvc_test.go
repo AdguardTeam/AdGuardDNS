@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/debugsvc"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
@@ -45,11 +44,11 @@ func TestService_Start(t *testing.T) {
 
 	var err error
 	require.NotPanics(t, func() {
-		err = svc.Start(agdtest.ContextWithTimeout(t, testTimeout))
+		err = svc.Start(testutil.ContextWithTimeout(t, testTimeout))
 	})
 	require.NoError(t, err)
 	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return svc.Shutdown(agdtest.ContextWithTimeout(t, testTimeout))
+		return svc.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
 	})
 
 	client := http.Client{

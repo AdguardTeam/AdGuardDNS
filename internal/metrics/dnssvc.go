@@ -100,11 +100,22 @@ var DNSSvcFilteringDuration = promauto.NewHistogram(prometheus.HistogramOpts{
 	},
 })
 
-// DNSSvcUnknownDedicatedTotal is the counter of queries that have been dropped,
-// because the local-address data was not recognized.
-var DNSSvcUnknownDedicatedTotal = promauto.NewCounter(prometheus.CounterOpts{
-	Name:      "unknown_dedicated",
-	Namespace: namespace,
-	Subsystem: subsystemDNSSvc,
-	Help:      "The number of dropped queries for unrecognized dedicated addresses.",
-})
+var (
+	// DNSSvcUnknownDedicatedTotal is the counter of queries that have been dropped,
+	// because the local-address data was not recognized.
+	DNSSvcUnknownDedicatedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name:      "unknown_dedicated",
+		Namespace: namespace,
+		Subsystem: subsystemDNSSvc,
+		Help:      "The number of dropped queries for unrecognized dedicated addresses.",
+	})
+
+	// DNSSvcDoHAuthFailsTotal is the counter of DoH basic authentication
+	// failures.
+	DNSSvcDoHAuthFailsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name:      "doh_authentication_fails",
+		Namespace: namespace,
+		Subsystem: subsystemDNSSvc,
+		Help:      "The number of authentication failures for DoH auth.",
+	})
+)

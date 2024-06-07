@@ -72,8 +72,8 @@ message DayRange {
 }
 
 message BlockingModeCustomIP {
-  bytes ipv4 = 1;
-  bytes ipv6 = 2;
+  repeated bytes ipv4 = 1;
+  repeated bytes ipv6 = 2;
 }
 
 message BlockingModeNXDOMAIN {}
@@ -88,6 +88,7 @@ message Device {
   string device_name = 3;
   repeated bytes dedicated_ips = 4;
   bool filtering_enabled = 5;
+  AuthenticationSettings authentication = 6;
 }
 
 message AccessSettings {
@@ -101,4 +102,11 @@ message AccessSettings {
 message CidrRange {
   bytes address = 1;
   uint32 prefix = 2;
+}
+
+message AuthenticationSettings {
+  bool doh_auth_only = 1;
+  oneof doh_password_hash {
+    bytes password_hash_bcrypt = 2;
+  }
 }

@@ -14,7 +14,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
-	"github.com/AdguardTeam/urlfilter/rules"
 	"github.com/miekg/dns"
 )
 
@@ -127,8 +126,7 @@ func (f *Filter) FilterRequest(
 
 	// Firstly, check the profile's rule-list filtering, the custom rules, and
 	// the rules from blocked services settings.
-	host := ri.Host
-	rlRes := f.filterWithRuleLists(ri, host, ri.QType, req)
+	rlRes := f.filterReqWithRuleLists(ri, req)
 	switch flRes := rlRes.(type) {
 	case *internal.ResultAllowed:
 		// Skip any additional filtering if the domain is explicitly allowed by
@@ -136,8 +134,12 @@ func (f *Filter) FilterRequest(
 		if flRes.List == agd.FilterListIDCustom {
 			return flRes, nil
 		}
-	case *internal.ResultBlocked:
-		// Skip any additional filtering if the domain is already blocked.
+	case
+		*internal.ResultBlocked,
+		*internal.ResultModifiedRequest,
+		*internal.ResultModifiedResponse:
+		// Skip any additional filtering if the query is already blocked or
+		// modified.
 		return flRes, nil
 	default:
 		// Go on.
@@ -159,9 +161,55 @@ func (f *Filter) FilterRequest(
 	return rlRes, nil
 }
 
+// filterReqWithRuleLists filters one question's information through all rule
+// list filters of the composite filter.  req must not be nil.
+func (f *Filter) filterReqWithRuleLists(ri *agd.RequestInfo, req *dns.Msg) (r internal.Result) {
+	ip, host, qt := ri.RemoteIP, ri.Host, ri.QType
+
+	ufRes := &rulelist.URLFilterResult{}
+	if f.custom != nil {
+		// Only use the device name for custom filters of profiles with devices.
+		var devName string
+		if d := ri.Device; d != nil {
+			devName = string(d.Name)
+		}
+
+		id := agd.FilterListIDCustom
+		dr := f.custom.DNSResult(ip, devName, host, qt, false)
+		mod := rulelist.ProcessDNSRewrites(ri.Messages, req, dr.DNSRewrites(), host, id)
+		if mod != nil {
+			// Process the DNS rewrites of the custom list and return them
+			// first, because custom rules have priority over other rules.
+			return mod
+		}
+
+		ufRes.Add(dr)
+	}
+
+	for _, rl := range f.ruleLists {
+		id, _ := rl.ID()
+		dr := rl.DNSResult(ip, "", host, qt, false)
+		mod := rulelist.ProcessDNSRewrites(ri.Messages, req, dr.DNSRewrites(), host, id)
+		if mod != nil {
+			// DNS rewrites have higher priority, so a modified request must be
+			// returned immediately.
+			return mod
+		}
+
+		ufRes.Add(dr)
+	}
+
+	for _, rl := range f.svcLists {
+		ufRes.Add(rl.DNSResult(ip, "", host, qt, false))
+	}
+
+	return ufRes.ToInternal(f, qt)
+}
+
 // FilterResponse implements the [internal.Interface] interface for *Filter.  It
 // returns the action created from the filter list network rule with the highest
-// priority.  If f is empty, it returns nil with no error.
+// priority.  If f is empty, it returns nil with no error.  Note that rewrite
+// results are not applied to responses.
 func (f *Filter) FilterResponse(
 	_ context.Context,
 	resp *dns.Msg,
@@ -193,7 +241,35 @@ func (f *Filter) filterAnswer(ri *agd.RequestInfo, ans dns.RR) (r internal.Resul
 		return nil
 	}
 
-	return f.filterWithRuleLists(ri, host, rrType, nil)
+	return f.filterRespWithRuleLists(ri, host, rrType)
+}
+
+// filterRespWithRuleLists filters one answer's information through all
+// rule-list filters of the composite filter.
+func (f *Filter) filterRespWithRuleLists(
+	ri *agd.RequestInfo,
+	host string,
+	rrType dnsmsg.RRType,
+) (r internal.Result) {
+	ufRes := &rulelist.URLFilterResult{}
+	for _, rl := range f.ruleLists {
+		ufRes.Add(rl.DNSResult(ri.RemoteIP, "", host, rrType, true))
+	}
+
+	if f.custom != nil {
+		var devName string
+		if d := ri.Device; d != nil {
+			devName = string(d.Name)
+		}
+
+		ufRes.Add(f.custom.DNSResult(ri.RemoteIP, devName, host, rrType, true))
+	}
+
+	for _, rl := range f.svcLists {
+		ufRes.Add(rl.DNSResult(ri.RemoteIP, "", host, rrType, true))
+	}
+
+	return ufRes.ToInternal(f, rrType)
 }
 
 // filterHTTPSAnswer filters HTTPS answers information through all rule list
@@ -221,7 +297,7 @@ func (f *Filter) filterSVCBHint(
 	ri *agd.RequestInfo,
 ) (r internal.Result) {
 	for _, s := range strings.Split(hint, ",") {
-		r = f.filterWithRuleLists(ri, s, dns.TypeHTTPS, nil)
+		r = f.filterRespWithRuleLists(ri, s, dns.TypeHTTPS)
 		if r != nil {
 			return r
 		}
@@ -255,55 +331,13 @@ func (f *Filter) isEmpty() (ok bool) {
 			len(f.reqFilters) == 0)
 }
 
-// filterWithRuleLists filters one question's or answer's information through
-// all rule list filters of the composite filter.  If req is nil, the message is
-// assumed to be a response.
-func (f *Filter) filterWithRuleLists(
-	ri *agd.RequestInfo,
-	host string,
-	rrType dnsmsg.RRType,
-	req *dns.Msg,
-) (r internal.Result) {
-	var devName string
-	if d := ri.Device; d != nil {
-		devName = string(d.Name)
-	}
+// type check
+var _ rulelist.IDMapper = (*Filter)(nil)
 
-	ufRes := &urlFilterResult{}
-	isAnswer := req == nil
-	for _, rl := range f.ruleLists {
-		ufRes.add(rl.DNSResult(ri.RemoteIP, devName, host, rrType, isAnswer))
-	}
-
-	if f.custom != nil {
-		dr := f.custom.DNSResult(ri.RemoteIP, devName, host, rrType, isAnswer)
-		// Collect only custom $dnsrewrite rules.  It's much easier to process
-		// dnsrewrite rules only from one list, cause when there is no problem
-		// with merging them among different lists.
-		if !isAnswer {
-			modified := processDNSRewrites(ri.Messages, req, dr.DNSRewrites(), host)
-			if modified != nil {
-				return modified
-			}
-		}
-
-		ufRes.add(dr)
-	}
-
-	for _, rl := range f.svcLists {
-		ufRes.add(rl.DNSResult(ri.RemoteIP, devName, host, rrType, isAnswer))
-	}
-
-	if nr := rules.GetDNSBasicRule(ufRes.networkRules); nr != nil {
-		return f.ruleDataToResult(nr.FilterListID, nr.RuleText, nr.Whitelist)
-	}
-
-	return f.hostsRulesToResult(ufRes.hostRules4, ufRes.hostRules6, rrType)
-}
-
-// mustRuleListDataByURLFilterID returns the rule list data by its synthetic
-// integer ID in the urlfilter engine.  It panics if id is not found.
-func (f *Filter) mustRuleListDataByURLFilterID(
+// Map implements the [rulelist.IDMapper] interface for *Filter.  It returns the
+// rule list data by its synthetic integer ID in the urlfilter engine.  It
+// panics if id is not found.
+func (f *Filter) Map(
 	id int,
 ) (fltID agd.FilterListID, svcID agd.BlockedServiceID) {
 	for _, rl := range f.ruleLists {
@@ -325,70 +359,4 @@ func (f *Filter) mustRuleListDataByURLFilterID(
 	// Technically shouldn't happen, since id is supposed to be among the rule
 	// list filters in the composite filter.
 	panic(fmt.Errorf("filter: synthetic id %d not found", id))
-}
-
-// hostsRulesToResult converts /etc/hosts-style rules into a filtering action.
-func (f *Filter) hostsRulesToResult(
-	hostRules4 []*rules.HostRule,
-	hostRules6 []*rules.HostRule,
-	rrType dnsmsg.RRType,
-) (r internal.Result) {
-	if len(hostRules4) == 0 && len(hostRules6) == 0 {
-		return nil
-	}
-
-	// Only use the first matched rule, since we currently don't care about the
-	// IP addresses in the rule.  If the request is neither an A one nor an AAAA
-	// one, or if there are no matching rules of the requested type, then use
-	// whatever rule isn't empty.
-	//
-	// See also AGDNS-591.
-	var resHostRule *rules.HostRule
-	if rrType == dns.TypeA && len(hostRules4) > 0 {
-		resHostRule = hostRules4[0]
-	} else if rrType == dns.TypeAAAA && len(hostRules6) > 0 {
-		resHostRule = hostRules6[0]
-	} else {
-		if len(hostRules4) > 0 {
-			resHostRule = hostRules4[0]
-		} else {
-			resHostRule = hostRules6[0]
-		}
-	}
-
-	return f.ruleDataToResult(resHostRule.FilterListID, resHostRule.RuleText, false)
-}
-
-// ruleDataToResult converts a urlfilter rule data into a filtering result.
-func (f *Filter) ruleDataToResult(
-	urlFilterID int,
-	ruleText string,
-	allowlist bool,
-) (r internal.Result) {
-	// Use the urlFilterID crutch to find the actual IDs of the filtering rule
-	// list and blocked service.
-	fltID, svcID := f.mustRuleListDataByURLFilterID(urlFilterID)
-
-	var rule agd.FilterRuleText
-	if fltID == agd.FilterListIDBlockedService {
-		rule = agd.FilterRuleText(svcID)
-	} else {
-		rule = agd.FilterRuleText(ruleText)
-	}
-
-	if allowlist {
-		optlog.Debug2("rule list %s: allowed by rule %s", fltID, rule)
-
-		return &internal.ResultAllowed{
-			List: fltID,
-			Rule: rule,
-		}
-	}
-
-	optlog.Debug2("rule list %s: blocked by rule %s", fltID, rule)
-
-	return &internal.ResultBlocked{
-		List: fltID,
-		Rule: rule,
-	}
 }

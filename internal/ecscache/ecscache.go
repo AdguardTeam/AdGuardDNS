@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
@@ -17,7 +18,6 @@ import (
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/syncutil"
-	"github.com/bluele/gcache"
 	"github.com/miekg/dns"
 )
 
@@ -27,10 +27,10 @@ type Middleware struct {
 	cloner *dnsmsg.Cloner
 
 	// cache is the LRU cache for results indicating no support for ECS.
-	cache gcache.Cache
+	cache agdcache.Interface[uint64, *cacheItem]
 
 	// ecsCache is the LRU cache for results indicating ECS support.
-	ecsCache gcache.Cache
+	ecsCache agdcache.Interface[uint64, *cacheItem]
 
 	// geoIP is used to get subnets for countries.
 	geoIP geoip.Interface
@@ -73,10 +73,14 @@ type MiddlewareConfig struct {
 // be nil.
 func NewMiddleware(c *MiddlewareConfig) (m *Middleware) {
 	return &Middleware{
-		cloner:   c.Cloner,
-		cache:    gcache.New(c.Size).LRU().Build(),
-		ecsCache: gcache.New(c.ECSSize).LRU().Build(),
-		geoIP:    c.GeoIP,
+		cloner: c.Cloner,
+		cache: agdcache.NewLRU[uint64, *cacheItem](&agdcache.LRUConfig{
+			Size: c.Size,
+		}),
+		ecsCache: agdcache.NewLRU[uint64, *cacheItem](&agdcache.LRUConfig{
+			Size: c.ECSSize,
+		}),
+		geoIP: c.GeoIP,
 		cacheReqPool: syncutil.NewPool(func() (req *cacheRequest) {
 			return &cacheRequest{}
 		}),
@@ -215,10 +219,10 @@ func (mw *Middleware) writeUpstreamResponse(
 	respIsECS := respIsECSDependent(scope, req.Question[0].Name)
 	if respIsECS {
 		metrics.ECSCacheLookupHasSupportMisses.Inc()
-		metrics.ECSHasSupportCacheSize.Set(float64(mw.ecsCache.Len(false)))
+		metrics.ECSHasSupportCacheSize.Set(float64(mw.ecsCache.Len()))
 	} else {
 		metrics.ECSCacheLookupNoSupportMisses.Inc()
-		metrics.ECSNoSupportCacheSize.Set(float64(mw.cache.Len(false)))
+		metrics.ECSNoSupportCacheSize.Set(float64(mw.cache.Len()))
 
 		cr.subnet = netutil.ZeroPrefix(ecsFam)
 	}
@@ -350,12 +354,10 @@ func (mh *mwHandler) ServeDNS(
 // where an authoritative nameserver incorrectly echoes our ECS data.
 //
 // See https://datatracker.ietf.org/doc/html/rfc7871#section-7.2.1.
-func respIsECSDependent(scope uint8, host string) (ok bool) {
+func respIsECSDependent(scope uint8, fqdn string) (ok bool) {
 	if scope == 0 {
 		return false
 	}
 
-	_, isFake := FakeECSFQDNs[host]
-
-	return !isFake
+	return !FakeECSFQDNs.Has(fqdn)
 }

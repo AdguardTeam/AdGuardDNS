@@ -9,25 +9,24 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
-	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/stringutil"
-	"github.com/bluele/gcache"
 )
 
 // Filters contains custom filters made from custom filtering rules of profiles.
 type Filters struct {
-	cache   gcache.Cache
+	cache   agdcache.Interface[agd.ProfileID, *customFilterCacheItem]
 	errColl errcoll.Interface
 }
 
 // New returns a new custom filter storage.
-func New(cache gcache.Cache, errColl errcoll.Interface) (f *Filters) {
+func New(conf *agdcache.LRUConfig, errColl errcoll.Interface) (f *Filters) {
 	return &Filters{
-		cache:   cache,
+		cache:   agdcache.NewLRU[agd.ProfileID, *customFilterCacheItem](conf),
 		errColl: errColl,
 	}
 }
@@ -101,15 +100,11 @@ func (f *Filters) Get(ctx context.Context, p *agd.Profile) (rl *rulelist.Immutab
 // get returns the cached custom rule-list filter, if there is one and the
 // profile hasn't changed since the filter was cached.
 func (f *Filters) get(p *agd.Profile) (rl *rulelist.Immutable) {
-	itemVal, err := f.cache.Get(p.ID)
-	if errors.Is(err, gcache.KeyNotFoundError) {
+	item, ok := f.cache.Get(p.ID)
+	if !ok {
 		return nil
-	} else if err != nil {
-		// Shouldn't happen, since we don't set a serialization function.
-		panic(err)
 	}
 
-	item := itemVal.(*customFilterCacheItem)
 	if item.updTime.Before(p.UpdateTime) {
 		return nil
 	}
@@ -119,16 +114,10 @@ func (f *Filters) get(p *agd.Profile) (rl *rulelist.Immutable) {
 
 // set caches the custom rule-list filter.
 func (f *Filters) set(p *agd.Profile, rl *rulelist.Immutable) {
-	item := &customFilterCacheItem{
+	f.cache.Set(p.ID, &customFilterCacheItem{
 		updTime:  p.UpdateTime,
 		ruleList: rl,
-	}
-
-	err := f.cache.Set(p.ID, item)
-	if err != nil {
-		// Shouldn't happen, since we don't set a serialization function.
-		panic(err)
-	}
+	})
 }
 
 // customFilterCacheItem is an item of the custom filter cache.

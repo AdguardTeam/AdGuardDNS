@@ -8,7 +8,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdpasswd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
@@ -52,27 +52,20 @@ func (a *AccessManager) IsBlockedIP(ip netip.Addr) (blocked bool) {
 	return a.OnIsBlockedIP(ip)
 }
 
-// Package agdnet
+// Package agdpasswd
 
 // type check
-var _ agdnet.Resolver = (*Resolver)(nil)
+var _ agdpasswd.Authenticator = (*Authenticator)(nil)
 
-// Resolver is an [agdnet.Resolver] for tests.
-type Resolver struct {
-	OnLookupNetIP func(
-		ctx context.Context,
-		fam netutil.AddrFamily,
-		host string,
-	) (ips []netip.Addr, err error)
+// Authenticator is an [agdpasswd.Authenticator] for tests.
+type Authenticator struct {
+	OnAuthenticate func(ctx context.Context, passwd []byte) (ok bool)
 }
 
-// LookupNetIP implements the [agdnet.Resolver] interface for *Resolver.
-func (r *Resolver) LookupNetIP(
-	ctx context.Context,
-	fam netutil.AddrFamily,
-	host string,
-) (ips []netip.Addr, err error) {
-	return r.OnLookupNetIP(ctx, fam, host)
+// Authenticate implements the [agdpasswd.Authenticator] interface for
+// *Authenticator.
+func (a *Authenticator) Authenticate(ctx context.Context, passwd []byte) (ok bool) {
+	return a.OnAuthenticate(ctx, passwd)
 }
 
 // Package agdservice

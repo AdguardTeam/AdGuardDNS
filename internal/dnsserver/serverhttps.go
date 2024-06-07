@@ -77,7 +77,7 @@ type ConfigHTTPS struct {
 	QUICLimitsEnabled bool
 }
 
-// ServerHTTPS is a DoH server implementation. It supports both DNS Wireformat
+// ServerHTTPS is a DoH server implementation.  It supports both DNS Wireformat
 // and DNS JSON format.  Regular DoH (wireformat) will be available at the
 // /dns-query location.  JSON format will be available at the "/resolve"
 // location.
@@ -94,6 +94,9 @@ type ServerHTTPS struct {
 
 	// quicListener is a listener that we use to serve DoH3 requests.
 	quicListener *quic.EarlyListener
+
+	// quicTransport is saved here to close it later.
+	quicTransport *quic.Transport
 
 	conf ConfigHTTPS
 }
@@ -264,19 +267,31 @@ func (s *ServerHTTPS) shutdown(ctx context.Context) (err error) {
 	}
 
 	// Finally, shutdown the HTTP/3 server.
-	if s.h3Server != nil {
-		err = s.quicListener.Close()
-		if err != nil {
-			log.Debug("[%s]: quic listener shutdown: %v", s.Name(), err)
-		}
-
-		err = s.h3Server.Close()
-		if err != nil {
-			log.Debug("[%s]: http/3 server shutdown: %v", s.Name(), err)
-		}
-	}
+	s.shutdownH3()
 
 	return nil
+}
+
+// shutdownH3 shuts down the HTTP/3 server, if enabled, and logs all errors.
+func (s *ServerHTTPS) shutdownH3() {
+	if s.h3Server == nil {
+		return
+	}
+
+	err := s.quicListener.Close()
+	if err != nil {
+		log.Debug("[%s]: quic listener shutdown: %s", s.Name(), err)
+	}
+
+	err = s.quicTransport.Close()
+	if err != nil {
+		log.Debug("[%s]: quic transport shutdown: %s", s.Name(), err)
+	}
+
+	err = s.h3Server.Close()
+	if err != nil {
+		log.Debug("[%s]: http/3 server shutdown: %s", s.Name(), err)
+	}
 }
 
 // serveHTTPS is launched in a worker goroutine and serves HTTP/1.1 and HTTP/2
@@ -523,16 +538,23 @@ func (s *ServerHTTPS) listenQUIC(ctx context.Context) (err error) {
 
 	conn, err := s.listenConfig.ListenPacket(ctx, "udp", s.addr)
 	if err != nil {
-		return err
+		return fmt.Errorf("listening udp for quic: %w", err)
 	}
 
-	qConf := newServerQUICConfig(s.metrics, s.conf.QUICLimitsEnabled, s.conf.MaxStreamsPerPeer)
-	ql, err := quic.ListenEarly(conn, tlsConf, qConf)
+	v := newQUICAddrValidator(quicAddrValidatorCacheSize, s.metrics, quicAddrValidatorCacheTTL)
+	transport := &quic.Transport{
+		Conn:                conn,
+		VerifySourceAddress: v.requiresValidation,
+	}
+
+	qConf := newServerQUICConfig(s.conf.QUICLimitsEnabled, s.conf.MaxStreamsPerPeer)
+	ql, err := transport.ListenEarly(tlsConf, qConf)
 	if err != nil {
-		return err
+		return fmt.Errorf("listening quic: %w", err)
 	}
 
 	s.udpListener = conn
+	s.quicTransport = transport
 	s.quicListener = ql
 
 	return nil

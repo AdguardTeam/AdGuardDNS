@@ -9,6 +9,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdpasswd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
@@ -92,7 +93,7 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 
 		assert.NotEqual(t, newProfile(t), got)
 		assert.NotEqual(t, newDevices(t), gotDevices)
-		assert.Len(t, gotDevices, 1)
+		assert.Len(t, gotDevices, 2)
 	})
 
 	t.Run("empty", func(t *testing.T) {
@@ -151,6 +152,16 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 
 		_, _, err := dp.toInternal(ctx, TestUpdTime, testBind, errColl)
 		testutil.AssertErrorMsg(t, "blocking mode: bad custom ipv6: unexpected slice size", err)
+	})
+
+	t.Run("nil_ips_blocking_mode", func(t *testing.T) {
+		dp := NewTestDNSProfile(t)
+		bm := dp.BlockingMode.(*DNSProfile_BlockingModeCustomIp)
+		bm.BlockingModeCustomIp.Ipv4 = nil
+		bm.BlockingModeCustomIp.Ipv6 = nil
+
+		_, _, err := dp.toInternal(ctx, TestUpdTime, testBind, errColl)
+		testutil.AssertErrorMsg(t, "blocking mode: no valid custom ips found", err)
 	})
 
 	t.Run("nil_blocking_mode", func(t *testing.T) {
@@ -244,17 +255,33 @@ func NewTestDNSProfile(tb testing.TB) (dp *DNSProfile) {
 	}
 
 	devices := []*DeviceSettings{{
-		Id:               "118ffe93",
-		Name:             "118ffe93-name",
+		Id:               "1111aaaa",
+		Name:             "1111aaaa-name",
 		FilteringEnabled: false,
 		LinkedIp:         ipToBytes(tb, netip.MustParseAddr("1.1.1.1")),
 		DedicatedIps:     [][]byte{ipToBytes(tb, netip.MustParseAddr("1.1.1.2"))},
 	}, {
-		Id:               "b9e1a762",
-		Name:             "b9e1a762-name",
+		Id:               "2222bbbb",
+		Name:             "2222bbbb-name",
 		FilteringEnabled: true,
 		LinkedIp:         ipToBytes(tb, netip.MustParseAddr("2.2.2.2")),
 		DedicatedIps:     nil,
+		Authentication: &AuthenticationSettings{
+			DohAuthOnly: true,
+			DohPasswordHash: &AuthenticationSettings_PasswordHashBcrypt{
+				PasswordHashBcrypt: []byte("test-hash"),
+			},
+		},
+	}, {
+		Id:               "3333cccc",
+		Name:             "3333cccc-name",
+		FilteringEnabled: false,
+		LinkedIp:         ipToBytes(tb, netip.MustParseAddr("3.3.3.3")),
+		DedicatedIps:     nil,
+		Authentication: &AuthenticationSettings{
+			DohAuthOnly:     false,
+			DohPasswordHash: nil,
+		},
 	}}
 
 	return &DNSProfile{
@@ -358,8 +385,8 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 	}
 
 	wantBlockingMode := &dnsmsg.BlockingModeCustomIP{
-		IPv4: netip.MustParseAddr("1.2.3.4"),
-		IPv6: netip.MustParseAddr("1234::cdef"),
+		IPv4: []netip.Addr{netip.MustParseAddr("1.2.3.4")},
+		IPv6: []netip.Addr{netip.MustParseAddr("1234::cdef")},
 	}
 
 	wantAccess := access.NewDefaultProfile(&access.ProfileConfig{
@@ -376,8 +403,9 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 		ID:           testProfileID,
 		UpdateTime:   TestUpdTime,
 		DeviceIDs: []agd.DeviceID{
-			"118ffe93",
-			"b9e1a762",
+			"1111aaaa",
+			"2222bbbb",
+			"3333cccc",
 		},
 		RuleListIDs:         []agd.FilterListID{"1"},
 		CustomRules:         []agd.FilterRuleText{"||example.org^"},
@@ -399,17 +427,38 @@ func newDevices(t *testing.T) (d []*agd.Device) {
 	t.Helper()
 
 	return []*agd.Device{{
-		ID:               "118ffe93",
+		Auth: &agd.AuthSettings{
+			Enabled:      false,
+			DoHAuthOnly:  false,
+			PasswordHash: agdpasswd.AllowAuthenticator{},
+		},
+		ID:               "1111aaaa",
 		LinkedIP:         netip.MustParseAddr("1.1.1.1"),
-		Name:             "118ffe93-name",
+		Name:             "1111aaaa-name",
 		DedicatedIPs:     []netip.Addr{netip.MustParseAddr("1.1.1.2")},
 		FilteringEnabled: false,
 	}, {
-		ID:               "b9e1a762",
+		Auth: &agd.AuthSettings{
+			Enabled:      true,
+			DoHAuthOnly:  true,
+			PasswordHash: agdpasswd.NewPasswordHashBcrypt([]byte("test-hash")),
+		},
+		ID:               "2222bbbb",
 		LinkedIP:         netip.MustParseAddr("2.2.2.2"),
-		Name:             "b9e1a762-name",
+		Name:             "2222bbbb-name",
 		DedicatedIPs:     nil,
 		FilteringEnabled: true,
+	}, {
+		Auth: &agd.AuthSettings{
+			Enabled:      true,
+			DoHAuthOnly:  false,
+			PasswordHash: agdpasswd.AllowAuthenticator{},
+		},
+		ID:               "3333cccc",
+		LinkedIP:         netip.MustParseAddr("3.3.3.3"),
+		Name:             "3333cccc-name",
+		DedicatedIPs:     nil,
+		FilteringEnabled: false,
 	}}
 }
 
@@ -479,7 +528,7 @@ func BenchmarkDNSProfile_ToInternal(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		profSink, _, errSink = dp.toInternal(ctx, TestUpdTime, testBind, errColl)
 	}
 

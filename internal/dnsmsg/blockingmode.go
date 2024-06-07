@@ -17,11 +17,15 @@ type BlockingMode interface {
 
 // BlockingModeCustomIP makes the [dnsmsg.Constructor] return responses with
 // custom IP addresses to A and AAAA requests.  For all other types of requests,
-// as well as if one of the addresses isn't set, it returns a response with no
-// answers (aka NODATA).
+// as well as in case the address corresponding to IP version is not set, it
+// returns a response with no answers (aka NODATA).
 type BlockingModeCustomIP struct {
-	IPv4 netip.Addr
-	IPv6 netip.Addr
+	// IPv4 is a slice of valid IPv4 addresses used in responses to A requests.
+	IPv4 []netip.Addr
+
+	// IPv6 is a slice of valid IPv6 addresses used in responses to AAAA
+	// requests.
+	IPv6 []netip.Addr
 }
 
 // isBlockingMode implements the BlockingMode interface for

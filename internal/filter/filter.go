@@ -19,7 +19,8 @@ type Interface = internal.Interface
 //
 //   - [*ResultAllowed]
 //   - [*ResultBlocked]
-//   - [*ResultModified]
+//   - [*ResultModifiedResponse]
+//   - [*ResultModifiedRequest]
 type Result = internal.Result
 
 // ResultAllowed means that this request or response was allowed by an allowlist
@@ -30,9 +31,13 @@ type ResultAllowed = internal.ResultAllowed
 // rule within the given filter list.
 type ResultBlocked = internal.ResultBlocked
 
-// ResultModified means that this request or response was rewritten or modified
-// by a rewrite rule within the given filter list.
-type ResultModified = internal.ResultModified
+// ResultModifiedResponse means that this response was rewritten or modified by
+// a rewrite rule within the given filter list.
+type ResultModifiedResponse = internal.ResultModifiedResponse
+
+// ResultModifiedRequest means that this request was modified by a rewrite rule
+// within the given filter list.
+type ResultModifiedRequest = internal.ResultModifiedRequest
 
 // Hash matching for safe-browsing and adult-content blocking
 

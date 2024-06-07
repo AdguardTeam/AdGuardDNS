@@ -8,16 +8,16 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdpasswd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/initial"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
-	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
-	"github.com/AdguardTeam/golibs/stringutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -41,7 +41,13 @@ const (
 )
 
 func TestMiddleware_Wrap(t *testing.T) {
-	testDevice := &agd.Device{ID: dnssvctest.DeviceID}
+	testDevice := &agd.Device{
+		Auth: &agd.AuthSettings{
+			Enabled:      false,
+			PasswordHash: agdpasswd.AllowAuthenticator{},
+		},
+		ID: dnssvctest.DeviceID,
+	}
 
 	geoIP := &agdtest.GeoIP{
 		OnSubnetByLocation: func(
@@ -56,7 +62,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 	}
 
 	srvs := newServers()
-	// TODO(a.garipov): Use stdlib's maps in Go 1.22 or later.
+	// TODO(a.garipov): Use stdlib's maps in Go 1.23 or later.
 	srvGrp := newServerGroup(maps.Values(srvs))
 
 	var handler dnsserver.Handler = dnsserver.HandlerFunc(func(
@@ -102,22 +108,6 @@ func TestMiddleware_Wrap(t *testing.T) {
 		qtype:      dns.TypeSVCB,
 	}, {
 		device:     testDevice,
-		name:       "linked_ip",
-		srv:        srvs["dns"],
-		host:       ddrFQDN,
-		wantTarget: targetWithID,
-		wantNum:    len(srvGrp.DDR.PublicRecordTemplates),
-		qtype:      dns.TypeSVCB,
-	}, {
-		device:     testDevice,
-		name:       "no_linked_ip",
-		srv:        srvs["dns_nolink"],
-		host:       ddrFQDN,
-		wantTarget: resolverFQDN,
-		wantNum:    len(srvGrp.DDR.PublicRecordTemplates),
-		qtype:      dns.TypeSVCB,
-	}, {
-		device:     testDevice,
 		name:       "public_resolver_name",
 		srv:        srvs["dot"],
 		host:       initial.DDRLabel + "." + resolverFQDN,
@@ -150,24 +140,17 @@ func TestMiddleware_Wrap(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			db := &agdtest.ProfileDB{
-				OnProfileByDeviceID: func(
+			ds := &dnssvctest.DeviceSetter{
+				OnSetDevice: func(
 					_ context.Context,
-					_ agd.DeviceID,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					return prof, tc.device, nil
-				},
-				OnProfileByDedicatedIP: func(
-					_ context.Context,
-					_ netip.Addr,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					return nil, nil, profiledb.ErrDeviceNotFound
-				},
-				OnProfileByLinkedIP: func(
-					_ context.Context,
-					_ netip.Addr,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					return prof, tc.device, nil
+					_ *dns.Msg,
+					ri *agd.RequestInfo,
+					_ netip.AddrPort,
+				) (err error) {
+					ri.Device = tc.device
+					ri.Profile = prof
+
+					return nil
 				},
 			}
 
@@ -176,16 +159,14 @@ func TestMiddleware_Wrap(t *testing.T) {
 				FilteringGroup: &agd.FilteringGroup{},
 				ServerGroup:    srvGrp,
 				Server:         tc.srv,
-				ProfileDB:      db,
+				DeviceSetter:   ds,
 				GeoIP:          geoIP,
 				ErrColl: &agdtest.ErrorCollector{
 					OnCollect: func(_ context.Context, _ error) { panic("not implemented") },
 				},
-				ProfileDBEnabled: true,
 			})
 
-			ctx := context.Background()
-			ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
+			ctx := dnsserver.ContextWithRequestInfo(context.Background(), &dnsserver.RequestInfo{
 				TLSServerName: srvNameForProto(tc.device, resolverName, tc.srv.Protocol),
 			})
 
@@ -212,11 +193,11 @@ func TestMiddleware_Wrap(t *testing.T) {
 			}
 
 			assert.Len(t, resp.Answer, tc.wantNum)
-			for _, rr := range resp.Answer {
+			for i, rr := range resp.Answer {
 				svcb := testutil.RequireTypeAssert[*dns.SVCB](t, rr)
 
-				assert.Equal(t, tc.wantTarget, svcb.Target)
-				assert.Equal(t, tc.host, svcb.Hdr.Name)
+				assert.Equalf(t, tc.wantTarget, svcb.Target, "rr at index %d", i)
+				assert.Equalf(t, tc.host, svcb.Hdr.Name, "rr at index %d", i)
 			}
 		})
 	}
@@ -271,24 +252,14 @@ func TestMiddleware_Wrap_error(t *testing.T) {
 
 	const testError errors.Error = errors.Error("test error")
 
-	db := &agdtest.ProfileDB{
-		OnProfileByDeviceID: func(
+	ds := &dnssvctest.DeviceSetter{
+		OnSetDevice: func(
 			_ context.Context,
-			_ agd.DeviceID,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-		OnProfileByDedicatedIP: func(
-			_ context.Context,
-			_ netip.Addr,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-		OnProfileByLinkedIP: func(
-			_ context.Context,
-			_ netip.Addr,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			return nil, nil, testError
+			_ *dns.Msg,
+			ri *agd.RequestInfo,
+			_ netip.AddrPort,
+		) (err error) {
+			return testError
 		},
 	}
 
@@ -297,15 +268,16 @@ func TestMiddleware_Wrap_error(t *testing.T) {
 		FilteringGroup: &agd.FilteringGroup{},
 		ServerGroup:    srvGrp,
 		Server:         srv,
-		ProfileDB:      db,
+		DeviceSetter:   ds,
 		GeoIP:          geoIP,
 		ErrColl: &agdtest.ErrorCollector{
 			OnCollect: func(_ context.Context, _ error) { panic("not implemented") },
 		},
-		ProfileDBEnabled: true,
 	})
 
 	ctx := context.Background()
+	ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{})
+
 	rw := dnsserver.NewNonWriterResponseWriter(nil, dnssvctest.RemoteAddr)
 	req := &dns.Msg{
 		Question: []dns.Question{{
@@ -326,10 +298,16 @@ func TestMiddleware_Wrap_access(t *testing.T) {
 	passIP := net.IP{3, 3, 3, 3}
 
 	srvs := newServers()
-	// TODO(a.garipov): Use stdlib's maps in Go 1.22 or later.
+	// TODO(a.garipov): Use stdlib's maps in Go 1.23 or later.
 	srvGrp := newServerGroup(maps.Values(srvs))
 
-	testDevice := &agd.Device{ID: dnssvctest.DeviceID}
+	testDevice := &agd.Device{
+		Auth: &agd.AuthSettings{
+			Enabled:      false,
+			PasswordHash: agdpasswd.AllowAuthenticator{},
+		},
+		ID: dnssvctest.DeviceID,
+	}
 	testProfile := &agd.Profile{
 		Access: access.NewDefaultProfile(&access.ProfileConfig{
 			AllowedNets: []netip.Prefix{netip.MustParsePrefix("1.1.1.1/32")},
@@ -346,24 +324,17 @@ func TestMiddleware_Wrap_access(t *testing.T) {
 		}),
 	}
 
-	db := &agdtest.ProfileDB{
-		OnProfileByDeviceID: func(
+	ds := &dnssvctest.DeviceSetter{
+		OnSetDevice: func(
 			_ context.Context,
-			_ agd.DeviceID,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			return testProfile, testDevice, nil
-		},
-		OnProfileByDedicatedIP: func(
-			_ context.Context,
-			_ netip.Addr,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			return nil, nil, profiledb.ErrDeviceNotFound
-		},
-		OnProfileByLinkedIP: func(
-			_ context.Context,
-			_ netip.Addr,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			return nil, nil, profiledb.ErrDeviceNotFound
+			_ *dns.Msg,
+			ri *agd.RequestInfo,
+			_ netip.AddrPort,
+		) (err error) {
+			ri.Device = testDevice
+			ri.Profile = testProfile
+
+			return nil
 		},
 	}
 
@@ -514,12 +485,11 @@ func TestMiddleware_Wrap_access(t *testing.T) {
 				FilteringGroup: &agd.FilteringGroup{},
 				ServerGroup:    srvGrp,
 				Server:         srvs["dot"],
-				ProfileDB:      db,
+				DeviceSetter:   ds,
 				GeoIP:          geoIP,
 				ErrColl: &agdtest.ErrorCollector{
 					OnCollect: func(_ context.Context, _ error) { panic("not implemented") },
 				},
-				ProfileDBEnabled: true,
 			})
 
 			ctx := context.Background()
@@ -568,10 +538,9 @@ func newServers() (srvs map[agd.ServerName]*agd.Server) {
 
 func newServerGroup(srvs []*agd.Server) (srvGrp *agd.ServerGroup) {
 	srvGrp = &agd.ServerGroup{
-		BlockPageRedirect: &agd.BlockPageRedirect{},
 		DDR: &agd.DDR{
-			DeviceTargets: stringutil.NewSet(),
-			PublicTargets: stringutil.NewSet(),
+			DeviceTargets: container.NewMapSet[string](),
+			PublicTargets: container.NewMapSet[string](),
 			Enabled:       true,
 		},
 		TLS: &agd.TLS{
@@ -609,10 +578,9 @@ var errSink error
 func BenchmarkMiddleware_Wrap(b *testing.B) {
 	const devIDTarget = "dns.example.com"
 	srvGrp := &agd.ServerGroup{
-		BlockPageRedirect: &agd.BlockPageRedirect{},
 		DDR: &agd.DDR{
-			DeviceTargets: stringutil.NewSet(),
-			PublicTargets: stringutil.NewSet(),
+			DeviceTargets: container.NewMapSet[string](),
+			PublicTargets: container.NewMapSet[string](),
 			Enabled:       true,
 		},
 		TLS: &agd.TLS{
@@ -655,7 +623,12 @@ func BenchmarkMiddleware_Wrap(b *testing.B) {
 	prof := &agd.Profile{
 		Access: access.EmptyProfile{},
 	}
-	dev := &agd.Device{}
+	dev := &agd.Device{
+		Auth: &agd.AuthSettings{
+			Enabled:      false,
+			PasswordHash: agdpasswd.AllowAuthenticator{},
+		},
+	}
 
 	ctx := context.Background()
 	ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
@@ -682,24 +655,17 @@ func BenchmarkMiddleware_Wrap(b *testing.B) {
 	rw := dnsserver.NewNonWriterResponseWriter(nil, dnssvctest.RemoteAddr)
 
 	b.Run("success", func(b *testing.B) {
-		db := &agdtest.ProfileDB{
-			OnProfileByDeviceID: func(
+		ds := &dnssvctest.DeviceSetter{
+			OnSetDevice: func(
 				_ context.Context,
-				_ agd.DeviceID,
-			) (p *agd.Profile, d *agd.Device, err error) {
-				return prof, dev, nil
-			},
-			OnProfileByDedicatedIP: func(
-				_ context.Context,
-				_ netip.Addr,
-			) (p *agd.Profile, d *agd.Device, err error) {
-				panic("not implemented")
-			},
-			OnProfileByLinkedIP: func(
-				_ context.Context,
-				_ netip.Addr,
-			) (p *agd.Profile, d *agd.Device, err error) {
-				panic("not implemented")
+				_ *dns.Msg,
+				ri *agd.RequestInfo,
+				_ netip.AddrPort,
+			) (err error) {
+				ri.Device = dev
+				ri.Profile = prof
+
+				return nil
 			},
 		}
 
@@ -708,19 +674,18 @@ func BenchmarkMiddleware_Wrap(b *testing.B) {
 			FilteringGroup: &agd.FilteringGroup{},
 			ServerGroup:    srvGrp,
 			Server:         srvGrp.Servers[0],
-			ProfileDB:      db,
+			DeviceSetter:   ds,
 			GeoIP:          geoIP,
 			ErrColl: &agdtest.ErrorCollector{
 				OnCollect: func(_ context.Context, _ error) { panic("not implemented") },
 			},
-			ProfileDBEnabled: true,
 		})
 
 		h := mw.Wrap(handler)
 
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			errSink = h.ServeDNS(ctx, rw, req)
 		}
 
@@ -728,24 +693,14 @@ func BenchmarkMiddleware_Wrap(b *testing.B) {
 	})
 
 	b.Run("not_found", func(b *testing.B) {
-		db := &agdtest.ProfileDB{
-			OnProfileByDeviceID: func(
+		ds := &dnssvctest.DeviceSetter{
+			OnSetDevice: func(
 				_ context.Context,
-				_ agd.DeviceID,
-			) (p *agd.Profile, d *agd.Device, err error) {
-				return nil, nil, profiledb.ErrDeviceNotFound
-			},
-			OnProfileByDedicatedIP: func(
-				_ context.Context,
-				_ netip.Addr,
-			) (p *agd.Profile, d *agd.Device, err error) {
-				panic("not implemented")
-			},
-			OnProfileByLinkedIP: func(
-				_ context.Context,
-				_ netip.Addr,
-			) (p *agd.Profile, d *agd.Device, err error) {
-				panic("not implemented")
+				_ *dns.Msg,
+				ri *agd.RequestInfo,
+				_ netip.AddrPort,
+			) (err error) {
+				return nil
 			},
 		}
 
@@ -754,19 +709,18 @@ func BenchmarkMiddleware_Wrap(b *testing.B) {
 			FilteringGroup: &agd.FilteringGroup{},
 			ServerGroup:    srvGrp,
 			Server:         srvGrp.Servers[0],
-			ProfileDB:      db,
+			DeviceSetter:   ds,
 			GeoIP:          geoIP,
 			ErrColl: &agdtest.ErrorCollector{
 				OnCollect: func(_ context.Context, _ error) { panic("not implemented") },
 			},
-			ProfileDBEnabled: true,
 		})
 
 		h := mw.Wrap(handler)
 
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			errSink = h.ServeDNS(ctx, rw, req)
 		}
 
@@ -774,24 +728,17 @@ func BenchmarkMiddleware_Wrap(b *testing.B) {
 	})
 
 	b.Run("firefox_canary", func(b *testing.B) {
-		db := &agdtest.ProfileDB{
-			OnProfileByDeviceID: func(
+		ds := &dnssvctest.DeviceSetter{
+			OnSetDevice: func(
 				_ context.Context,
-				_ agd.DeviceID,
-			) (p *agd.Profile, d *agd.Device, err error) {
-				return prof, dev, nil
-			},
-			OnProfileByDedicatedIP: func(
-				_ context.Context,
-				_ netip.Addr,
-			) (p *agd.Profile, d *agd.Device, err error) {
-				panic("not implemented")
-			},
-			OnProfileByLinkedIP: func(
-				_ context.Context,
-				_ netip.Addr,
-			) (p *agd.Profile, d *agd.Device, err error) {
-				panic("not implemented")
+				_ *dns.Msg,
+				ri *agd.RequestInfo,
+				_ netip.AddrPort,
+			) (err error) {
+				ri.Device = dev
+				ri.Profile = prof
+
+				return nil
 			},
 		}
 
@@ -808,19 +755,18 @@ func BenchmarkMiddleware_Wrap(b *testing.B) {
 			FilteringGroup: &agd.FilteringGroup{},
 			ServerGroup:    srvGrp,
 			Server:         srvGrp.Servers[0],
-			ProfileDB:      db,
+			DeviceSetter:   ds,
 			GeoIP:          geoIP,
 			ErrColl: &agdtest.ErrorCollector{
 				OnCollect: func(_ context.Context, _ error) { panic("not implemented") },
 			},
-			ProfileDBEnabled: true,
 		})
 
 		h := mw.Wrap(handler)
 
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			errSink = h.ServeDNS(ctx, rw, ffReq)
 		}
 
@@ -829,27 +775,24 @@ func BenchmarkMiddleware_Wrap(b *testing.B) {
 
 	b.Run("ddr", func(b *testing.B) {
 		devWithID := &agd.Device{
+			Auth: &agd.AuthSettings{
+				Enabled:      false,
+				PasswordHash: agdpasswd.AllowAuthenticator{},
+			},
 			ID: dnssvctest.DeviceID,
 		}
 
-		db := &agdtest.ProfileDB{
-			OnProfileByDeviceID: func(
+		ds := &dnssvctest.DeviceSetter{
+			OnSetDevice: func(
 				_ context.Context,
-				_ agd.DeviceID,
-			) (p *agd.Profile, d *agd.Device, err error) {
-				return prof, devWithID, nil
-			},
-			OnProfileByDedicatedIP: func(
-				_ context.Context,
-				_ netip.Addr,
-			) (p *agd.Profile, d *agd.Device, err error) {
-				panic("not implemented")
-			},
-			OnProfileByLinkedIP: func(
-				_ context.Context,
-				_ netip.Addr,
-			) (p *agd.Profile, d *agd.Device, err error) {
-				panic("not implemented")
+				_ *dns.Msg,
+				ri *agd.RequestInfo,
+				_ netip.AddrPort,
+			) (err error) {
+				ri.Device = devWithID
+				ri.Profile = prof
+
+				return nil
 			},
 		}
 
@@ -867,19 +810,18 @@ func BenchmarkMiddleware_Wrap(b *testing.B) {
 			FilteringGroup: &agd.FilteringGroup{},
 			ServerGroup:    srvGrp,
 			Server:         srvGrp.Servers[0],
-			ProfileDB:      db,
+			DeviceSetter:   ds,
 			GeoIP:          geoIP,
 			ErrColl: &agdtest.ErrorCollector{
 				OnCollect: func(_ context.Context, _ error) { panic("not implemented") },
 			},
-			ProfileDBEnabled: true,
 		})
 
 		h := mw.Wrap(handler)
 
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			errSink = h.ServeDNS(ctx, rw, ddrReq)
 		}
 
@@ -891,8 +833,8 @@ func BenchmarkMiddleware_Wrap(b *testing.B) {
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/initial
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkMiddleware_Wrap/success-16         	 1929643	       659.7 ns/op	      72 B/op	       2 allocs/op
-	//	BenchmarkMiddleware_Wrap/not_found-16       	 2377362	       587.3 ns/op	      48 B/op	       1 allocs/op
-	//	BenchmarkMiddleware_Wrap/firefox_canary-16  	 1663753	       757.4 ns/op	      72 B/op	       2 allocs/op
-	//	BenchmarkMiddleware_Wrap/ddr-16             	  280981	      4431 ns/op	    1408 B/op	      45 allocs/op
+	//	BenchmarkMiddleware_Wrap/success-16         	 2837168	       489.8 ns/op	      48 B/op	       1 allocs/op
+	//	BenchmarkMiddleware_Wrap/not_found-16       	 2583918	       420.7 ns/op	      48 B/op	       1 allocs/op
+	//	BenchmarkMiddleware_Wrap/firefox_canary-16  	 2658222	       505.1 ns/op	      48 B/op	       1 allocs/op
+	//	BenchmarkMiddleware_Wrap/ddr-16             	  302330	      4949 ns/op	    1384 B/op	      44 allocs/op
 }

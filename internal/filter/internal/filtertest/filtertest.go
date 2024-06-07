@@ -14,9 +14,12 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/c2h5oh/datasize"
+	"github.com/miekg/dns"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,14 +27,34 @@ import (
 // [ReqHost].
 const BlockRule = "|" + ReqHost + "^"
 
+// Common string representations of IP adddresses.
+const (
+	SafeBrowsingReplIPv4Str = "192.0.2.1"
+	PopupReplIPv4Str        = "192.0.2.3"
+)
+
+// Common IP addresses for tests.
+var (
+	SafeBrowsingReplIPv4 = netip.MustParseAddr(SafeBrowsingReplIPv4Str)
+	PopupReplIPv4        = netip.MustParseAddr(PopupReplIPv4Str)
+)
+
 // RemoteIP is the common client IP for filtering tests
 var RemoteIP = netip.MustParseAddr("1.2.3.4")
 
-// ReqHost is the common request host for filtering tests.
-const ReqHost = "www.host.example"
+const (
+	// ReqHost is the common request host for filtering tests.
+	ReqHost = "www.host.example"
 
-// ReqFQDN is the common request FQDN for filtering tests.
-const ReqFQDN = ReqHost + "."
+	// ReqFQDN is the FQDN version of ReqHost.
+	ReqFQDN = ReqHost + "."
+
+	// PopupBlockPageHost is the common popup block-page host for tests.
+	PopupBlockPageHost = "ad-block.adguard.example"
+
+	// PopupBlockPageFQDN is the FQDN version of PopupBlockPageHost.
+	PopupBlockPageFQDN = PopupBlockPageHost + "."
+)
 
 // ServerName is the common server name for filtering tests.
 const ServerName = "testServer/1.0"
@@ -48,6 +71,42 @@ const Timeout = 1 * time.Second
 // FilterMaxSize is the maximum size of the downloadable rule-list for filtering
 // tests.
 const FilterMaxSize = 640 * uint64(datasize.KB)
+
+// AssertEqualResult is a test helper that compares two results taking
+// [internal.ResultModifiedRequest] and its difference in IDs into account.
+func AssertEqualResult(tb testing.TB, want, got internal.Result) (ok bool) {
+	tb.Helper()
+
+	wantRM, ok := want.(*internal.ResultModifiedRequest)
+	if !ok {
+		return assert.Equal(tb, want, got)
+	}
+
+	gotRM := testutil.RequireTypeAssert[*internal.ResultModifiedRequest](tb, got)
+
+	return assert.Equal(tb, wantRM.List, gotRM.List) &&
+		assert.Equal(tb, wantRM.Rule, gotRM.Rule) &&
+		assertEqualRequests(tb, wantRM.Msg, gotRM.Msg)
+}
+
+// assertEqualRequests is a test helper that compares two DNS requests ignoring
+// the ID.
+//
+// TODO(a.garipov): Move to golibs?
+func assertEqualRequests(tb testing.TB, want, got *dns.Msg) (ok bool) {
+	tb.Helper()
+
+	if want == nil {
+		return assert.Nil(tb, got)
+	}
+
+	// Use a shallow clone, because this should be enough to fix the ID.
+	gotWithID := &dns.Msg{}
+	*gotWithID = *got
+	gotWithID.Id = want.Id
+
+	return assert.Equal(tb, want, gotWithID)
+}
 
 // PrepareRefreshable launches an HTTP server serving the given text and code,
 // as well as creates a cache file.  If code is zero, the server isn't started.

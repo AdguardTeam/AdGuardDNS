@@ -194,7 +194,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 
 			var err error
 			var nrw *dnsserver.NonWriterResponseWriter
-			for i := 0; i < N; i++ {
+			for range N {
 				addr := &net.UDPAddr{IP: net.IP{1, 2, 3, 4}, Port: 53}
 				nrw = dnsserver.NewNonWriterResponseWriter(addr, addr)
 				err = withCache.ServeDNS(context.Background(), nrw, tc.req)

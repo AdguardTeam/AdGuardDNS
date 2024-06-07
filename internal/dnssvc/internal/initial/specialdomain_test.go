@@ -7,13 +7,13 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdpasswd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/initial"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
-	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
@@ -136,37 +136,32 @@ func TestMiddleware_ServeDNS_specialDomain(t *testing.T) {
 				return rw.WriteMsg(ctx, req, resp)
 			})
 
-			onProfileByLinkedIP := func(
-				_ context.Context,
-				_ netip.Addr,
-			) (p *agd.Profile, d *agd.Device, err error) {
-				if !tc.hasProf {
-					return nil, nil, profiledb.ErrDeviceNotFound
-				}
-
-				prof := &agd.Profile{
-					Access:             access.EmptyProfile{},
-					BlockPrivateRelay:  tc.profBlocked,
-					BlockFirefoxCanary: tc.profBlocked,
-				}
-
-				return prof, &agd.Device{}, nil
-			}
-
-			db := &agdtest.ProfileDB{
-				OnProfileByDeviceID: func(
+			ds := &dnssvctest.DeviceSetter{
+				OnSetDevice: func(
 					_ context.Context,
-					_ agd.DeviceID,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					panic("not implemented")
+					_ *dns.Msg,
+					ri *agd.RequestInfo,
+					_ netip.AddrPort,
+				) (err error) {
+					if !tc.hasProf {
+						return nil
+					}
+
+					ri.Profile = &agd.Profile{
+						Access:             access.EmptyProfile{},
+						BlockPrivateRelay:  tc.profBlocked,
+						BlockFirefoxCanary: tc.profBlocked,
+					}
+
+					ri.Device = &agd.Device{
+						Auth: &agd.AuthSettings{
+							Enabled:      false,
+							PasswordHash: agdpasswd.AllowAuthenticator{},
+						},
+					}
+
+					return nil
 				},
-				OnProfileByDedicatedIP: func(
-					_ context.Context,
-					_ netip.Addr,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					return nil, nil, profiledb.ErrDeviceNotFound
-				},
-				OnProfileByLinkedIP: onProfileByLinkedIP,
 			}
 
 			geoIP := &agdtest.GeoIP{
@@ -198,15 +193,16 @@ func TestMiddleware_ServeDNS_specialDomain(t *testing.T) {
 					Protocol:        agd.ProtoDNS,
 					LinkedIPEnabled: true,
 				},
-				ProfileDB:        db,
-				GeoIP:            geoIP,
-				ErrColl:          errColl,
-				ProfileDBEnabled: true,
+				DeviceSetter: ds,
+				GeoIP:        geoIP,
+				ErrColl:      errColl,
 			})
 
 			h := mw.Wrap(handler)
 
 			ctx := context.Background()
+			ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{})
+
 			rw := dnsserver.NewNonWriterResponseWriter(nil, dnssvctest.RemoteAddr)
 			req := &dns.Msg{
 				Question: []dns.Question{{

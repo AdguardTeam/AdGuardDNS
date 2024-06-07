@@ -29,7 +29,7 @@ func TestCacheMetricsListener_integration_cache(t *testing.T) {
 
 	// Pass 10 requests through the middleware.  This way we'll increment and
 	// set both hits and misses.
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		ctx := dnsserver.ContextWithServerInfo(context.Background(), testServerInfo)
 		ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
 			StartTime: time.Now(),

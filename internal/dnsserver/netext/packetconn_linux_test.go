@@ -24,7 +24,7 @@ func TestSessionPacketConn(t *testing.T) {
 
 	// Try the test multiple times to reduce flakiness due to UDP failures.
 	var success4, success6 bool
-	for i := 0; i < numTries; i++ {
+	for i := range numTries {
 		var isTimeout4, isTimeout6 bool
 		success4 = t.Run(fmt.Sprintf("ipv4_%d", i), func(t *testing.T) {
 			isTimeout4 = testSessionPacketConn(t, "udp4", "0.0.0.0:0", net.IP{127, 0, 0, 1})

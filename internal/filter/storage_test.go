@@ -3,7 +3,6 @@ package filter_test
 import (
 	"context"
 	"io"
-	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -130,16 +129,6 @@ func TestStorage_FilterFromContext_customAllow(t *testing.T) {
 		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
 	}
 
-	resolver := &agdtest.Resolver{
-		OnLookupNetIP: func(
-			_ context.Context,
-			_ netutil.AddrFamily,
-			_ string,
-		) (ips []netip.Addr, err error) {
-			return []netip.Addr{safeBrowsingSafeIP4}, nil
-		},
-	}
-
 	// Initialize the hashes file and use it with the storage.
 	tmpFile, err := os.CreateTemp(t.TempDir(), "")
 	require.NoError(t, err)
@@ -157,10 +146,9 @@ func TestStorage_FilterFromContext_customAllow(t *testing.T) {
 		Cloner:          agdtest.NewCloner(),
 		Hashes:          hashes,
 		ErrColl:         errColl,
-		Resolver:        resolver,
 		ID:              agd.FilterListIDSafeBrowsing,
 		CachePath:       tmpFile.Name(),
-		ReplacementHost: safeBrowsingSafeHost,
+		ReplacementHost: safeBrowsingReplHost,
 		Staleness:       filtertest.Staleness,
 		CacheTTL:        filtertest.CacheTTL,
 		CacheSize:       100,
@@ -168,7 +156,6 @@ func TestStorage_FilterFromContext_customAllow(t *testing.T) {
 	require.NoError(t, err)
 
 	c.ErrColl = errColl
-	c.Resolver = resolver
 
 	s, err := filter.NewDefaultStorage(c)
 	require.NoError(t, err)
@@ -227,16 +214,6 @@ func TestStorage_FilterFromContext_schedule(t *testing.T) {
 		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
 	}
 
-	resolver := &agdtest.Resolver{
-		OnLookupNetIP: func(
-			_ context.Context,
-			_ netutil.AddrFamily,
-			_ string,
-		) (ips []netip.Addr, err error) {
-			return []netip.Addr{safeBrowsingSafeIP4}, nil
-		},
-	}
-
 	// Initialize the hashes file and use it with the storage.
 	tmpFile, err := os.CreateTemp(t.TempDir(), "")
 	require.NoError(t, err)
@@ -255,10 +232,9 @@ func TestStorage_FilterFromContext_schedule(t *testing.T) {
 		Cloner:          agdtest.NewCloner(),
 		Hashes:          hashes,
 		ErrColl:         errColl,
-		Resolver:        resolver,
 		ID:              agd.FilterListIDAdultBlocking,
 		CachePath:       tmpFile.Name(),
-		ReplacementHost: safeBrowsingSafeHost,
+		ReplacementHost: filtertest.SafeBrowsingReplIPv4Str,
 		Staleness:       filtertest.Staleness,
 		CacheTTL:        filtertest.CacheTTL,
 		CacheSize:       100,
@@ -270,7 +246,6 @@ func TestStorage_FilterFromContext_schedule(t *testing.T) {
 	}
 
 	c.ErrColl = errColl
-	c.Resolver = resolver
 
 	s, err := filter.NewDefaultStorage(c)
 	require.NoError(t, err)
@@ -341,10 +316,16 @@ func TestStorage_FilterFromContext_schedule(t *testing.T) {
 	r, err = f.FilterRequest(ctx, req, ri)
 	require.NoError(t, err)
 
-	rm := testutil.RequireTypeAssert[*filter.ResultModified](t, r)
+	rm := testutil.RequireTypeAssert[*filter.ResultModifiedResponse](t, r)
 
 	assert.Equal(t, rm.Rule, agd.FilterRuleText(safeBrowsingHost))
 	assert.Equal(t, rm.List, agd.FilterListIDAdultBlocking)
+
+	ans := testutil.RequireTypeAssert[*dns.A](t, rm.Msg.Answer[0])
+
+	ansIP, err := netutil.IPToAddr(ans.A, netutil.AddrFamilyIPv4)
+	assert.NoError(t, err)
+	assert.Equal(t, filtertest.SafeBrowsingReplIPv4, ansIP)
 }
 
 func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
@@ -360,12 +341,6 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 	g := &agd.FilteringGroup{
 		ID:               "default",
 		RuleListIDs:      []agd.FilterListID{testFilterID},
-		RuleListsEnabled: true,
-	}
-
-	p := &agd.Profile{
-		RuleListIDs:      []agd.FilterListID{testFilterID},
-		FilteringEnabled: true,
 		RuleListsEnabled: true,
 	}
 
@@ -469,56 +444,6 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 		assert.Equal(t, ra.List, testFilterID)
 	})
 
-	t.Run("blocked_device", func(t *testing.T) {
-		req := &dns.Msg{
-			Question: []dns.Question{{
-				Name:   blockedDeviceFQDN,
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
-			}},
-		}
-
-		ri := newReqInfo(g, p, blockedDeviceHost, deviceIP, dns.TypeA)
-		ctx := agd.ContextWithRequestInfo(context.Background(), ri)
-
-		f := s.FilterFromContext(ctx, ri)
-		require.NotNil(t, f)
-
-		var r filter.Result
-		r, err = f.FilterRequest(ctx, req, ri)
-		require.NoError(t, err)
-
-		rb := testutil.RequireTypeAssert[*filter.ResultBlocked](t, r)
-
-		assert.Contains(t, rb.Rule, blockedDeviceHost)
-		assert.Equal(t, rb.List, testFilterID)
-	})
-
-	t.Run("allowed_device", func(t *testing.T) {
-		req := &dns.Msg{
-			Question: []dns.Question{{
-				Name:   allowedDeviceFQDN,
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
-			}},
-		}
-
-		ri := newReqInfo(g, p, allowedDeviceHost, deviceIP, dns.TypeA)
-		ctx := agd.ContextWithRequestInfo(context.Background(), ri)
-
-		f := s.FilterFromContext(ctx, ri)
-		require.NotNil(t, f)
-
-		var r filter.Result
-		r, err = f.FilterRequest(ctx, req, ri)
-		require.NoError(t, err)
-
-		ra := testutil.RequireTypeAssert[*filter.ResultAllowed](t, r)
-
-		assert.Contains(t, ra.Rule, allowedDeviceHost)
-		assert.Equal(t, ra.List, testFilterID)
-	})
-
 	t.Run("none", func(t *testing.T) {
 		req := &dns.Msg{
 			Question: []dns.Question{{
@@ -539,6 +464,74 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Nil(t, r)
+	})
+}
+
+func TestStorage_FilterFromContext_customDevice(t *testing.T) {
+	c := prepareConf(t)
+	c.ErrColl = &agdtest.ErrorCollector{
+		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
+	}
+
+	s, errStrg := filter.NewDefaultStorage(c)
+	require.NoError(t, errStrg)
+
+	g := &agd.FilteringGroup{}
+	p := &agd.Profile{
+		CustomRules: []agd.FilterRuleText{
+			`||blocked-device.example.com^$client="My Device"`,
+			`@@||allowed-device.example.com^$client="My Device"`,
+		},
+		FilteringEnabled: true,
+		RuleListsEnabled: true,
+	}
+
+	t.Run("blocked_device", func(t *testing.T) {
+		req := &dns.Msg{
+			Question: []dns.Question{{
+				Name:   blockedDeviceFQDN,
+				Qtype:  dns.TypeA,
+				Qclass: dns.ClassINET,
+			}},
+		}
+
+		ri := newReqInfo(g, p, blockedDeviceHost, deviceIP, dns.TypeA)
+		ctx := agd.ContextWithRequestInfo(context.Background(), ri)
+
+		f := s.FilterFromContext(ctx, ri)
+		require.NotNil(t, f)
+
+		r, err := f.FilterRequest(ctx, req, ri)
+		require.NoError(t, err)
+
+		rb := testutil.RequireTypeAssert[*filter.ResultBlocked](t, r)
+
+		assert.Contains(t, rb.Rule, blockedDeviceHost)
+		assert.Equal(t, rb.List, agd.FilterListIDCustom)
+	})
+
+	t.Run("allowed_device", func(t *testing.T) {
+		req := &dns.Msg{
+			Question: []dns.Question{{
+				Name:   allowedDeviceFQDN,
+				Qtype:  dns.TypeA,
+				Qclass: dns.ClassINET,
+			}},
+		}
+
+		ri := newReqInfo(g, p, allowedDeviceHost, deviceIP, dns.TypeA)
+		ctx := agd.ContextWithRequestInfo(context.Background(), ri)
+
+		f := s.FilterFromContext(ctx, ri)
+		require.NotNil(t, f)
+
+		r, err := f.FilterRequest(ctx, req, ri)
+		require.NoError(t, err)
+
+		ra := testutil.RequireTypeAssert[*filter.ResultAllowed](t, r)
+
+		assert.Contains(t, ra.Rule, allowedDeviceHost)
+		assert.Equal(t, ra.List, agd.FilterListIDCustom)
 	})
 }
 
@@ -742,26 +735,15 @@ func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
 		},
 	}
 
-	resolver := &agdtest.Resolver{
-		OnLookupNetIP: func(
-			_ context.Context,
-			_ netutil.AddrFamily,
-			_ string,
-		) (ips []netip.Addr, err error) {
-			return []netip.Addr{safeBrowsingSafeIP4}, nil
-		},
-	}
-
 	c := prepareConf(t)
 
 	c.SafeBrowsing, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
 		Cloner:          agdtest.NewCloner(),
 		Hashes:          hashes,
 		ErrColl:         errColl,
-		Resolver:        resolver,
 		ID:              agd.FilterListIDSafeBrowsing,
 		CachePath:       cachePath,
-		ReplacementHost: safeBrowsingSafeHost,
+		ReplacementHost: safeBrowsingReplHost,
 		Staleness:       filtertest.Staleness,
 		CacheTTL:        filtertest.CacheTTL,
 		CacheSize:       100,
@@ -769,7 +751,6 @@ func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
 	require.NoError(t, err)
 
 	c.ErrColl = errColl
-	c.Resolver = resolver
 
 	s, err := filter.NewDefaultStorage(c)
 	require.NoError(t, err)
@@ -803,37 +784,15 @@ func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
 	r, err = f.FilterRequest(ctx, req, ri)
 	require.NoError(t, err)
 
-	rm := testutil.RequireTypeAssert[*filter.ResultModified](t, r)
+	rm := testutil.RequireTypeAssert[*filter.ResultModifiedRequest](t, r)
 
+	assert.Equal(t, rm.Msg.Question[0].Name, safeBrowsingReplFQDN)
 	assert.Equal(t, rm.Rule, agd.FilterRuleText(safeBrowsingHost))
 	assert.Equal(t, rm.List, agd.FilterListIDSafeBrowsing)
 }
 
 func TestStorage_FilterFromContext_safeSearch(t *testing.T) {
-	numLookupIP := 0
-	resolver := &agdtest.Resolver{
-		OnLookupNetIP: func(
-			_ context.Context,
-			fam netutil.AddrFamily,
-			_ string,
-		) (ips []netip.Addr, err error) {
-			numLookupIP++
-
-			if fam == netutil.AddrFamilyIPv4 {
-				return []netip.Addr{safeSearchIPRespIP4}, nil
-			}
-
-			return []netip.Addr{safeSearchIPRespIP6}, nil
-		},
-	}
-
 	c := prepareConf(t)
-
-	c.ErrColl = &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
-	}
-
-	c.Resolver = resolver
 
 	s, err := filter.NewDefaultStorage(c)
 	require.NoError(t, err)
@@ -847,51 +806,42 @@ func TestStorage_FilterFromContext_safeSearch(t *testing.T) {
 	ttl := uint32(agdtest.FilteredResponseTTLSec)
 
 	testCases := []struct {
-		name        string
-		host        string
-		want        []dns.RR
-		rrtype      uint16
-		wantLookups int
+		name    string
+		host    string
+		want    []dns.RR
+		rrtype  uint16
+		wantReq bool
 	}{{
 		want: []dns.RR{
-			dnsservertest.NewA(safeSearchIPHost, ttl, safeSearchIPRespIP4),
+			dnsservertest.NewA(safeSearchIPv4Host, ttl, safeSearchIPRespIP4),
 		},
-		name:        "ip4",
-		host:        safeSearchIPHost,
-		rrtype:      dns.TypeA,
-		wantLookups: 1,
+		name:    "ip4",
+		host:    safeSearchIPv4Host,
+		rrtype:  dns.TypeA,
+		wantReq: false,
 	}, {
 		want: []dns.RR{
-			dnsservertest.NewAAAA(safeSearchIPHost, ttl, safeSearchIPRespIP6),
+			dnsservertest.NewAAAA(safeSearchIPv6Host, ttl, safeSearchIPRespIP6),
 		},
-		name:        "ip6",
-		host:        safeSearchIPHost,
-		rrtype:      dns.TypeAAAA,
-		wantLookups: 1,
+		name:    "ip6",
+		host:    safeSearchIPv6Host,
+		rrtype:  dns.TypeAAAA,
+		wantReq: false,
 	}, {
-		want: []dns.RR{
-			dnsservertest.NewCNAME(safeSearchHost, ttl, safeSearchRespHost),
-			dnsservertest.NewA(safeSearchRespHost, ttl, safeSearchIPRespIP4),
-		},
-		name:        "host_ip4",
-		host:        safeSearchHost,
-		rrtype:      dns.TypeA,
-		wantLookups: 1,
+		want:    nil,
+		name:    "host_ip4",
+		host:    safeSearchHost,
+		rrtype:  dns.TypeA,
+		wantReq: true,
 	}, {
-		want: []dns.RR{
-			dnsservertest.NewCNAME(safeSearchHost, ttl, safeSearchRespHost),
-			dnsservertest.NewAAAA(safeSearchRespHost, ttl, safeSearchIPRespIP6),
-		},
-		name:        "host_ip6",
-		host:        safeSearchHost,
-		rrtype:      dns.TypeAAAA,
-		wantLookups: 1,
+		want:    nil,
+		name:    "host_ip6",
+		host:    safeSearchHost,
+		rrtype:  dns.TypeAAAA,
+		wantReq: true,
 	}}
 
 	for _, tc := range testCases {
-		numLookupIP = 0
-		req := dnsservertest.CreateMessage(tc.host, tc.rrtype)
-
 		t.Run(tc.name, func(t *testing.T) {
 			ri := newReqInfo(g, nil, tc.host, clientIP, tc.rrtype)
 			ctx := agd.ContextWithRequestInfo(context.Background(), ri)
@@ -899,19 +849,32 @@ func TestStorage_FilterFromContext_safeSearch(t *testing.T) {
 			f := s.FilterFromContext(ctx, ri)
 			require.NotNil(t, f)
 
+			req := dnsservertest.CreateMessage(tc.host, tc.rrtype)
+
 			var r filter.Result
 			r, err = f.FilterRequest(ctx, req, ri)
 			require.NoError(t, err)
+			require.NotNil(t, r)
 
-			assert.Equal(t, tc.wantLookups, numLookupIP)
+			id, rule := r.MatchedRule()
+			assert.Contains(t, rule, tc.host)
+			assert.Equal(t, id, agd.FilterListIDGeneralSafeSearch)
 
-			rm := testutil.RequireTypeAssert[*filter.ResultModified](t, r)
-			assert.Contains(t, rm.Rule, tc.host)
-			assert.Equal(t, rm.List, agd.FilterListIDGeneralSafeSearch)
+			var msg *dns.Msg
+			if tc.wantReq {
+				rm := testutil.RequireTypeAssert[*filter.ResultModifiedRequest](t, r)
 
-			res := rm.Msg
-			require.NotNil(t, res)
-			require.Equal(t, tc.want, res.Answer)
+				msg = rm.Msg
+			} else {
+				rm := testutil.RequireTypeAssert[*filter.ResultModifiedResponse](t, r)
+
+				msg = rm.Msg
+			}
+
+			require.NotNil(t, msg)
+
+			assert.Equal(t, tc.wantReq, !msg.Response)
+			assert.Equal(t, tc.want, msg.Answer)
 		})
 	}
 }
@@ -931,7 +894,7 @@ func BenchmarkStorage_NewDefaultStorage(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		defaultStorageSink, errSink = filter.NewDefaultStorage(c)
 	}
 

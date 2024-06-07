@@ -28,7 +28,6 @@ configuration file with comments.
  *  [Filtering groups](#filtering_groups)
  *  [Network interface listeners](#interface_listeners)
  *  [Server groups](#server_groups)
-     *  [Block-page redirecting](#server_groups-*-block_page_redirect)
      *  [DDR](#server_groups-*-ddr)
      *  [TLS](#server_groups-*-tls)
      *  [Servers](#server_groups-*-servers-*)
@@ -609,9 +608,9 @@ The optional `web` object has the following properties:
     ```
 
  *  <a href="#web-safe_browsing" id="web-safe_browsing" name="web-safe_browsing">`safe_browsing`</a>:
-    The optional safe browsing web server configurations.  Every request is
-    responded with the content from the file to which the `block_page` property
-    points.
+    The optional safe browsing block-page web server configurations.  Every
+    request is responded with the content from the file to which the
+    `block_page` property points.
 
     See the [full description of this API][http-block-pages] on the HTTP API
     page.
@@ -639,9 +638,14 @@ The optional `web` object has the following properties:
     ```
 
  *  <a href="#web-adult_blocking" id="web-adult_blocking" name="web-adult_blocking">`adult_blocking`</a>:
-    The optional adult blocking web server configurations.  The format of the
+    The optional adult block-page web server configuration.  The format of the
     values is the same as in the [`safe_browsing`](#web-safe_browsing) object
     above.
+
+ *  <a href="#web-general_blocking" id="web-general_blocking" name="web-general_blocking">`general_blocking`</a>:
+    The optional general block-page web server configuration.  The format of
+    the values is the same as in the [`safe_browsing`](#web-safe_browsing)
+    object above.
 
  *  <a href="#web-non_doh_bind" id="web-non_doh_bind" name="web-non_doh_bind">`non_doh_bind`</a>:
     The optional listen addresses and optional TLS configuration for the web
@@ -668,6 +672,9 @@ The optional `web` object has the following properties:
     ones used by the DNS-over-HTTPS server.
 
     Inside of the `headers` map, the header `Content-Type` is required.
+
+     >  [!NOTE]
+     >  Paths are case-sensitive.
 
     **Property example:**
 
@@ -735,6 +742,11 @@ The `safe_browsing` object has the following properties:
 
     **Example:** `1m`.
 
+ *  <a href="#safe_browsing-refresh_timeout" id="safe_browsing-refresh_timeout" name="safe_browsing-refresh_timeout">`refresh_timeout`</a>:
+    The timeout for the update operation, as a human-readable duration.
+
+    **Example:** `1m`.
+
 
 
 ##  <a href="#adult_blocking" id="adult_blocking" name="adult_blocking">Adult-content blocking</a>
@@ -745,6 +757,9 @@ The `adult_blocking` object has the same properties as the
 
 
 ##  <a href="#filters" id="filters" name="filters">Filter Lists</a>
+
+**TODO(a.garipov):**  Add the timeout for the blocked-service index refresh.  It
+is currently hardcoded to 3 minutes.
 
 The `filters` object has the following properties:
 
@@ -777,10 +792,28 @@ The `filters` object has the following properties:
 
  *  <a href="#filters-refresh_timeout" id="filters-refresh_timeout" name="filters-refresh_timeout">`refresh_timeout`</a>:
     The timeout for the *entire* filter update operation, as a human-readable
-    duration.  Be aware that each individual refresh operation also has its own
-    hardcoded 3m timeout.
+    duration.  Note that filter rule-list index and each filter rule-list
+    update operations have their own timeouts, see
+    [`index_refresh_timeout`](#filters-index_refresh_timeout) and
+    [`rule_list_refresh_timeout`](#filters-rule_list_refresh_timeout).
 
     **Example:** `5m`.
+
+ *  <a href="#filters-index_refresh_timeout" id="filters-index_refresh_timeout" name="filters-index_refresh_timeout">`index_refresh_timeout`</a>:
+    The timeout for the filter rule-list index update operation, as a
+    human-readable duration.  See also
+    [`refresh_timeout`](#filters-refresh_timeout) for the entire filter update
+    operation.
+
+    **Example:** `1m`.
+
+ *  <a href="#filters-rule_list_refresh_timeout" id="filters-rule_list_refresh_timeout" name="filters-rule_list_refresh_timeout">`rule_list_refresh_timeout`</a>:
+    The timeout for the filter update operation of each rule-list, including the
+    safe-search ones, as a human-readable duration.  See also
+    [`refresh_timeout`](#filters-refresh_timeout) for the entire filter update
+    operation.
+
+    **Example:** `1m`.
 
  *  <a href="#filters-max_size" id="filters-max_size" name="filters-max_size">`max_size`</a>:
     The maximum size of the downloadable content for a rule-list in a
@@ -939,9 +972,6 @@ The items of the `server_groups` array have the following properties:
 
     **Example:** `default`.
 
- *  `block_page_redirect`: The block-page redirect configuration object.  See
-    [below](#server_groups-*-block_page_redirect).
-
  *  `ddr`: The DDR configuration object.  See [below](#server_groups-*-ddr).
 
  *  `tls`: The TLS configuration object.  See [below](#server_groups-*-tls).
@@ -953,69 +983,6 @@ The items of the `server_groups` array have the following properties:
 
  *  `servers`: Server configuration for this filtering group.  See
     [below](#server_groups-*-servers-*).
-
-
-
-   ###  <a href="#server_groups-*-block_page_redirect" id="server_groups-*-block_page_redirect" name="server_groups-*-block_page_redirect">Block-page redirecting</a>
-
-The block-page redirect configuration object.  If enabled, AdGuard DNS responds
-with the configured IP addresses to “redirect” users to an informative block
-page.
-
- *  <a href="#sg-*-bpr-enabled" id="sg-*-bpr-enabled" name="sg-*-bpr-enabled">`enabled`</a>:
-
-    Shows if the block-page redirect is enabled.  If `false`, the fields below
-    can be skipped.
-
- *  <a href="#sg-*-bpr-ipv4" id="sg-*-bpr-ipv4" name="sg-*-bpr-ipv4">`ipv4`</a>:
-
-    Arrays of IPv4 addresses with which to respond to blocked `A` queries.
-
-    If `enabled` is true, `ipv4`, `ipv6`, or both must be filled.
-
- *  <a href="#sg-*-bpr-ipv6" id="sg-*-bpr-ipv6" name="sg-*-bpr-ipv6">`ipv6`</a>:
-
-    Arrays of IPv6 addresses with which to respond to blocked `AAAA` queries.
-
-    If `enabled` is true, `ipv4`, `ipv6`, or both must be filled.
-
- *  <a href="#sg-*-bpr-apply" id="sg-*-bpr-apply" name="sg-*-bpr-apply">`apply`</a>:
-
-    Request parameters based on which the block-page redirect is always
-    performed.  For requests matching these parameters, both `skip` and
-    `probability` are
-    ignored.
-
-    **Property example:**
-
-    ```yaml
-    apply:
-        client:
-          - address: '192.168.0.0/16'
-          - address: '1.2.3.4'
-    ```
-
- *  <a href="#sg-*-bpr-skip" id="sg-*-bpr-skip" name="sg-*-bpr-skip">`skip`</a>:
-
-    Request parameters based on which the block-page redirect is never
-    performed.  For requests matching these parameters, `probability` is
-    ignored.
-
-    **Property example:**
-
-    ```yaml
-    skip:
-        client:
-          - address: '1.2.0.0/16'
-          - address: '5.6.7.8'
-        question:
-          - domain: 'do-not-show-block.site.example'
-    ```
-
- *  <a href="#sg-*-bpr-probability" id="sg-*-bpr-probability" name="sg-*-bpr-probability">`probability`</a>:
-
-    The probability of responding with the block page IPs based on remote
-    address.  Must be between `0.0` and `1.0`.
 
 
 

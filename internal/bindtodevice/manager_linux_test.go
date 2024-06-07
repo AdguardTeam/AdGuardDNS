@@ -233,10 +233,10 @@ func TestManager(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, lc)
 
-	err = m.Start(agdtest.ContextWithTimeout(t, testTimeout))
+	err = m.Start(testutil.ContextWithTimeout(t, testTimeout))
 	require.NoError(t, err)
 	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return m.Shutdown(agdtest.ContextWithTimeout(t, testTimeout))
+		return m.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
 	})
 
 	t.Run("tcp", func(t *testing.T) {

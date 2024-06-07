@@ -100,7 +100,8 @@ func (c *configuration) buildQueryLog(envs *environments) (l querylog.Interface)
 	}
 
 	return querylog.NewFileSystem(&querylog.FileSystemConfig{
-		Path: envs.QueryLogPath,
+		Path:     envs.QueryLogPath,
+		RandSeed: uint64(time.Now().UnixNano()),
 	})
 }
 

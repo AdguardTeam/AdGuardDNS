@@ -92,9 +92,7 @@ func TestDefaultProfileDB(t *testing.T) {
 	db := newDefaultProfileDB(t, devicesCh)
 
 	t.Run("by_device_id", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-		defer cancel()
-
+		ctx := testutil.ContextWithTimeout(t, testTimeout)
 		p, d, err := db.ProfileByDeviceID(ctx, profiledbtest.DeviceID)
 		require.NoError(t, err)
 
@@ -103,9 +101,7 @@ func TestDefaultProfileDB(t *testing.T) {
 	})
 
 	t.Run("by_dedicated_ip", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-		defer cancel()
-
+		ctx := testutil.ContextWithTimeout(t, testTimeout)
 		p, d, err := db.ProfileByDedicatedIP(ctx, testDedicatedIPv4)
 		require.NoError(t, err)
 
@@ -114,9 +110,7 @@ func TestDefaultProfileDB(t *testing.T) {
 	})
 
 	t.Run("by_linked_ip", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-		defer cancel()
-
+		ctx := testutil.ContextWithTimeout(t, testTimeout)
 		p, d, err := db.ProfileByLinkedIP(ctx, testClientIPv4)
 		require.NoError(t, err)
 
@@ -140,7 +134,7 @@ func TestDefaultProfileDB_ProfileByDedicatedIP_removedDevice(t *testing.T) {
 
 	db := newDefaultProfileDB(t, devicesCh)
 
-	ctx := context.Background()
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
 	_, d, err := db.ProfileByDedicatedIP(ctx, testDedicatedIPv4)
 	require.NoError(t, err)
 
@@ -149,10 +143,12 @@ func TestDefaultProfileDB_ProfileByDedicatedIP_removedDevice(t *testing.T) {
 	// The second response, the device is removed.
 	devicesCh <- nil
 
+	ctx = testutil.ContextWithTimeout(t, testTimeout)
 	err = db.Refresh(ctx)
 	require.NoError(t, err)
 
 	assert.Eventually(t, func() (ok bool) {
+		ctx = testutil.ContextWithTimeout(t, testTimeout)
 		_, d, err = db.ProfileByDedicatedIP(ctx, testDedicatedIPv4)
 
 		return errors.Is(err, profiledb.ErrDeviceNotFound)
@@ -378,7 +374,7 @@ func BenchmarkDefaultProfileDB_ProfileByDeviceID(b *testing.B) {
 	b.Run("success", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			profSink, devSink, errSink = db.ProfileByDeviceID(ctx, profiledbtest.DeviceID)
 		}
 
@@ -392,7 +388,7 @@ func BenchmarkDefaultProfileDB_ProfileByDeviceID(b *testing.B) {
 	b.Run("not_found", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			profSink, devSink, errSink = db.ProfileByDeviceID(ctx, wrongDevID)
 		}
 
@@ -427,7 +423,7 @@ func BenchmarkDefaultProfileDB_ProfileByLinkedIP(b *testing.B) {
 	b.Run("success", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			profSink, devSink, errSink = db.ProfileByLinkedIP(ctx, testClientIPv4)
 		}
 
@@ -439,7 +435,7 @@ func BenchmarkDefaultProfileDB_ProfileByLinkedIP(b *testing.B) {
 	b.Run("not_found", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			profSink, devSink, errSink = db.ProfileByLinkedIP(ctx, testOtherClientIPv4)
 		}
 
@@ -476,7 +472,7 @@ func BenchmarkDefaultProfileDB_ProfileByDedicatedIP(b *testing.B) {
 	b.Run("success", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			profSink, devSink, errSink = db.ProfileByDedicatedIP(ctx, testClientIPv4)
 		}
 
@@ -488,7 +484,7 @@ func BenchmarkDefaultProfileDB_ProfileByDedicatedIP(b *testing.B) {
 	b.Run("not_found", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			profSink, devSink, errSink = db.ProfileByDedicatedIP(ctx, testOtherClientIPv4)
 		}
 

@@ -9,8 +9,8 @@ import (
 // Cloner is a pool that can clone common parts of DNS messages with fewer
 // allocations.
 //
-// TODO(a.garipov): Use in filtering when cloning a [filter.ResultModified]
-// message.
+// TODO(a.garipov): Use in filtering when cloning a
+// [filter.ResultModifiedResponse] message.
 //
 // TODO(a.garipov): Use in [Constructor].
 type Cloner struct {

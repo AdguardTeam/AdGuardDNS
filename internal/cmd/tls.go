@@ -15,9 +15,10 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/service"
-	"github.com/AdguardTeam/golibs/stringutil"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -96,7 +97,7 @@ func (c *tlsConfig) validate(needsTLS bool) (err error) {
 // validateDeviceIDWildcards returns an error if the device ID domain wildcards
 // are invalid.
 func validateDeviceIDWildcards(wildcards []string) (err error) {
-	s := stringutil.NewSet()
+	s := container.NewMapSet[string]()
 	for i, w := range wildcards {
 		// TODO(e.burkov):  Consider removing this requirement.
 		if !strings.HasPrefix(w, "*.") {
@@ -185,14 +186,18 @@ func (certs tlsConfigCerts) validate() (err error) {
 
 // ticketRotator is a refresh worker that rereads and resets TLS session tickets.
 type ticketRotator struct {
-	confs map[*tls.Config][]string
+	errColl errcoll.Interface
+	confs   map[*tls.Config][]string
 }
 
 // newTicketRotator creates a new TLS session ticket rotator that rotates
 // tickets for the TLS configurations of all servers in grps.
 //
 // grps is assumed to be valid.
-func newTicketRotator(grps []*agd.ServerGroup) (tr *ticketRotator, err error) {
+func newTicketRotator(
+	errColl errcoll.Interface,
+	grps []*agd.ServerGroup,
+) (tr *ticketRotator, err error) {
 	confs := map[*tls.Config][]string{}
 
 	for _, g := range grps {
@@ -209,7 +214,8 @@ func newTicketRotator(grps []*agd.ServerGroup) (tr *ticketRotator, err error) {
 	}
 
 	tr = &ticketRotator{
-		confs: confs,
+		errColl: errColl,
+		confs:   confs,
 	}
 
 	err = tr.Refresh(context.Background())
@@ -231,7 +237,17 @@ const sessTickLen = 32
 var _ agdservice.Refresher = (*ticketRotator)(nil)
 
 // Refresh implements the [agdservice.Refresher] interface for *ticketRotator.
-func (r *ticketRotator) Refresh(_ context.Context) (err error) {
+func (r *ticketRotator) Refresh(ctx context.Context) (err error) {
+	// TODO(a.garipov):  Use slog.
+	log.Debug("tickrot_refresh: started")
+	defer log.Debug("tickrot_refresh: finished")
+
+	defer func() {
+		if err != nil {
+			errcoll.Collectf(ctx, r.errColl, "tickrot_refresh: %w", err)
+		}
+	}()
+
 	for conf, files := range r.confs {
 		keys := make([][sessTickLen]byte, 0, len(files))
 
@@ -304,7 +320,7 @@ func setupTicketRotator(
 	sigHdlr *service.SignalHandler,
 	errColl errcoll.Interface,
 ) (err error) {
-	tickRot, err := newTicketRotator(srvGrps)
+	tickRot, err := newTicketRotator(errColl, srvGrps)
 	if err != nil {
 		return fmt.Errorf("setting up ticket rotator: %w", err)
 	}
@@ -312,13 +328,11 @@ func setupTicketRotator(
 	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
 		Context:   ctxWithDefaultTimeout,
 		Refresher: tickRot,
-		ErrColl:   errColl,
 		Name:      "tickrot",
 		// TODO(ameshkov): Consider making configurable.
-		Interval:            1 * time.Minute,
-		RefreshOnShutdown:   false,
-		RoutineLogsAreDebug: true,
-		RandomizeStart:      false,
+		Interval:          1 * time.Minute,
+		RefreshOnShutdown: false,
+		RandomizeStart:    false,
 	})
 	err = refr.Start(context.Background())
 	if err != nil {

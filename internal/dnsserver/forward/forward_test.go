@@ -21,18 +21,6 @@ func TestMain(m *testing.M) {
 // testTimeout is the timeout for tests.
 const testTimeout = 1 * time.Second
 
-// newTimeoutCtx is a test helper that returns a context with a timeout of
-// [testTimeout] and its cancel function being called in the test cleanup.  It
-// should not be used where cancelation is expected sooner.
-func newTimeoutCtx(tb testing.TB, parent context.Context) (ctx context.Context) {
-	tb.Helper()
-
-	ctx, cancel := context.WithTimeout(parent, testTimeout)
-	tb.Cleanup(cancel)
-
-	return ctx
-}
-
 func TestHandler_ServeDNS(t *testing.T) {
 	srv, addr := dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
 
@@ -49,7 +37,7 @@ func TestHandler_ServeDNS(t *testing.T) {
 	rw := dnsserver.NewNonWriterResponseWriter(srv.LocalUDPAddr(), srv.LocalUDPAddr())
 
 	// Check the handler's ServeDNS method
-	err := handler.ServeDNS(newTimeoutCtx(t, context.Background()), rw, req)
+	err := handler.ServeDNS(testutil.ContextWithTimeout(t, testTimeout), rw, req)
 	require.NoError(t, err)
 
 	res := rw.Msg()

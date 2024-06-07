@@ -1,7 +1,6 @@
 package metrics
 
 import (
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -36,8 +35,7 @@ var (
 // interface.
 type ClonerStat struct{}
 
-// type check
-var _ dnsmsg.ClonerStat = ClonerStat{}
+// The type check is performed in the test file to prevent a dependency.
 
 // OnClone implements the [dnsmsg.ClonerStat] interface for ClonerStat.
 func (ClonerStat) OnClone(isFull bool) {

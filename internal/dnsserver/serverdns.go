@@ -1,6 +1,7 @@
 package dnsserver
 
 import (
+	"cmp"
 	"context"
 	"net"
 	"sync"
@@ -108,26 +109,14 @@ func NewServerDNS(conf ConfigDNS) (s *ServerDNS) {
 // server with a TLS layer on top of it.
 func newServerDNS(proto Protocol, conf ConfigDNS) (s *ServerDNS) {
 	// Init default settings first.
-	//
-	// TODO(a.garipov): Use cmp.Or in Go 1.22.
-	if conf.ReadTimeout == 0 {
-		conf.ReadTimeout = DefaultReadTimeout
-	}
-	if conf.WriteTimeout == 0 {
-		conf.WriteTimeout = DefaultWriteTimeout
-	}
-	if conf.TCPIdleTimeout == 0 {
-		conf.TCPIdleTimeout = DefaultTCPIdleTimeout
-	}
+	conf.ReadTimeout = cmp.Or(conf.ReadTimeout, DefaultReadTimeout)
+	conf.WriteTimeout = cmp.Or(conf.WriteTimeout, DefaultWriteTimeout)
+	conf.TCPIdleTimeout = cmp.Or(conf.TCPIdleTimeout, DefaultTCPIdleTimeout)
 
-	// Use dns.MinMsgSize since 99% of DNS queries fit this size, so this is
-	// a sensible default.
-	if conf.UDPSize == 0 {
-		conf.UDPSize = dns.MinMsgSize
-	}
-	if conf.TCPSize == 0 {
-		conf.TCPSize = dns.MinMsgSize
-	}
+	// Use dns.MinMsgSize since 99% of DNS queries fit this size, so this is a
+	// sensible default.
+	conf.UDPSize = cmp.Or(conf.UDPSize, dns.MinMsgSize)
+	conf.TCPSize = cmp.Or(conf.TCPSize, dns.MinMsgSize)
 
 	if conf.ListenConfig == nil {
 		conf.ListenConfig = netext.DefaultListenConfigWithOOB(nil)

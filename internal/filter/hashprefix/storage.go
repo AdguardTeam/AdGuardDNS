@@ -92,7 +92,7 @@ func (s *Storage) Hashes(prefs []Prefix) (hashes []string) {
 
 	str := b.String()
 	hashes = make([]string, 0, l)
-	for i := 0; i < l; i++ {
+	for i := range l {
 		hashes = append(hashes, str[i*hashEncLen:(i+1)*hashEncLen])
 	}
 

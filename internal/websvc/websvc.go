@@ -18,11 +18,14 @@ import (
 
 // Config is the AdGuard DNS web service configuration structure.
 type Config struct {
-	// SafeBrowsing is the optional safe browsing block page web server.
-	SafeBrowsing *BlockPageServer
-
-	// AdultBlocking is the optional adult blocking block page web server.
+	// AdultBlocking is the optional adult-blocking block-page web server.
 	AdultBlocking *BlockPageServer
+
+	// GeneralBlocking is the optional general block-page web server.
+	GeneralBlocking *BlockPageServer
+
+	// SafeBrowsing is the optional safe-browsing block-page web server.
+	SafeBrowsing *BlockPageServer
 
 	// LinkedIP is the optional linked IP web server.
 	LinkedIP *LinkedIPServer
@@ -97,10 +100,11 @@ type Service struct {
 	error404 []byte
 	error500 []byte
 
-	linkedIP      []*http.Server
-	adultBlocking []*http.Server
-	safeBrowsing  []*http.Server
-	nonDoH        []*http.Server
+	linkedIP        []*http.Server
+	adultBlocking   []*http.Server
+	generalBlocking []*http.Server
+	safeBrowsing    []*http.Server
+	nonDoH          []*http.Server
 }
 
 // New returns a new properly initialized *Service.  If c is nil, svc is a nil
@@ -118,8 +122,9 @@ func New(c *Config) (svc *Service) {
 		error404: c.Error404,
 		error500: c.Error500,
 
-		adultBlocking: blockPageServers(c.AdultBlocking, adultBlockingName, c.Timeout),
-		safeBrowsing:  blockPageServers(c.SafeBrowsing, safeBrowsingName, c.Timeout),
+		adultBlocking:   blockPageServers(c.AdultBlocking, adultBlockingName, c.Timeout),
+		generalBlocking: blockPageServers(c.GeneralBlocking, generalBlockingName, c.Timeout),
+		safeBrowsing:    blockPageServers(c.SafeBrowsing, safeBrowsingName, c.Timeout),
 	}
 
 	if c.RootRedirectURL != nil {
@@ -164,42 +169,6 @@ func New(c *Config) (svc *Service) {
 	return svc
 }
 
-// Names for safeBrowsingHandler for logging and metrics.
-const (
-	safeBrowsingName  = "safe browsing"
-	adultBlockingName = "adult blocking"
-)
-
-// blockPageServers is a helper function that converts a *BlockPageServer into
-// HTTP servers.
-func blockPageServers(
-	srv *BlockPageServer,
-	name string,
-	timeout time.Duration,
-) (srvs []*http.Server) {
-	if srv == nil {
-		return nil
-	}
-
-	h := safeBrowsingHandler(name, srv.Content)
-	for _, b := range srv.Bind {
-		addr := b.Address.String()
-		errLog := log.StdLog(fmt.Sprintf("websvc: %s: %s", name, addr), log.DEBUG)
-		srvs = append(srvs, &http.Server{
-			Addr:              addr,
-			Handler:           h,
-			TLSConfig:         b.TLS,
-			ErrorLog:          errLog,
-			ReadTimeout:       timeout,
-			WriteTimeout:      timeout,
-			IdleTimeout:       timeout,
-			ReadHeaderTimeout: timeout,
-		})
-	}
-
-	return srvs
-}
-
 // type check
 var _ service.Interface = (*Service)(nil)
 
@@ -221,16 +190,22 @@ func (svc *Service) Start(_ context.Context) (err error) {
 		log.Info("websvc: linked ip %s: server is started", srv.Addr)
 	}
 
-	for _, srv := range svc.safeBrowsing {
-		go mustStartServer(srv)
-
-		log.Info("websvc: safe browsing %s: server is started", srv.Addr)
-	}
-
 	for _, srv := range svc.adultBlocking {
 		go mustStartServer(srv)
 
 		log.Info("websvc: adult blocking %s: server is started", srv.Addr)
+	}
+
+	for _, srv := range svc.generalBlocking {
+		go mustStartServer(srv)
+
+		log.Info("websvc: general blocking %s: server is started", srv.Addr)
+	}
+
+	for _, srv := range svc.safeBrowsing {
+		go mustStartServer(srv)
+
+		log.Info("websvc: safe browsing %s: server is started", srv.Addr)
 	}
 
 	for _, srv := range svc.nonDoH {
@@ -280,11 +255,14 @@ func (svc *Service) Shutdown(ctx context.Context) (err error) {
 		name: "linked ip",
 		srvs: svc.linkedIP,
 	}, {
-		name: "safe browsing",
-		srvs: svc.safeBrowsing,
-	}, {
-		name: "adult blocking",
+		name: adultBlockingName,
 		srvs: svc.adultBlocking,
+	}, {
+		name: generalBlockingName,
+		srvs: svc.generalBlocking,
+	}, {
+		name: safeBrowsingName,
+		srvs: svc.safeBrowsing,
 	}, {
 		name: "non-doh",
 		srvs: svc.nonDoH,

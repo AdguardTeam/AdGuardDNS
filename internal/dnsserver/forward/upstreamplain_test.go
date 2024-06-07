@@ -44,7 +44,7 @@ func TestUpstreamPlain_Exchange(t *testing.T) {
 			defer log.OnCloserError(u, log.DEBUG)
 
 			req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
-			res, nw, err := u.Exchange(newTimeoutCtx(t, context.Background()), req)
+			res, nw, err := u.Exchange(testutil.ContextWithTimeout(t, testTimeout), req)
 			require.NoError(t, err)
 			require.NotNil(t, res)
 			dnsservertest.RequireResponse(t, req, res, 1, dns.RcodeSuccess, false)
@@ -95,9 +95,7 @@ func TestUpstreamPlain_Exchange_truncated(t *testing.T) {
 	})
 	defer log.OnCloserError(uUDP, log.DEBUG)
 
-	ctx := context.Background()
-
-	res, nw, err := uUDP.Exchange(newTimeoutCtx(t, ctx), req)
+	res, nw, err := uUDP.Exchange(testutil.ContextWithTimeout(t, testTimeout), req)
 	require.NoError(t, err)
 	dnsservertest.RequireResponse(t, req, res, 0, dns.RcodeSuccess, true)
 
@@ -110,7 +108,7 @@ func TestUpstreamPlain_Exchange_truncated(t *testing.T) {
 	})
 	defer log.OnCloserError(uTCP, log.DEBUG)
 
-	res, nw, err = uTCP.Exchange(newTimeoutCtx(t, ctx), req)
+	res, nw, err = uTCP.Exchange(testutil.ContextWithTimeout(t, testTimeout), req)
 	require.NoError(t, err)
 	dnsservertest.RequireResponse(t, req, res, 1, dns.RcodeSuccess, false)
 
@@ -124,7 +122,7 @@ func TestUpstreamPlain_Exchange_truncated(t *testing.T) {
 	})
 	defer log.OnCloserError(uAny, log.DEBUG)
 
-	res, nw, err = uAny.Exchange(newTimeoutCtx(t, ctx), req)
+	res, nw, err = uAny.Exchange(testutil.ContextWithTimeout(t, testTimeout), req)
 	require.NoError(t, err)
 	dnsservertest.RequireResponse(t, req, res, 1, dns.RcodeSuccess, false)
 
@@ -165,7 +163,8 @@ func TestUpstreamPlain_Exchange_fallbackFail(t *testing.T) {
 	var resp *dns.Msg
 	var err error
 	go func() {
-		resp, _, err = u.Exchange(newTimeoutCtx(t, context.Background()), req)
+		ctx := testutil.ContextWithTimeout(t, testTimeout)
+		resp, _, err = u.Exchange(ctx, req)
 		testutil.RequireSend(pt, respCh, struct{}{}, testTimeout)
 	}()
 
@@ -266,7 +265,8 @@ func TestUpstreamPlain_Exchange_fallbackSuccess(t *testing.T) {
 			var actualResp *dns.Msg
 			var err error
 			go func() {
-				actualResp, _, err = u.Exchange(newTimeoutCtx(t, context.Background()), clonedReq)
+				ctx := testutil.ContextWithTimeout(t, testTimeout)
+				actualResp, _, err = u.Exchange(ctx, clonedReq)
 				testutil.RequireSend(pt, respCh, struct{}{}, testTimeout)
 			}()
 

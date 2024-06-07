@@ -17,5 +17,6 @@ const testFltListID = agd.FilterListIDAdultBlocking
 // Common hostnames for tests.
 const (
 	testHost      = "porn.example"
+	testReplHost  = "repl.example"
 	testOtherHost = "otherporn.example"
 )

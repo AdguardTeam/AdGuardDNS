@@ -10,7 +10,7 @@ var (
 		Name:      "websvc_requests_total",
 		Namespace: namespace,
 		Subsystem: subsystemWebSvc,
-		Help:      "The number of DNS requests for websvc.",
+		Help:      "The number of HTTP requests for websvc.",
 	}, []string{"kind"})
 
 	// WebSvcError404RequestsTotal is a counter with total number of
@@ -59,6 +59,12 @@ var (
 	// of requests for adult blocking page.
 	WebSvcAdultBlockingPageRequestsTotal = webSvcRequestsTotal.With(prometheus.Labels{
 		"kind": "adult_blocking_page",
+	})
+
+	// WebSvcGeneralBlockingPageRequestsTotal is a counter with total number
+	// of requests for general blocking page.
+	WebSvcGeneralBlockingPageRequestsTotal = webSvcRequestsTotal.With(prometheus.Labels{
+		"kind": "general_blocking_page",
 	})
 
 	// WebSvcSafeBrowsingPageRequestsTotal is a counter with total number

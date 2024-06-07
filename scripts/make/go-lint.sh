@@ -3,7 +3,7 @@
 # This comment is used to simplify checking local copies of the script.  Bump
 # this number every time a significant change is made to this script.
 #
-# AdGuard-Project-Version: 5
+# AdGuard-Project-Version: 6
 
 verbose="${VERBOSE:-0}"
 readonly verbose
@@ -51,8 +51,9 @@ set -f -u
 #
 #   *  Package unsafe is… unsafe.
 #
-#   *  Packages golang.org/x/exp/slices and golang.org/x/net/context have been
-#      moved into stdlib.
+#   *  Package golang.org/x/exp/slices has been moved into stdlib.
+#
+#   *  Package golang.org/x/net/context has been moved into stdlib.
 #
 # Currently, the only standard exception are files generated from protobuf
 # schemas, which use package reflect.  If your project needs more exceptions,
@@ -64,17 +65,17 @@ set -f -u
 #      to prevent excessive allocations.
 #
 # TODO(a.garipov): Add deprecated package golang.org/x/exp/maps and once all
-# projects switch to Go 1.22 or later.
+# projects switch to Go 1.23 or later.
 blocklist_imports() {
 	git grep\
 		-e '[[:space:]]"errors"$'\
+		-e '[[:space:]]"golang.org/x/exp/slices"$'\
+		-e '[[:space:]]"golang.org/x/net/context"$'\
 		-e '[[:space:]]"io/ioutil"$'\
 		-e '[[:space:]]"log"$'\
 		-e '[[:space:]]"reflect"$'\
 		-e '[[:space:]]"sort"$'\
 		-e '[[:space:]]"unsafe"$'\
-		-e '[[:space:]]"golang.org/x/exp/slices"$'\
-		-e '[[:space:]]"golang.org/x/net/context"$'\
 		-n\
 		-- '*.go'\
 		':!*.pb.go'\
@@ -163,8 +164,6 @@ run_linter unparam ./... "$dnssrvmod"
 git ls-files -- 'Makefile' '*.conf' '*.go' '*.mod' '*.sh' '*.yaml' '*.yml'\
 	| xargs misspell --error\
 	| sed -e 's/^/misspell: /'
-
-run_linter looppointer ./... "$dnssrvmod"
 
 run_linter nilness ./... "$dnssrvmod"
 

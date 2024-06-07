@@ -5,12 +5,12 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdpasswd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
@@ -60,6 +60,10 @@ func newTestService(
 	pt := testutil.PanicT{}
 
 	dev := &agd.Device{
+		Auth: &agd.AuthSettings{
+			Enabled:      false,
+			PasswordHash: agdpasswd.AllowAuthenticator{},
+		},
 		ID:               dnssvctest.DeviceID,
 		FilteringEnabled: true,
 	}
@@ -228,7 +232,6 @@ func newTestService(
 			},
 		},
 		ServerGroups: []*agd.ServerGroup{{
-			BlockPageRedirect: &agd.BlockPageRedirect{},
 			DDR: &agd.DDR{
 				Enabled: true,
 			},
@@ -246,10 +249,10 @@ func newTestService(
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 
-	err = svc.Start(agdtest.ContextWithTimeout(t, dnssvctest.Timeout))
+	err = svc.Start(testutil.ContextWithTimeout(t, dnssvctest.Timeout))
 	require.NoError(t, err)
 	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return svc.Shutdown(agdtest.ContextWithTimeout(t, dnssvctest.Timeout))
+		return svc.Shutdown(testutil.ContextWithTimeout(t, dnssvctest.Timeout))
 	})
 
 	return svc, srvAddr
@@ -273,12 +276,6 @@ func TestService_Wrap(t *testing.T) {
 	req := dnsservertest.CreateMessage(dnssvctest.DomainFQDN, reqType)
 
 	clientAddr := &net.TCPAddr{IP: net.IP{1, 2, 3, 4}, Port: 12345}
-
-	tlsServerName := strings.ReplaceAll(
-		dnssvctest.DeviceIDWildcard,
-		"*",
-		string(dnssvctest.DeviceID),
-	)
 
 	ctx := context.Background()
 	ctx = dnsserver.ContextWithServerInfo(ctx, &dnsserver.ServerInfo{
@@ -321,7 +318,7 @@ func TestService_Wrap(t *testing.T) {
 
 		ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
 			StartTime:     time.Now(),
-			TLSServerName: tlsServerName,
+			TLSServerName: dnssvctest.DeviceIDSrvName,
 		})
 
 		err := svc.Handle(ctx, testSrvGrpName, dnssvctest.ServerName, rw, req)
@@ -362,7 +359,7 @@ func TestService_Wrap(t *testing.T) {
 				mod := dnsmsg.Clone(m)
 				mod.Question[0].Name = cnameFQDN
 
-				return &filter.ResultModified{
+				return &filter.ResultModifiedRequest{
 					Msg:  mod,
 					List: dnssvctest.FilterListID1,
 					Rule: cnameRule,
@@ -395,7 +392,7 @@ func TestService_Wrap(t *testing.T) {
 
 		ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
 			StartTime:     time.Now(),
-			TLSServerName: tlsServerName,
+			TLSServerName: dnssvctest.DeviceIDSrvName,
 		})
 
 		err := svc.Handle(ctx, testSrvGrpName, dnssvctest.ServerName, rw, req)

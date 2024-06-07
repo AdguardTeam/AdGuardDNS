@@ -46,6 +46,7 @@ func newChanPacketConn(
 	sessions chan *packetSession,
 	subnet netip.Prefix,
 	writeRequests chan *packetConnWriteReq,
+	writeRequestsGauge prometheus.Gauge,
 	laddr net.Addr,
 ) (c *chanPacketConn) {
 	return &chanPacketConn{
@@ -54,7 +55,7 @@ func newChanPacketConn(
 		writeRequests: writeRequests,
 
 		sessionsGauge:      metrics.BindToDeviceUDPSessionsChanSize.WithLabelValues(subnet.String()),
-		writeRequestsGauge: metrics.BindToDeviceUDPWriteRequestsChanSize.WithLabelValues(subnet.String()),
+		writeRequestsGauge: writeRequestsGauge,
 
 		deadlineMu: &sync.RWMutex{},
 
@@ -64,9 +65,9 @@ func newChanPacketConn(
 }
 
 // packetConnWriteReq is a request to write a piece of data to the original
-// packet connection.  resp, body, and either raddr or session must be set.
+// packet connection.  respCh, body, and either raddr or session must be set.
 type packetConnWriteReq struct {
-	resp     chan *packetConnWriteResp
+	respCh   chan *packetConnWriteResp
 	session  *packetSession
 	raddr    net.Addr
 	deadline time.Time
@@ -265,7 +266,7 @@ func (c *chanPacketConn) writeToSession(
 
 	resp := make(chan *packetConnWriteResp, 1)
 	req := &packetConnWriteReq{
-		resp:     resp,
+		respCh:   resp,
 		session:  s,
 		raddr:    raddr,
 		deadline: deadline,

@@ -17,9 +17,9 @@ appropriately.
 
 ##  <a href="#block-pages" id="block-pages" name="block-pages">Block Pages</a>
 
-The safe browsing and adult blocking servers.  Every request is responded with
-the content from the configured file, with the exception of `GET /favicon.ico`
-and `GET /robots.txt` requests, which are handled separately:
+The safe-browsing, adult-blocking, and popup-blocking servers.  Every request is
+responded with the content from the configured file, with the exception of `GET
+/favicon.ico` and `GET /robots.txt` requests, which are handled separately:
 
  *  `GET /favicon.ico` requests are responded with a plain-text `404 Not Found`
     response.

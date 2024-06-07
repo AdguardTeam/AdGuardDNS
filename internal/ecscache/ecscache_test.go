@@ -20,7 +20,6 @@ import (
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/exp/maps"
 )
 
 func TestMain(m *testing.M) {
@@ -216,7 +215,7 @@ func TestMiddleware_Wrap_noECS(t *testing.T) {
 			}
 
 			var msg *dns.Msg
-			for i := 0; i < N; i++ {
+			for range N {
 				msg = exchange(t, ri, withCache, tc.req)
 			}
 
@@ -256,7 +255,16 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 
 	ip := net.IP{1, 2, 3, 0}
 	aReq := newAReq(reqHostname, ip)
-	fakeECSReq := newAReq(maps.Keys(ecscache.FakeECSFQDNs)[0], ip)
+
+	var fakeECSFQDN string
+	ecscache.FakeECSFQDNs.Range(func(s string) (cont bool) {
+		fakeECSFQDN = s
+
+		return false
+	})
+	require.NotZero(t, fakeECSFQDN)
+
+	fakeECSReq := newAReq(fakeECSFQDN, ip)
 
 	subnet := netip.PrefixFrom(netip.AddrFrom4([4]byte(ip)), prefixLen)
 	const ctry = geoip.CountryAD
@@ -377,7 +385,7 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 			}
 
 			var msg *dns.Msg
-			for i := 0; i < N; i++ {
+			for range N {
 				msg = exchange(t, ri, withCache, tc.req)
 			}
 			require.NotNil(t, msg)

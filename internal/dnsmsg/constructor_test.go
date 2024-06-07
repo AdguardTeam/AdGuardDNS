@@ -2,6 +2,7 @@ package dnsmsg_test
 
 import (
 	"net"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -81,26 +82,34 @@ func TestConstructor_NewBlockedRespMsg_customIP(t *testing.T) {
 		wantAAAA bool
 	}{{
 		messages: dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeCustomIP{
-			IPv4: testIPv4,
-			IPv6: testIPv6,
+			IPv4: []netip.Addr{testIPv4},
+			IPv6: []netip.Addr{testIPv6},
 		}, testFltRespTTL),
 		name:     "both",
 		wantA:    true,
 		wantAAAA: true,
 	}, {
 		messages: dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeCustomIP{
-			IPv4: testIPv4,
+			IPv4: []netip.Addr{testIPv4},
 		}, testFltRespTTL),
 		name:     "ipv4_only",
 		wantA:    true,
 		wantAAAA: false,
 	}, {
 		messages: dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeCustomIP{
-			IPv6: testIPv6,
+			IPv6: []netip.Addr{testIPv6},
 		}, testFltRespTTL),
 		name:     "ipv6_only",
 		wantA:    false,
 		wantAAAA: true,
+	}, {
+		messages: dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeCustomIP{
+			IPv4: []netip.Addr{},
+			IPv6: []netip.Addr{},
+		}, testFltRespTTL),
+		name:     "empty",
+		wantA:    false,
+		wantAAAA: false,
 	}}
 
 	for _, tc := range testCases {

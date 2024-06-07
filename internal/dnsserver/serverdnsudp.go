@@ -51,11 +51,21 @@ func (s *ServerDNS) acceptUDPMsg(ctx context.Context, conn net.PacketConn) (err 
 
 	s.wg.Add(1)
 
-	reqCtx, reqCancel := s.requestContext()
-	reqCtx = ContextWithRequestInfo(reqCtx, &RequestInfo{StartTime: time.Now()})
+	// Save the start time here, but create the context inside the goroutine,
+	// since s.reqCtx.New can be slow.
+	//
+	// TODO(a.garipov):  The slowness is likely due to constant reallocation of
+	// timers in [context.WithTimeout].  Consider creating an optimized reusable
+	// version.
+	startTime := time.Now()
 
 	return s.workerPool.Submit(func() {
+		reqCtx, reqCancel := s.requestContext()
 		defer reqCancel()
+
+		reqCtx = ContextWithRequestInfo(reqCtx, &RequestInfo{
+			StartTime: startTime,
+		})
 
 		s.serveUDPPacket(reqCtx, (*bufPtr)[:n], conn, sess)
 		s.udpPool.Put(bufPtr)

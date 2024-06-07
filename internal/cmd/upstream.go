@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/netip"
@@ -13,6 +14,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/service"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
@@ -73,7 +75,7 @@ func (c *upstreamConfig) validate() (err error) {
 		}
 	}
 
-	return coalesceError(
+	return cmp.Or(
 		validateProp("fallback", c.Fallback.validate),
 		validateProp("healthcheck", c.Healthcheck.validate),
 	)
@@ -171,13 +173,16 @@ func newUpstreamHealthcheck(
 				conf.Healthcheck.Timeout.Duration,
 			)
 		},
-		Refresher:           handler,
-		ErrColl:             errColl,
-		Name:                "upstream healthcheck",
-		Interval:            conf.Healthcheck.Interval.Duration,
-		RefreshOnShutdown:   false,
-		RoutineLogsAreDebug: true,
-		RandomizeStart:      false,
+		Refresher: agdservice.NewRefresherWithErrColl(
+			handler,
+			log.Debug,
+			errColl,
+			"upstream_healthcheck_refresh",
+		),
+		Name:              "upstream healthcheck",
+		Interval:          conf.Healthcheck.Interval.Duration,
+		RefreshOnShutdown: false,
+		RandomizeStart:    false,
 	})
 }
 

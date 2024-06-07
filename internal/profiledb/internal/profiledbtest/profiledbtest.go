@@ -8,6 +8,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdpasswd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
@@ -28,6 +29,11 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 	require.NoError(tb, err)
 
 	dev := &agd.Device{
+		Auth: &agd.AuthSettings{
+			Enabled:      true,
+			DoHAuthOnly:  true,
+			PasswordHash: agdpasswd.NewPasswordHashBcrypt([]byte("test")),
+		},
 		ID:       DeviceID,
 		LinkedIP: netip.MustParseAddr("1.2.3.4"),
 		Name:     "dev1",

@@ -4,8 +4,8 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
-	"github.com/bluele/gcache"
 	"github.com/miekg/dns"
 )
 
@@ -13,8 +13,12 @@ var msgSink *dns.Msg
 
 func BenchmarkMiddleware_Get(b *testing.B) {
 	mw := &Middleware{
-		cache:    gcache.New(10).LRU().Build(),
-		ecsCache: gcache.New(10).LRU().Build(),
+		cache: agdcache.NewLRU[uint64, *cacheItem](&agdcache.LRUConfig{
+			Size: 10,
+		}),
+		ecsCache: agdcache.NewLRU[uint64, *cacheItem](&agdcache.LRUConfig{
+			Size: 10,
+		}),
 	}
 
 	const (
@@ -33,7 +37,7 @@ func BenchmarkMiddleware_Get(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		msgSink, _ = mw.get(req, cr)
 	}
 }

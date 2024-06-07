@@ -8,21 +8,21 @@ import (
 	"os"
 	"sync"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
-	"github.com/bluele/gcache"
 	"github.com/oschwald/maxminddb-golang"
 )
-
-// File Database
 
 // FileConfig is the file-based GeoIP configuration structure.
 type FileConfig struct {
 	// AllTopASNs contains all subnets from CountryTopASNs.  While scanning the
-	// statistics data file this list is used as a dictionary to check if the
-	// current ASN included in CountryTopASNs.
-	AllTopASNs map[ASN]struct{}
+	// statistics data file this set is used to check if the current ASN
+	// included in CountryTopASNs.
+	AllTopASNs *container.MapSet[ASN]
 
 	// CountryTopASNs is a mapping of a country to their top ASNs.
 	CountryTopASNs map[Country]ASN
@@ -44,7 +44,7 @@ type FileConfig struct {
 
 // File is a file implementation of [geoip.Interface].
 type File struct {
-	allTopASNs     map[ASN]struct{}
+	allTopASNs     *container.MapSet[ASN]
 	countryTopASNs map[Country]ASN
 
 	// mu protects asn, country, country subnet maps, and caches against
@@ -65,8 +65,8 @@ type File struct {
 	ipv4LocationSubnets locationSubnets
 	ipv6LocationSubnets locationSubnets
 
-	ipCache   gcache.Cache
-	hostCache gcache.Cache
+	ipCache   agdcache.Interface[any, *Location]
+	hostCache agdcache.Interface[string, *Location]
 
 	asnPath     string
 	countryPath string
@@ -227,14 +227,11 @@ func (f *File) Data(host string, ip netip.Addr) (l *Location, err error) {
 	}
 
 	cacheKey := ipToCacheKey(ip)
-	locVal, err := f.ipCache.Get(cacheKey)
-	if err == nil {
+	item, ok := f.ipCache.Get(cacheKey)
+	if ok {
 		metrics.GeoIPCacheLookupsHits.Inc()
 
-		return locVal.(*Location), nil
-	} else if !errors.Is(err, gcache.KeyNotFoundError) {
-		// Shouldn't happen, since we don't set a serialization function.
-		panic(fmt.Errorf("getting from ip cache: %w", err))
+		return item, nil
 	}
 
 	metrics.GeoIPCacheLookupsMisses.Inc()
@@ -264,21 +261,15 @@ func (f *File) Data(host string, ip netip.Addr) (l *Location, err error) {
 
 // dataByHost returns GeoIP data that has been cached previously.
 func (f *File) dataByHost(host string) (l *Location) {
-	locVal, err := f.hostCache.Get(host)
-	if err != nil {
-		if errors.Is(err, gcache.KeyNotFoundError) {
-			metrics.GeoIPHostCacheLookupsMisses.Inc()
+	item, ok := f.hostCache.Get(host)
 
-			return nil
-		}
+	metrics.IncrementCond(
+		ok,
+		metrics.GeoIPHostCacheLookupsHits,
+		metrics.GeoIPHostCacheLookupsMisses,
+	)
 
-		// Shouldn't happen, since we don't set a serialization function.
-		panic(fmt.Errorf("getting from host cache: %w", err))
-	}
-
-	metrics.GeoIPHostCacheLookupsHits.Inc()
-
-	return locVal.(*Location)
+	return item
 }
 
 // asnResult is used to retrieve autonomous system number data from a GeoIP
@@ -343,26 +334,27 @@ func (f *File) setCtry(loc *Location, ip netip.Addr) (err error) {
 
 // setCaches sets the GeoIP data into the caches.
 func (f *File) setCaches(host string, ipCacheKey any, l *Location) {
-	err := f.ipCache.Set(ipCacheKey, l)
-	if err != nil {
-		// Shouldn't happen, since we don't set a serialization function.
-		panic(fmt.Errorf("setting ip cache: %w", err))
-	}
+	f.ipCache.Set(ipCacheKey, l)
 
 	if host == "" {
 		return
 	}
 
-	err = f.hostCache.Set(host, l)
-	if err != nil {
-		// Shouldn't happen, since we don't set a serialization function.
-		panic(fmt.Errorf("setting host cache: %w", err))
-	}
+	f.hostCache.Set(host, l)
 }
 
 // Refresh implements the [agdservice.Refresher] interface for *File.  It
 // reopens the GeoIP database files.
-func (f *File) Refresh(_ context.Context) (err error) {
+func (f *File) Refresh(ctx context.Context) (err error) {
+	// TODO(a.garipov): Use slog.
+	log.Info("geoip_refresh: started")
+	defer log.Info("geoip_refresh: finished")
+
+	return f.refresh()
+}
+
+// refresh reopens the GeoIP database files and resets subnet mappings.
+func (f *File) refresh() (err error) {
 	asn, err := geoIPFromFile(f.asnPath)
 	if err != nil {
 		metrics.GeoIPUpdateStatus.WithLabelValues(f.asnPath).Set(0)
@@ -392,13 +384,17 @@ func (f *File) Refresh(_ context.Context) (err error) {
 
 	f.asn, f.country = asn, country
 
-	hostCacheBuilder := gcache.New(f.hostCacheSize)
-	if f.hostCacheSize != 0 {
-		hostCacheBuilder.LRU()
+	if f.hostCacheSize == 0 {
+		f.hostCache = agdcache.Empty[string, *Location]{}
+	} else {
+		f.hostCache = agdcache.NewLRU[string, *Location](&agdcache.LRUConfig{
+			Size: f.hostCacheSize,
+		})
 	}
 
-	f.hostCache = hostCacheBuilder.Build()
-	f.ipCache = gcache.New(f.ipCacheSize).LRU().Build()
+	f.ipCache = agdcache.NewLRU[any, *Location](&agdcache.LRUConfig{
+		Size: f.ipCacheSize,
+	})
 
 	return nil
 }

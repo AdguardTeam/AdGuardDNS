@@ -15,6 +15,7 @@ import (
 // HTTP header value constants.
 const (
 	HdrValApplicationJSON = "application/json"
+	HdrValGzip            = "gzip"
 	HdrValTextCSV         = "text/csv"
 	HdrValTextHTML        = "text/html"
 	HdrValTextPlain       = "text/plain"

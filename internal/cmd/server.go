@@ -7,8 +7,8 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/stringutil"
 )
 
 // toInternal returns the configuration of DNS servers for a single server
@@ -95,7 +95,7 @@ func (srvs servers) validate() (needsTLS bool, err error) {
 		return false, errors.Error("no servers")
 	}
 
-	names := stringutil.NewSet()
+	names := container.NewMapSet[string]()
 	for i, s := range srvs {
 		if s == nil {
 			return false, fmt.Errorf("at index %d: no server", i)
@@ -323,19 +323,17 @@ func (c *serverBindInterface) validate() (err error) {
 		// Go on.
 	}
 
-	set := map[netip.Prefix]struct{}{}
-
+	set := container.NewMapSet[netip.Prefix]()
 	for i, subnet := range c.Subnets {
 		if !subnet.IsValid() {
 			return fmt.Errorf("bad subnet at index %d", i)
 		}
 
-		_, ok := set[subnet]
-		if ok {
+		if set.Has(subnet) {
 			return fmt.Errorf("duplicate subnet %s at index %d", subnet, i)
 		}
 
-		set[subnet] = struct{}{}
+		set.Add(subnet)
 	}
 
 	return nil

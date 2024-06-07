@@ -208,8 +208,6 @@ func TestMiddleware_Wrap(t *testing.T) {
 	}}
 
 	for _, tc := range testCases {
-		tc := tc
-
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -228,16 +226,14 @@ func TestMiddleware_Wrap(t *testing.T) {
 			}
 
 			c := &mainmw.Config{
-				Messages:        agdtest.NewConstructor(),
-				Cloner:          agdtest.NewCloner(),
-				BillStat:        tc.billStat,
-				ErrColl:         errColl,
-				FilterStorage:   fltStrg,
-				GeoIP:           geoIP,
-				QueryLog:        queryLog,
-				RuleStat:        ruleStat,
-				ResearchLogs:    true,
-				ResearchMetrics: true,
+				Messages:      agdtest.NewConstructor(),
+				Cloner:        agdtest.NewCloner(),
+				BillStat:      tc.billStat,
+				ErrColl:       errColl,
+				FilterStorage: fltStrg,
+				GeoIP:         geoIP,
+				QueryLog:      queryLog,
+				RuleStat:      ruleStat,
 			}
 
 			mw := mainmw.New(c)
@@ -518,13 +514,13 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 			Rule: testRuleBlockReq,
 		}
 
-		resReqRewrite = &filter.ResultModified{
+		resReqRewrite = &filter.ResultModifiedResponse{
 			List: dnssvctest.FilterListID1,
 			Rule: testRuleRewrite,
 			Msg:  respRewrite,
 		}
 
-		resReqRewriteCNAME = &filter.ResultModified{
+		resReqRewriteCNAME = &filter.ResultModifiedRequest{
 			List: dnssvctest.FilterListID1,
 			Rule: testRuleRewriteCNAME,
 			Msg:  reqRewriteCNAME,
@@ -643,8 +639,6 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 	}}
 
 	for _, tc := range testCases {
-		tc := tc
-
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -698,16 +692,14 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 			}
 
 			c := &mainmw.Config{
-				Messages:        agdtest.NewConstructor(),
-				Cloner:          agdtest.NewCloner(),
-				BillStat:        tc.billStat,
-				ErrColl:         errColl,
-				FilterStorage:   fltStrg,
-				GeoIP:           geoIP,
-				QueryLog:        queryLog,
-				RuleStat:        ruleStat,
-				ResearchLogs:    true,
-				ResearchMetrics: true,
+				Messages:      agdtest.NewConstructor(),
+				Cloner:        agdtest.NewCloner(),
+				BillStat:      tc.billStat,
+				ErrColl:       errColl,
+				FilterStorage: fltStrg,
+				GeoIP:         geoIP,
+				QueryLog:      queryLog,
+				RuleStat:      ruleStat,
 			}
 
 			mw := mainmw.New(c)

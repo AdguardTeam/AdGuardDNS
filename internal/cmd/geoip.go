@@ -7,6 +7,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
 
@@ -63,14 +64,19 @@ func setupGeoIP(
 	}
 
 	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
-		Context:             ctxWithDefaultTimeout,
-		Refresher:           geoIP,
-		ErrColl:             errColl,
-		Name:                "geoip",
-		Interval:            conf.RefreshIvl.Duration,
-		RefreshOnShutdown:   false,
-		RoutineLogsAreDebug: false,
-		RandomizeStart:      false,
+		Context: ctxWithDefaultTimeout,
+		// Do not add errColl to geoip's config, as that would create an import
+		// cycle.
+		Refresher: agdservice.NewRefresherWithErrColl(
+			geoIP,
+			log.Info,
+			errColl,
+			"geoip_refresh",
+		),
+		Name:              "geoip",
+		Interval:          conf.RefreshIvl.Duration,
+		RefreshOnShutdown: false,
+		RandomizeStart:    false,
 	})
 	err = refr.Start(context.Background())
 	if err != nil {

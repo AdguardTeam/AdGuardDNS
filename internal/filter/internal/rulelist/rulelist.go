@@ -8,8 +8,10 @@ import (
 	"net/netip"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/resultcache"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/AdguardTeam/urlfilter/filterlist"
 	"github.com/miekg/dns"
@@ -28,6 +30,47 @@ func newURLFilterID() (id int) {
 	return int(rand.Int31())
 }
 
+type (
+	// resultCache is a convenient alias for cache to keep types in check.
+	resultCache = agdcache.Interface[internal.CacheKey, *cacheItem]
+
+	// resultCacheEmpty is a convenient alias for empty cache to keep types in
+	// check.  See [filter.DNSResult].
+	resultCacheEmpty = agdcache.Empty[internal.CacheKey, *cacheItem]
+)
+
+// cacheItem represents an item that we will store in the cache.
+type cacheItem struct {
+	// res is the DNS filtering result.
+	res *urlfilter.DNSResult
+
+	// host is the cached normalized hostname for later cache key collision
+	// checks.
+	host string
+}
+
+// itemFromCache retrieves a cache item for the given key.  host is used to
+// detect key collisions.  If there is a key collision, it returns nil and
+// false.
+func itemFromCache(
+	cache resultCache,
+	key internal.CacheKey,
+	host string,
+) (item *cacheItem, ok bool) {
+	item, ok = cache.Get(key)
+	if !ok {
+		return nil, false
+	}
+
+	if item.host != host {
+		optlog.Error2("rulelist: collision: bad cache item %v for host %q", item, host)
+
+		return nil, false
+	}
+
+	return item, true
+}
+
 // filter is the basic rule-list filter that doesn't refresh or change in any
 // other way.
 type filter struct {
@@ -41,7 +84,7 @@ type filter struct {
 	// cache contains cached results of filtering.
 	//
 	// TODO(ameshkov): Add metrics for these caches.
-	cache *resultcache.Cache[*urlfilter.DNSResult]
+	cache resultCache
 
 	// id is the filter list ID, if any.
 	id agd.FilterListID
@@ -72,7 +115,11 @@ func newFilter(
 	}
 
 	if useMemCache {
-		f.cache = resultcache.New[*urlfilter.DNSResult](memCacheSize)
+		f.cache = agdcache.NewLRU[internal.CacheKey, *cacheItem](&agdcache.LRUConfig{
+			Size: memCacheSize,
+		})
+	} else {
+		f.cache = resultCacheEmpty{}
 	}
 
 	// TODO(a.garipov): Add filterlist.BytesRuleList.
@@ -102,17 +149,18 @@ func (f *filter) DNSResult(
 	isAns bool,
 ) (res *urlfilter.DNSResult) {
 	var ok bool
-	var cacheKey resultcache.Key
+	var cacheKey internal.CacheKey
+	var item *cacheItem
 
 	// Don't waste resources on computing the cache key if the cache is not
 	// enabled.
-	useCache := f.cache != nil
-	if useCache {
+	_, emptyCache := f.cache.(resultCacheEmpty)
+	if !emptyCache {
 		// TODO(a.garipov): Add real class here.
-		cacheKey = resultcache.DefaultKey(host, rrType, dns.ClassINET, isAns)
-		res, ok = f.cache.Get(cacheKey)
+		cacheKey = internal.NewCacheKey(host, rrType, dns.ClassINET, isAns)
+		item, ok = itemFromCache(f.cache, cacheKey, host)
 		if ok {
-			return res
+			return item.res
 		}
 	}
 
@@ -129,9 +177,10 @@ func (f *filter) DNSResult(
 		res = nil
 	}
 
-	if useCache {
-		f.cache.Set(cacheKey, res)
-	}
+	f.cache.Set(cacheKey, &cacheItem{
+		res:  res,
+		host: host,
+	})
 
 	return res
 }

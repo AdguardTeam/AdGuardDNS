@@ -1,11 +1,9 @@
 package safesearch_test
 
 import (
-	"context"
 	"net"
 	"net/http"
 	"net/netip"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -16,8 +14,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch"
-	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -36,10 +32,6 @@ const testSafeIPStr = "1.2.3.4"
 // search-engine-ip.example.
 var testIPOfEngineWithIP = netip.MustParseAddr(testSafeIPStr)
 
-// testIPOfEngineWithDomain is the IP address of the safe version of
-// search-engine-domain.example.
-var testIPOfEngineWithDomain = netip.MustParseAddr("1.2.3.5")
-
 // Common domain names for tests.
 const (
 	testOther            = "other.example"
@@ -56,91 +48,57 @@ func TestFilter(t *testing.T) {
 	reqCh := make(chan struct{}, 1)
 	cachePath, srvURL := filtertest.PrepareRefreshable(t, reqCh, testFilterRules, http.StatusOK)
 
-	id, err := agd.NewFilterListID(filepath.Base(cachePath))
-	require.NoError(t, err)
-
 	f := safesearch.New(&safesearch.Config{
-		Cloner: agdtest.NewCloner(),
 		Refreshable: &internal.RefreshableConfig{
-			ID:        id,
+			ID:        agd.FilterListIDGeneralSafeSearch,
 			URL:       srvURL,
 			CachePath: cachePath,
 			Staleness: filtertest.Staleness,
 			Timeout:   filtertest.Timeout,
 			MaxSize:   filtertest.FilterMaxSize,
 		},
-		Resolver: &agdtest.Resolver{
-			OnLookupNetIP: func(
-				_ context.Context,
-				_ netutil.AddrFamily,
-				host string,
-			) (ips []netip.Addr, err error) {
-				switch host {
-				case testSafeIPStr:
-					return []netip.Addr{testIPOfEngineWithIP}, nil
-				case testSafeDomain:
-					return []netip.Addr{testIPOfEngineWithDomain}, nil
-				default:
-					return nil, errors.Error("test resolver error")
-				}
-			},
-		},
-		ErrColl: &agdtest.ErrorCollector{
-			OnCollect: func(ctx context.Context, err error) {
-				panic("not implemented")
-			},
-		},
 		CacheTTL:  1 * time.Minute,
 		CacheSize: 100,
 	})
 
-	refrCtx, refrCancel := context.WithTimeout(context.Background(), filtertest.Timeout)
-	t.Cleanup(refrCancel)
-
-	err = f.Refresh(refrCtx, true)
-	require.NoError(t, err)
+	refrErr := f.Refresh(testutil.ContextWithTimeout(t, filtertest.Timeout), true)
+	require.NoError(t, refrErr)
 
 	testutil.RequireReceive(t, reqCh, filtertest.Timeout)
 
-	t.Run("no_match", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), filtertest.Timeout)
-		t.Cleanup(cancel)
-
+	require.True(t, t.Run("no_match", func(t *testing.T) {
+		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 		req, ri := newReq(t, testOther, dns.TypeA)
-		res, fltErr := f.FilterRequest(ctx, req, ri)
-		require.NoError(t, fltErr)
+		res, err := f.FilterRequest(ctx, req, ri)
+		require.NoError(t, err)
 
 		assert.Nil(t, res)
 
-		t.Run("cached", func(t *testing.T) {
-			res, fltErr = f.FilterRequest(ctx, req, ri)
-			require.NoError(t, fltErr)
+		require.True(t, t.Run("cached", func(t *testing.T) {
+			res, err = f.FilterRequest(ctx, req, ri)
+			require.NoError(t, err)
 
 			// TODO(a.garipov): Find a way to make caches more inspectable.
 			assert.Nil(t, res)
-		})
-	})
+		}))
+	}))
 
-	t.Run("txt", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), filtertest.Timeout)
-		t.Cleanup(cancel)
-
+	require.True(t, t.Run("txt", func(t *testing.T) {
+		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 		req, ri := newReq(t, testEngineWithIP, dns.TypeTXT)
-		res, fltErr := f.FilterRequest(ctx, req, ri)
-		require.NoError(t, fltErr)
+		res, err := f.FilterRequest(ctx, req, ri)
+		require.NoError(t, err)
 
 		assert.Nil(t, res)
-	})
+	}))
 
-	t.Run("ip", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), filtertest.Timeout)
-		t.Cleanup(cancel)
-
+	require.True(t, t.Run("ip", func(t *testing.T) {
+		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 		req, ri := newReq(t, testEngineWithIP, dns.TypeA)
-		res, fltErr := f.FilterRequest(ctx, req, ri)
-		require.NoError(t, fltErr)
+		res, err := f.FilterRequest(ctx, req, ri)
+		require.NoError(t, err)
 
-		rm := testutil.RequireTypeAssert[*internal.ResultModified](t, res)
+		rm := testutil.RequireTypeAssert[*internal.ResultModifiedResponse](t, res)
 		require.Len(t, rm.Msg.Answer, 1)
 
 		assert.Equal(t, rm.Rule, agd.FilterRuleText(testEngineWithIP))
@@ -152,40 +110,56 @@ func TestFilter(t *testing.T) {
 			newReq, newRI := newReq(t, testEngineWithIP, dns.TypeA)
 
 			var cachedRes internal.Result
-			cachedRes, fltErr = f.FilterRequest(ctx, newReq, newRI)
-			require.NoError(t, fltErr)
+			cachedRes, err = f.FilterRequest(ctx, newReq, newRI)
+			require.NoError(t, err)
 
 			// Do not assert that the results are the same, since a modified
 			// result of a safe search is always cloned.  But assert that the
 			// non-clonable fields are equal and that the message has reply
 			// fields set properly.
-			cachedRM := testutil.RequireTypeAssert[*internal.ResultModified](t, cachedRes)
-			assert.NotSame(t, cachedRM, rm)
-			assert.Equal(t, cachedRM.Msg.Id, newReq.Id)
-			assert.Equal(t, cachedRM.List, rm.List)
-			assert.Equal(t, cachedRM.Rule, rm.Rule)
+			cachedMR := testutil.RequireTypeAssert[*internal.ResultModifiedResponse](t, cachedRes)
+			assert.NotSame(t, cachedMR, rm)
+			assert.Equal(t, cachedMR.Msg.Id, newReq.Id)
+			assert.Equal(t, cachedMR.List, rm.List)
+			assert.Equal(t, cachedMR.Rule, rm.Rule)
 		})
-	})
+	}))
 
-	t.Run("domain", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), filtertest.Timeout)
-		t.Cleanup(cancel)
-
+	require.True(t, t.Run("domain", func(t *testing.T) {
+		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 		req, ri := newReq(t, testEngineWithDomain, dns.TypeA)
-		res, fltErr := f.FilterRequest(ctx, req, ri)
-		require.NoError(t, fltErr)
+		res, err := f.FilterRequest(ctx, req, ri)
+		require.NoError(t, err)
 
-		rm := testutil.RequireTypeAssert[*internal.ResultModified](t, res)
-		require.Len(t, rm.Msg.Answer, 2)
+		rm := testutil.RequireTypeAssert[*internal.ResultModifiedRequest](t, res)
+		require.NotNil(t, rm.Msg)
+		require.Len(t, rm.Msg.Question, 1)
 
+		assert.False(t, rm.Msg.Response)
 		assert.Equal(t, rm.Rule, agd.FilterRuleText(testEngineWithDomain))
 
-		cname := testutil.RequireTypeAssert[*dns.CNAME](t, rm.Msg.Answer[0])
-		assert.Equal(t, dns.Fqdn(testSafeDomain), cname.Target)
+		q := rm.Msg.Question[0]
+		assert.Equal(t, dns.TypeA, q.Qtype)
+		assert.Equal(t, dns.Fqdn(testSafeDomain), q.Name)
+	}))
 
-		a := testutil.RequireTypeAssert[*dns.A](t, rm.Msg.Answer[1])
-		assert.Equal(t, net.IP(testIPOfEngineWithDomain.AsSlice()), a.A)
-	})
+	require.True(t, t.Run("https", func(t *testing.T) {
+		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
+		req, ri := newReq(t, testEngineWithDomain, dns.TypeHTTPS)
+		res, err := f.FilterRequest(ctx, req, ri)
+		require.NoError(t, err)
+
+		rm := testutil.RequireTypeAssert[*internal.ResultModifiedRequest](t, res)
+		require.NotNil(t, rm.Msg)
+		require.Len(t, rm.Msg.Question, 1)
+
+		assert.False(t, rm.Msg.Response)
+		assert.Equal(t, rm.Rule, agd.FilterRuleText(testEngineWithDomain))
+
+		q := rm.Msg.Question[0]
+		assert.Equal(t, dns.TypeHTTPS, q.Qtype)
+		assert.Equal(t, dns.Fqdn(testSafeDomain), q.Name)
+	}))
 }
 
 // newReq is a test helper that returns the DNS request and its accompanying

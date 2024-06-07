@@ -12,6 +12,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecachepb"
@@ -77,6 +78,9 @@ type Config struct {
 	// Storage returns the data for this profile DB.
 	Storage Storage
 
+	// ErrColl is used to collect errors during refreshes.
+	ErrColl errcoll.Interface
+
 	// CacheFilePath is the path to the profile cache file.  If cacheFilePath is
 	// the string "none", filesystem cache is disabled.
 	CacheFilePath string
@@ -103,6 +107,9 @@ type Default struct {
 	// refreshMu serializes Refresh calls and access to all values used inside
 	// of it.
 	refreshMu *sync.Mutex
+
+	// errColl is used to collect errors during refreshes.
+	errColl errcoll.Interface
 
 	// cache is the filesystem-cache storage used by this profile database.
 	cache internal.FileCacheStorage
@@ -165,6 +172,7 @@ func New(conf *Config) (db *Default, err error) {
 	db = &Default{
 		mapsMu:                &sync.RWMutex{},
 		refreshMu:             &sync.Mutex{},
+		errColl:               conf.ErrColl,
 		cache:                 cacheStorage,
 		storage:               conf.Storage,
 		syncTime:              time.Time{},
@@ -215,20 +223,28 @@ var _ agdservice.Refresher = (*Default)(nil)
 // TODO(a.garipov): Consider splitting the full refresh logic into a separate
 // method.
 func (db *Default) Refresh(ctx context.Context) (err error) {
+	// TODO(a.garipov):  Use slog.
+	log.Debug("profiledb_refresh: started")
+	defer log.Debug("profiledb_refresh: finished")
+
 	sinceLastAttempt, isFullSync := db.needsFullSync()
 
-	var totalProfiles, totalDevices int
+	var profNum, devNum int
 	startTime := time.Now()
 	defer func() {
 		metrics.ProfilesSyncTime.SetToCurrentTime()
-		metrics.ProfilesCountGauge.Set(float64(totalProfiles))
-		metrics.DevicesCountGauge.Set(float64(totalDevices))
+		metrics.ProfilesNewCountGauge.Set(float64(profNum))
+		metrics.DevicesNewCountGauge.Set(float64(devNum))
 		metrics.SetStatusGauge(metrics.ProfilesSyncStatus, err)
 
 		dur := time.Since(startTime).Seconds()
 		metrics.ProfilesSyncDuration.Observe(dur)
 		if isFullSync {
 			metrics.ProfilesFullSyncDuration.Set(dur)
+		}
+
+		if err != nil {
+			errcoll.Collectf(ctx, db.errColl, "profiledb_refresh: %w", err)
 		}
 	}()
 
@@ -240,6 +256,11 @@ func (db *Default) Refresh(ctx context.Context) (err error) {
 	db.refreshMu.Lock()
 	defer db.refreshMu.Unlock()
 
+	defer func() {
+		metrics.ProfilesCountGauge.Set(float64(len(db.profiles)))
+		metrics.DevicesCountGauge.Set(float64(len(db.devices)))
+	}()
+
 	resp, err := db.fetchProfiles(ctx, sinceLastAttempt, isFullSync)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
@@ -250,12 +271,9 @@ func (db *Default) Refresh(ctx context.Context) (err error) {
 	devices := resp.Devices
 	db.setProfiles(profiles, devices, isFullSync)
 
-	profNum := len(profiles)
-	devNum := len(devices)
+	profNum = len(profiles)
+	devNum = len(devices)
 	log.Debug("profiledb: req %s: got %d profiles with %d devices", reqID, profNum, devNum)
-
-	metrics.ProfilesNewCountGauge.Set(float64(profNum))
-	metrics.DevicesNewCountGauge.Set(float64(devNum))
 
 	db.syncTime = resp.SyncTime
 	if isFullSync {
@@ -264,17 +282,14 @@ func (db *Default) Refresh(ctx context.Context) (err error) {
 
 		err = db.cache.Store(&internal.FileCache{
 			SyncTime: resp.SyncTime,
-			Profiles: resp.Profiles,
-			Devices:  resp.Devices,
+			Profiles: profiles,
+			Devices:  devices,
 			Version:  internal.FileCacheVersion,
 		})
 		if err != nil {
 			return fmt.Errorf("saving cache: %w", err)
 		}
 	}
-
-	totalProfiles = len(db.profiles)
-	totalDevices = len(db.devices)
 
 	return nil
 }

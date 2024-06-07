@@ -13,6 +13,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
@@ -23,12 +24,14 @@ type AllowlistRefresher struct {
 	allowlist *ratelimit.DynamicAllowlist
 	http      *agdhttp.Client
 	url       *url.URL
+	errColl   errcoll.Interface
 }
 
 // NewAllowlistRefresher returns a properly initialized *AllowlistRefresher.
 func NewAllowlistRefresher(
 	allowlist *ratelimit.DynamicAllowlist,
 	consulURL *url.URL,
+	errColl errcoll.Interface,
 ) (l *AllowlistRefresher, err error) {
 	l = &AllowlistRefresher{
 		allowlist: allowlist,
@@ -36,7 +39,8 @@ func NewAllowlistRefresher(
 			// TODO(a.garipov): Consider making configurable.
 			Timeout: 15 * time.Second,
 		}),
-		url: consulURL,
+		url:     consulURL,
+		errColl: errColl,
 	}
 
 	err = l.Refresh(context.Background())
@@ -53,6 +57,10 @@ var _ agdservice.Refresher = (*AllowlistRefresher)(nil)
 // Refresh implements the [agdservice.Refresher] interface for
 // *AllowlistRefresher.
 func (l *AllowlistRefresher) Refresh(ctx context.Context) (err error) {
+	// TODO(a.garipov):  Use slog.
+	log.Info("allowlist_refresh: started")
+	defer log.Info("allowlist_refresh: finished")
+
 	defer func() {
 		metrics.ConsulAllowlistUpdateTime.SetToCurrentTime()
 		metrics.SetStatusGauge(metrics.ConsulAllowlistUpdateStatus, err)
@@ -60,7 +68,10 @@ func (l *AllowlistRefresher) Refresh(ctx context.Context) (err error) {
 
 	consulNets, err := l.loadConsul(ctx)
 	if err != nil {
-		return fmt.Errorf("reading consul: %w", err)
+		errcoll.Collectf(ctx, l.errColl, "allowlist_refresh: %w", err)
+
+		// Don't wrap the error, because it's informative enough as is.
+		return err
 	}
 
 	log.Info("allowlist: loaded %d records from %s", len(consulNets), l.url)

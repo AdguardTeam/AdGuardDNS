@@ -45,9 +45,8 @@ func NewRefreshable(
 			ID:        c.ID,
 			CachePath: c.CachePath,
 			Staleness: c.Staleness,
-			// TODO(ameshkov): Consider making configurable.
-			Timeout: internal.DefaultFilterRefreshTimeout,
-			MaxSize: c.MaxSize,
+			Timeout:   c.Timeout,
+			MaxSize:   c.MaxSize,
 		}),
 	}
 
@@ -119,13 +118,14 @@ func (f *Refreshable) Refresh(ctx context.Context, acceptStale bool) (err error)
 
 	s, err := filterlist.NewRuleStorage([]filterlist.RuleList{strList})
 	if err != nil {
-		return fmt.Errorf("creating rule storage: %w", err)
+		return fmt.Errorf("%s: creating rule storage: %w", f.id, err)
 	}
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	f.cache.Clear()
+
 	f.engine = urlfilter.NewDNSEngine(s)
 
 	log.Info("%s: reset %d rules", f.id, f.engine.RulesCount)

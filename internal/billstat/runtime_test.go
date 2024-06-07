@@ -30,6 +30,11 @@ const (
 func TestRuntimeRecorder_success(t *testing.T) {
 	var gotRecord *billstat.Record
 	c := &billstat.RuntimeRecorderConfig{
+		ErrColl: &agdtest.ErrorCollector{
+			OnCollect: func(_ context.Context, _ error) {
+				panic("not implemented")
+			},
+		},
 		Uploader: &agdtest.BillStatUploader{
 			OnUpload: func(_ context.Context, records billstat.Records) (err error) {
 				gotRecord = records[devID]
@@ -48,7 +53,7 @@ func TestRuntimeRecorder_success(t *testing.T) {
 	// incremented.
 	const reqNum = 2
 	var err error
-	for i := 0; i < reqNum; i++ {
+	for range reqNum {
 		r.Record(ctx, devID, clientCtry, clientASN, start, proto)
 	}
 
@@ -89,7 +94,13 @@ func TestRuntimeRecorder_fail(t *testing.T) {
 		return nil
 	}
 
+	var gotCollErr error
 	c := &billstat.RuntimeRecorderConfig{
+		ErrColl: &agdtest.ErrorCollector{
+			OnCollect: func(_ context.Context, err error) {
+				gotCollErr = err
+			},
+		},
 		Uploader: &agdtest.BillStatUploader{
 			OnUpload: onUpload,
 		},
@@ -118,6 +129,7 @@ func TestRuntimeRecorder_fail(t *testing.T) {
 
 	err := r.Refresh(context.Background())
 	require.ErrorIs(t, err, testError)
+	require.ErrorIs(t, gotCollErr, testError)
 	require.Nil(t, gotRecord)
 
 	// Request the backend again, expect the correct, merged data.

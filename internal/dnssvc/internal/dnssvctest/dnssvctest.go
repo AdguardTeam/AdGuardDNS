@@ -56,10 +56,19 @@ const (
 // ServerName is the common server name for tests.
 const ServerName agd.ServerName = "test_server_dns_tls"
 
-// DeviceIDWildcard is the common wildcard domain for retrieving [agd.DeviceID]
-// in tests.  Use [strings.ReplaceAll] to replace the "*" symbol with the actual
-// [agd.DeviceID].
-const DeviceIDWildcard = "*.dns.example.com"
+const (
+	// DomainForDevices is the upper-level domain name for requests with device
+	// in e.g. HTTP path.
+	DomainForDevices = "d.dns.example"
+
+	// DeviceIDWildcard is the common wildcard domain for retrieving [agd.DeviceID]
+	// in tests.  Use [strings.ReplaceAll] to replace the "*" symbol with the actual
+	// [agd.DeviceID] or use [DeviceIDSrvName].
+	DeviceIDWildcard = "*." + DomainForDevices
+
+	// DeviceIDSrvName is the common client server-name for tests.
+	DeviceIDSrvName = DeviceIDStr + "." + DomainForDevices
+)
 
 // Common addresses for tests.
 var (

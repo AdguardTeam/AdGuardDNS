@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
@@ -37,13 +36,15 @@ type safeBrowsingConfig struct {
 
 	// RefreshIvl defines how often AdGuard DNS refreshes the filter.
 	RefreshIvl timeutil.Duration `yaml:"refresh_interval"`
+
+	// RefreshTimeout is the timeout for the filter update operation.
+	RefreshTimeout timeutil.Duration `yaml:"refresh_timeout"`
 }
 
 // toInternal converts c to the safe browsing filter configuration for the
 // filter storage of the DNS server.  c is assumed to be valid.
 func (c *safeBrowsingConfig) toInternal(
 	errColl errcoll.Interface,
-	resolver agdnet.Resolver,
 	cloner *dnsmsg.Cloner,
 	id agd.FilterListID,
 	url *urlutil.URL,
@@ -60,11 +61,11 @@ func (c *safeBrowsingConfig) toInternal(
 		Hashes:          hashes,
 		URL:             netutil.CloneURL(&url.URL),
 		ErrColl:         errColl,
-		Resolver:        resolver,
 		ID:              id,
 		CachePath:       filepath.Join(cacheDir, string(id)),
 		ReplacementHost: c.BlockHost,
 		Staleness:       c.RefreshIvl.Duration,
+		RefreshTimeout:  c.RefreshTimeout.Duration,
 		CacheTTL:        c.CacheTTL.Duration,
 		CacheSize:       c.CacheSize,
 		MaxSize:         maxSize,
@@ -85,6 +86,8 @@ func (c *safeBrowsingConfig) validate() (err error) {
 		return newMustBePositiveError("cache_ttl", c.CacheTTL)
 	case c.RefreshIvl.Duration <= 0:
 		return newMustBePositiveError("refresh_interval", c.RefreshIvl)
+	case c.RefreshTimeout.Duration <= 0:
+		return newMustBePositiveError("refresh_timeout", c.RefreshTimeout)
 	default:
 		return nil
 	}
@@ -94,7 +97,6 @@ func (c *safeBrowsingConfig) validate() (err error) {
 // starts and registers its refresher in the signal handler.
 func setupHashPrefixFilter(
 	conf *safeBrowsingConfig,
-	resolver *agdnet.CachingResolver,
 	cloner *dnsmsg.Cloner,
 	id agd.FilterListID,
 	url *urlutil.URL,
@@ -103,7 +105,7 @@ func setupHashPrefixFilter(
 	sigHdlr *service.SignalHandler,
 	errColl errcoll.Interface,
 ) (strg *hashprefix.Storage, flt *hashprefix.Filter, err error) {
-	fltConf, err := conf.toInternal(errColl, resolver, cloner, id, url, cachePath, maxSize)
+	fltConf, err := conf.toInternal(errColl, cloner, id, url, cachePath, maxSize)
 	if err != nil {
 		return nil, nil, fmt.Errorf("configuring hash prefix filter %s: %w", id, err)
 	}
@@ -114,14 +116,16 @@ func setupHashPrefixFilter(
 	}
 
 	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
-		Context:             ctxWithDefaultTimeout,
-		Refresher:           flt,
-		ErrColl:             errColl,
-		Name:                string(id),
-		Interval:            fltConf.Staleness,
-		RefreshOnShutdown:   false,
-		RoutineLogsAreDebug: false,
-		RandomizeStart:      false,
+		// Note that we also set the same timeout for the http.Client in
+		// [hashprefix.NewFilter].
+		Context: func() (ctx context.Context, cancel context.CancelFunc) {
+			return context.WithTimeout(context.Background(), fltConf.RefreshTimeout)
+		},
+		Refresher:         flt,
+		Name:              string(id),
+		Interval:          fltConf.Staleness,
+		RefreshOnShutdown: false,
+		RandomizeStart:    false,
 	})
 	err = refr.Start(context.Background())
 	if err != nil {

@@ -69,24 +69,23 @@ const (
 	safeSearchHost     = "duckduckgo.com"
 	safeSearchRespHost = "safe.duckduckgo.com"
 
-	safeSearchIPHost = "www.yandex.by"
+	safeSearchIPv4Host = "www.yandex.by"
+	safeSearchIPv6Host = "www.google.com"
 
 	safeBrowsingHost     = "scam.example.net"
 	safeBrowsingSubHost  = "subsub.sub." + safeBrowsingHost
 	safeBrowsingSubFQDN  = safeBrowsingSubHost + "."
-	safeBrowsingSafeHost = "safe.dns.example.net"
+	safeBrowsingReplHost = "safe.dns.example.net"
+	safeBrowsingReplFQDN = safeBrowsingReplHost + "."
 )
 
-// Common immutable values.  Keep in sync with ./testdata/filter and
-// ./safesearchhost.csv.
+// Common immutable values.  Keep in sync with ./testdata/ files.
 var (
 	blockedIP4 = net.IP{6, 6, 6, 13}
 	allowedIP4 = net.IP{7, 7, 7, 42}
 
-	safeBrowsingSafeIP4 = netip.MustParseAddr("94.140.14.14")
-
 	safeSearchIPRespIP4 = netip.MustParseAddr("213.180.193.56")
-	safeSearchIPRespIP6 = netip.MustParseAddr("1:203:1:203:1:203:1:203")
+	safeSearchIPRespIP6 = netip.MustParseAddr("2001:4860:4802:32::78")
 )
 
 // Common clients.  Keep in sync with ./testdata/filter.
@@ -181,8 +180,6 @@ func prepareConf(t testing.TB) (c *filter.DefaultStorageConfig) {
 		NewRegDomains:             &hashprefix.Filter{},
 		Now:                       time.Now,
 		ErrColl:                   nil,
-		Resolver:                  nil,
-		Cloner:                    agdtest.NewCloner(),
 		CacheDir:                  cacheDir,
 		CustomFilterCacheSize:     100,
 		SafeSearchCacheSize:       100,

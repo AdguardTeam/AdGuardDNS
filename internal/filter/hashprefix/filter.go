@@ -3,18 +3,19 @@ package hashprefix
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/resultcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
+	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
@@ -36,9 +37,6 @@ type FilterConfig struct {
 	// ErrColl is used to collect non-critical and rare errors.
 	ErrColl errcoll.Interface
 
-	// Resolver is used to resolve hosts for the hash-prefix filter.
-	Resolver agdnet.Resolver
-
 	// ID is the ID of this hash storage for logging and error reporting.
 	ID agd.FilterListID
 
@@ -46,9 +44,10 @@ type FilterConfig struct {
 	// hostnames, one per line.
 	CachePath string
 
-	// ReplacementHost is the replacement host for this filter.  Queries
-	// matched by the filter receive a response with the IP addresses of
-	// this host.
+	// ReplacementHost is the replacement host for this filter.  Queries matched
+	// by the filter receive a response with the IP addresses of this host.  If
+	// ReplacementHost contains a valid IP, that IP is used.  Otherwise, it
+	// should be a valid domain name.
 	ReplacementHost string
 
 	// Staleness is the time after which a file is considered stale.
@@ -60,11 +59,46 @@ type FilterConfig struct {
 	// TODO(a.garipov): Currently unused.  See AGDNS-398.
 	CacheTTL time.Duration
 
+	// RefreshTimeout is the timeout for the filter update operation.
+	RefreshTimeout time.Duration
+
 	// CacheSize is the size of the filter's result cache.
 	CacheSize int
 
 	// MaxSize is the maximum size in bytes of the downloadable rule-list.
 	MaxSize uint64
+}
+
+// cacheItem represents an item that we will store in the cache.
+type cacheItem struct {
+	// res is the filtering result.
+	res internal.Result
+
+	// host is the cached normalized hostname for later cache key collision
+	// checks.
+	host string
+}
+
+// itemFromCache retrieves a cache item for the given key.  host is used to
+// detect key collisions.  If there is a key collision, it returns nil and
+// false.
+func itemFromCache(
+	cache agdcache.Interface[internal.CacheKey, *cacheItem],
+	key internal.CacheKey,
+	host string,
+) (item *cacheItem, ok bool) {
+	item, ok = cache.Get(key)
+	if !ok {
+		return nil, false
+	}
+
+	if item.host != host {
+		optlog.Error2("hashprefix: collision: bad cache item %v for host %q", item, host)
+
+		return nil, false
+	}
+
+	return item, true
 }
 
 // Filter is a filter that matches hosts by their hashes based on a
@@ -73,24 +107,37 @@ type Filter struct {
 	cloner   *dnsmsg.Cloner
 	hashes   *Storage
 	refr     *internal.Refreshable
-	resCache *resultcache.Cache[*internal.ResultModified]
-	resolver agdnet.Resolver
+	resCache agdcache.Interface[internal.CacheKey, *cacheItem]
 	errColl  errcoll.Interface
 	id       agd.FilterListID
-	repHost  string
+	repIP    netip.Addr
+	repFQDN  string
 }
 
 // NewFilter returns a new hash-prefix filter.  c must not be nil.
 func NewFilter(c *FilterConfig) (f *Filter, err error) {
 	id := c.ID
 	f = &Filter{
-		cloner:   c.Cloner,
-		hashes:   c.Hashes,
-		resCache: resultcache.New[*internal.ResultModified](c.CacheSize),
-		resolver: c.Resolver,
-		errColl:  c.ErrColl,
-		id:       id,
-		repHost:  c.ReplacementHost,
+		cloner: c.Cloner,
+		hashes: c.Hashes,
+		resCache: agdcache.NewLRU[internal.CacheKey, *cacheItem](&agdcache.LRUConfig{
+			Size: c.CacheSize,
+		}),
+		errColl: c.ErrColl,
+		id:      id,
+	}
+
+	repHost := c.ReplacementHost
+	ip, err := netip.ParseAddr(repHost)
+	if err != nil {
+		err = netutil.ValidateDomainName(repHost)
+		if err != nil {
+			return nil, fmt.Errorf("replacement host: %w", err)
+		}
+
+		f.repFQDN = dns.Fqdn(repHost)
+	} else {
+		f.repIP = ip
 	}
 
 	f.refr = internal.NewRefreshable(&internal.RefreshableConfig{
@@ -98,9 +145,8 @@ func NewFilter(c *FilterConfig) (f *Filter, err error) {
 		ID:        id,
 		CachePath: c.CachePath,
 		Staleness: c.Staleness,
-		// TODO(ameshkov): Consider making configurable.
-		Timeout: internal.DefaultFilterRefreshTimeout,
-		MaxSize: c.MaxSize,
+		Timeout:   c.RefreshTimeout,
+		MaxSize:   c.MaxSize,
 	})
 
 	err = f.refresh(context.Background(), true)
@@ -116,24 +162,18 @@ func NewFilter(c *FilterConfig) (f *Filter, err error) {
 var _ internal.RequestFilter = (*Filter)(nil)
 
 // FilterRequest implements the [internal.RequestFilter] interface for
-// *Filter.  It modifies the response if host matches f.
+// *Filter.  It modifies the request or response if host matches f.
 func (f *Filter) FilterRequest(
 	ctx context.Context,
 	req *dns.Msg,
 	ri *agd.RequestInfo,
 ) (r internal.Result, err error) {
 	host, qt, cl := ri.Host, ri.QType, ri.QClass
-	cacheKey := resultcache.DefaultKey(host, qt, cl, false)
-	rm, ok := f.resCache.Get(cacheKey)
+	cacheKey := internal.NewCacheKey(host, qt, cl, false)
+	item, ok := itemFromCache(f.resCache, cacheKey, host)
 	f.updateCacheLookupsMetrics(ok)
 	if ok {
-		if rm == nil {
-			// Return nil explicitly instead of modifying CloneForReq to return
-			// nil if the result is nil to avoid a “non-nil nil” value.
-			return nil, nil
-		}
-
-		return rm.CloneForReq(f.cloner, req), nil
+		return f.clonedResult(req, item.res), nil
 	}
 
 	fam, ok := isFilterable(qt)
@@ -152,34 +192,25 @@ func (f *Filter) FilterRequest(
 	}
 
 	if matched == "" {
-		f.resCache.Set(cacheKey, nil)
+		f.resCache.Set(cacheKey, &cacheItem{
+			res:  nil,
+			host: host,
+		})
 
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, internal.DefaultResolveTimeout)
-	defer cancel()
-
-	result, err := f.filteredResponse(ctx, req, ri, fam)
+	r, err = f.filteredResult(req, matched, ri, fam)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
 	}
 
-	rm = &internal.ResultModified{
-		Msg:  result,
-		List: f.id,
-		Rule: agd.FilterRuleText(matched),
-	}
+	f.setInCache(cacheKey, r, host)
 
-	// Copy the result to make sure that modifications to the result message
-	// down the pipeline don't interfere with the cached value.
-	//
-	// See AGDNS-359.
-	f.resCache.Set(cacheKey, rm.Clone(f.cloner))
-	f.updateCacheSizeMetrics(f.resCache.ItemCount())
+	f.updateCacheSizeMetrics(f.resCache.Len())
 
-	return rm, nil
+	return r, nil
 }
 
 // ID implements the [internal.RequestFilter] interface for *Filter.
@@ -200,9 +231,55 @@ func isFilterable(qt dnsmsg.RRType) (fam netutil.AddrFamily, ok bool) {
 	return fam, fam != netutil.AddrFamilyNone
 }
 
-// filteredResponse returns a filtered response.
-func (f *Filter) filteredResponse(
-	ctx context.Context,
+// clonedResult returns a clone of the result based on its type.  r must be nil,
+// [*internal.ResultModifiedRequest], or [*internal.ResultModifiedResponse].
+func (f *Filter) clonedResult(req *dns.Msg, r internal.Result) (clone internal.Result) {
+	switch r := r.(type) {
+	case nil:
+		return nil
+	case *internal.ResultModifiedRequest:
+		return r.Clone(f.cloner)
+	case *internal.ResultModifiedResponse:
+		return r.CloneForReq(f.cloner, req)
+	default:
+		panic(fmt.Errorf("hashprefix: unexpected type for result: %T(%[1]v)", r))
+	}
+}
+
+// filteredResult returns a filtered request or response.
+func (f *Filter) filteredResult(
+	req *dns.Msg,
+	matched string,
+	ri *agd.RequestInfo,
+	fam netutil.AddrFamily,
+) (r internal.Result, err error) {
+	if f.repFQDN != "" {
+		// Assume that the repFQDN is a valid domain name then.
+		req = f.cloner.Clone(req)
+		req.Question[0].Name = dns.Fqdn(f.repFQDN)
+
+		return &internal.ResultModifiedRequest{
+			Msg:  req,
+			List: f.id,
+			Rule: agd.FilterRuleText(matched),
+		}, nil
+	}
+
+	resp, err := f.respForFamily(req, ri, fam)
+	if err != nil {
+		return nil, fmt.Errorf("filter %s: creating modified result: %w", f.id, err)
+	}
+
+	return &internal.ResultModifiedResponse{
+		Msg:  resp,
+		List: f.id,
+		Rule: agd.FilterRuleText(matched),
+	}, nil
+}
+
+// respForFamily returns a filtered response in accordance with the protocol
+// family and question type.
+func (f *Filter) respForFamily(
 	req *dns.Msg,
 	ri *agd.RequestInfo,
 	fam netutil.AddrFamily,
@@ -212,31 +289,43 @@ func (f *Filter) filteredResponse(
 		// blocked response.  See AGDNS-1551.
 		//
 		// TODO(ameshkov): Consider putting the resolved IP addresses into hints
-		// to show the blocked page here as well.
-		resp, err = ri.Messages.NewBlockedRespMsg(req)
-		if err != nil {
-			return nil, fmt.Errorf("filter %s: creating blocked result: %w", f.id, err)
-		}
-
-		return resp, nil
+		// to show the blocked page here as well?
+		return ri.Messages.NewBlockedRespMsg(req)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, internal.DefaultResolveTimeout)
-	defer cancel()
+	ip := f.repIP
 
-	ips, err := f.resolver.LookupNetIP(ctx, fam, f.repHost)
-	if err != nil {
-		errcoll.Collectf(ctx, f.errColl, "filter %s: resolving: %w", f.id, err)
-
-		return ri.Messages.NewMsgSERVFAIL(req), nil
+	switch {
+	case ip.Is4() && fam == netutil.AddrFamilyIPv4:
+		return ri.Messages.NewIPRespMsg(req, ip)
+	case ip.Is6() && fam == netutil.AddrFamilyIPv6:
+		return ri.Messages.NewIPRespMsg(req, ip)
+	default:
+		return ri.Messages.NewMsgNODATA(req), nil
 	}
+}
 
-	resp, err = ri.Messages.NewIPRespMsg(req, ips...)
-	if err != nil {
-		return nil, fmt.Errorf("filter %s: creating modified result: %w", f.id, err)
+// setInCache sets r in cache.  It clones the result to make sure that
+// modifications to the result message down the pipeline don't interfere with
+// the cached value.  r must be either [*internal.ResultModifiedRequest] or
+// [*internal.ResultModifiedResponse].
+//
+// See AGDNS-359.
+func (f *Filter) setInCache(k internal.CacheKey, r internal.Result, host string) {
+	switch r := r.(type) {
+	case *internal.ResultModifiedRequest:
+		f.resCache.Set(k, &cacheItem{
+			res:  r.Clone(f.cloner),
+			host: host,
+		})
+	case *internal.ResultModifiedResponse:
+		f.resCache.Set(k, &cacheItem{
+			res:  r.Clone(f.cloner),
+			host: host,
+		})
+	default:
+		panic(fmt.Errorf("hashprefix: unexpected type for result: %T(%[1]v)", r))
 	}
-
-	return resp, nil
 }
 
 // updateCacheSizeMetrics updates cache size metrics.
@@ -278,7 +367,16 @@ var _ agdservice.Refresher = (*Filter)(nil)
 
 // Refresh implements the [agdservice.Refresher] interface for *Filter.
 func (f *Filter) Refresh(ctx context.Context) (err error) {
-	return f.refresh(ctx, false)
+	// TODO(a.garipov):  Use slog.
+	log.Info("hashprefix_filter_refresh: %s: started", f.id)
+	defer log.Info("hashprefix_filter_refresh: %s: finished", f.id)
+
+	err = f.refresh(ctx, false)
+	if err != nil {
+		errcoll.Collectf(ctx, f.errColl, "hashprefix_filter_refresh: %w", err)
+	}
+
+	return err
 }
 
 // refresh reloads and resets the hash-filter data.  If acceptStale is true, do
@@ -295,7 +393,7 @@ func (f *Filter) refresh(ctx context.Context, acceptStale bool) (err error) {
 	fltIDStr := string(f.id)
 	metrics.SetStatusGauge(metrics.FilterUpdatedStatus.WithLabelValues(fltIDStr), err)
 	if err != nil {
-		return fmt.Errorf("resetting: %w", err)
+		return fmt.Errorf("%s: resetting: %w", f.id, err)
 	}
 
 	f.resCache.Clear()

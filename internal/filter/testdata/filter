@@ -5,8 +5,6 @@
 # Per-Client Blocking
 ||blocked-client.example.com^$client=1.2.3.4
 @@||allowed-client.example.com^$client=1.2.3.4
-||blocked-device.example.com^$client="My Device"
-@@||allowed-device.example.com^$client="My Device"
 #
 # IP-level blocking.
 6.6.6.13

@@ -48,7 +48,7 @@ func TestServerMetricsListener_integration_requestLifetime(t *testing.T) {
 	addr := srv.LocalUDPAddr().String()
 
 	// Pass 10 requests to make the test less flaky.
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		res, _, exchErr := c.Exchange(req, addr)
 		require.NoError(t, exchErr)
 		require.NotNil(t, res)
@@ -96,7 +96,7 @@ func BenchmarkServerMetricsListener(b *testing.B) {
 	b.Run("OnRequest", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			l.OnRequest(ctx, info, rw)
 		}
 	})
@@ -104,7 +104,7 @@ func BenchmarkServerMetricsListener(b *testing.B) {
 	b.Run("OnInvalidMsg", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			l.OnInvalidMsg(ctx)
 		}
 	})
@@ -112,7 +112,7 @@ func BenchmarkServerMetricsListener(b *testing.B) {
 	b.Run("OnError", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			l.OnError(ctx, nil)
 		}
 	})
@@ -120,7 +120,7 @@ func BenchmarkServerMetricsListener(b *testing.B) {
 	b.Run("OnPanic", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			l.OnPanic(ctx, nil)
 		}
 	})

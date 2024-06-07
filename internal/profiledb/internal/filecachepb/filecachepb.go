@@ -8,6 +8,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdpasswd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdprotobuf"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
@@ -158,18 +159,22 @@ func (x *ParentalProtectionSchedule) toInternal() (s *agd.ParentalProtectionSche
 func blockingModeToInternal(pbm isProfile_BlockingMode) (m dnsmsg.BlockingMode, err error) {
 	switch pbm := pbm.(type) {
 	case *Profile_BlockingModeCustomIp:
-		custom := &dnsmsg.BlockingModeCustomIP{}
-		err = custom.IPv4.UnmarshalBinary(pbm.BlockingModeCustomIp.Ipv4)
+		var ipv4 []netip.Addr
+		ipv4, err = agdprotobuf.ByteSlicesToIPs(pbm.BlockingModeCustomIp.Ipv4)
 		if err != nil {
-			return nil, fmt.Errorf("bad custom ipv4: %w", err)
+			return nil, fmt.Errorf("bad v4 custom ips: %w", err)
 		}
 
-		err = custom.IPv6.UnmarshalBinary(pbm.BlockingModeCustomIp.Ipv6)
+		var ipv6 []netip.Addr
+		ipv6, err = agdprotobuf.ByteSlicesToIPs(pbm.BlockingModeCustomIp.Ipv6)
 		if err != nil {
-			return nil, fmt.Errorf("bad custom ipv6: %w", err)
+			return nil, fmt.Errorf("bad v6 custom ips: %w", err)
 		}
 
-		return custom, nil
+		return &dnsmsg.BlockingModeCustomIP{
+			IPv4: ipv4,
+			IPv6: ipv6,
+		}, nil
 	case *Profile_BlockingModeNxdomain:
 		return &dnsmsg.BlockingModeNXDOMAIN{}, nil
 	case *Profile_BlockingModeNullIp:
@@ -212,7 +217,13 @@ func (x *Device) toInternal() (d *agd.Device, err error) {
 		return nil, fmt.Errorf("dedicated ips: %w", err)
 	}
 
+	auth, err := x.Authentication.toInternal()
+	if err != nil {
+		return nil, fmt.Errorf("auth: %s: %w", x.DeviceId, err)
+	}
+
 	return &agd.Device{
+		Auth: auth,
 		// Consider device IDs to have been prevalidated.
 		ID:       agd.DeviceID(x.DeviceId),
 		LinkedIP: linkedIP,
@@ -221,6 +232,44 @@ func (x *Device) toInternal() (d *agd.Device, err error) {
 		DedicatedIPs:     dedicatedIPs,
 		FilteringEnabled: x.FilteringEnabled,
 	}, nil
+}
+
+// toInternal converts a protobuf auth settings structure to an internal one.
+// If x is nil, toInternal returns non-nil settings with Enabled field set to
+// false, otherwise it sets the Enabled field to true.
+func (x *AuthenticationSettings) toInternal() (s *agd.AuthSettings, err error) {
+	if x == nil {
+		return &agd.AuthSettings{
+			Enabled:      false,
+			PasswordHash: agdpasswd.AllowAuthenticator{},
+		}, nil
+	}
+
+	ph, err := dohPasswordToInternal(x.DohPasswordHash)
+	if err != nil {
+		return nil, fmt.Errorf("password hash: %w", err)
+	}
+
+	return &agd.AuthSettings{
+		PasswordHash: ph,
+		Enabled:      true,
+		DoHAuthOnly:  x.DohAuthOnly,
+	}, nil
+}
+
+// dohPasswordToInternal converts a protobuf DoH password hash sum-type to an
+// internal one.  If pbp is nil, it returns nil.
+func dohPasswordToInternal(
+	pbp isAuthenticationSettings_DohPasswordHash,
+) (p agdpasswd.Authenticator, err error) {
+	switch pbp := pbp.(type) {
+	case nil:
+		return nil, nil
+	case *AuthenticationSettings_PasswordHashBcrypt:
+		return agdpasswd.NewPasswordHashBcrypt(pbp.PasswordHashBcrypt), nil
+	default:
+		return nil, fmt.Errorf("bad pb auth doh password hash %T(%[1]v)", pbp)
+	}
 }
 
 // toInternal converts a protobuf safe browsing settings structure to an
@@ -411,8 +460,8 @@ func blockingModeToProtobuf(m dnsmsg.BlockingMode) (pbBlockingMode isProfile_Blo
 	case *dnsmsg.BlockingModeCustomIP:
 		return &Profile_BlockingModeCustomIp{
 			BlockingModeCustomIp: &BlockingModeCustomIP{
-				Ipv4: ipToBytes(m.IPv4),
-				Ipv6: ipToBytes(m.IPv6),
+				Ipv4: ipsToByteSlices(m.IPv4),
+				Ipv6: ipsToByteSlices(m.IPv6),
 			},
 		}
 	case *dnsmsg.BlockingModeNXDOMAIN:
@@ -445,6 +494,7 @@ func devicesToProtobuf(devices []*agd.Device) (pbDevices []*Device) {
 	pbDevices = make([]*Device, 0, len(devices))
 	for _, d := range devices {
 		pbDevices = append(pbDevices, &Device{
+			Authentication:   authToProtobuf(d.Auth),
 			DeviceId:         string(d.ID),
 			LinkedIp:         ipToBytes(d.LinkedIP),
 			DeviceName:       string(d.Name),
@@ -454,6 +504,34 @@ func devicesToProtobuf(devices []*agd.Device) (pbDevices []*Device) {
 	}
 
 	return pbDevices
+}
+
+// authToProtobuf converts an auth device settings to a protobuf struct.
+// Returns nil if the given settings have Enabled field set to false.
+func authToProtobuf(s *agd.AuthSettings) (a *AuthenticationSettings) {
+	if s == nil || !s.Enabled {
+		return nil
+	}
+
+	return &AuthenticationSettings{
+		DohAuthOnly:     s.DoHAuthOnly,
+		DohPasswordHash: dohPasswordToProtobuf(s.PasswordHash),
+	}
+}
+
+// dohPasswordToProtobuf converts an auth password hash sum-type to a protobuf
+// one.
+func dohPasswordToProtobuf(p agdpasswd.Authenticator) (pbp isAuthenticationSettings_DohPasswordHash) {
+	switch p := p.(type) {
+	case agdpasswd.AllowAuthenticator:
+		return nil
+	case *agdpasswd.PasswordHashBcrypt:
+		return &AuthenticationSettings_PasswordHashBcrypt{
+			PasswordHashBcrypt: p.PasswordHash(),
+		}
+	default:
+		panic(fmt.Errorf("bad password hash %T(%[1]v)", p))
+	}
 }
 
 // ipsToByteSlices is a wrapper around netip.Addr.MarshalBinary that ignores the

@@ -6,11 +6,11 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/golibs/testutil"
-	"github.com/bluele/gcache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,7 +24,9 @@ const testProfID agd.ProfileID = "prof1234"
 
 func TestFilters_Get(t *testing.T) {
 	f := custom.New(
-		gcache.New(1).LRU().Build(),
+		&agdcache.LRUConfig{
+			Size: 1,
+		},
 		&agdtest.ErrorCollector{
 			OnCollect: func(ctx context.Context, err error) { panic("not implemented") },
 		},
@@ -54,7 +56,9 @@ var ruleListSink *rulelist.Immutable
 
 func BenchmarkFilters_Get(b *testing.B) {
 	f := custom.New(
-		gcache.New(1).LRU().Build(),
+		&agdcache.LRUConfig{
+			Size: 1,
+		},
 		&agdtest.ErrorCollector{
 			OnCollect: func(ctx context.Context, err error) { panic("not implemented") },
 		},
@@ -75,7 +79,7 @@ func BenchmarkFilters_Get(b *testing.B) {
 	b.Run("cache", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			ruleListSink = f.Get(ctx, p)
 		}
 	})
@@ -83,7 +87,7 @@ func BenchmarkFilters_Get(b *testing.B) {
 	b.Run("no_cache", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			// Update the time on each iteration to make sure that the cache is
 			// never used.
 			p.UpdateTime = p.UpdateTime.Add(1 * time.Millisecond)

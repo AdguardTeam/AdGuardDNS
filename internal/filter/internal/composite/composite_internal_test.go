@@ -18,7 +18,7 @@ var (
 	resultSink internal.Result
 )
 
-func BenchmarkFilter_FilterWithRuleLists(b *testing.B) {
+func BenchmarkFilter_FilterReqWithRuleLists(b *testing.B) {
 	blockingRL, err := rulelist.NewFromString(filtertest.BlockRule+"\n", "test", "", 0, false)
 	require.NoError(b, err)
 
@@ -38,15 +38,15 @@ func BenchmarkFilter_FilterWithRuleLists(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
-		resultSink = f.filterWithRuleLists(ri, filtertest.ReqHost, dns.TypeCNAME, req)
+	for range b.N {
+		resultSink = f.filterReqWithRuleLists(ri, req)
 	}
 
-	// Most recent results, on a MBP 14 with Apple M1 Pro chip:
+	// Most recent results, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
 	//
-	//	goos: darwin
-	//  goarch: arm64
-	//  pkg: github.com/AdguardTeam/urlfilter
-	//  BenchmarkFilter_FilterWithRuleLists
-	//  BenchmarkFilter_FilterWithRuleLists-8   	 1623212	       698.0 ns/op	     161 B/op	       6 allocs/op
+	//	goos: linux
+	//	goarch: amd64
+	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/composite
+	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
+	//	BenchmarkFilter_FilterWithRuleLists-16    	  464508	      2449 ns/op	     162 B/op	       6 allocs/op
 }

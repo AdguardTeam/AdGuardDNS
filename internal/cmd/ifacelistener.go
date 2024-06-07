@@ -35,7 +35,7 @@ func (c *interfaceListenersConfig) toInternal(
 		ChannelBufferSize: c.ChannelBufferSize,
 	})
 
-	err = mapsutil.OrderedRangeError(
+	err = mapsutil.SortedRangeError(
 		c.List,
 		func(id bindtodevice.ID, l *interfaceListener) (addErr error) {
 			return errors.Annotate(m.Add(id, l.Interface, l.Port, ctrlConf), "adding listener %q: %w", id)
@@ -66,7 +66,7 @@ func (c *interfaceListenersConfig) validate() (err error) {
 		// Go on.
 	}
 
-	err = mapsutil.OrderedRangeError(
+	err = mapsutil.SortedRangeError(
 		c.List,
 		func(id bindtodevice.ID, l *interfaceListener) (lsnrErr error) {
 			return errors.Annotate(l.validate(), "interface %q: %w", id)

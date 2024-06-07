@@ -1,6 +1,9 @@
 // Package metrics contains definitions of most of the prometheus metrics
 // that we use in AdGuard DNS.
 //
+// NOTE:  Prefer to not import any packages from the current module here,
+// because a lot of packages import metrics, and so import cycles may happen.
+//
 // TODO(ameshkov): consider not using promauto.
 package metrics
 

@@ -236,7 +236,7 @@ func BenchmarkDefaultProfile_IsBlocked(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			_ = a.IsBlocked(passReq, passAddrPort, nil)
 		}
 	})
@@ -247,7 +247,7 @@ func BenchmarkDefaultProfile_IsBlocked(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			_ = a.IsBlocked(blockReq, passAddrPort, nil)
 		}
 	})

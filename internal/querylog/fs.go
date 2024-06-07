@@ -15,30 +15,38 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/mathutil"
 	"github.com/AdguardTeam/golibs/syncutil"
+	"golang.org/x/exp/rand"
 )
 
 // FileSystemConfig is the configuration of the file system query log.
 type FileSystemConfig struct {
 	// Path is the path to the log file.
 	Path string
+
+	// RandSeed is used to set the "rn" property in JSON objects.
+	RandSeed uint64
 }
 
 // NewFileSystem creates a new file system query log.  The log is safe for
-// concurrent use.
+// concurrent use.  c must not be nil.
 func NewFileSystem(c *FileSystemConfig) (l *FileSystem) {
+	rng := rand.New(&rand.LockedSource{})
+	rng.Seed(c.RandSeed)
+
 	return &FileSystem{
-		path: c.Path,
 		bufferPool: syncutil.NewPool(func() (v *entryBuffer) {
 			return &entryBuffer{
 				ent: &jsonlEntry{},
 				buf: &bytes.Buffer{},
 			}
 		}),
+		rng:  rng,
+		path: c.Path,
 	}
 }
 
 // entryBuffer is a struct with two fields for caching entry that is being
-// written. Using this struct allows us to remove allocations on every write.
+// written.  Using this struct allows us to remove allocations on every write.
 type entryBuffer struct {
 	ent *jsonlEntry
 	buf *bytes.Buffer
@@ -49,6 +57,10 @@ type FileSystem struct {
 	// bufferPool is a pool with [*entryBuffer] instances used to avoid extra
 	// allocations when serializing query log items to JSON and writing them.
 	bufferPool *syncutil.Pool[entryBuffer]
+
+	// rng is used to generate random numbers for the "rn" property in the
+	// resulting JSON.
+	rng *rand.Rand
 
 	// path is the path to the query log file.
 	path string
@@ -93,6 +105,7 @@ func (l *FileSystem) Write(_ context.Context, e *Entry) (err error) {
 		ClientASN:       e.ClientASN,
 		Elapsed:         e.Elapsed,
 		RequestType:     e.RequestType,
+		Random:          uint16(l.rng.Uint32()),
 		DNSSEC:          mathutil.BoolToNumber[uint8](e.DNSSEC),
 		Protocol:        e.Protocol,
 		ResultCode:      c,

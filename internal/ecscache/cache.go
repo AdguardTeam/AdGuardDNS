@@ -2,16 +2,14 @@ package ecscache
 
 import (
 	"encoding/binary"
-	"fmt"
 	"hash/maphash"
 	"net/netip"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
-	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/mathutil"
-	"github.com/bluele/gcache"
 	"github.com/miekg/dns"
 )
 
@@ -69,27 +67,19 @@ func (mw *Middleware) get(req *dns.Msg, cr *cacheRequest) (resp *dns.Msg, isECSD
 // itemFromCache retrieves a DNS message for the given key.  cr.host is used to
 // detect key collisions.  If there is a key collision, it returns nil and
 // false.
-func itemFromCache(cache gcache.Cache, key uint64, cr *cacheRequest) (item *cacheItem, ok bool) {
-	val, err := cache.Get(key)
-	if err != nil {
-		// Shouldn't happen, since we don't set a serialization function.
-		if !errors.Is(err, gcache.KeyNotFoundError) {
-			panic(fmt.Errorf("ecs-cache: getting cache item: %w", err))
-		}
-
-		return nil, false
-	}
-
-	item, ok = val.(*cacheItem)
+func itemFromCache(
+	cache agdcache.Interface[uint64, *cacheItem],
+	key uint64,
+	cr *cacheRequest,
+) (item *cacheItem, ok bool) {
+	item, ok = cache.Get(key)
 	if !ok {
-		optlog.Error2("ecs-cache: bad type %T of cache item for host %q", val, cr.host)
-
 		return nil, false
 	}
 
 	// Check for cache key collisions.
 	if item.host != cr.host {
-		optlog.Error2("ecs-cache: collision: bad cache item %v for host %q", val, cr.host)
+		optlog.Error2("ecs-cache: collision: bad cache item %v for host %q", item, cr.host)
 
 		return nil, false
 	}
@@ -157,12 +147,7 @@ func (mw *Middleware) set(resp *dns.Msg, cr *cacheRequest, respIsECSDependent bo
 
 	cachedResp := mw.cloner.Clone(resp)
 
-	item := toCacheItem(cachedResp, cr.host)
-	err := cache.SetWithExpire(key, item, exp)
-	if err != nil {
-		// Shouldn't happen, since we don't set a serialization function.
-		panic(fmt.Errorf("ecs-cache: setting cache item: %w", err))
-	}
+	cache.SetWithExpire(key, toCacheItem(cachedResp, cr.host), exp)
 }
 
 // cacheItem represents an item that we will store in the cache.

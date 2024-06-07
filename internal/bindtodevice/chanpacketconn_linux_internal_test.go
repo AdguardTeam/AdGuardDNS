@@ -8,13 +8,14 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestChanPacketConn_Close(t *testing.T) {
 	sessions := make(chan *packetSession)
-	c := newChanPacketConn(sessions, testSubnetIPv4, nil, testLAddr)
+	c := newChanPacketConn(sessions, testSubnetIPv4, nil, nil, testLAddr)
 	err := c.Close()
 	assert.NoError(t, err)
 
@@ -23,14 +24,14 @@ func TestChanPacketConn_Close(t *testing.T) {
 }
 
 func TestChanPacketConn_LocalAddr(t *testing.T) {
-	c := newChanPacketConn(nil, testSubnetIPv4, nil, testLAddr)
+	c := newChanPacketConn(nil, testSubnetIPv4, nil, nil, testLAddr)
 	got := c.LocalAddr()
 	assert.Equal(t, testLAddr, got)
 }
 
 func TestChanPacketConn_ReadFromSession(t *testing.T) {
 	sessions := make(chan *packetSession, 1)
-	c := newChanPacketConn(sessions, testSubnetIPv4, nil, testLAddr)
+	c := newChanPacketConn(sessions, testSubnetIPv4, nil, nil, testLAddr)
 
 	body := []byte("hello")
 	bodyLen := len(body)
@@ -79,7 +80,9 @@ func TestChanPacketConn_ReadFromSession(t *testing.T) {
 func TestChanPacketConn_WriteToSession(t *testing.T) {
 	sessions := make(chan *packetSession, 1)
 	writes := make(chan *packetConnWriteReq, 1)
-	c := newChanPacketConn(sessions, testSubnetIPv4, writes, testLAddr)
+
+	gauge := prometheus.NewGauge(prometheus.GaugeOpts{})
+	c := newChanPacketConn(sessions, testSubnetIPv4, writes, gauge, testLAddr)
 
 	body := []byte("hello")
 	bodyLen := len(body)
@@ -125,7 +128,7 @@ func checkWriteReqAndRespond(
 
 	req, ok := testutil.RequireReceive(pt, writes, testTimeout)
 	require.NotNil(pt, req)
-	require.NotNil(pt, req.resp)
+	require.NotNil(pt, req.respCh)
 	require.True(pt, ok)
 
 	if wantRaddr != nil {
@@ -141,14 +144,14 @@ func checkWriteReqAndRespond(
 	assert.Equal(pt, wantDeadline, req.deadline)
 	assert.Equal(pt, wantBody, req.body)
 
-	testutil.RequireSend(pt, req.resp, &packetConnWriteResp{
+	testutil.RequireSend(pt, req.respCh, &packetConnWriteResp{
 		err:     nil,
 		written: len(wantBody),
 	}, testTimeout)
 }
 
 func TestChanPacketConn_deadlines(t *testing.T) {
-	c := newChanPacketConn(nil, testSubnetIPv4, nil, testLAddr)
+	c := newChanPacketConn(nil, testSubnetIPv4, nil, nil, testLAddr)
 	deadline := time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	testCases := []struct {

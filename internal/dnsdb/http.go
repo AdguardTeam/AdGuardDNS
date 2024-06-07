@@ -38,9 +38,12 @@ func (db *Default) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	var rw io.Writer = w
-	// TODO(a.garipov): Consider parsing the quality value.
-	if strings.Contains(r.Header.Get(httphdr.AcceptEncoding), "gzip") {
-		h.Set(httphdr.ContentEncoding, "gzip")
+
+	// TODO(a.garipov): Parse the quality value.
+	//
+	// TODO(a.garipov): Support other compression algorithms.
+	if strings.Contains(r.Header.Get(httphdr.AcceptEncoding), agdhttp.HdrValGzip) {
+		h.Set(httphdr.ContentEncoding, agdhttp.HdrValGzip)
 		gw := gzip.NewWriter(w)
 		defer func() { err = errors.WithDeferred(err, gw.Close()) }()
 

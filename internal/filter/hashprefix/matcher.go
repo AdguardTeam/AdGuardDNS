@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
-	"github.com/AdguardTeam/golibs/stringutil"
+	"github.com/AdguardTeam/golibs/container"
 )
 
 // Matcher is a hash-prefix matcher that uses the hash-prefix storages as the
@@ -73,7 +73,7 @@ func prefixesFromStr(prefixesStr string) (hashPrefixes []Prefix, err error) {
 		return nil, nil
 	}
 
-	prefixSet := stringutil.NewSet()
+	prefixSet := container.NewMapSet[string]()
 	prefixStrs := strings.Split(prefixesStr, ".")
 	for _, s := range prefixStrs {
 		switch l := len(s); l {

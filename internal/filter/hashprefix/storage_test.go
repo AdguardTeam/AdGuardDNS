@@ -82,7 +82,7 @@ func BenchmarkStorage_Hashes(b *testing.B) {
 	const N = 10_000
 
 	var hosts []string
-	for i := 0; i < N; i++ {
+	for i := range N {
 		hosts = append(hosts, fmt.Sprintf("%d."+testHost, i))
 	}
 
@@ -90,7 +90,7 @@ func BenchmarkStorage_Hashes(b *testing.B) {
 	require.NoError(b, err)
 
 	var hashPrefixes []hashprefix.Prefix
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		hashPrefixes = append(hashPrefixes, hashprefix.Prefix{hosts[i][0], hosts[i][1]})
 	}
 
@@ -100,7 +100,7 @@ func BenchmarkStorage_Hashes(b *testing.B) {
 
 			b.ReportAllocs()
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				strsSink = s.Hashes(hps)
 			}
 		})
@@ -122,7 +122,7 @@ func BenchmarkStorage_ResetHosts(b *testing.B) {
 	const N = 1_000
 
 	var hosts []string
-	for i := 0; i < N; i++ {
+	for i := range N {
 		hosts = append(hosts, fmt.Sprintf("%d."+testHost, i))
 	}
 
@@ -132,7 +132,7 @@ func BenchmarkStorage_ResetHosts(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_, errSink = s.Reset(hostnames)
 	}
 

@@ -6,7 +6,7 @@ import (
 )
 
 // Conn wraps a net.Conn and contains additional info that could be required
-// by the Pool instance. It can be used directly instead of a net.Conn or you
+// by the Pool instance.  It can be used directly instead of a net.Conn or you
 // may choose to use the underlying Conn.Conn instead.
 type Conn struct {
 	net.Conn

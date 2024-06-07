@@ -11,6 +11,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdpasswd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdprotobuf"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
@@ -355,6 +356,37 @@ func (x *ScheduleSettings) toInternal() (sch *agd.ParentalProtectionSchedule, er
 	return sch, nil
 }
 
+// toInternal converts a protobuf custom blocking-mode to an internal one.
+// Assumes that at least one IP address is specified in the result blocking-mode
+// object.
+func (pbm *BlockingModeCustomIP) toInternal() (m dnsmsg.BlockingMode, err error) {
+	custom := &dnsmsg.BlockingModeCustomIP{}
+
+	// TODO(a.garipov): Only one IPv4 address is supported on protobuf side.
+	var ipv4Addr netip.Addr
+	err = ipv4Addr.UnmarshalBinary(pbm.Ipv4)
+	if err != nil {
+		return nil, fmt.Errorf("bad custom ipv4: %w", err)
+	} else if ipv4Addr.IsValid() {
+		custom.IPv4 = []netip.Addr{ipv4Addr}
+	}
+
+	// TODO(a.garipov): Only one IPv6 address is supported on protobuf side.
+	var ipv6Addr netip.Addr
+	err = ipv6Addr.UnmarshalBinary(pbm.Ipv6)
+	if err != nil {
+		return nil, fmt.Errorf("bad custom ipv6: %w", err)
+	} else if ipv6Addr.IsValid() {
+		custom.IPv6 = []netip.Addr{ipv6Addr}
+	}
+
+	if len(custom.IPv4)+len(custom.IPv6) == 0 {
+		return nil, errors.Error("no valid custom ips found")
+	}
+
+	return custom, nil
+}
+
 // blockingModeToInternal converts a protobuf blocking-mode sum-type to an
 // internal one.  If pbm is nil, blockingModeToInternal returns a null-IP
 // blocking mode.
@@ -363,18 +395,7 @@ func blockingModeToInternal(pbm isDNSProfile_BlockingMode) (m dnsmsg.BlockingMod
 	case nil:
 		return &dnsmsg.BlockingModeNullIP{}, nil
 	case *DNSProfile_BlockingModeCustomIp:
-		custom := &dnsmsg.BlockingModeCustomIP{}
-		err = custom.IPv4.UnmarshalBinary(pbm.BlockingModeCustomIp.Ipv4)
-		if err != nil {
-			return nil, fmt.Errorf("bad custom ipv4: %w", err)
-		}
-
-		err = custom.IPv6.UnmarshalBinary(pbm.BlockingModeCustomIp.Ipv6)
-		if err != nil {
-			return nil, fmt.Errorf("bad custom ipv6: %w", err)
-		}
-
-		return custom, nil
+		return pbm.BlockingModeCustomIp.toInternal()
 	case *DNSProfile_BlockingModeNxdomain:
 		return &dnsmsg.BlockingModeNXDOMAIN{}, nil
 	case *DNSProfile_BlockingModeNullIp:
@@ -443,6 +464,11 @@ func (ds *DeviceSettings) toInternal(bindSet netutil.SubnetSet) (dev *agd.Device
 		}
 	}
 
+	auth, err := ds.Authentication.toInternal()
+	if err != nil {
+		return nil, fmt.Errorf("auth: %s: %w", ds.Id, err)
+	}
+
 	id, err := agd.NewDeviceID(ds.Id)
 	if err != nil {
 		return nil, fmt.Errorf("device id: %s: %w", ds.Id, err)
@@ -454,12 +480,51 @@ func (ds *DeviceSettings) toInternal(bindSet netutil.SubnetSet) (dev *agd.Device
 	}
 
 	return &agd.Device{
+		Auth:             auth,
 		ID:               id,
 		Name:             name,
 		LinkedIP:         linkedIP,
 		DedicatedIPs:     dedicatedIPs,
 		FilteringEnabled: ds.FilteringEnabled,
 	}, nil
+}
+
+// toInternal converts a protobuf auth settings structure to an internal one.
+// If x is nil, toInternal returns non-nil settings with enabled field set to
+// false.
+func (x *AuthenticationSettings) toInternal() (s *agd.AuthSettings, err error) {
+	if x == nil {
+		return &agd.AuthSettings{
+			Enabled:      false,
+			PasswordHash: agdpasswd.AllowAuthenticator{},
+		}, nil
+	}
+
+	ph, err := dohPasswordToInternal(x.DohPasswordHash)
+	if err != nil {
+		return nil, fmt.Errorf("password hash: %w", err)
+	}
+
+	return &agd.AuthSettings{
+		PasswordHash: ph,
+		Enabled:      true,
+		DoHAuthOnly:  x.DohAuthOnly,
+	}, nil
+}
+
+// dohPasswordToInternal converts a protobuf DoH password hash sum-type to an
+// internal one.
+func dohPasswordToInternal(
+	pbp isAuthenticationSettings_DohPasswordHash,
+) (p agdpasswd.Authenticator, err error) {
+	switch pbp := pbp.(type) {
+	case nil:
+		return agdpasswd.AllowAuthenticator{}, nil
+	case *AuthenticationSettings_PasswordHashBcrypt:
+		return agdpasswd.NewPasswordHashBcrypt(pbp.PasswordHashBcrypt), nil
+	default:
+		return nil, fmt.Errorf("bad pb auth doh password hash %T(%[1]v)", pbp)
+	}
 }
 
 // rulesToInternal is a helper that converts the filter rules from the backend

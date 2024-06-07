@@ -168,7 +168,7 @@ func (mw *Middleware) debugResponse(
 		state = "allowed"
 	case *filter.ResultBlocked:
 		state = "blocked"
-	case *filter.ResultModified:
+	case *filter.ResultModifiedResponse, *filter.ResultModifiedRequest:
 		state = "modified"
 	default:
 		// Consider unhandled sum type members as unrecoverable programmer

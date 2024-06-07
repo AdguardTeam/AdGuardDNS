@@ -1,6 +1,7 @@
 package errcoll
 
 import (
+	"cmp"
 	"context"
 	"io"
 	"net"
@@ -182,9 +183,11 @@ type sentryTags = map[string]string
 // tagsFromCtx returns Sentry tags based on the information from ctx.
 func tagsFromCtx(ctx context.Context) (tags sentryTags) {
 	tags = sentryTags{
+		// TODO(a.garipov):  Use a standard version package.
 		"git_revision": agd.Revision(),
 	}
 
+	// TODO(a.garipov):  Consider splitting agdctx package.
 	var reqID agd.RequestID
 	if ri, ok := agd.RequestInfoFromContext(ctx); ok {
 		tags["filtering_group_id"] = string(ri.FilteringGroup.ID)
@@ -228,9 +231,5 @@ func toASCII(s string) (ascii string) {
 	ascii = strconv.QuoteToASCII(s)
 	ascii = ascii[1 : len(ascii)-1]
 
-	if ascii == "" {
-		ascii = "(empty)"
-	}
-
-	return ascii
+	return cmp.Or(ascii, "(empty)")
 }

@@ -49,11 +49,23 @@ var (
 	}, []string{"subnet"})
 
 	// BindToDeviceUDPWriteRequestsChanSize is a gauge with the current number
-	// of UDP write requests in the buffer of the channel by each subnet.
+	// of UDP write requests in the buffer of the channel for each interface
+	// listener.
 	BindToDeviceUDPWriteRequestsChanSize = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name:      "udp_write_requests_chan_size",
 		Namespace: namespace,
 		Subsystem: subsystemBindToDevice,
 		Help:      "The current number of UDP write requests in the channel.",
-	}, []string{"subnet"})
+	}, []string{"name"})
+
+	// BindToDeviceUDPWriteDurationSeconds is a histogram of durations of UDP
+	// write operations.  This histogram includes only the write itself and does
+	// not include deadline setting and resetting.
+	BindToDeviceUDPWriteDurationSeconds = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:      "udp_write_duration_seconds",
+		Namespace: namespace,
+		Subsystem: subsystemBindToDevice,
+		Help:      "The duration of a write to a UDP socket.",
+		Buckets:   []float64{0.001, 0.01, 0.1, 1},
+	}, []string{"name"})
 )

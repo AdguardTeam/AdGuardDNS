@@ -19,7 +19,8 @@ func TestFileSystem_Write(t *testing.T) {
 	require.NoError(t, err)
 
 	l := querylog.NewFileSystem(&querylog.FileSystemConfig{
-		Path: f.Name(),
+		Path:     f.Name(),
+		RandSeed: 0,
 	})
 
 	ctx := context.Background()
@@ -53,6 +54,7 @@ func TestFileSystem_Write(t *testing.T) {
   "a":1234,
   "e":5,
   "q":1,
+  "rn":35121,
   "f":2,
   "s":1,
   "p":8,
@@ -89,6 +91,7 @@ func TestFileSystem_Write(t *testing.T) {
   "a":1234,
   "e":5,
   "q":1,
+  "rn":47387,
   "f":1,
   "s":1,
   "p":8,
@@ -106,7 +109,8 @@ func BenchmarkFileSystem_Write_file(b *testing.B) {
 	require.NoError(b, err)
 
 	l := querylog.NewFileSystem(&querylog.FileSystemConfig{
-		Path: f.Name(),
+		Path:     f.Name(),
+		RandSeed: 0,
 	})
 
 	e := testEntry()
@@ -114,7 +118,7 @@ func BenchmarkFileSystem_Write_file(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		errSink = l.Write(ctx, e)
 	}
 
@@ -126,5 +130,5 @@ func BenchmarkFileSystem_Write_file(b *testing.B) {
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/querylog
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkFileSystem_Write_file-16         244162              5000 ns/op             200 B/op       3 allocs/op
+	//	BenchmarkFileSystem_Write_file-16    	  152948	      7662 ns/op	     248 B/op	       5 allocs/op
 }

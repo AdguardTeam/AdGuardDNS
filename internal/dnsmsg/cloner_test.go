@@ -328,7 +328,7 @@ func BenchmarkClone(b *testing.B) {
 
 			b.ReportAllocs()
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				msgSink = dnsmsg.Clone(tc.msg)
 			}
 
@@ -372,7 +372,7 @@ func BenchmarkCloner_Clone(b *testing.B) {
 
 			b.ReportAllocs()
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for i := range b.N {
 				msgSink = c.Clone(tc.msg)
 				if i < b.N-1 {
 					// Don't dispose of the last one to be sure that we can

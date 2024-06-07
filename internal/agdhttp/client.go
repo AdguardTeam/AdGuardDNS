@@ -34,22 +34,18 @@ func NewClient(conf *ClientConfig) (c *Client) {
 	}
 }
 
-// Get is a wrapper around http.Client.Get.
+// Get is a wrapper around [http.Client.Get].
 //
 // When err is nil, resp always contains a non-nil resp.Body.  Caller should
 // close resp.Body when done reading from it.
-//
-// See also go doc http.Client.Get.
 func (c *Client) Get(ctx context.Context, u *url.URL) (resp *http.Response, err error) {
 	return c.do(ctx, http.MethodGet, u, "", nil)
 }
 
-// Post is a wrapper around http.Client.Post.
+// Post is a wrapper around [http.Client.Post].
 //
 // When err is nil, resp always contains a non-nil resp.Body.  Caller should
 // close resp.Body when done reading from it.
-//
-// See also go doc http.Client.Post.
 func (c *Client) Post(
 	ctx context.Context,
 	u *url.URL,
@@ -59,7 +55,7 @@ func (c *Client) Post(
 	return c.do(ctx, http.MethodPost, u, contentType, body)
 }
 
-// Put is a wrapper around http.Client.Do.
+// Put is a wrapper around [http.Client.Put].
 //
 // When err is nil, resp always contains a non-nil resp.Body.  Caller should
 // close resp.Body when done reading from it.
@@ -72,7 +68,7 @@ func (c *Client) Put(
 	return c.do(ctx, http.MethodPut, u, contentType, body)
 }
 
-// do is a wrapper around http.Client.Do.
+// do is a wrapper around [http.Client.Do].
 func (c *Client) do(
 	ctx context.Context,
 	method string,
@@ -98,7 +94,8 @@ func (c *Client) do(
 
 	resp, err = c.http.Do(req)
 	if err != nil && resp != nil && resp.Header != nil {
-		// A non-nil Response with a non-nil error only occurs when CheckRedirect fails.
+		// A non-nil Response with a non-nil error only occurs when
+		// CheckRedirect fails.
 		return resp, WrapServerError(err, resp)
 	}
 

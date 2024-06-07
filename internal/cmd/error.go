@@ -16,24 +16,6 @@ func check(err error) {
 	}
 }
 
-// coalesceError returns the first non-nil error.  It is named after function
-// COALESCE in SQL.  If all errors are nil, it returns nil.
-//
-// TODO(a.garipov): Consider a similar helper to group errors together to show
-// as many errors as possible.
-//
-// TODO(a.garipov): Think of ways to merge with [aghalg.Coalesce] in AdGuard
-// Home.
-func coalesceError(errors ...error) (res error) {
-	for _, err := range errors {
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 // numberOrDuration is the constraint for integer types along with
 // timeutil.Duration.
 type numberOrDuration interface {

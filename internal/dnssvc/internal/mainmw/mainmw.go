@@ -26,17 +26,15 @@ import (
 
 // Middleware is the main middleware of AdGuard DNS.
 type Middleware struct {
-	messages        *dnsmsg.Constructor
-	cloner          *dnsmsg.Cloner
-	fltCtxPool      *syncutil.Pool[filteringContext]
-	billStat        billstat.Recorder
-	errColl         errcoll.Interface
-	fltStrg         filter.Storage
-	geoIP           geoip.Interface
-	queryLog        querylog.Interface
-	ruleStat        rulestat.Interface
-	researchMetrics bool
-	researchLogs    bool
+	messages   *dnsmsg.Constructor
+	cloner     *dnsmsg.Cloner
+	fltCtxPool *syncutil.Pool[filteringContext]
+	billStat   billstat.Recorder
+	errColl    errcoll.Interface
+	fltStrg    filter.Storage
+	geoIP      geoip.Interface
+	queryLog   querylog.Interface
+	ruleStat   rulestat.Interface
 }
 
 // Config is the configuration structure for the main middleware.  All fields
@@ -72,17 +70,6 @@ type Config struct {
 	// RuleStat is used to collect statistics about matched filtering rules and
 	// rule lists.
 	RuleStat rulestat.Interface
-
-	// ResearchLogs controls whether logging of additional info for research
-	// purposes is enabled.  These logs may be overly verbose and are only
-	// required temporary, that's why it's controlled by a separate setting.
-	// This setting will only be used when ResearchMetrics is also set to true.
-	ResearchLogs bool
-
-	// ResearchMetrics controls whether research metrics are enabled or not.
-	// This is a set of metrics that we may need temporary, so its collection is
-	// controlled by a separate setting.
-	ResearchMetrics bool
 }
 
 // New returns a new main middleware.  c must not be nil.
@@ -90,17 +77,15 @@ func New(c *Config) (mw *Middleware) {
 	return &Middleware{
 		messages: c.Messages,
 		cloner:   c.Cloner,
-		fltCtxPool: syncutil.NewPool[filteringContext](func() (v *filteringContext) {
+		fltCtxPool: syncutil.NewPool(func() (v *filteringContext) {
 			return &filteringContext{}
 		}),
-		billStat:        c.BillStat,
-		errColl:         c.ErrColl,
-		fltStrg:         c.FilterStorage,
-		geoIP:           c.GeoIP,
-		queryLog:        c.QueryLog,
-		ruleStat:        c.RuleStat,
-		researchMetrics: c.ResearchMetrics,
-		researchLogs:    c.ResearchLogs,
+		billStat: c.BillStat,
+		errColl:  c.ErrColl,
+		fltStrg:  c.FilterStorage,
+		geoIP:    c.GeoIP,
+		queryLog: c.QueryLog,
+		ruleStat: c.RuleStat,
 	}
 }
 
@@ -215,13 +200,13 @@ func (mw *Middleware) reportMetrics(fctx *filteringContext, ri *agd.RequestInfo)
 		asn = strconv.FormatUint(uint64(l.ASN), 10)
 	}
 
-	// Here and below stick to using WithLabelValues instead of With in order
-	// to avoid extra allocations on prometheus.Labels.
+	// Here and below stick to using WithLabelValues instead of With in order to
+	// avoid extra allocations on prometheus.Labels.
 
 	metrics.DNSSvcRequestByCountryTotal.WithLabelValues(cont, ctry).Inc()
 	metrics.DNSSvcRequestByASNTotal.WithLabelValues(ctry, asn).Inc()
 
-	id, _, isBlocked := filteringData(fctx)
+	id, _, _ := filteringData(fctx)
 	metrics.DNSSvcRequestByFilterTotal.WithLabelValues(
 		string(id),
 		metrics.BoolString(ri.Profile == nil),
@@ -229,56 +214,6 @@ func (mw *Middleware) reportMetrics(fctx *filteringContext, ri *agd.RequestInfo)
 
 	metrics.DNSSvcFilteringDuration.Observe(fctx.elapsed.Seconds())
 	metrics.DNSSvcUsersCountUpdate(ri.RemoteIP)
-
-	if mw.researchMetrics {
-		reportResearchMetrics(ri, fctx.originalResponse, id, isBlocked, mw.researchLogs)
-	}
-}
-
-// reportResearchMetrics reports research metrics to prometheus.
-func reportResearchMetrics(
-	ri *agd.RequestInfo,
-	origResp *dns.Msg,
-	fltID agd.FilterListID,
-	isBlocked bool,
-	researchLogs bool,
-) {
-	filteringEnabled := ri.FilteringGroup != nil &&
-		ri.FilteringGroup.RuleListsEnabled &&
-		len(ri.FilteringGroup.RuleListIDs) > 0
-
-	// The current research metrics only count queries that come to public DNS
-	// servers where filtering is enabled.
-	if !filteringEnabled || ri.Profile != nil {
-		return
-	}
-
-	var ctry string
-	var subdiv string
-	if l := ri.Location; l != nil {
-		if l.ASN == 212772 {
-			// Ignore AdGuard ASN specifically in order to avoid counting
-			// queries that come from the monitoring.  This part is ugly, but
-			// since these metrics are a one-time deal, this is acceptable.
-			//
-			// TODO(ameshkov): Think of a better way later if we need to do that
-			// again.
-			return
-		}
-
-		ctry = string(l.Country)
-		subdiv = l.TopSubdivision
-	}
-
-	metrics.ReportResearch(&metrics.ResearchData{
-		OriginalResponse: origResp,
-		FilterID:         string(fltID),
-		Country:          ctry,
-		TopSubdivision:   subdiv,
-		Host:             ri.Host,
-		QType:            ri.QType,
-		Blocked:          isBlocked,
-	}, researchLogs)
 }
 
 // reportf is a helper method for reporting non-critical errors.

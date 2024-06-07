@@ -143,7 +143,7 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 		name:    "request_result_modified",
 		domain:  dnssvctest.DomainRewrittenFQDN,
 		reqInfo: defaultReqInfo,
-		reqRes: &filter.ResultModified{
+		reqRes: &filter.ResultModifiedRequest{
 			Rule: rewriteRule,
 			Msg: dnsservertest.NewReq(
 				dnssvctest.DomainRewrittenCNAMEFQDN,

@@ -113,9 +113,7 @@ func SubtestListenControlTCP(
 	ifaceName string,
 	ifaceNet *net.IPNet,
 ) {
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	t.Cleanup(cancel)
-
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
 	lsnr, err := lc.Listen(ctx, "tcp", "0.0.0.0:0")
 	require.NoError(t, err)
 	testutil.CleanupAndRequireSuccess(t, lsnr.Close)
@@ -194,9 +192,7 @@ func SubtestListenControlUDP(
 	ifaceName string,
 	ifaceNet *net.IPNet,
 ) {
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	t.Cleanup(cancel)
-
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
 	packetConn, err := lc.ListenPacket(ctx, "udp", "0.0.0.0:0")
 	require.NoError(t, err)
 	testutil.CleanupAndRequireSuccess(t, packetConn.Close)
@@ -528,7 +524,7 @@ func BenchmarkReadPacketSession(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		sessSink, errSink = readPacketSession(c, body, oob)
 	}
 

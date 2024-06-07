@@ -22,6 +22,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/accessmw"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/devicesetter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/initial"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/mainmw"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/preservice"
@@ -147,17 +148,6 @@ type Config struct {
 	// ProfileDBEnabled is true, if user devices and profiles recognition is
 	// enabled.
 	ProfileDBEnabled bool
-
-	// ResearchMetrics controls whether research metrics are enabled or not.
-	// This is a set of metrics that we may need temporary, so its collection is
-	// controlled by a separate setting.
-	ResearchMetrics bool
-
-	// ResearchLogs controls whether logging of additional info for research
-	// purposes is enabled.  These logs may be overly verbose and are only
-	// required temporary, that's why it's controlled by a separate setting.
-	// This setting will only be used when ResearchMetrics is also set to true.
-	ResearchLogs bool
 }
 
 // New returns a new DNS service.
@@ -208,16 +198,14 @@ func New(c *Config) (svc *Service, err error) {
 				Checker:     c.DNSCheck,
 			}),
 			mainmw.New(&mainmw.Config{
-				Messages:        c.Messages,
-				Cloner:          c.Cloner,
-				BillStat:        c.BillStat,
-				ErrColl:         c.ErrColl,
-				FilterStorage:   c.FilterStorage,
-				GeoIP:           c.GeoIP,
-				QueryLog:        c.QueryLog,
-				RuleStat:        c.RuleStat,
-				ResearchMetrics: c.ResearchMetrics,
-				ResearchLogs:    c.ResearchLogs,
+				Messages:      c.Messages,
+				Cloner:        c.Cloner,
+				BillStat:      c.BillStat,
+				ErrColl:       c.ErrColl,
+				FilterStorage: c.FilterStorage,
+				GeoIP:         c.GeoIP,
+				QueryLog:      c.QueryLog,
+				RuleStat:      c.RuleStat,
 			}),
 		)
 
@@ -426,8 +414,8 @@ func NewListener(
 		})
 	case agd.ProtoDoQ:
 		l = dnsserver.NewServerQUIC(dnsserver.ConfigQUIC{
-			ConfigBase:        baseConf,
 			TLSConfig:         s.TLS,
+			ConfigBase:        baseConf,
 			MaxStreamsPerPeer: quicConf.MaxStreamsPerPeer,
 			QUICLimitsEnabled: quicConf.QUICLimitsEnabled,
 		})
@@ -516,14 +504,13 @@ func newServers(
 		})
 
 		imw := initial.New(&initial.Config{
-			Messages:         c.Messages,
-			FilteringGroup:   fg,
-			ServerGroup:      srvGrp,
-			Server:           s,
-			ProfileDB:        c.ProfileDB,
-			GeoIP:            c.GeoIP,
-			ErrColl:          c.ErrColl,
-			ProfileDBEnabled: c.ProfileDBEnabled,
+			Messages:       c.Messages,
+			FilteringGroup: fg,
+			ServerGroup:    srvGrp,
+			Server:         s,
+			DeviceSetter:   newDeviceSetter(c, srvGrp, s),
+			GeoIP:          c.GeoIP,
+			ErrColl:        c.ErrColl,
 		})
 
 		h := dnsserver.WithMiddlewares(
@@ -551,6 +538,20 @@ func newServers(
 	}
 
 	return servers, nil
+}
+
+// newDeviceSetter returns a new [devicesetter.Interface] for a server based on
+// the configuration.
+func newDeviceSetter(c *Config, g *agd.ServerGroup, s *agd.Server) (ds devicesetter.Interface) {
+	if !c.ProfileDBEnabled {
+		return devicesetter.Empty{}
+	}
+
+	return devicesetter.NewDefault(&devicesetter.Config{
+		ProfileDB:         c.ProfileDB,
+		Server:            s,
+		DeviceIDWildcards: g.TLS.DeviceIDWildcards,
+	})
 }
 
 // newServers creates a slice of listeners for a server.

@@ -66,7 +66,7 @@ func TestMiddleware_setFilteredResponse(t *testing.T) {
 		name:    "blocked_req",
 		wantTTL: fltRespTTL,
 	}, {
-		reqRes:  &filter.ResultModified{Msg: rewrResp},
+		reqRes:  &filter.ResultModifiedResponse{Msg: rewrResp},
 		respRes: nil,
 		wantIP:  rewrIP,
 		name:    "modified_req",
@@ -82,12 +82,6 @@ func TestMiddleware_setFilteredResponse(t *testing.T) {
 		respRes: &filter.ResultBlocked{},
 		wantIP:  blockIP,
 		name:    "blocked_resp",
-		wantTTL: fltRespTTL,
-	}, {
-		reqRes:  nil,
-		respRes: &filter.ResultModified{Msg: rewrResp},
-		wantIP:  rewrIP,
-		name:    "modified_resp",
 		wantTTL: fltRespTTL,
 	}}
 
@@ -123,4 +117,20 @@ func TestMiddleware_setFilteredResponse(t *testing.T) {
 			assert.Equal(t, net.IP(tc.wantIP.AsSlice()), a.A)
 		})
 	}
+
+	t.Run("modified_resp", func(t *testing.T) {
+		wantPanicMsg := (&agd.ArgumentError{
+			Name:    "respRes",
+			Message: fmt.Sprintf("unexpected type %T", &filter.ResultModifiedResponse{}),
+		}).Error()
+
+		assert.PanicsWithError(t, wantPanicMsg, func() {
+			fctx := &filteringContext{
+				requestResult:  nil,
+				responseResult: &filter.ResultModifiedResponse{Msg: rewrResp},
+			}
+
+			mw.setFilteredResponse(context.Background(), fctx, ri)
+		})
+	})
 }

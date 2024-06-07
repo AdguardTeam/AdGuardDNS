@@ -40,7 +40,7 @@ func TestRateLimiterMetricsListener_integration_cache(t *testing.T) {
 	)
 
 	// Pass 10 requests through the middleware.
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		ctx := dnsserver.ContextWithServerInfo(context.Background(), testServerInfo)
 		ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
 			StartTime: time.Now(),
@@ -73,7 +73,7 @@ func BenchmarkRateLimitMetricsListener(b *testing.B) {
 	b.Run("OnAllowlisted", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			l.OnAllowlisted(ctx, req, rw)
 		}
 	})
@@ -81,7 +81,7 @@ func BenchmarkRateLimitMetricsListener(b *testing.B) {
 	b.Run("OnRateLimited", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			l.OnRateLimited(ctx, req, rw)
 		}
 	})

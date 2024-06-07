@@ -12,6 +12,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/mapsutil"
@@ -84,7 +85,7 @@ func (m *Manager) Add(id ID, ifaceName string, port uint16, ctrlConf *ControlCon
 		return nil
 	}
 
-	err = mapsutil.OrderedRangeError(m.ifaceListeners, validateDup)
+	err = mapsutil.SortedRangeError(m.ifaceListeners, validateDup)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return err
@@ -109,15 +110,17 @@ func (m *Manager) newInterfaceListener(
 	port uint16,
 ) (l *interfaceListener) {
 	return &interfaceListener{
-		conns:         &connIndex{},
-		listenConf:    newListenConfig(ifaceName, ctrlConf),
-		bodyPool:      syncutil.NewSlicePool[byte](bodySize),
-		oobPool:       syncutil.NewSlicePool[byte](netext.IPDstOOBSize),
-		writeRequests: make(chan *packetConnWriteReq, m.chanBufSize),
-		done:          m.done,
-		errColl:       m.errColl,
-		ifaceName:     ifaceName,
-		port:          port,
+		conns:              &connIndex{},
+		listenConf:         newListenConfig(ifaceName, ctrlConf),
+		bodyPool:           syncutil.NewSlicePool[byte](bodySize),
+		oobPool:            syncutil.NewSlicePool[byte](netext.IPDstOOBSize),
+		writeRequests:      make(chan *packetConnWriteReq, m.chanBufSize),
+		done:               m.done,
+		errColl:            m.errColl,
+		writeRequestsGauge: metrics.BindToDeviceUDPWriteRequestsChanSize.WithLabelValues(ifaceName),
+		writeDurationHist:  metrics.BindToDeviceUDPWriteDurationSeconds.WithLabelValues(ifaceName),
+		ifaceName:          ifaceName,
+		port:               port,
 	}
 }
 
@@ -159,11 +162,17 @@ func (m *Manager) ListenConfig(id ID, subnet netip.Prefix) (c *ListenConfig, err
 	}
 
 	sessCh := make(chan *packetSession, m.chanBufSize)
-	pConn := newChanPacketConn(sessCh, subnet, l.writeRequests, &agdnet.PrefixNetAddr{
-		Prefix: subnet,
-		Net:    "udp",
-		Port:   l.port,
-	})
+	pConn := newChanPacketConn(
+		sessCh,
+		subnet,
+		l.writeRequests,
+		l.writeRequestsGauge,
+		&agdnet.PrefixNetAddr{
+			Prefix: subnet,
+			Net:    "udp",
+			Port:   l.port,
+		},
+	)
 
 	err = l.conns.addPacketConn(pConn)
 	if err != nil {

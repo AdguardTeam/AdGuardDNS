@@ -99,6 +99,9 @@ type ServerQUIC struct {
 	// quicListener is a listener that we use to accept DoQ connections.
 	quicListener *quic.Listener
 
+	// transport is the QUIC transport saved here to close it later.
+	transport *quic.Transport
+
 	// TODO(a.garipov): Remove this and only save the values a server actually
 	// uses.
 	conf ConfigQUIC
@@ -208,11 +211,16 @@ func (s *ServerQUIC) shutdown() (err error) {
 	// First, mark it as stopped
 	s.started = false
 
-	// Now close all listeners
+	// Now close all listeners.
 	err = s.quicListener.Close()
 	if err != nil {
-		// Log this error but do not return it
-		log.Debug("[%s]: Failed to close QUIC listener: %v", s.Name(), err)
+		log.Debug("[%s]: closing quic listener: %s", s.Name(), err)
+	}
+
+	// And the transport.
+	err = s.transport.Close()
+	if err != nil {
+		log.Debug("[%s]: closing quic transport: %s", s.Name(), err)
 	}
 
 	return nil
@@ -317,7 +325,7 @@ func (s *ServerQUIC) serveQUICConnAsync(
 	}
 }
 
-// serveQUICConn handles a new QUIC connection. It waits for new streams and
+// serveQUICConn handles a new QUIC connection.  It waits for new streams and
 // passes them to serveQUICStream.
 func (s *ServerQUIC) serveQUICConn(ctx context.Context, conn quic.Connection) (err error) {
 	streamWg := &sync.WaitGroup{}
@@ -387,7 +395,7 @@ func (s *ServerQUIC) serveQUICConn(ctx context.Context, conn quic.Connection) (e
 }
 
 // serveQUICStreamAsync wraps serveQUICStream call and handles all possible
-// errors that might happen there. It also makes sure that the WaitGroup will
+// errors that might happen there.  It also makes sure that the WaitGroup will
 // be decremented.
 func (s *ServerQUIC) serveQUICStreamAsync(
 	ctx context.Context,
@@ -552,21 +560,25 @@ func readAll(r io.Reader, buf []byte) (n int, err error) {
 func (s *ServerQUIC) listenQUIC(ctx context.Context) (err error) {
 	conn, err := s.listenConfig.ListenPacket(ctx, "udp", s.addr)
 	if err != nil {
-		return err
+		return fmt.Errorf("listening udp for quic: %w", err)
 	}
 
-	qConf := newServerQUICConfig(s.metrics, s.conf.QUICLimitsEnabled, s.conf.MaxStreamsPerPeer)
+	v := newQUICAddrValidator(quicAddrValidatorCacheSize, s.metrics, quicAddrValidatorCacheTTL)
+	transport := &quic.Transport{
+		Conn:                conn,
+		VerifySourceAddress: v.requiresValidation,
+	}
 
-	// Do not change to quic.ListenEarly, see quicNotEarlyListener to know why.
-	ql, err := quic.Listen(conn, s.conf.TLSConfig, qConf)
+	qConf := newServerQUICConfig(s.conf.QUICLimitsEnabled, s.conf.MaxStreamsPerPeer)
+	ql, err := transport.Listen(s.conf.TLSConfig, qConf)
 	if err != nil {
-		return err
+		return fmt.Errorf("listening quic: %w", err)
 	}
 
 	// Save this for s.LocalUDPAddr.  Do not close it separately as ql closes
 	// the underlying connection.
 	s.udpListener = conn
-
+	s.transport = transport
 	s.quicListener = ql
 
 	return nil
@@ -681,12 +693,9 @@ func closeQUICConn(conn quic.Connection, code quic.ApplicationErrorCode) {
 // newServerQUICConfig creates *quic.Config populated with the default settings.
 // This function is supposed to be used for both DoQ and DoH3 server.
 func newServerQUICConfig(
-	metrics MetricsListener,
 	quicLimitsEnabled bool,
 	maxStreamsPerPeer int,
 ) (conf *quic.Config) {
-	v := newQUICAddrValidator(quicAddrValidatorCacheSize, metrics, quicAddrValidatorCacheTTL)
-
 	maxIncStreams := quicDefaultMaxStreamsPerPeer
 	maxIncUniStreams := quicDefaultMaxStreamsPerPeer
 	if quicLimitsEnabled {
@@ -695,10 +704,9 @@ func newServerQUICConfig(
 	}
 
 	return &quic.Config{
-		MaxIdleTimeout:           maxQUICIdleTimeout,
-		MaxIncomingStreams:       int64(maxIncStreams),
-		MaxIncomingUniStreams:    int64(maxIncUniStreams),
-		RequireAddressValidation: v.requiresValidation,
+		MaxIdleTimeout:        maxQUICIdleTimeout,
+		MaxIncomingStreams:    int64(maxIncStreams),
+		MaxIncomingUniStreams: int64(maxIncUniStreams),
 		// Enable 0-RTT by default for all addresses, it's beneficial for the
 		// performance.
 		Allow0RTT: true,
@@ -727,7 +735,7 @@ func newQUICAddrValidator(
 }
 
 // requiresValidation determines if a QUIC Retry packet should be sent by the
-// client. This allows the server to verify the client's address but increases
+// client.  This allows the server to verify the client's address but increases
 // the latency.
 //
 // TODO(ameshkov): consider caddy-like implementation here.

@@ -33,6 +33,17 @@ func NewConstructor(cloner *Cloner, bm BlockingMode, respTTL time.Duration) (c *
 	}
 }
 
+// Cloner returns the constructor's Cloner.
+func (c *Constructor) Cloner() (cloner *Cloner) {
+	return c.cloner
+}
+
+// FilteredResponseTTL returns the TTL that the constructor uses to build
+// blocked responses.
+func (c *Constructor) FilteredResponseTTL() (ttl time.Duration) {
+	return c.fltRespTTL
+}
+
 // NewBlockedRespMsg returns a blocked DNS response message based on the
 // constructor's blocking mode.
 func (c *Constructor) NewBlockedRespMsg(req *dns.Msg) (msg *dns.Msg, err error) {
@@ -65,12 +76,12 @@ func (c *Constructor) newBlockedCustomIPRespMsg(
 ) (msg *dns.Msg, err error) {
 	switch qt := req.Question[0].Qtype; qt {
 	case dns.TypeA:
-		if m.IPv4.IsValid() {
-			return c.NewIPRespMsg(req, m.IPv4)
+		if len(m.IPv4) > 0 {
+			return c.NewIPRespMsg(req, m.IPv4...)
 		}
 	case dns.TypeAAAA:
-		if m.IPv6.IsValid() {
-			return c.NewIPRespMsg(req, m.IPv6)
+		if len(m.IPv6) > 0 {
+			return c.NewIPRespMsg(req, m.IPv6...)
 		}
 	default:
 		// Go on.
@@ -202,7 +213,7 @@ func (c *Constructor) AppendDebugExtra(req, resp *dns.Msg, str string) (err erro
 
 	// TODO(a.garipov): Use slices.Chunk in Go 1.23.
 	newStr := make([]string, strNum)
-	for i := 0; i < strNum; i++ {
+	for i := range strNum {
 		start := i * MaxTXTStringLen
 
 		var cutStr string

@@ -26,8 +26,6 @@ sensitive configuration.  All other configuration is stored in the
  *  [`PROFILES_ENABLED`](#PROFILES_ENABLED)
  *  [`PROFILES_URL`](#PROFILES_URL)
  *  [`QUERYLOG_PATH`](#QUERYLOG_PATH)
- *  [`RESEARCH_LOGS`](#RESEARCH_LOGS)
- *  [`RESEARCH_METRICS`](#RESEARCH_METRICS)
  *  [`RULESTAT_URL`](#RULESTAT_URL)
  *  [`SAFE_BROWSING_URL`](#SAFE_BROWSING_URL)
  *  [`SENTRY_DSN`](#SENTRY_DSN)
@@ -261,25 +259,6 @@ URLs.  See the [external API requirements section][ext-profiles].
 The path to the file into which the query log is going to be written.
 
 **Default:** `./querylog.jsonl`.
-
-
-
-##  <a href="#RESEARCH_METRICS" id="RESEARCH_METRICS" name="RESEARCH_METRICS">`RESEARCH_METRICS`</a>
-
-If `1`, enable collection of a set of special prometheus metrics (prefix is
-`dns_research`).  If `0`, disable collection of those metrics.
-
-**Default:** `0`.
-
-
-
-##  <a href="#RESEARCH_LOGS" id="RESEARCH_LOGS" name="RESEARCH_LOGS">`RESEARCH_LOGS`</a>
-
-If `1`, enable logging of additional info that may be required for research
-purposes (prefix `research:`).  The log will only be written when
-`RESEARCH_METRICS` is also set to `1`.  If `0`, disable logging of this info.
-
-**Default:** `0`.
 
 
 

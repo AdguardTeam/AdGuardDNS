@@ -12,8 +12,6 @@ import (
 	cache "github.com/patrickmn/go-cache"
 )
 
-// Backoff Rate Limiter
-
 // BackoffConfig is the configuration structure for a backoff rate limiter.
 type BackoffConfig struct {
 	// Allowlist defines which IP networks are excluded from rate limiting.
@@ -158,9 +156,8 @@ func validateAddr(addr netip.Addr) (err error) {
 
 // CountResponses implements the Interface interface for *Backoff.
 func (l *Backoff) CountResponses(ctx context.Context, resp *dns.Msg, ip netip.Addr) {
-	respLimit := l.respSzEst
-	respSize := resp.Len()
-	for i := 0; i < respSize/respLimit; i++ {
+	estRespNum := resp.Len() / l.respSzEst
+	for range estRespNum {
 		_, _, _ = l.IsRateLimited(ctx, resp, ip)
 	}
 }

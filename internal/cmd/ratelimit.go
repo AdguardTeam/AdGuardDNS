@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/url"
@@ -88,7 +89,7 @@ func (o *rateLimitOptions) validate() (err error) {
 		return errNilConfig
 	}
 
-	return coalesceError(
+	return cmp.Or(
 		validatePositive("rps", o.RPS),
 		validatePositive("subnet_key_len", o.SubnetKeyLen),
 	)
@@ -120,7 +121,7 @@ func (c *rateLimitConfig) validate() (err error) {
 		return fmt.Errorf("allowlist: %w", errNilConfig)
 	}
 
-	return coalesceError(
+	return cmp.Or(
 		validateProp("connection_limit", c.ConnectionLimit.validate),
 		validateProp("ipv4", c.IPv4.validate),
 		validateProp("ipv6", c.IPv6.validate),
@@ -144,20 +145,18 @@ func setupRateLimiter(
 ) (rateLimiter *ratelimit.Backoff, connLimiter *connlimiter.Limiter, err error) {
 	allowSubnets := netutil.UnembedPrefixes(conf.Allowlist.List)
 	allowlist := ratelimit.NewDynamicAllowlist(allowSubnets, nil)
-	refresher, err := consul.NewAllowlistRefresher(allowlist, consulAllowlist)
+	refresher, err := consul.NewAllowlistRefresher(allowlist, consulAllowlist, errColl)
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating allowlist refresher: %w", err)
 	}
 
 	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
-		Context:             ctxWithDefaultTimeout,
-		Refresher:           refresher,
-		ErrColl:             errColl,
-		Name:                "allowlist",
-		Interval:            conf.Allowlist.RefreshIvl.Duration,
-		RefreshOnShutdown:   false,
-		RoutineLogsAreDebug: false,
-		RandomizeStart:      false,
+		Context:           ctxWithDefaultTimeout,
+		Refresher:         refresher,
+		Name:              "allowlist",
+		Interval:          conf.Allowlist.RefreshIvl.Duration,
+		RefreshOnShutdown: false,
+		RandomizeStart:    false,
 	})
 
 	err = refr.Start(context.Background())

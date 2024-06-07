@@ -9,6 +9,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,32 +64,30 @@ func TestHandler_Refresh(t *testing.T) {
 	req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
 	rw := dnsserver.NewNonWriterResponseWriter(fallback.LocalUDPAddr(), fallback.LocalUDPAddr())
 
-	ctx := context.Background()
-
-	err := handler.ServeDNS(newTimeoutCtx(t, ctx), rw, req)
+	err := handler.ServeDNS(testutil.ContextWithTimeout(t, testTimeout), rw, req)
 	require.Error(t, err)
 	assert.Equal(t, int64(2), upstreamRequestsCount.Load())
 
-	err = handler.Refresh(newTimeoutCtx(t, ctx))
+	err = handler.Refresh(testutil.ContextWithTimeout(t, testTimeout))
 	require.Error(t, err)
 	assert.Equal(t, int64(4), upstreamRequestsCount.Load())
 
-	err = handler.ServeDNS(newTimeoutCtx(t, ctx), rw, req)
+	err = handler.ServeDNS(testutil.ContextWithTimeout(t, testTimeout), rw, req)
 	require.NoError(t, err)
 	assert.Equal(t, int64(4), upstreamRequestsCount.Load())
 
 	// Now, set upstream up.
 	upstreamIsUp.Store(true)
 
-	err = handler.ServeDNS(newTimeoutCtx(t, ctx), rw, req)
+	err = handler.ServeDNS(testutil.ContextWithTimeout(t, testTimeout), rw, req)
 	require.NoError(t, err)
 	assert.Equal(t, int64(4), upstreamRequestsCount.Load())
 
-	err = handler.Refresh(newTimeoutCtx(t, ctx))
+	err = handler.Refresh(testutil.ContextWithTimeout(t, testTimeout))
 	require.NoError(t, err)
 	assert.Equal(t, int64(5), upstreamRequestsCount.Load())
 
-	err = handler.ServeDNS(newTimeoutCtx(t, ctx), rw, req)
+	err = handler.ServeDNS(testutil.ContextWithTimeout(t, testTimeout), rw, req)
 	require.NoError(t, err)
 	assert.Equal(t, int64(6), upstreamRequestsCount.Load())
 }

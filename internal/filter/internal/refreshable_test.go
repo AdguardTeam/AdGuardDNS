@@ -1,7 +1,6 @@
 package internal_test
 
 import (
-	"context"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -118,9 +117,7 @@ func TestRefreshable_Refresh(t *testing.T) {
 
 			f := internal.NewRefreshable(c)
 
-			ctx, cancel := context.WithTimeout(context.Background(), filtertest.Timeout)
-			t.Cleanup(cancel)
-
+			ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 			gotText, err := f.Refresh(ctx, tc.acceptStale)
 			if tc.expectReq {
 				testutil.RequireReceive(t, reqCh, filtertest.Timeout)
@@ -171,11 +168,9 @@ func TestRefreshable_Refresh_properStaleness(t *testing.T) {
 
 	f := internal.NewRefreshable(c)
 
-	ctx, cancel := context.WithTimeout(context.Background(), filtertest.Timeout)
-	t.Cleanup(cancel)
-
 	var err error
 	var now time.Time
+	ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 	go func() {
 		<-reqCh
 		now = time.Now()

@@ -60,8 +60,6 @@ type environments struct {
 	LogTimestamp    strictBool `env:"LOG_TIMESTAMP" envDefault:"1"`
 	LogVerbose      strictBool `env:"VERBOSE" envDefault:"0"`
 	ProfilesEnabled strictBool `env:"PROFILES_ENABLED" envDefault:"1"`
-	ResearchMetrics strictBool `env:"RESEARCH_METRICS" envDefault:"0"`
-	ResearchLogs    strictBool `env:"RESEARCH_LOGS" envDefault:"0"`
 }
 
 // readEnvs reads the configuration.
@@ -117,9 +115,7 @@ func (envs *environments) buildErrColl() (errColl errcoll.Interface, err error) 
 }
 
 // geoIP returns an GeoIP database implementation from environment.
-func (envs *environments) geoIP(
-	c *geoIPConfig,
-) (g *geoip.File, err error) {
+func (envs *environments) geoIP(c *geoIPConfig) (g *geoip.File, err error) {
 	log.Debug("using geoip files %q and %q", envs.GeoIPASNPath, envs.GeoIPCountryPath)
 
 	g, err = geoip.NewFile(&geoip.FileConfig{
@@ -180,19 +176,18 @@ func (envs *environments) buildRuleStat(
 	}
 
 	httpRuleStat := rulestat.NewHTTP(&rulestat.HTTPConfig{
-		URL: &envs.RuleStatURL.URL,
+		ErrColl: errColl,
+		URL:     &envs.RuleStatURL.URL,
 	})
 
 	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
 		Context:   ctxWithDefaultTimeout,
 		Refresher: httpRuleStat,
-		ErrColl:   errColl,
 		Name:      "rulestat",
 		// TODO(ameshkov): Consider making configurable.
-		Interval:            10 * time.Minute,
-		RefreshOnShutdown:   true,
-		RoutineLogsAreDebug: false,
-		RandomizeStart:      false,
+		Interval:          10 * time.Minute,
+		RefreshOnShutdown: true,
+		RandomizeStart:    false,
 	})
 	err = refr.Start(context.Background())
 	if err != nil {

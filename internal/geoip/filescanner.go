@@ -9,8 +9,6 @@ import (
 	"github.com/oschwald/maxminddb-golang"
 )
 
-// GeoIP Database File Scanning
-
 // helper constants for filtering the country subnets based on recommendations
 // from RFC 6177, https://developers.google.com/speed/public-dns/docs/ecs,
 // and our experience with ECS.
@@ -92,7 +90,7 @@ func (f *File) resetLocationSubnets(asn, country *maxminddb.Reader) (ipv4, ipv6 
 			return nil, nil, err
 		}
 
-		if _, ok := f.allTopASNs[key.asn]; !ok {
+		if !f.allTopASNs.Has(key.asn) {
 			continue
 		}
 

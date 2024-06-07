@@ -11,6 +11,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
@@ -64,13 +65,13 @@ func TestHTTP_Collect(t *testing.T) {
 		h := rulestat.NewHTTP(conf)
 
 		t.Run(tc.name, func(t *testing.T) {
+			ctx := testutil.ContextWithTimeout(t, testTimeout)
 			for _, rule := range tc.rules {
-				h.Collect(context.Background(), rulestat.StatFilterListID, rule)
+				h.Collect(ctx, agd.FilterListIDAdGuardDNS, rule)
 			}
 
 			// Use the context different from the above one.
-			ctx := context.Background()
-			err := h.Refresh(ctx)
+			err := h.Refresh(testutil.ContextWithTimeout(t, testTimeout))
 			require.NoError(t, err)
 
 			assert.JSONEq(t, tc.want, b.String())
@@ -83,12 +84,19 @@ func TestHTTP_Refresh_errors(t *testing.T) {
 		const wantErrMsg = `uploading filter stats: Post "badscheme://0.0.0.0": ` +
 			`unsupported protocol scheme "badscheme"`
 
-		h := rulestat.NewHTTP(&rulestat.HTTPConfig{URL: &url.URL{
-			Scheme: "badscheme",
-			Host:   "0.0.0.0",
-		}})
+		h := rulestat.NewHTTP(&rulestat.HTTPConfig{
+			ErrColl: &agdtest.ErrorCollector{
+				OnCollect: func(_ context.Context, err error) {
+					testutil.AssertErrorMsg(t, "rulestat_refresh: "+wantErrMsg, err)
+				},
+			},
+			URL: &url.URL{
+				Scheme: "badscheme",
+				Host:   "0.0.0.0",
+			},
+		})
 
-		err := h.Refresh(context.Background())
+		err := h.Refresh(testutil.ContextWithTimeout(t, testTimeout))
 		testutil.AssertErrorMsg(t, wantErrMsg, err)
 	})
 
@@ -96,10 +104,17 @@ func TestHTTP_Refresh_errors(t *testing.T) {
 		u := handleWithURL(t, http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
 			rw.WriteHeader(http.StatusInternalServerError)
 		}))
-		h := rulestat.NewHTTP(&rulestat.HTTPConfig{URL: u})
+		h := rulestat.NewHTTP(&rulestat.HTTPConfig{
+			ErrColl: &agdtest.ErrorCollector{
+				OnCollect: func(_ context.Context, err error) {
+					require.NotNil(t, err)
+				},
+			},
+			URL: u,
+		})
 
 		var serr *agdhttp.StatusError
-		err := h.Refresh(context.Background())
+		err := h.Refresh(testutil.ContextWithTimeout(t, testTimeout))
 		require.ErrorAs(t, err, &serr)
 
 		assert.Equal(t, http.StatusInternalServerError, serr.Got)

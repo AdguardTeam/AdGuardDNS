@@ -1,7 +1,6 @@
 package rulelist_test
 
 import (
-	"context"
 	"net/http"
 	"net/netip"
 	"testing"
@@ -92,9 +91,7 @@ func TestRefreshable_Refresh(t *testing.T) {
 		true,
 	)
 
-	ctx, cancel := context.WithTimeout(context.Background(), filtertest.Timeout)
-	t.Cleanup(cancel)
-
+	ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 	err := rl.Refresh(ctx, false)
 	require.NoError(t, err)
 

@@ -14,7 +14,7 @@ import (
 // ErrClosed indicates that the Pool is closed and cannot be used anymore.
 const ErrClosed = errors.Error("the pool is closed")
 
-// Factory is a type for the Pool's factory method. Factory implementation
+// Factory is a type for the Pool's factory method.  Factory implementation
 // must use the context's deadline if it's specified.
 type Factory func(ctx context.Context) (conn net.Conn, err error)
 
@@ -35,8 +35,8 @@ type Pool struct {
 	factory Factory
 }
 
-// NewPool creates a new Pool instance. maxCapacity configures the maximum
-// number of idle connections in the pool. If the pool is full,
+// NewPool creates a new Pool instance.  maxCapacity configures the maximum
+// number of idle connections in the pool.  If the pool is full,
 // Put will close the connection instead of adding it to the pool.
 func NewPool(maxCapacity int, factory Factory) (p *Pool) {
 	return &Pool{
@@ -45,7 +45,7 @@ func NewPool(maxCapacity int, factory Factory) (p *Pool) {
 	}
 }
 
-// Get returns a free connection from the pool. If there are no connections it
+// Get returns a free connection from the pool.  If there are no connections it
 // will use the Factory method to create a new one.
 func (p *Pool) Get(ctx context.Context) (conn *Conn, err error) {
 	p.connsChanMu.RLock()
@@ -80,7 +80,7 @@ func (p *Pool) Get(ctx context.Context) (conn *Conn, err error) {
 	}
 }
 
-// Put puts the connection back to the pool. If the pool is closed,
+// Put puts the connection back to the pool.  If the pool is closed,
 // the connection will be simply closed instead.
 func (p *Pool) Put(conn *Conn) (err error) {
 	p.connsChanMu.RLock()
@@ -101,7 +101,7 @@ func (p *Pool) Put(conn *Conn) (err error) {
 	}
 }
 
-// Close closes the Pool. After that it cannot be used anymore, every method
+// Close closes the Pool.  After that it cannot be used anymore, every method
 // will return ErrClosed.
 func (p *Pool) Close() (err error) {
 	p.connsChanMu.Lock()
@@ -126,7 +126,7 @@ func (p *Pool) Close() (err error) {
 	return errors.Annotate(errors.Join(errs...), "closing pool: %w")
 }
 
-// closeConn is used when the pool is closed. In this case we attempt to close
+// closeConn is used when the pool is closed.  In this case we attempt to close
 // the connection immediately.
 func (p *Pool) closeConn(conn *Conn) (err error) {
 	err = conn.Close()

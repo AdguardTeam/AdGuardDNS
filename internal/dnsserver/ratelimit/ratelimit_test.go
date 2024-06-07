@@ -124,7 +124,7 @@ func TestRatelimitMiddleware(t *testing.T) {
 			})
 
 			n := 0
-			for i := 0; i < tc.reqsNum; i++ {
+			for range tc.reqsNum {
 				nrw := dnsserver.NewNonWriterResponseWriter(
 					&net.UDPAddr{IP: []byte{1, 2, 3, 4}},
 					tc.remoteAddr,

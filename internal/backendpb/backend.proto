@@ -66,6 +66,7 @@ message DeviceSettings {
   bool filtering_enabled = 3;
   bytes linked_ip = 4;
   repeated bytes dedicated_ips = 5;
+  AuthenticationSettings authentication = 6;
 }
 
 message ParentalSettings {
@@ -135,4 +136,11 @@ message AccessSettings {
 message CidrRange {
   bytes address = 1;
   uint32 prefix = 2;
+}
+
+message AuthenticationSettings {
+  bool doh_auth_only = 1;
+  oneof doh_password_hash {
+    bytes password_hash_bcrypt = 2;
+  }
 }

@@ -17,33 +17,41 @@ const (
 	// FilterListIDNone means that no filter were applied at all.
 	FilterListIDNone FilterListID = ""
 
-	// FilterListIDBlockedService is the shared filter list ID used when a
+	// FilterListIDBlockedService is the shared filter-list ID used when a
 	// request was blocked by the service blocker.
 	FilterListIDBlockedService FilterListID = "blocked_service"
 
-	// FilterListIDCustom is the special shared filter list ID used when
+	// FilterListIDCustom is the special shared filter-list ID used when
 	// a request was filtered by a custom profile rule.
 	FilterListIDCustom FilterListID = "custom"
 
-	// FilterListIDAdultBlocking is the special shared filter list ID used when
+	// FilterListIDAdultBlocking is the special shared filter-list ID used when
 	// a request was filtered by the adult content blocking filter.
 	FilterListIDAdultBlocking FilterListID = "adult_blocking"
 
-	// FilterListIDSafeBrowsing is the special shared filter list ID used when
+	// FilterListIDSafeBrowsing is the special shared filter-list ID used when
 	// a request was filtered by the safe browsing filter.
 	FilterListIDSafeBrowsing FilterListID = "safe_browsing"
 
-	// FilterListIDNewRegDomains is the special shared filter list ID used when
+	// FilterListIDNewRegDomains is the special shared filter-list ID used when
 	// a request was filtered by the newly registered domains filter.
 	FilterListIDNewRegDomains FilterListID = "newly_registered_domains"
 
-	// FilterListIDGeneralSafeSearch is the shared filter list ID used when
+	// FilterListIDGeneralSafeSearch is the shared filter-list ID used when
 	// a request was modified by the general safe search filter.
 	FilterListIDGeneralSafeSearch FilterListID = "general_safe_search"
 
-	// FilterListIDYoutubeSafeSearch is the special shared filter list ID used
+	// FilterListIDYoutubeSafeSearch is the special shared filter-list ID used
 	// when a request was modified by the YouTube safe search filter.
 	FilterListIDYoutubeSafeSearch FilterListID = "youtube_safe_search"
+
+	// FilterListIDAdGuardDNS is the special filter-list ID of the main AdGuard
+	// DNS filtering-rule list.  For this list, rule statistics are collected.
+	FilterListIDAdGuardDNS FilterListID = "adguard_dns_filter"
+
+	// FilterListIDAdGuardPopup is the special filter-list ID of the AdGuard DNS
+	// list of popup domains.
+	FilterListIDAdGuardPopup FilterListID = "adguard_popup_filter"
 )
 
 // The maximum and minimum lengths of a filter list ID.
@@ -70,6 +78,21 @@ func NewFilterListID(s string) (id FilterListID, err error) {
 	}
 
 	return FilterListID(s), nil
+}
+
+// SupportsDNSRewrite returns true if the $dnsrewrite rules in filtering-rule
+// lists with this ID should be processed.
+func (id FilterListID) SupportsDNSRewrite() (ok bool) {
+	switch id {
+	case
+		FilterListIDAdGuardPopup,
+		FilterListIDCustom,
+		FilterListIDGeneralSafeSearch,
+		FilterListIDYoutubeSafeSearch:
+		return true
+	default:
+		return false
+	}
 }
 
 // FilterRuleText is the text of a single rule within a filter.

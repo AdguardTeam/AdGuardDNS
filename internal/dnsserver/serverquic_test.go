@@ -31,7 +31,7 @@ func TestServerQUIC_integration_query(t *testing.T) {
 	require.NoError(t, err)
 
 	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(contextWithTimeout(t, testTimeout))
+		return srv.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
 	})
 
 	// Open a QUIC connection.
@@ -47,7 +47,7 @@ func TestServerQUIC_integration_query(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	wg.Add(queriesNum)
 
-	for i := 0; i < queriesNum; i++ {
+	for range queriesNum {
 		req := dnsservertest.NewReq("example.org.", dns.TypeA, dns.ClassINET)
 		req.RecursionDesired = true
 
@@ -80,7 +80,7 @@ func TestServerQUIC_integration_ENDS0Padding(t *testing.T) {
 	require.NoError(t, err)
 
 	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(contextWithTimeout(t, testTimeout))
+		return srv.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
 	})
 
 	// Open a QUIC connection.
@@ -114,7 +114,7 @@ func TestServerQUIC_integration_0RTT(t *testing.T) {
 	require.NoError(t, err)
 
 	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(contextWithTimeout(t, testTimeout))
+		return srv.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
 	})
 
 	quicTracer := dnsservertest.NewQUICTracer()
@@ -152,7 +152,7 @@ func TestServerQUIC_integration_largeQuery(t *testing.T) {
 	require.NoError(t, err)
 
 	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(contextWithTimeout(t, testTimeout))
+		return srv.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
 	})
 
 	// Open a QUIC connection.

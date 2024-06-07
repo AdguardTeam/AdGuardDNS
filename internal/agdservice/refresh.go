@@ -13,6 +13,10 @@ import (
 
 // Refresher is the interface for entities that can update themselves.
 type Refresher interface {
+	// Refresh is called by a [RefreshWorker].  The error returned by Refresh is
+	// only returned from [RefreshWorker.Shutdown] and only when
+	// [RefreshWorkerConfig.RefreshOnShutdown] is true.  In all other cases, the
+	// error is ignored, and refreshers must handle error reporting themselves.
 	Refresh(ctx context.Context) (err error)
 }
 
@@ -21,11 +25,9 @@ type Refresher interface {
 type RefreshWorker struct {
 	done          chan unit
 	context       func() (ctx context.Context, cancel context.CancelFunc)
-	logRoutine    func(format string, args ...any)
 	tick          *time.Ticker
 	rand          *rand.Rand
 	refr          Refresher
-	errColl       errcoll.Interface
 	name          string
 	maxStartSleep time.Duration
 
@@ -39,12 +41,6 @@ type RefreshWorkerConfig struct {
 
 	// Refresher is the entity being refreshed.
 	Refresher Refresher
-
-	// ErrColl is used to collect errors during refreshes.
-	//
-	// TODO(a.garipov): Remove this and make all Refreshers handle their own
-	// errors.
-	ErrColl errcoll.Interface
 
 	// Name is the name of this worker.  It is used for logging and error
 	// collecting.
@@ -64,12 +60,6 @@ type RefreshWorkerConfig struct {
 	// that should persist to disk or remote storage before shutting down.
 	RefreshOnShutdown bool
 
-	// RoutineLogsAreDebug, if true, instructs the worker to write initial and
-	// final log messages for each singular refresh on the Debug level rather
-	// than on the Info one.  This is useful to prevent routine logs from
-	// workers with a small interval from overflowing with messages.
-	RoutineLogsAreDebug bool
-
 	// RandomizeStart, if true, instructs the worker to sleep before starting a
 	// refresh.  The duration of the sleep is a random duration of up to 10 % of
 	// Interval.
@@ -82,14 +72,6 @@ type RefreshWorkerConfig struct {
 // NewRefreshWorker returns a new valid *RefreshWorker with the provided
 // parameters.  c must not be nil.
 func NewRefreshWorker(c *RefreshWorkerConfig) (w *RefreshWorker) {
-	// TODO(a.garipov): Add log.WithLevel.
-	var logRoutine func(format string, args ...any)
-	if c.RoutineLogsAreDebug {
-		logRoutine = log.Debug
-	} else {
-		logRoutine = log.Info
-	}
-
 	var maxStartSleep time.Duration
 	var rng *rand.Rand
 	if c.RandomizeStart {
@@ -100,11 +82,9 @@ func NewRefreshWorker(c *RefreshWorkerConfig) (w *RefreshWorker) {
 	return &RefreshWorker{
 		done:           make(chan unit),
 		context:        c.Context,
-		logRoutine:     logRoutine,
 		tick:           time.NewTicker(c.Interval),
 		rand:           rng,
 		refr:           c.Refresher,
-		errColl:        c.ErrColl,
 		name:           c.Name,
 		maxStartSleep:  maxStartSleep,
 		refrOnShutdown: c.RefreshOnShutdown,
@@ -172,7 +152,7 @@ func (w *RefreshWorker) sleepRandom() (shouldRefresh bool) {
 	}
 
 	sleepDur := time.Duration(w.rand.Int63n(int64(w.maxStartSleep)))
-	w.logRoutine("worker %q: sleeping for %s before refresh", w.name, sleepDur)
+	log.Debug("worker %q: sleeping for %s before refresh", w.name, sleepDur)
 
 	timer := time.NewTimer(sleepDur)
 	defer func() {
@@ -197,24 +177,51 @@ func (w *RefreshWorker) sleepRandom() (shouldRefresh bool) {
 
 // refresh refreshes the entity and logs the status of the refresh.
 func (w *RefreshWorker) refresh() {
-	name := w.name
-	w.logRoutine("worker %q: refreshing", name)
-
 	// TODO(a.garipov): Consider adding a helper for enriching errors with
 	// context deadline data without duplication.  See an example in method
 	// filter.refreshableFilter.refresh.
 	ctx, cancel := w.context()
 	defer cancel()
 
-	log.Debug("worker %q: starting refresh", name)
-	err := w.refr.Refresh(ctx)
-	log.Debug("worker %q: finished refresh", name)
+	_ = w.refr.Refresh(ctx)
+}
 
+// RefresherWithErrColl reports all refresh errors to errColl and logs them
+// using a provided logging function.
+type RefresherWithErrColl struct {
+	refr    Refresher
+	log     func(format string, args ...any)
+	errColl errcoll.Interface
+	prefix  string
+}
+
+// NewRefresherWithErrColl wraps refr into a refresher that collects errors and
+// logs them.
+func NewRefresherWithErrColl(
+	refr Refresher,
+	logFunc func(format string, args ...any),
+	errColl errcoll.Interface,
+	prefix string,
+) (wrapped *RefresherWithErrColl) {
+	return &RefresherWithErrColl{
+		refr:    refr,
+		log:     logFunc,
+		errColl: errColl,
+		prefix:  prefix,
+	}
+}
+
+// type check
+var _ Refresher = (*RefresherWithErrColl)(nil)
+
+// Refresh implements the [Refresher] interface for *RefresherWithErrColl.
+func (r *RefresherWithErrColl) Refresh(ctx context.Context) (err error) {
+	err = r.refr.Refresh(ctx)
 	if err != nil {
-		errcoll.Collectf(ctx, w.errColl, "%s: %w", name, err)
-
-		return
+		err = fmt.Errorf("%s: %w", r.prefix, err)
+		r.log("%s", err)
+		r.errColl.Collect(ctx, err)
 	}
 
-	w.logRoutine("worker %q: refreshed successfully", name)
+	return err
 }

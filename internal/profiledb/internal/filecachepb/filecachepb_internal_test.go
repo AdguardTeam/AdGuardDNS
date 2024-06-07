@@ -65,7 +65,7 @@ func BenchmarkCache(b *testing.B) {
 	b.Run("to_protobuf", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			fileCacheSink = toProtobuf(cacheSink)
 		}
 
@@ -78,7 +78,7 @@ func BenchmarkCache(b *testing.B) {
 
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			gotCache, errSink = toInternal(fileCacheSink)
 		}
 
@@ -89,7 +89,7 @@ func BenchmarkCache(b *testing.B) {
 	b.Run("encode", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			bytesSink, errSink = proto.Marshal(fileCacheSink)
 		}
 
@@ -100,7 +100,7 @@ func BenchmarkCache(b *testing.B) {
 	b.Run("decode", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			errSink = proto.Unmarshal(bytesSink, fileCacheSink)
 		}
 

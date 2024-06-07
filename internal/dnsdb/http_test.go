@@ -31,7 +31,7 @@ func TestDefault_ServeHTTP(t *testing.T) {
 	successHdr := http.Header{
 		httphdr.ContentType:     []string{agdhttp.HdrValTextCSV},
 		httphdr.Trailer:         []string{httphdr.XError},
-		httphdr.ContentEncoding: []string{"gzip"},
+		httphdr.ContentEncoding: []string{agdhttp.HdrValGzip},
 	}
 
 	newMsg := func(rcode int, name string, qtype uint16) (m *dns.Msg) {
@@ -112,7 +112,7 @@ func TestDefault_ServeHTTP(t *testing.T) {
 		(&url.URL{Scheme: "http", Host: "example.com"}).String(),
 		nil,
 	)
-	r.Header.Add(httphdr.AcceptEncoding, "gzip")
+	r.Header.Add(httphdr.AcceptEncoding, agdhttp.HdrValGzip)
 
 	for _, tc := range testCases {
 		db := dnsdb.New(&dnsdb.DefaultConfig{

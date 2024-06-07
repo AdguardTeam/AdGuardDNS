@@ -42,6 +42,8 @@ type Entry struct {
 	DomainFQDN string
 
 	// RequestID is the ID of the request.
+	//
+	// TODO(a.garipov): Remove once not necessary anymore.
 	RequestID agd.RequestID
 
 	// ClientASN is the detected autonomous system number of the client's IP
@@ -120,7 +122,7 @@ func toResultCode(r filter.Result, resp bool) (c resultCode) {
 		}
 
 		return resultCodeReqBlocked
-	case *filter.ResultModified:
+	case *filter.ResultModifiedResponse, *filter.ResultModifiedRequest:
 		return resultCodeModified
 	default:
 		// Consider unhandled sum type members as unrecoverable programmer
@@ -207,6 +209,11 @@ type jsonlEntry struct {
 	//
 	// The short name "q" stands for "question".
 	RequestType dnsmsg.RRType `json:"q"`
+
+	// Random is a random number added to an entry for easier deduplication.
+	//
+	// The short name "rn" stands for "random number".
+	Random uint16 `json:"rn"`
 
 	// ResultCode is the action taken with this request.
 	//

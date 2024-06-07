@@ -15,19 +15,22 @@ import (
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/syncutil"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // interfaceListener contains information about a single interface listener.
 type interfaceListener struct {
-	conns         *connIndex
-	listenConf    *net.ListenConfig
-	bodyPool      *syncutil.Pool[[]byte]
-	oobPool       *syncutil.Pool[[]byte]
-	writeRequests chan *packetConnWriteReq
-	done          chan unit
-	errColl       errcoll.Interface
-	ifaceName     string
-	port          uint16
+	conns              *connIndex
+	listenConf         *net.ListenConfig
+	bodyPool           *syncutil.Pool[[]byte]
+	oobPool            *syncutil.Pool[[]byte]
+	writeRequests      chan *packetConnWriteReq
+	done               chan unit
+	errColl            errcoll.Interface
+	writeRequestsGauge prometheus.Gauge
+	writeDurationHist  prometheus.Observer
+	ifaceName          string
+	port               uint16
 }
 
 // listenTCP runs the TCP listening loop.  It is intended to be used as a
@@ -113,7 +116,7 @@ func (l *interfaceListener) listenUDP(errCh chan<- error) {
 
 	errCh <- nil
 
-	go l.writeUDP(udpConn)
+	go l.writeUDPResponses(udpConn)
 
 	logPrefix := fmt.Sprintf("bindtodevice: listener %s:%d: udp", l.ifaceName, l.port)
 
@@ -185,46 +188,60 @@ func (l *interfaceListener) readUDP(c *net.UDPConn, logPrefix string) (err error
 	return nil
 }
 
-// writeUDP runs the UDP write loop.  It is intended to be used as a goroutine.
-func (l *interfaceListener) writeUDP(c *net.UDPConn) {
+// writeUDPResponses runs the UDP write loop.  It is intended to be used as a
+// goroutine.
+func (l *interfaceListener) writeUDPResponses(c *net.UDPConn) {
 	defer log.OnPanic("interfaceListener.writeUDP")
 
-	logPrefix := fmt.Sprintf("bindtodevice: listener %s:%d: udp write", l.ifaceName, l.port)
 	for {
-		var req *packetConnWriteReq
 		select {
 		case <-l.done:
-			optlog.Debug1("%s: done", logPrefix)
+			optlog.Debug2("bindtodevice: listener %s:%d: udp write: done", l.ifaceName, l.port)
 
 			return
-		case req = <-l.writeRequests:
-			// Go on.
+		case req := <-l.writeRequests:
+			l.writeUDP(c, req)
 		}
-
-		resp := &packetConnWriteResp{}
-		resp.err = c.SetWriteDeadline(req.deadline)
-		if resp.err != nil {
-			req.resp <- resp
-
-			continue
-		}
-
-		if s := req.session; s == nil {
-			resp.written, resp.err = c.WriteTo(req.body, req.raddr)
-		} else {
-			resp.written, _, resp.err = c.WriteMsgUDP(
-				req.body,
-				s.respOOB,
-				req.session.raddr,
-			)
-
-			l.bodyPool.Put(&s.readBody)
-		}
-
-		resetDeadlineErr := c.SetWriteDeadline(time.Time{})
-
-		resp.err = errors.WithDeferred(resp.err, resetDeadlineErr)
-
-		req.resp <- resp
 	}
+}
+
+// writeUDP handles a single write operation and writes a response to
+// req.respCh.
+func (l *interfaceListener) writeUDP(c *net.UDPConn, req *packetConnWriteReq) {
+	resp := &packetConnWriteResp{}
+	resp.err = c.SetWriteDeadline(req.deadline)
+	if resp.err != nil {
+		req.respCh <- resp
+
+		return
+	}
+
+	l.writeToUDPConn(c, req, resp)
+
+	resetDeadlineErr := c.SetWriteDeadline(time.Time{})
+	resp.err = errors.WithDeferred(resp.err, resetDeadlineErr)
+
+	req.respCh <- resp
+}
+
+// writeToUDPConn writes to c, depending on what kind of session req contains,
+// and sets resp.written and resp.err accordingly.
+func (l *interfaceListener) writeToUDPConn(
+	c *net.UDPConn,
+	req *packetConnWriteReq,
+	resp *packetConnWriteResp,
+) {
+	start := time.Now()
+	defer func() { l.writeDurationHist.Observe(time.Since(start).Seconds()) }()
+
+	s := req.session
+	if s == nil {
+		resp.written, resp.err = c.WriteTo(req.body, req.raddr)
+
+		return
+	}
+
+	resp.written, _, resp.err = c.WriteMsgUDP(req.body, s.respOOB, req.session.raddr)
+
+	l.bodyPool.Put(&s.readBody)
 }

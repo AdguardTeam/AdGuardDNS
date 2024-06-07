@@ -11,6 +11,98 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
 
 
+##  AGDNS-2048 / Build 750
+
+ *  The environment variables `RESEARCH_LOGS` and `RESEARCH_METRICS` have been
+    removed.
+
+
+
+##  AGDNS-2022 / Build 746
+
+ *  The property `block_page_redirect` of objects within `server_groups` array
+    has been removed.
+
+
+
+##  AGDNS-1981 / Build 744
+
+ *  The objects within `server_groups` array had a change in their
+    `block_page_redirect` configuration, it now supports arrays of IP addresses
+    in `ipv4` and `ipv6` fields.
+
+ *  Profile's file cache version was incremented.  In case of
+    `BlockingModeCustomIP` the `profile.blocking_mode` IPv4/IPv6 fields are now
+    arrays of IP addresses.
+
+
+
+##  AGDNS-2012 / Build 732
+
+ *  The querylog now has a new field, `"rn"`, which is a 16-bit unsigned random
+    number.  Field `"u"`, the unique request ID, is deprecated and may be
+    removed in the future.
+
+
+
+##  AGDNS-1879 / Build 729
+
+ *  Profile's file cache version was incremented.  The new field
+    `authentication` has been added to profile's device object.
+
+
+
+##  AGDNS-1934 / Build 728
+
+ *  The object `filters` has new properties: `index_refresh_timeout`, and
+    `rule_list_refresh_timeout`.  So replace this:
+
+    ```yaml
+    filters:
+        # …
+    ```
+
+    with this:
+
+    ```yaml
+    filters:
+        # …
+        index_refresh_timeout: 1m
+        rule_list_refresh_timeout: 1m
+    ```
+
+ *  The objects `safe_browsing` and `adult_blocking` have a new property:
+    `refresh_timeout`.  So replace this:
+
+    ```yaml
+    safe_browsing:
+        # …
+    # …
+    adult_blocking:
+        # …
+    ```
+
+    with this:
+
+    ```yaml
+    safe_browsing:
+        # …
+        refresh_timeout: 1m
+    # …
+    adult_blocking:
+        # …
+        refresh_timeout: 1m
+    ```
+
+
+
+##  AGDNS-1954 / Build 726
+
+ *  The object `web` has a new optional property, `general_blocking`.  Its
+    format is the same as in `adult_blocking` and `safe_browsing`.
+
+
+
 ##  AGDNS-1954 / Build 719
 
  *  The objects within `server_groups` array have a new property
@@ -36,6 +128,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
               - domain: 'do-not-show-block.site.example'
         probability: 0.01
     ```
+
+     >  [!NOTE]
+     >  For `ipv4` and `ipv6` only one address is currently supported.
 
     For server groups that do not require a block-page redirect, set:
 

@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
@@ -17,10 +15,11 @@ import (
 	"github.com/c2h5oh/datasize"
 )
 
-// Filters configuration
-
 // filtersConfig contains the configuration for the filter lists and filtering
 // storage to be used.
+//
+// TODO(a.garipov):  Add the timeout for the blocked-service index refresh.  It
+// is currently hardcoded to 3 minutes.
 type filtersConfig struct {
 	// RuleListCache is the cache settings for the filtering rule-list.
 	RuleListCache *fltRuleListCache `yaml:"rule_list_cache"`
@@ -41,9 +40,20 @@ type filtersConfig struct {
 	RefreshIvl timeutil.Duration `yaml:"refresh_interval"`
 
 	// RefreshTimeout is the timeout for the entire filter update operation.
-	// Note that each individual refresh operation also has its own hardcoded
-	// 30s timeout.
+	// Note that filter rule-list index and each filter rule-list update
+	// operations have their own timeouts, see IndexRefreshTimeout and
+	// RuleListRefreshTimeout.
 	RefreshTimeout timeutil.Duration `yaml:"refresh_timeout"`
+
+	// IndexRefreshTimeout is the timeout for the filter rule-list index update
+	// operation.  See also RefreshTimeout for the entire filter update
+	// operation.
+	IndexRefreshTimeout timeutil.Duration `yaml:"index_refresh_timeout"`
+
+	// RuleListRefreshTimeout is the timeout for the filter update operation of
+	// each rule-list, which includes safe-search filters.  See also
+	// RefreshTimeout for the entire filter update operation.
+	RuleListRefreshTimeout timeutil.Duration `yaml:"rule_list_refresh_timeout"`
 
 	// MaxSize is the maximum size of the downloadable filtering rule-list.
 	MaxSize datasize.ByteSize `yaml:"max_size"`
@@ -53,8 +63,6 @@ type filtersConfig struct {
 // cacheDir must exist.  c is assumed to be valid.
 func (c *filtersConfig) toInternal(
 	errColl errcoll.Interface,
-	resolver agdnet.Resolver,
-	cloner *dnsmsg.Cloner,
 	envs *environments,
 	safeBrowsing *hashprefix.Filter,
 	adultBlocking *hashprefix.Filter,
@@ -70,17 +78,17 @@ func (c *filtersConfig) toInternal(
 		NewRegDomains:             newRegDomains,
 		Now:                       time.Now,
 		ErrColl:                   errColl,
-		Resolver:                  resolver,
-		Cloner:                    cloner,
 		CacheDir:                  envs.FilterCachePath,
 		CustomFilterCacheSize:     c.CustomFilterCacheSize,
 		SafeSearchCacheSize:       c.SafeSearchCacheSize,
 		// TODO(a.garipov): Consider making this configurable.
-		SafeSearchCacheTTL: 1 * time.Hour,
-		RuleListCacheSize:  c.RuleListCache.Size,
-		RefreshIvl:         c.RefreshIvl.Duration,
-		UseRuleListCache:   c.RuleListCache.Enabled,
-		MaxRuleListSize:    c.MaxSize.Bytes(),
+		SafeSearchCacheTTL:     1 * time.Hour,
+		RuleListCacheSize:      c.RuleListCache.Size,
+		RefreshIvl:             c.RefreshIvl.Duration,
+		IndexRefreshTimeout:    c.IndexRefreshTimeout.Duration,
+		RuleListRefreshTimeout: c.RuleListRefreshTimeout.Duration,
+		UseRuleListCache:       c.RuleListCache.Enabled,
+		MaxRuleListSize:        c.MaxSize.Bytes(),
 	}
 }
 
@@ -97,6 +105,10 @@ func (c *filtersConfig) validate() (err error) {
 		return newMustBePositiveError("refresh_interval", c.RefreshIvl)
 	case c.RefreshTimeout.Duration <= 0:
 		return newMustBePositiveError("refresh_timeout", c.RefreshTimeout)
+	case c.IndexRefreshTimeout.Duration <= 0:
+		return newMustBePositiveError("index_refresh_timeout", c.IndexRefreshTimeout)
+	case c.RuleListRefreshTimeout.Duration <= 0:
+		return newMustBePositiveError("rule_list_refresh_timeout", c.RuleListRefreshTimeout)
 	case c.MaxSize <= 0:
 		return newMustBePositiveError("max_size", c.MaxSize)
 	default:
@@ -138,7 +150,6 @@ func (c *fltRuleListCache) validate() (err error) {
 func setupFilterStorage(
 	conf *filter.DefaultStorageConfig,
 	sigHdlr *service.SignalHandler,
-	errColl errcoll.Interface,
 	refreshTimeout time.Duration,
 ) (strg *filter.DefaultStorage, err error) {
 	strg, err = filter.NewDefaultStorage(conf)
@@ -150,13 +161,11 @@ func setupFilterStorage(
 		Context: func() (ctx context.Context, cancel context.CancelFunc) {
 			return context.WithTimeout(context.Background(), refreshTimeout)
 		},
-		Refresher:           strg,
-		ErrColl:             errColl,
-		Name:                "filters",
-		Interval:            conf.RefreshIvl,
-		RefreshOnShutdown:   false,
-		RoutineLogsAreDebug: false,
-		RandomizeStart:      false,
+		Refresher:         strg,
+		Name:              "filters",
+		Interval:          conf.RefreshIvl,
+		RefreshOnShutdown: false,
+		RandomizeStart:    false,
 	})
 	err = refr.Start(context.Background())
 	if err != nil {

@@ -10,7 +10,6 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/debugsvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
@@ -27,7 +26,6 @@ import (
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/service"
-	"github.com/AdguardTeam/golibs/timeutil"
 )
 
 // Main is the entry point of application.
@@ -92,9 +90,6 @@ func Main() {
 
 	// Safe-browsing and adult-blocking filters
 
-	// TODO(ameshkov): Consider making configurable.
-	filteringResolver := agdnet.NewCachingResolver(agdnet.DefaultResolver{}, 1*timeutil.Day)
-
 	err = os.MkdirAll(envs.FilterCachePath, agd.DefaultDirPerm)
 	check(err)
 
@@ -105,7 +100,6 @@ func Main() {
 	cloner := dnsmsg.NewCloner(metrics.ClonerStat{})
 	safeBrowsingHashes, safeBrowsingFilter, err := setupHashPrefixFilter(
 		c.SafeBrowsing,
-		filteringResolver,
 		cloner,
 		agd.FilterListIDSafeBrowsing,
 		envs.SafeBrowsingURL,
@@ -118,7 +112,6 @@ func Main() {
 
 	adultBlockingHashes, adultBlockingFilter, err := setupHashPrefixFilter(
 		c.AdultBlocking,
-		filteringResolver,
 		cloner,
 		agd.FilterListIDAdultBlocking,
 		envs.AdultBlockingURL,
@@ -132,7 +125,6 @@ func Main() {
 	_, newRegDomainsFilter, err := setupHashPrefixFilter(
 		// Reuse general safe browsing filter configuration.
 		c.SafeBrowsing,
-		filteringResolver,
 		cloner,
 		agd.FilterListIDNewRegDomains,
 		envs.NewRegDomainsURL,
@@ -147,8 +139,6 @@ func Main() {
 
 	fltStrgConf := c.Filters.toInternal(
 		errColl,
-		filteringResolver,
-		cloner,
 		envs,
 		safeBrowsingFilter,
 		adultBlockingFilter,
@@ -156,7 +146,7 @@ func Main() {
 	)
 
 	fltRefrTimeout := c.Filters.RefreshTimeout.Duration
-	fltStrg, err := setupFilterStorage(fltStrgConf, sigHdlr, errColl, fltRefrTimeout)
+	fltStrg, err := setupFilterStorage(fltStrgConf, sigHdlr, fltRefrTimeout)
 	check(err)
 
 	fltGroups, err := c.FilteringGroups.toInternal(fltStrg)
@@ -293,8 +283,6 @@ func Main() {
 		UseCacheTTLOverride: c.Cache.TTLOverride.Enabled,
 		UseECSCache:         c.Cache.Type == cacheTypeECS,
 		ProfileDBEnabled:    bool(envs.ProfilesEnabled),
-		ResearchMetrics:     bool(envs.ResearchMetrics),
-		ResearchLogs:        bool(envs.ResearchLogs),
 	}
 
 	dnsSvc, err := dnssvc.New(dnsConf)

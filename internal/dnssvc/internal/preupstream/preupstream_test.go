@@ -75,7 +75,7 @@ func TestPreUpstreamMwHandler_ServeDNS_withCache(t *testing.T) {
 			})
 			h := mw.Wrap(handler)
 
-			for i := 0; i < N; i++ {
+			for range N {
 				req := dnsservertest.NewReq(reqHostname, dns.TypeA, dns.ClassINET)
 				addr := &net.UDPAddr{IP: dnssvctest.ClientIP, Port: 53}
 				nrw := dnsserver.NewNonWriterResponseWriter(addr, addr)
@@ -147,7 +147,7 @@ func TestPreUpstreamMwHandler_ServeDNS_withECSCache(t *testing.T) {
 
 	const N = 5
 	var nrw *dnsserver.NonWriterResponseWriter
-	for i := 0; i < N; i++ {
+	for range N {
 		addr := &net.UDPAddr{IP: dnssvctest.ClientIP, Port: 53}
 		nrw = dnsserver.NewNonWriterResponseWriter(addr, addr)
 		req := dnsservertest.NewReq(reqHostname, dns.TypeA, dns.ClassINET)

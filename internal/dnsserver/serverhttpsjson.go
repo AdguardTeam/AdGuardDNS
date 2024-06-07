@@ -12,7 +12,7 @@ import (
 
 // JSONMsg represents a *dns.Msg in the JSON format defined here:
 // https://developers.google.com/speed/public-dns/docs/doh/json#dns_response_in_json
-// Note, that we do not implement some parts of it. There is no "Comment" field
+// Note, that we do not implement some parts of it.  There is no "Comment" field
 // and there's no "edns_client_subnet".
 type JSONMsg struct {
 	Question           []JSONQuestion `json:"Question"`
@@ -169,7 +169,7 @@ func httpRequestToMsgJSON(req *http.Request) (b []byte, err error) {
 }
 
 // urlQueryParameterToUint16 is a helper function that extracts a uint16 value
-// from a query parameter. See httpRequestToMsgJSON to see how it's used.
+// from a query parameter.  See httpRequestToMsgJSON to see how it's used.
 func urlQueryParameterToUint16(
 	q url.Values,
 	name string,
@@ -199,7 +199,7 @@ func urlQueryParameterToUint16(
 }
 
 // urlQueryParameterToBoolean is a helper function that extracts a boolean value
-// from a query parameter. See httpRequestToMsgJSON to see how it's used.
+// from a query parameter.  See httpRequestToMsgJSON to see how it's used.
 func urlQueryParameterToBoolean(
 	q url.Values,
 	name string,

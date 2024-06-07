@@ -62,7 +62,7 @@ func (mw *Middleware) filterRequest(
 		mw.reportf(ctx, "filtering request: %w", err)
 	}
 
-	if mod, ok := reqRes.(*filter.ResultModified); ok && !mod.Msg.Response {
+	if mod, ok := reqRes.(*filter.ResultModifiedRequest); ok {
 		fctx.modifiedRequest = mod.Msg
 	}
 
@@ -84,10 +84,11 @@ func (mw *Middleware) filterResponse(
 	start := time.Now()
 
 	if modReq := fctx.modifiedRequest; modReq != nil {
-		// Return the request name to its original state, since it was
-		// previously rewritten by CNAME rewrite rule.
+		// Return the request ID and target name to their original values, since
+		// the request has previously been rewritten by a CNAME rewrite rule.
 		origReq := fctx.originalRequest
 		origResp := fctx.originalResponse
+		origResp.Id = origReq.Id
 		origResp.Question[0] = origReq.Question[0]
 
 		// Prepend the CNAME answer to the response and don't filter it.
@@ -133,7 +134,8 @@ func resultData(
 		blocked = false
 	case
 		*filter.ResultBlocked,
-		*filter.ResultModified:
+		*filter.ResultModifiedResponse,
+		*filter.ResultModifiedRequest:
 		blocked = true
 	default:
 		// Consider unhandled sum type members as unrecoverable programmer
@@ -165,17 +167,13 @@ func (mw *Middleware) setFilteredResponse(
 			mw.reportf(ctx, "creating blocked resp for filtered req: %w", err)
 			fctx.filteredResponse = fctx.originalResponse
 		}
-	case *filter.ResultAllowed:
+	case *filter.ResultAllowed, *filter.ResultModifiedRequest:
 		fctx.filteredResponse = fctx.originalResponse
-	case *filter.ResultModified:
-		if reqRes.Msg.Response {
-			// Only use the request filtering result in case it's already a
-			// response.  Otherwise, it's a CNAME rewrite result, which isn't
-			// filtered after resolving.
-			fctx.filteredResponse = reqRes.Msg
-		} else {
-			fctx.filteredResponse = fctx.originalResponse
-		}
+	case *filter.ResultModifiedResponse:
+		// Only use the request filtering result in case it's already a
+		// response.  Otherwise, it's a CNAME rewrite result, which isn't
+		// filtered after resolving.
+		fctx.filteredResponse = reqRes.Msg
 	default:
 		// Consider unhandled sum type members as unrecoverable programmer
 		// errors.
@@ -189,7 +187,8 @@ func (mw *Middleware) setFilteredResponse(
 // setFilteredResponseNoReq sets the response in fctx if the response filtering
 // results require that.  After calling setFilteredResponseNoReq,
 // fctx.filteredResponse will not be nil.  All errors are reported using
-// [Middleware.reportf].
+// [Middleware.reportf].  Note that rewrite results are not applied to
+// responses.
 func (mw *Middleware) setFilteredResponseNoReq(
 	ctx context.Context,
 	fctx *filteringContext,
@@ -205,13 +204,11 @@ func (mw *Middleware) setFilteredResponseNoReq(
 			mw.reportf(ctx, "creating blocked resp for filtered resp: %w", err)
 			fctx.filteredResponse = fctx.originalResponse
 		}
-	case *filter.ResultModified:
-		// NOTE: Technically doesn't happen right now, since rewrites are not
-		// applied to responses.
-		fctx.filteredResponse = respRes.Msg
 	default:
-		// Consider unhandled sum type members as unrecoverable programmer
-		// errors.
+		// Consider [*filter.ResultModifiedResponse] and
+		// [*filter.ResultModifiedRequest] as unrecoverable programmer errors
+		// because rewrites are not applied to responses.  And unhandled sum
+		// type members as well.
 		panic(&agd.ArgumentError{
 			Name:    "respRes",
 			Message: fmt.Sprintf("unexpected type %T", respRes),

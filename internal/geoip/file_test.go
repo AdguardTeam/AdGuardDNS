@@ -199,7 +199,7 @@ func BenchmarkFile_Data(b *testing.B) {
 	b.Run("cache", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			locSink, errSink = g.Data(testHost, testIPWithASN)
 		}
 
@@ -211,7 +211,7 @@ func BenchmarkFile_Data(b *testing.B) {
 	b.Run("no_cache", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for i := range b.N {
 			// Alternate between the two IPs to force cache misses.
 			if i%2 == 0 {
 				locSink, errSink = g.Data(testHost, ipCountry1)
@@ -237,7 +237,7 @@ func BenchmarkNewFile(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		fileSink, errSink = geoip.NewFile(conf)
 	}
 

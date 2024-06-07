@@ -33,7 +33,7 @@ func CreateTestHandler(recordsCount int) (h dnsserver.Handler) {
 		}
 
 		ip := netutil.IPv4Localhost().Prev()
-		for i := 0; i < recordsCount; i++ {
+		for range recordsCount {
 			// Add 1 to make sure that each IP is valid.
 			ip = ip.Next()
 			ans = append(ans, &dns.A{Hdr: hdr, A: ip.AsSlice()})

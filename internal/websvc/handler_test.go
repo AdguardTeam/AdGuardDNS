@@ -1,6 +1,7 @@
 package websvc_test
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -8,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/testutil"
@@ -20,7 +20,7 @@ func TestService_ServeHTTP(t *testing.T) {
 	mockHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		pt := testutil.PanicT{}
 
-		_, err := w.Write([]byte("[]"))
+		_, err := io.WriteString(w, "[]")
 		require.NoError(pt, err)
 	})
 
@@ -30,18 +30,8 @@ func TestService_ServeHTTP(t *testing.T) {
 		Path:   "/",
 	}
 
-	staticContent := map[string]*websvc.StaticFile{
-		"/favicon.ico": {
-			Content: []byte{},
-			Headers: http.Header{
-				httphdr.ContentType: []string{"image/x-icon"},
-			},
-		},
-	}
-
 	c := &websvc.Config{
 		RootRedirectURL: rootRedirectURL,
-		StaticContent:   staticContent,
 		DNSCheck:        mockHandler,
 	}
 
@@ -50,23 +40,16 @@ func TestService_ServeHTTP(t *testing.T) {
 
 	var err error
 	require.NotPanics(t, func() {
-		err = svc.Start(agdtest.ContextWithTimeout(t, testTimeout))
+		err = svc.Start(testutil.ContextWithTimeout(t, testTimeout))
 	})
 	require.NoError(t, err)
 
 	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return svc.Shutdown(agdtest.ContextWithTimeout(t, testTimeout))
+		return svc.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
 	})
 
 	// DNSCheck path.
 	assertResponse(t, svc, "/dnscheck/test", http.StatusOK)
-
-	// Static content path with headers.
-	h := http.Header{
-		httphdr.ContentType: []string{"image/x-icon"},
-		httphdr.Server:      []string{"AdGuardDNS/"},
-	}
-	assertResponseWithHeaders(t, svc, "/favicon.ico", http.StatusOK, h)
 
 	// Robots path.
 	assertResponse(t, svc, "/robots.txt", http.StatusOK)
@@ -93,6 +76,7 @@ func assertResponse(
 		Host:   "127.0.0.1",
 		Path:   path,
 	}).String(), strings.NewReader(""))
+
 	rw = httptest.NewRecorder()
 	svc.ServeHTTP(rw, r)
 
@@ -109,11 +93,11 @@ func assertResponseWithHeaders(
 	svc *websvc.Service,
 	path string,
 	statusCode int,
-	header http.Header,
+	respHdr http.Header,
 ) {
 	t.Helper()
 
 	rw := assertResponse(t, svc, path, statusCode)
 
-	assert.Equal(t, header, rw.Header())
+	assert.Equal(t, respHdr, rw.Header())
 }

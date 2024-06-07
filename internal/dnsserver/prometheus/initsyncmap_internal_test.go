@@ -11,7 +11,7 @@ import (
 
 func TestInitSyncMap(t *testing.T) {
 	numCalls := atomic.Uint32{}
-	m := newInitSyncMap[int, int](func(k int) (v int) {
+	m := newInitSyncMap(func(k int) (v int) {
 		numCalls.Add(1)
 
 		return k + 1
@@ -26,13 +26,13 @@ func TestInitSyncMap(t *testing.T) {
 
 	results := make(chan int, n)
 
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			results <- m.get(key)
 		}()
 	}
 
-	for i := 0; i < n; i++ {
+	for range n {
 		got, _ := testutil.RequireReceive(t, results, 1*time.Second)
 		assert.Equal(t, want, got)
 	}

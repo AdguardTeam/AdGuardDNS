@@ -7,8 +7,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 )
 
-// Common Types
-
 // Interface is an ephemeral storage of the filtering rule list statistics
 // interface.
 //

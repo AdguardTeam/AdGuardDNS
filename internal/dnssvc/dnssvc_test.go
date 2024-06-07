@@ -10,7 +10,6 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
@@ -174,13 +173,13 @@ func TestService_Start(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NotPanics(t, func() {
-		err = svc.Start(agdtest.ContextWithTimeout(t, dnssvctest.Timeout))
+		err = svc.Start(testutil.ContextWithTimeout(t, dnssvctest.Timeout))
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(1), numStart.Load())
 	})
 
 	require.NotPanics(t, func() {
-		err = svc.Shutdown(agdtest.ContextWithTimeout(t, dnssvctest.Timeout))
+		err = svc.Shutdown(testutil.ContextWithTimeout(t, dnssvctest.Timeout))
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(1), numShutdown.Load())
 	})

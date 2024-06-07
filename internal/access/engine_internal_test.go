@@ -71,7 +71,6 @@ func TestBlockedHostEngine_IsBlocked(t *testing.T) {
 	}}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -90,7 +89,7 @@ func TestBlockedHostEngine_IsBlocked_concurrent(t *testing.T) {
 	engine := newBlockedHostEngine(rules)
 
 	wg := &sync.WaitGroup{}
-	for i := 0; i < routinesLimit; i++ {
+	for i := range routinesLimit {
 		wg.Add(1)
 
 		host := fmt.Sprintf("%d.%s", i, "block.test")

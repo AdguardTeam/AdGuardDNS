@@ -2,12 +2,12 @@ package billstat
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/log"
@@ -18,6 +18,9 @@ import (
 // RuntimeRecorderConfig is the configuration structure for a runtime billing
 // statistics recorder.  All fields must be non-empty.
 type RuntimeRecorderConfig struct {
+	// ErrColl is used to collect errors during refreshes.
+	ErrColl errcoll.Interface
+
 	// Uploader is used to upload the billing statistics records to.
 	Uploader Uploader
 }
@@ -29,6 +32,7 @@ func NewRuntimeRecorder(c *RuntimeRecorderConfig) (r *RuntimeRecorder) {
 		mu:       &sync.Mutex{},
 		records:  Records{},
 		uploader: c.Uploader,
+		errColl:  c.ErrColl,
 	}
 }
 
@@ -44,6 +48,9 @@ type RuntimeRecorder struct {
 	// uploader is the uploader to which the billing statistics records are
 	// uploaded.
 	uploader Uploader
+
+	// errColl is used to collect errors during refreshes.
+	errColl errcoll.Interface
 }
 
 // type check
@@ -58,6 +65,10 @@ func (r *RuntimeRecorder) Record(
 	start time.Time,
 	proto agd.Protocol,
 ) {
+	// TODO(a.garipov): Use slog.
+	log.Debug("billstat_refresh: started")
+	defer log.Debug("billstat_refresh: finished")
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -96,7 +107,7 @@ func (r *RuntimeRecorder) Refresh(ctx context.Context) (err error) {
 
 		if err != nil {
 			r.remergeRecords(records)
-			log.Info("billstat: refresh failed, records remerged")
+			log.Info("billstat_refresh: failed, records remerged")
 		} else {
 			metrics.BillStatUploadTimestamp.SetToCurrentTime()
 		}
@@ -106,10 +117,10 @@ func (r *RuntimeRecorder) Refresh(ctx context.Context) (err error) {
 
 	err = r.uploader.Upload(ctx, records)
 	if err != nil {
-		return fmt.Errorf("uploading billstat records: %w", err)
+		errcoll.Collectf(ctx, r.errColl, "billstat_refresh: %w", err)
 	}
 
-	return nil
+	return err
 }
 
 // resetRecords returns the current data and resets the records map to an empty

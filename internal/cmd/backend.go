@@ -110,6 +110,7 @@ func setupBillStat(
 	}
 
 	rec = billstat.NewRuntimeRecorder(&billstat.RuntimeRecorderConfig{
+		ErrColl:  errColl,
 		Uploader: billStatUploader,
 	})
 
@@ -120,13 +121,11 @@ func setupBillStat(
 		Context: func() (ctx context.Context, cancel context.CancelFunc) {
 			return context.WithTimeout(context.Background(), timeout)
 		},
-		Refresher:           rec,
-		ErrColl:             errColl,
-		Name:                "billstat",
-		Interval:            refrIvl,
-		RefreshOnShutdown:   true,
-		RoutineLogsAreDebug: true,
-		RandomizeStart:      false,
+		Refresher:         rec,
+		Name:              "billstat",
+		Interval:          refrIvl,
+		RefreshOnShutdown: true,
+		RandomizeStart:    false,
 	})
 	err = billStatRefr.Start(context.Background())
 	if err != nil {
@@ -157,6 +156,7 @@ func setupProfDB(
 	timeout := conf.Timeout.Duration
 	profDB, err = profiledb.New(&profiledb.Config{
 		Storage:          profStrg,
+		ErrColl:          errColl,
 		FullSyncIvl:      conf.FullRefreshIvl.Duration,
 		FullSyncRetryIvl: conf.FullRefreshRetryIvl.Duration,
 		InitialTimeout:   timeout,
@@ -172,13 +172,11 @@ func setupProfDB(
 		Context: func() (ctx context.Context, cancel context.CancelFunc) {
 			return context.WithTimeout(context.Background(), timeout)
 		},
-		Refresher:           profDB,
-		ErrColl:             errColl,
-		Name:                "profiledb",
-		Interval:            refrIvl,
-		RefreshOnShutdown:   false,
-		RoutineLogsAreDebug: true,
-		RandomizeStart:      true,
+		Refresher:         profDB,
+		Name:              "profiledb",
+		Interval:          refrIvl,
+		RefreshOnShutdown: false,
+		RandomizeStart:    true,
 	})
 	err = profDBRefr.Start(context.Background())
 	if err != nil {

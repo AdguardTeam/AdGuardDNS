@@ -16,11 +16,11 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/devicesetter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
-	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/syncutil"
@@ -47,18 +47,14 @@ type Middleware struct {
 	// pool is the pool of [agd.RequestInfo] values.
 	pool *syncutil.Pool[agd.RequestInfo]
 
-	// db is the database of user profiles and devices.
-	db profiledb.Interface
+	// deviceSetter is used to set the device and profile for a request, if any.
+	deviceSetter devicesetter.Interface
 
 	// geoIP detects the location of the request source.
 	geoIP geoip.Interface
 
 	// errColl collects and reports the errors considered non-critical.
 	errColl errcoll.Interface
-
-	// profilesEnabled is true, if user devices and profiles recognition is
-	// enabled.
-	profilesEnabled bool
 }
 
 // Config is the configuration structure for the initial middleware.  All fields
@@ -76,21 +72,18 @@ type Config struct {
 	// Server is the current server which serves the request.
 	Server *agd.Server
 
-	// DB is the database of user profiles and devices.
-	ProfileDB profiledb.Interface
+	// DeviceSetter is used to set the device and profile for a request, if any.
+	DeviceSetter devicesetter.Interface
 
 	// GeoIP detects the location of the request source.
 	GeoIP geoip.Interface
 
 	// ErrColl collects and reports the errors considered non-critical.
 	ErrColl errcoll.Interface
-
-	// ProfileDBEnabled is true, if user devices and profiles recognition is
-	// enabled.
-	ProfileDBEnabled bool
 }
 
-// New returns a new initial middleware.  c must not be nil.
+// New returns a new initial middleware.  c must not be nil, and all its fields
+// must be valid.
 func New(c *Config) (mw *Middleware) {
 	return &Middleware{
 		messages: c.Messages,
@@ -100,10 +93,9 @@ func New(c *Config) (mw *Middleware) {
 		pool: syncutil.NewPool(func() (v *agd.RequestInfo) {
 			return &agd.RequestInfo{}
 		}),
-		db:              c.ProfileDB,
-		geoIP:           c.GeoIP,
-		errColl:         c.ErrColl,
-		profilesEnabled: c.ProfileDBEnabled,
+		deviceSetter: c.DeviceSetter,
+		geoIP:        c.GeoIP,
+		errColl:      c.ErrColl,
 	}
 }
 
@@ -184,8 +176,8 @@ func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
 func (mw *Middleware) newRequestInfo(
 	ctx context.Context,
 	req *dns.Msg,
-	lAddr net.Addr,
-	rAddr netip.AddrPort,
+	laddr net.Addr,
+	raddr netip.AddrPort,
 ) (ri *agd.RequestInfo, err error) {
 	ri = mw.pool.Get()
 
@@ -205,9 +197,10 @@ func (mw *Middleware) newRequestInfo(
 
 	// Put the host, server, and client IP data into the request information
 	// immediately.
+	remoteIP := raddr.Addr()
 	ri.FilteringGroup = mw.fltGrp
 	ri.Messages = mw.messages
-	ri.RemoteIP = rAddr.Addr()
+	ri.RemoteIP = remoteIP
 	ri.ServerGroup = mw.srvGrp.Name
 	ri.Server = mw.srv.Name
 	ri.Proto = mw.srv.Protocol
@@ -224,67 +217,20 @@ func (mw *Middleware) newRequestInfo(
 	ri.ID, _ = agd.RequestIDFromContext(ctx)
 
 	// Add the GeoIP information, if any.
-	err = mw.addLocation(ctx, ri, req)
+	err = mw.addLocation(ctx, req, ri)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
-	}
-
-	if !mw.profilesEnabled {
-		return ri, nil
 	}
 
 	// Add the profile information, if any.
-	localAddr := netutil.NetAddrToAddrPort(lAddr)
-	err = mw.addProfile(ctx, ri, req, localAddr)
+	localAddr := netutil.NetAddrToAddrPort(laddr)
+	err = mw.deviceSetter.SetDevice(ctx, req, ri, localAddr)
 	if err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		return nil, err
+		return nil, fmt.Errorf("getting device from req: %w", err)
 	}
 
 	return ri, nil
-}
-
-// addLocation adds GeoIP location information about the client's remote address
-// as well as the EDNS Client Subnet information, if there is one, to ri.  err
-// is not nil only if req contains a malformed EDNS Client Subnet option.
-func (mw *Middleware) addLocation(ctx context.Context, ri *agd.RequestInfo, req *dns.Msg) (err error) {
-	ri.Location = mw.locationData(ctx, ri.RemoteIP, "client")
-
-	ecs, scope, err := dnsmsg.ECSFromMsg(req)
-	if err != nil {
-		return fmt.Errorf("adding ecs info: %w", err)
-	} else if ecs != (netip.Prefix{}) {
-		ri.ECS = &agd.ECS{
-			Location: mw.locationData(ctx, ecs.Addr(), "ecs"),
-			Subnet:   ecs,
-			Scope:    scope,
-		}
-	}
-
-	return nil
-}
-
-// locationData returns the GeoIP location information about the IP address.
-// typ is the type of data being requested for error reporting and logging.
-func (mw *Middleware) locationData(
-	ctx context.Context,
-	ip netip.Addr,
-	typ string,
-) (l *geoip.Location) {
-	l, err := mw.geoIP.Data("", ip)
-	if err != nil {
-		// Consider GeoIP errors non-critical.  Report and go on.
-		errcoll.Collectf(ctx, mw.errColl, "init mw: getting geoip for %s ip: %w", typ, err)
-	}
-
-	if l == nil {
-		optlog.Debug2("init mw: no geoip for %s ip %s", typ, ip)
-	} else {
-		optlog.Debug4("init mw: found country/asn %q/%d for %s ip %s", l.Country, l.ASN, typ, ip)
-	}
-
-	return l
 }
 
 // processReqInfoErr processes the error returned by [Middleware.newRequestInfo]
@@ -295,7 +241,7 @@ func (mw *Middleware) processReqInfoErr(
 	req *dns.Msg,
 	origErr error,
 ) (err error) {
-	if errors.Is(origErr, errUnknownDedicated) {
+	if errors.Is(origErr, devicesetter.ErrUnknownDedicated) {
 		metrics.DNSSvcUnknownDedicatedTotal.Inc()
 
 		// The request is dropped by the profile search.  Don't write anything

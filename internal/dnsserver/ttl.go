@@ -29,7 +29,7 @@ func minimalTTL(m *dns.Msg) (d time.Duration) {
 }
 
 // isEmptyRequest returns true if the message has no records at all
-// or if it has just an OPT record. We consider it an "empty" message
+// or if it has just an OPT record.  We consider it an "empty" message
 // in this case.
 func isEmptyMessage(m *dns.Msg) (empty bool) {
 	return len(m.Answer) == 0 && len(m.Ns) == 0 &&

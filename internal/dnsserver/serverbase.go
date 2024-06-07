@@ -268,7 +268,7 @@ func (s *ServerBase) dispose(rw ResponseWriter, resp *dns.Msg) {
 }
 
 // serveDNSMsgInternal serves the DNS request and uses recorder as a
-// ResponseWriter. This method is supposed to be called from serveDNSMsg,
+// ResponseWriter.  This method is supposed to be called from serveDNSMsg,
 // the recorded response is used for counting metrics.
 func (s *ServerBase) serveDNSMsgInternal(
 	ctx context.Context,
