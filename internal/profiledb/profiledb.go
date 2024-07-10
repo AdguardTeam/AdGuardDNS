@@ -21,22 +21,44 @@ import (
 )
 
 // Interface is the local database of user profiles and devices.
+//
+// NOTE:  All returned values must not be modified.
 type Interface interface {
-	// ProfileByDeviceID returns the profile and the device identified by id.
-	ProfileByDeviceID(
+	// CreateAutoDevice creates a new automatic device for the given profile
+	// with the given human-readable device ID and device type.  All arguments
+	// must be valid.
+	CreateAutoDevice(
 		ctx context.Context,
-		id agd.DeviceID,
+		id agd.ProfileID,
+		humanID agd.HumanID,
+		devType agd.DeviceType,
 	) (p *agd.Profile, d *agd.Device, err error)
 
 	// ProfileByDedicatedIP returns the profile and the device identified by its
-	// dedicated DNS server IP address.
+	// dedicated DNS server IP address.  ip must be valid.
 	ProfileByDedicatedIP(
 		ctx context.Context,
 		ip netip.Addr,
 	) (p *agd.Profile, d *agd.Device, err error)
 
+	// ProfileByDeviceID returns the profile and the device identified by id.
+	// id must be valid.
+	ProfileByDeviceID(
+		ctx context.Context,
+		id agd.DeviceID,
+	) (p *agd.Profile, d *agd.Device, err error)
+
+	// ProfileByHumanID returns the profile and the device identified by the
+	// profile ID and the lowercase version of the human-readable device ID.
+	// id and humanIDLower must be valid.
+	ProfileByHumanID(
+		ctx context.Context,
+		id agd.ProfileID,
+		humanIDLower agd.HumanIDLower,
+	) (p *agd.Profile, d *agd.Device, err error)
+
 	// ProfileByLinkedIP returns the profile and the device identified by its
-	// linked IP address.
+	// linked IP address.  ip must be valid.
 	ProfileByLinkedIP(ctx context.Context, ip netip.Addr) (p *agd.Profile, d *agd.Device, err error)
 }
 
@@ -50,6 +72,24 @@ type Disabled struct{}
 // profiles database is disabled.
 const profilesDBUnexpectedCall string = "profiles db: unexpected call to %s"
 
+// CreateAutoDevice implements the [Interface] interface for *Disabled.
+func (d *Disabled) CreateAutoDevice(
+	_ context.Context,
+	_ agd.ProfileID,
+	_ agd.HumanID,
+	_ agd.DeviceType,
+) (_ *agd.Profile, _ *agd.Device, _ error) {
+	panic(fmt.Errorf(profilesDBUnexpectedCall, "CreateAutoDevice"))
+}
+
+// ProfileByDedicatedIP implements the [Interface] interface for *Disabled.
+func (d *Disabled) ProfileByDedicatedIP(
+	_ context.Context,
+	_ netip.Addr,
+) (_ *agd.Profile, _ *agd.Device, _ error) {
+	panic(fmt.Errorf(profilesDBUnexpectedCall, "ProfileByDedicatedIP"))
+}
+
 // ProfileByDeviceID implements the [Interface] interface for *Disabled.
 func (d *Disabled) ProfileByDeviceID(
 	_ context.Context,
@@ -58,11 +98,13 @@ func (d *Disabled) ProfileByDeviceID(
 	panic(fmt.Errorf(profilesDBUnexpectedCall, "ProfileByDeviceID"))
 }
 
-// ProfileByDedicatedIP implements the [Interface] interface for *Disabled.
-func (d *Disabled) ProfileByDedicatedIP(
-	_ context.Context, _ netip.Addr,
+// ProfileByHumanID implements the [Interface] interface for *Disabled.
+func (d *Disabled) ProfileByHumanID(
+	_ context.Context,
+	_ agd.ProfileID,
+	_ agd.HumanIDLower,
 ) (_ *agd.Profile, _ *agd.Device, _ error) {
-	panic(fmt.Errorf(profilesDBUnexpectedCall, "ProfileByDedicatedIP"))
+	panic(fmt.Errorf(profilesDBUnexpectedCall, "ProfileByHumanID"))
 }
 
 // ProfileByLinkedIP implements the [Interface] interface for *Disabled.
@@ -92,16 +134,14 @@ type Config struct {
 	// FullSyncRetryIvl is the interval between two retries of full
 	// synchronizations with the storage.
 	FullSyncRetryIvl time.Duration
-
-	// InitialTimeout is the timeout for initial refresh.
-	InitialTimeout time.Duration
 }
 
 // Default is the default in-memory implementation of the [Interface] interface
-// that can refresh itself from the provided storage.
+// that can refresh itself from the provided storage.  It should be initially
+// refreshed before use.
 type Default struct {
 	// mapsMu protects the profiles, devices, deviceIDToProfileID,
-	// linkedIPToDeviceID, and dedicatedIPToDeviceID maps.
+	// dedicatedIPToDeviceID, humanIDToDeviceID, and linkedIPToDeviceID maps.
 	mapsMu *sync.RWMutex
 
 	// refreshMu serializes Refresh calls and access to all values used inside
@@ -123,15 +163,19 @@ type Default struct {
 	// devices maps device IDs to device records.
 	devices map[agd.DeviceID]*agd.Device
 
-	// deviceIDToProfileID maps device IDs to the ID of their profile.
-	deviceIDToProfileID map[agd.DeviceID]agd.ProfileID
-
-	// linkedIPToDeviceID maps linked IP addresses to the IDs of their devices.
-	linkedIPToDeviceID map[netip.Addr]agd.DeviceID
-
 	// dedicatedIPToDeviceID maps dedicated IP addresses to the IDs of their
 	// devices.
 	dedicatedIPToDeviceID map[netip.Addr]agd.DeviceID
+
+	// deviceIDToProfileID maps device IDs to the ID of their profile.
+	deviceIDToProfileID map[agd.DeviceID]agd.ProfileID
+
+	// humanIDToDeviceID maps human-readable device-ID data to the IDs of the
+	// devices.
+	humanIDToDeviceID map[humanIDKey]agd.DeviceID
+
+	// linkedIPToDeviceID maps linked IP addresses to the IDs of their devices.
+	linkedIPToDeviceID map[netip.Addr]agd.DeviceID
 
 	// syncTime is the time of the last synchronization point.  It is received
 	// from the storage during a refresh and is then used in consecutive
@@ -153,6 +197,16 @@ type Default struct {
 	// fullSyncRetryIvl is the interval between two retries of full
 	// synchronizations with the storage.
 	fullSyncRetryIvl time.Duration
+}
+
+// humanIDKey is the data necessary to identify a device by the lowercase
+// version of its human-readable identifier and the ID of its profile.
+type humanIDKey struct {
+	// lower is the lowercase version of the human-readable device ID.
+	lower agd.HumanIDLower
+
+	// profile is the ID of the profile for the device.
+	profile agd.ProfileID
 }
 
 // New returns a new default in-memory profile database with a filesystem cache.
@@ -181,8 +235,9 @@ func New(conf *Config) (db *Default, err error) {
 		profiles:              make(map[agd.ProfileID]*agd.Profile),
 		devices:               make(map[agd.DeviceID]*agd.Device),
 		deviceIDToProfileID:   make(map[agd.DeviceID]agd.ProfileID),
-		linkedIPToDeviceID:    make(map[netip.Addr]agd.DeviceID),
 		dedicatedIPToDeviceID: make(map[netip.Addr]agd.DeviceID),
+		humanIDToDeviceID:     make(map[humanIDKey]agd.DeviceID),
+		linkedIPToDeviceID:    make(map[netip.Addr]agd.DeviceID),
 		fullSyncIvl:           conf.FullSyncIvl,
 		fullSyncRetryIvl:      conf.FullSyncRetryIvl,
 	}
@@ -191,24 +246,6 @@ func New(conf *Config) (db *Default, err error) {
 	if err != nil {
 		log.Error("profiledb: fs cache: loading: %s", err)
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), conf.InitialTimeout)
-	defer cancel()
-
-	log.Info("profiledb: initial refresh")
-
-	err = db.Refresh(ctx)
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			log.Info("profiledb: warning: initial refresh timeout: %s", err)
-
-			return db, nil
-		}
-
-		return nil, fmt.Errorf("initial refresh: %w", err)
-	}
-
-	log.Info("profiledb: initial refresh succeeded")
 
 	return db, nil
 }
@@ -302,7 +339,7 @@ func (db *Default) fetchProfiles(
 	ctx context.Context,
 	sinceLastAttempt time.Duration,
 	isFullSync bool,
-) (sr *StorageResponse, err error) {
+) (sr *StorageProfilesResponse, err error) {
 	syncTime := db.syncTime
 	if isFullSync {
 		log.Info("profiledb: full sync, %s since last attempt", sinceLastAttempt)
@@ -310,7 +347,7 @@ func (db *Default) fetchProfiles(
 		syncTime = time.Time{}
 	}
 
-	sr, err = db.storage.Profiles(ctx, &StorageRequest{
+	sr, err = db.storage.Profiles(ctx, &StorageProfilesRequest{
 		SyncTime: syncTime,
 	})
 	if err == nil {
@@ -402,9 +439,10 @@ func (db *Default) setProfiles(profiles []*agd.Profile, devices []*agd.Device, i
 	if isFullSync {
 		clear(db.profiles)
 		clear(db.devices)
-		clear(db.deviceIDToProfileID)
-		clear(db.linkedIPToDeviceID)
 		clear(db.dedicatedIPToDeviceID)
+		clear(db.deviceIDToProfileID)
+		clear(db.humanIDToDeviceID)
+		clear(db.linkedIPToDeviceID)
 	}
 
 	for _, p := range profiles {
@@ -415,22 +453,142 @@ func (db *Default) setProfiles(profiles []*agd.Profile, devices []*agd.Device, i
 		}
 	}
 
+	db.setDevices(devices)
+}
+
+// setDevices adds or updates the data for the given devices.  It assumes that
+// db.mapsMu is locked for writing.
+func (db *Default) setDevices(devices []*agd.Device) {
 	for _, d := range devices {
 		devID := d.ID
 		db.devices[devID] = d
+
+		for _, dedIP := range d.DedicatedIPs {
+			db.dedicatedIPToDeviceID[dedIP] = devID
+		}
 
 		if d.LinkedIP != (netip.Addr{}) {
 			db.linkedIPToDeviceID[d.LinkedIP] = devID
 		}
 
-		for _, dedIP := range d.DedicatedIPs {
-			db.dedicatedIPToDeviceID[dedIP] = devID
+		if d.HumanIDLower == "" {
+			continue
 		}
+
+		profID, ok := db.deviceIDToProfileID[devID]
+		if !ok {
+			log.Info("profiledb: warning: no prof id for dev %q", devID)
+
+			continue
+		}
+
+		db.humanIDToDeviceID[humanIDKey{
+			lower:   d.HumanIDLower,
+			profile: profID,
+		}] = devID
 	}
 }
 
 // type check
 var _ Interface = (*Default)(nil)
+
+// CreateAutoDevice implements the [Interface] interface for *Default.
+func (db *Default) CreateAutoDevice(
+	ctx context.Context,
+	id agd.ProfileID,
+	humanID agd.HumanID,
+	devType agd.DeviceType,
+) (p *agd.Profile, d *agd.Device, err error) {
+	var ok bool
+	func() {
+		db.mapsMu.RLock()
+		defer db.mapsMu.RUnlock()
+
+		p, ok = db.profiles[id]
+	}()
+	if !ok {
+		return nil, nil, ErrProfileNotFound
+	}
+
+	if !p.AutoDevicesEnabled {
+		// If the user did not enable the automatic devices feature, treat it
+		// the same as if this profile did not exist.
+		return nil, nil, ErrProfileNotFound
+	}
+
+	resp, err := db.storage.CreateAutoDevice(ctx, &StorageCreateAutoDeviceRequest{
+		ProfileID:  id,
+		HumanID:    humanID,
+		DeviceType: devType,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	d = resp.Device
+
+	func() {
+		db.mapsMu.Lock()
+		defer db.mapsMu.Unlock()
+
+		// TODO(a.garipov):  Technically, we must also update p.DeviceIDs, but
+		// this is hard to do without races, since all methods of the profile
+		// database return values as opposed to clones.  This can cause issues
+		// when the same device is used both by a HumanID and a DeviceID, but we
+		// consider this situation to be relatively rare.
+
+		db.setDevices([]*agd.Device{d})
+	}()
+
+	return p, d, nil
+}
+
+// ProfileByDedicatedIP implements the [Interface] interface for *Default.  ip
+// must be valid.
+func (db *Default) ProfileByDedicatedIP(
+	ctx context.Context,
+	ip netip.Addr,
+) (p *agd.Profile, d *agd.Device, err error) {
+	// Do not use errors.Annotate here, because it allocates even when the error
+	// is nil.  Also do not use fmt.Errorf in a defer, because it allocates when
+	// a device is not found, which is the most common case.
+
+	db.mapsMu.RLock()
+	defer db.mapsMu.RUnlock()
+
+	id, ok := db.dedicatedIPToDeviceID[ip]
+	if !ok {
+		return nil, nil, ErrDeviceNotFound
+	}
+
+	const errPrefix = "profile by device dedicated ip"
+	p, d, err = db.profileByDeviceID(ctx, id)
+	if err != nil {
+		if errors.Is(err, ErrDeviceNotFound) {
+			// Probably, the device has been deleted.  Remove it from our
+			// profile DB in a goroutine, since that requires a write lock.
+			go db.removeDedicatedIP(ip)
+		}
+
+		// Don't add the device ID to the error here, since it is already added
+		// by profileByDeviceID.
+		return nil, nil, fmt.Errorf("%s: %w", errPrefix, err)
+	}
+
+	if !slices.Contains(d.DedicatedIPs, ip) {
+		// Perhaps, the device has changed its dedicated IPs.  Remove it from
+		// our profile DB in a goroutine, since that requires a write lock.
+		go db.removeDedicatedIP(ip)
+
+		return nil, nil, fmt.Errorf(
+			"%s: rechecking dedicated ips: %w",
+			errPrefix,
+			ErrDeviceNotFound,
+		)
+	}
+
+	return p, d, nil
+}
 
 // ProfileByDeviceID implements the [Interface] interface for *Default.
 func (db *Default) ProfileByDeviceID(
@@ -464,7 +622,7 @@ func (db *Default) profileByDeviceID(
 		// from our profile DB in a goroutine, since that requires a write lock.
 		go db.removeDevice(id)
 
-		return nil, nil, fmt.Errorf("empty profile: %w", ErrDeviceNotFound)
+		return nil, nil, ErrProfileNotFound
 	}
 
 	// Reinspect the devices in the profile record to make sure that the device
@@ -478,10 +636,15 @@ func (db *Default) profileByDeviceID(
 	}
 
 	if d == nil {
-		// Perhaps, the device has been deleted from this profile.  May happen
-		// when the device was found by a linked IP.  Remove it from our profile
-		// DB in a goroutine, since that requires a write lock.
-		go db.removeDevice(id)
+		if !p.AutoDevicesEnabled {
+			// Perhaps, the device has been deleted from this profile.  May
+			// happen when the device was found by a linked IP.  Remove it from
+			// our profile DB in a goroutine, since that requires a write lock.
+			//
+			// Do not do that for profiles with enabled autodevices, though.
+			// See the TODO in [Default.CreateAutoDevice].
+			go db.removeDevice(id)
+		}
 
 		return nil, nil, fmt.Errorf("rechecking devices: %w", ErrDeviceNotFound)
 	}
@@ -498,6 +661,84 @@ func (db *Default) removeDevice(id agd.DeviceID) {
 	defer db.mapsMu.Unlock()
 
 	delete(db.deviceIDToProfileID, id)
+}
+
+// removeDedicatedIP removes the device link for the given dedicated IP address
+// from the profile database.  It is intended to be used as a goroutine.
+func (db *Default) removeDedicatedIP(ip netip.Addr) {
+	defer log.OnPanicAndExit("removeDedicatedIP", 1)
+
+	db.mapsMu.Lock()
+	defer db.mapsMu.Unlock()
+
+	delete(db.dedicatedIPToDeviceID, ip)
+}
+
+// ProfileByHumanID implements the [Interface] interface for *Default.
+func (db *Default) ProfileByHumanID(
+	ctx context.Context,
+	id agd.ProfileID,
+	humanID agd.HumanIDLower,
+) (p *agd.Profile, d *agd.Device, err error) {
+	// Do not use errors.Annotate here, because it allocates even when the error
+	// is nil.  Also do not use fmt.Errorf in a defer, because it allocates when
+	// a device is not found, which is the most common case.
+
+	db.mapsMu.RLock()
+	defer db.mapsMu.RUnlock()
+
+	// NOTE:  It's important to check the profile and return ErrProfileNotFound
+	// here to prevent the device setter from trying to create a device for a
+	// profile that doesn't exist.
+	p, ok := db.profiles[id]
+	if !ok {
+		return nil, nil, ErrProfileNotFound
+	}
+
+	k := humanIDKey{
+		lower:   humanID,
+		profile: id,
+	}
+	devID, ok := db.humanIDToDeviceID[k]
+	if !ok {
+		return nil, nil, ErrDeviceNotFound
+	}
+
+	const errPrefix = "profile by human id"
+	p, d, err = db.profileByDeviceID(ctx, devID)
+	if err != nil {
+		if errors.Is(err, ErrDeviceNotFound) {
+			// Probably, the device has been deleted.  Remove it from our
+			// profile DB in a goroutine, since that requires a write lock.
+			go db.removeHumanID(k)
+		}
+
+		// Don't add the device ID to the error here, since it is already added
+		// by profileByDeviceID.
+		return nil, nil, fmt.Errorf("%s: %w", errPrefix, err)
+	}
+
+	if humanID != d.HumanIDLower {
+		// Perhaps, the device has changed its human ID, for example by being
+		// transformed into a normal device..  Remove it from our profile DB in
+		// a goroutine, since that requires a write lock.
+		go db.removeHumanID(k)
+
+		return nil, nil, fmt.Errorf("%s: rechecking human id: %w", errPrefix, ErrDeviceNotFound)
+	}
+
+	return p, d, nil
+}
+
+// removeHumanID removes the device link for the given key from the profile
+// database.  It is intended to be used as a goroutine.
+func (db *Default) removeHumanID(k humanIDKey) {
+	defer log.OnPanicAndExit("removeHumanID", 1)
+
+	db.mapsMu.Lock()
+	defer db.mapsMu.Unlock()
+
+	delete(db.humanIDToDeviceID, k)
 }
 
 // ProfileByLinkedIP implements the [Interface] interface for *Default.  ip must
@@ -544,7 +785,7 @@ func (db *Default) ProfileByLinkedIP(
 		go db.removeLinkedIP(ip)
 
 		return nil, nil, fmt.Errorf(
-			"%s: %q doesn't match: %w",
+			"%s: %q does not match: %w",
 			errPrefix,
 			d.LinkedIP,
 			ErrDeviceNotFound,
@@ -563,62 +804,4 @@ func (db *Default) removeLinkedIP(ip netip.Addr) {
 	defer db.mapsMu.Unlock()
 
 	delete(db.linkedIPToDeviceID, ip)
-}
-
-// ProfileByDedicatedIP implements the [Interface] interface for *Default.  ip
-// must be valid.
-func (db *Default) ProfileByDedicatedIP(
-	ctx context.Context,
-	ip netip.Addr,
-) (p *agd.Profile, d *agd.Device, err error) {
-	// Do not use errors.Annotate here, because it allocates even when the error
-	// is nil.  Also do not use fmt.Errorf in a defer, because it allocates when
-	// a device is not found, which is the most common case.
-
-	db.mapsMu.RLock()
-	defer db.mapsMu.RUnlock()
-
-	id, ok := db.dedicatedIPToDeviceID[ip]
-	if !ok {
-		return nil, nil, ErrDeviceNotFound
-	}
-
-	const errPrefix = "profile by device dedicated ip"
-	p, d, err = db.profileByDeviceID(ctx, id)
-	if err != nil {
-		if errors.Is(err, ErrDeviceNotFound) {
-			// Probably, the device has been deleted.  Remove it from our
-			// profile DB in a goroutine, since that requires a write lock.
-			go db.removeDedicatedIP(ip)
-		}
-
-		// Don't add the device ID to the error here, since it is already added
-		// by profileByDeviceID.
-		return nil, nil, fmt.Errorf("%s: %w", errPrefix, err)
-	}
-
-	if ipIdx := slices.Index(d.DedicatedIPs, ip); ipIdx < 0 {
-		// Perhaps, the device has changed its dedicated IPs.  Remove it from
-		// our profile DB in a goroutine, since that requires a write lock.
-		go db.removeDedicatedIP(ip)
-
-		return nil, nil, fmt.Errorf(
-			"%s: rechecking dedicated ips: %w",
-			errPrefix,
-			ErrDeviceNotFound,
-		)
-	}
-
-	return p, d, nil
-}
-
-// removeDedicatedIP removes the device link for the given dedicated IP address
-// from the profile database.  It is intended to be used as a goroutine.
-func (db *Default) removeDedicatedIP(ip netip.Addr) {
-	defer log.OnPanicAndExit("removeDedicatedIP", 1)
-
-	db.mapsMu.Lock()
-	defer db.mapsMu.Unlock()
-
-	delete(db.dedicatedIPToDeviceID, ip)
 }

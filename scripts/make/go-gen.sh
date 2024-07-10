@@ -49,11 +49,11 @@ readonly go
 (
 	cd ./internal/backendpb/
 	protoc\
-		--go-grpc_opt=Mbackend.proto=./backendpb\
+		--go-grpc_opt=Mdns.proto=./backendpb\
 		--go-grpc_opt=paths=source_relative\
 		--go-grpc_out=.\
-		--go_opt=Mbackend.proto=./backendpb\
+		--go_opt=Mdns.proto=./backendpb\
 		--go_opt=paths=source_relative\
 		--go_out=.\
-		./backend.proto
+		./dns.proto
 )

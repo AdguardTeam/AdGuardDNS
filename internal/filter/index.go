@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"cmp"
 	"context"
 	"net/url"
 
@@ -16,9 +17,12 @@ type filterIndexResp struct {
 
 // filterIndexRespFilter is the struct for a filter from the JSON response from
 // a filter index API.
+//
+// TODO(a.garipov):  Remove ID once the index switches the format completely.
 type filterIndexRespFilter struct {
 	DownloadURL string `json:"downloadUrl"`
-	ID          string `json:"filterId"`
+	FilterID    any    `json:"filterId"`
+	Key         string `json:"filterKey"`
 }
 
 // filterIndexFilterData is the data of a single item in the filtering-rule
@@ -35,9 +39,11 @@ func (r *filterIndexResp) toInternal(
 ) (fls []*filterIndexFilterData) {
 	fls = make([]*filterIndexFilterData, 0, len(r.Filters))
 	for _, rf := range r.Filters {
-		id, err := agd.NewFilterListID(rf.ID)
+		rfFltID, _ := rf.FilterID.(string)
+		rfID := cmp.Or(rf.Key, rfFltID)
+		id, err := agd.NewFilterListID(rfID)
 		if err != nil {
-			errcoll.Collectf(ctx, errColl, "%s: validating id %q: %w", strgLogPrefix, rf.ID, err)
+			errcoll.Collectf(ctx, errColl, "%s: validating id/key %q: %w", strgLogPrefix, rfID, err)
 
 			continue
 		}

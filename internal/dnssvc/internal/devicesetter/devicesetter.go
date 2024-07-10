@@ -44,10 +44,10 @@ var _ Interface = Empty{}
 // SetDevice implements the [Interface] interface for Empty.  It does nothing
 // and returns nil.
 func (Empty) SetDevice(
-	ctx context.Context,
-	req *dns.Msg,
-	ri *agd.RequestInfo,
-	laddr netip.AddrPort,
+	_ context.Context,
+	_ *dns.Msg,
+	_ *agd.RequestInfo,
+	_ netip.AddrPort,
 ) (err error) {
 	return nil
 }
@@ -56,6 +56,10 @@ func (Empty) SetDevice(
 type Config struct {
 	// ProfileDB is used to find the profiles.  It must not be nil.
 	ProfileDB profiledb.Interface
+
+	// HumanIDParser is used to normalize and parse human-readable device
+	// identifiers.
+	HumanIDParser *agd.HumanIDParser
 
 	// Server contains the data of the server for which the profiles are found.
 	// It must not be nil.
@@ -69,6 +73,7 @@ type Config struct {
 // Default is the default profile setter.
 type Default struct {
 	db              profiledb.Interface
+	humanIDParser   *agd.HumanIDParser
 	srv             *agd.Server
 	wildcardDomains []string
 }
@@ -83,6 +88,7 @@ func NewDefault(c *Config) (ds *Default) {
 
 	return &Default{
 		db:              c.ProfileDB,
+		humanIDParser:   c.HumanIDParser,
 		srv:             c.Server,
 		wildcardDomains: wildcardDomains,
 	}
@@ -104,13 +110,13 @@ func (ds *Default) SetDevice(
 	}
 
 	srvReqInfo := dnsserver.MustRequestInfoFromContext(ctx)
-	id, err := ds.deviceID(req, srvReqInfo)
+	id, extID, err := ds.deviceData(req, srvReqInfo)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return err
 	}
 
-	prof, dev, err := ds.findDevice(ctx, laddr, ri.RemoteIP, id)
+	prof, dev, err := ds.findDevice(ctx, laddr, ri.RemoteIP, id, extID)
 	if err != nil {
 		// Likely [errUnknownDedicated].
 		return fmt.Errorf("setting profile: %w", err)

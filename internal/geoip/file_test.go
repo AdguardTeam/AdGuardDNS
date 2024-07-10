@@ -1,12 +1,16 @@
 package geoip_test
 
 import (
+	"context"
 	"net/netip"
 	"testing"
+	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -14,8 +18,23 @@ import (
 // type check
 var _ agdservice.Refresher = (*geoip.File)(nil)
 
+// testTimeout is the common timeout for tests and contexts.
+const testTimeout = 1 * time.Second
+
+// newFile creates a new *geoip.File with the given configuration and refreshes
+// it initially.
+func newFile(tb testing.TB, conf *geoip.FileConfig) (g *geoip.File) {
+	g = geoip.NewFile(conf)
+
+	ctx := testutil.ContextWithTimeout(tb, testTimeout)
+	require.NoError(tb, g.Refresh(ctx))
+
+	return g
+}
+
 func TestFile_Data_cityDB(t *testing.T) {
 	conf := &geoip.FileConfig{
+		CacheManager:   agdcache.EmptyManager{},
 		ASNPath:        asnPath,
 		CountryPath:    cityPath,
 		HostCacheSize:  0,
@@ -24,8 +43,7 @@ func TestFile_Data_cityDB(t *testing.T) {
 		CountryTopASNs: countryTopASNs,
 	}
 
-	g, err := geoip.NewFile(conf)
-	require.NoError(t, err)
+	g := newFile(t, conf)
 
 	d, err := g.Data(testHost, testIPWithASN)
 	require.NoError(t, err)
@@ -42,6 +60,7 @@ func TestFile_Data_cityDB(t *testing.T) {
 
 func TestFile_Data_countryDB(t *testing.T) {
 	conf := &geoip.FileConfig{
+		CacheManager:   agdcache.EmptyManager{},
 		ASNPath:        asnPath,
 		CountryPath:    countryPath,
 		HostCacheSize:  0,
@@ -50,8 +69,7 @@ func TestFile_Data_countryDB(t *testing.T) {
 		CountryTopASNs: countryTopASNs,
 	}
 
-	g, err := geoip.NewFile(conf)
-	require.NoError(t, err)
+	g := newFile(t, conf)
 
 	d, err := g.Data(testHost, testIPWithASN)
 	require.NoError(t, err)
@@ -68,6 +86,7 @@ func TestFile_Data_countryDB(t *testing.T) {
 
 func TestFile_Data_hostCache(t *testing.T) {
 	conf := &geoip.FileConfig{
+		CacheManager:   agdcache.EmptyManager{},
 		ASNPath:        asnPath,
 		CountryPath:    cityPath,
 		HostCacheSize:  1,
@@ -76,8 +95,7 @@ func TestFile_Data_hostCache(t *testing.T) {
 		CountryTopASNs: countryTopASNs,
 	}
 
-	g, err := geoip.NewFile(conf)
-	require.NoError(t, err)
+	g := newFile(t, conf)
 
 	d, err := g.Data(testHost, testIPWithASN)
 	require.NoError(t, err)
@@ -97,6 +115,7 @@ func TestFile_Data_hostCache(t *testing.T) {
 
 func TestFile_SubnetByLocation(t *testing.T) {
 	conf := &geoip.FileConfig{
+		CacheManager:   agdcache.EmptyManager{},
 		ASNPath:        asnPath,
 		CountryPath:    cityPath,
 		HostCacheSize:  0,
@@ -105,8 +124,7 @@ func TestFile_SubnetByLocation(t *testing.T) {
 		CountryTopASNs: countryTopASNs,
 	}
 
-	g, cErr := geoip.NewFile(conf)
-	require.NoError(t, cErr)
+	g := newFile(t, conf)
 
 	testCases := []struct {
 		name    string
@@ -169,13 +187,13 @@ func TestFile_SubnetByLocation(t *testing.T) {
 
 // Sinks for benchmarks.
 var (
-	errSink  error
-	fileSink *geoip.File
-	locSink  *geoip.Location
+	errSink error
+	locSink *geoip.Location
 )
 
 func BenchmarkFile_Data(b *testing.B) {
 	conf := &geoip.FileConfig{
+		CacheManager:   agdcache.EmptyManager{},
 		ASNPath:        asnPath,
 		CountryPath:    cityPath,
 		HostCacheSize:  0,
@@ -184,8 +202,7 @@ func BenchmarkFile_Data(b *testing.B) {
 		CountryTopASNs: geoip.DefaultCountryTopASNs,
 	}
 
-	g, err := geoip.NewFile(conf)
-	require.NoError(b, err)
+	g := newFile(b, conf)
 
 	ipCountry1 := testIPWithCountry
 
@@ -225,8 +242,9 @@ func BenchmarkFile_Data(b *testing.B) {
 	})
 }
 
-func BenchmarkNewFile(b *testing.B) {
+func BenchmarkFile_Refresh(b *testing.B) {
 	conf := &geoip.FileConfig{
+		CacheManager:   agdcache.EmptyManager{},
 		ASNPath:        asnPath,
 		CountryPath:    cityPath,
 		HostCacheSize:  0,
@@ -235,19 +253,23 @@ func BenchmarkNewFile(b *testing.B) {
 		CountryTopASNs: geoip.DefaultCountryTopASNs,
 	}
 
+	ctx := context.Background()
+	g := geoip.NewFile(conf)
+
 	b.ReportAllocs()
 	b.ResetTimer()
+
 	for range b.N {
-		fileSink, errSink = geoip.NewFile(conf)
+		errSink = g.Refresh(ctx)
 	}
 
-	assert.NotNil(b, fileSink)
 	assert.NoError(b, errSink)
 
 	// Recent result on MBP 15:
 	//
-	//	goos: darwin
-	//	goarch: amd64
-	//	cpu: Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz
-	//	BenchmarkNewFile-12    2192    532262 ns/op    180929 B/op    5980 allocs/op
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/geoip
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkFile_Refresh-12		807		1405013 ns/op	585430 B/op		18141 allocs/op
 }

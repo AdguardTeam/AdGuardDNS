@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
@@ -27,6 +28,7 @@ import (
 // handling as well as records anonymous DNS statistics.
 type Middleware struct {
 	cloner              *dnsmsg.Cloner
+	cacheManager        agdcache.Manager
 	db                  dnsdb.Interface
 	geoIP               geoip.Interface
 	cacheMinTTL         time.Duration
@@ -41,6 +43,9 @@ type Middleware struct {
 type Config struct {
 	// Cloner is used to clone messages taken from cache.
 	Cloner *dnsmsg.Cloner
+
+	// CacheManager is the global cache manager.  CacheManager must not be nil.
+	CacheManager agdcache.Manager
 
 	// DB is used to update anonymous statistics about DNS queries.
 	DB dnsdb.Interface
@@ -72,6 +77,7 @@ type Config struct {
 func New(c *Config) (mw *Middleware) {
 	return &Middleware{
 		cloner:              c.Cloner,
+		cacheManager:        c.CacheManager,
 		db:                  c.DB,
 		geoIP:               c.GeoIP,
 		cacheMinTTL:         c.CacheMinTTL,
@@ -135,6 +141,7 @@ func (mw *Middleware) wrapCacheMw(next dnsserver.Handler) (wrapped dnsserver.Han
 	if mw.useECSCache {
 		cacheMw = ecscache.NewMiddleware(&ecscache.MiddlewareConfig{
 			Cloner:         mw.cloner,
+			CacheManager:   mw.cacheManager,
 			GeoIP:          mw.geoIP,
 			Size:           mw.cacheSize,
 			ECSSize:        mw.ecsCacheSize,

@@ -14,38 +14,38 @@ const (
 	ErrUnknownDedicated errors.Error = "unknown dedicated ip"
 )
 
-// deviceIDError is an error about bad device ID or other issues found during
-// device ID checking.
-type deviceIDError struct {
+// deviceDataError is an error about bad device data or other issues found
+// during device data checking.
+type deviceDataError struct {
 	err error
 	typ string
 }
 
 // type check
-var _ error = (*deviceIDError)(nil)
+var _ error = (*deviceDataError)(nil)
 
-// newDeviceIDError is a helper constructor for device-ID errors.
-func newDeviceIDError(orig error, typ string) (err error) {
-	return &deviceIDError{
+// newDeviceDataError is a helper constructor for device-data errors.
+func newDeviceDataError(orig error, typ string) (err error) {
+	return &deviceDataError{
 		err: orig,
 		typ: typ,
 	}
 }
 
-// Error implements the error interface for *deviceIDError.
-func (err *deviceIDError) Error() (msg string) {
+// Error implements the error interface for *deviceDataError.
+func (err *deviceDataError) Error() (msg string) {
 	return fmt.Sprintf("%s device id check: %s", err.typ, err.err)
 }
 
 // type check
-var _ errors.Wrapper = (*deviceIDError)(nil)
+var _ errors.Wrapper = (*deviceDataError)(nil)
 
-// Unwrap implements the [errors.Wrapper] interface for *deviceIDError.
-func (err *deviceIDError) Unwrap() (unwrapped error) { return err.err }
+// Unwrap implements the [errors.Wrapper] interface for *deviceDataError.
+func (err *deviceDataError) Unwrap() (unwrapped error) { return err.err }
 
 // type check
-var _ errcoll.SentryReportableError = (*deviceIDError)(nil)
+var _ errcoll.SentryReportableError = (*deviceDataError)(nil)
 
 // IsSentryReportable implements the [errcoll.SentryReportableError] interface
-// for *deviceIDError.
-func (*deviceIDError) IsSentryReportable() (ok bool) { return false }
+// for *deviceDataError.
+func (*deviceDataError) IsSentryReportable() (ok bool) { return false }

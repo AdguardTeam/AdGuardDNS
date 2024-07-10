@@ -5,8 +5,6 @@ import (
 	"fmt"
 )
 
-// Common Constants, Types, And Utilities
-
 // firstNonIDRune returns the first non-printable or non-ASCII rune and its
 // index.  If slashes is true, it also looks for slashes.  If there are no such
 // runes, i is -1.

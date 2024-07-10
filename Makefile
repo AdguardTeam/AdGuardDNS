@@ -23,7 +23,7 @@ VERBOSE.MACRO = $${VERBOSE:-0}
 BRANCH = $$( git rev-parse --abbrev-ref HEAD )
 GOAMD64 = v1
 GOPROXY = https://proxy.golang.org|direct
-GOTOOLCHAIN = go1.22.4
+GOTOOLCHAIN = go1.22.5
 RACE = 0
 REVISION = $$( git rev-parse --short HEAD )
 VERSION = 0
@@ -66,8 +66,8 @@ go-check: go-tools go-lint go-test
 # A quick check to make sure that all operating systems relevant to the
 # development of the project can be typechecked and built successfully.
 go-os-check:
-	env GOOS='darwin' "$(GO.MACRO)" vet ./internal/...
-	env GOOS='linux'  "$(GO.MACRO)" vet ./internal/...
+	env GOOS='darwin' "$(GO.MACRO)" vet ./internal/... ./internal/dnsserver/...
+	env GOOS='linux'  "$(GO.MACRO)" vet ./internal/... ./internal/dnsserver/...
 # Additionally, check the AdGuard Home OSs in the dnsserver module.
 	env GOOS='freebsd' "$(GO.MACRO)" vet ./internal/dnsserver/...
 	env GOOS='openbsd' "$(GO.MACRO)" vet ./internal/dnsserver/...

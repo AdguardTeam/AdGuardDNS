@@ -28,6 +28,9 @@ type FilterConfig struct {
 	// Cloner is used to clone messages taken from filtering-result cache.
 	Cloner *dnsmsg.Cloner
 
+	// CacheManager is the global cache manager.  CacheManager must not be nil.
+	CacheManager agdcache.Manager
+
 	// Hashes are the hostname hashes for this filter.
 	Hashes *Storage
 
@@ -101,8 +104,8 @@ func itemFromCache(
 	return item, true
 }
 
-// Filter is a filter that matches hosts by their hashes based on a
-// hash-prefix table.
+// Filter is a filter that matches hosts by their hashes based on a hash-prefix
+// table.  It should be initially refreshed with [Filter.RefreshInitial].
 type Filter struct {
 	cloner   *dnsmsg.Cloner
 	hashes   *Storage
@@ -114,17 +117,24 @@ type Filter struct {
 	repFQDN  string
 }
 
-// NewFilter returns a new hash-prefix filter.  c must not be nil.
+// NewFilter returns a new hash-prefix filter.  It also adds the caches with IDs
+// [FilterListIDAdultBlocking], [FilterListIDSafeBrowsing], and
+// [FilterListIDNewRegDomains] to the cache manager.  c must not be nil.
 func NewFilter(c *FilterConfig) (f *Filter, err error) {
 	id := c.ID
+
+	resCache := agdcache.NewLRU[internal.CacheKey, *cacheItem](&agdcache.LRUConfig{
+		Size: c.CacheSize,
+	})
+
+	c.CacheManager.Add(string(id), resCache)
+
 	f = &Filter{
-		cloner: c.Cloner,
-		hashes: c.Hashes,
-		resCache: agdcache.NewLRU[internal.CacheKey, *cacheItem](&agdcache.LRUConfig{
-			Size: c.CacheSize,
-		}),
-		errColl: c.ErrColl,
-		id:      id,
+		cloner:   c.Cloner,
+		hashes:   c.Hashes,
+		resCache: resCache,
+		errColl:  c.ErrColl,
+		id:       id,
 	}
 
 	repHost := c.ReplacementHost
@@ -148,12 +158,6 @@ func NewFilter(c *FilterConfig) (f *Filter, err error) {
 		Timeout:   c.RefreshTimeout,
 		MaxSize:   c.MaxSize,
 	})
-
-	err = f.refresh(context.Background(), true)
-	if err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		return nil, err
-	}
 
 	return f, nil
 }
@@ -377,6 +381,20 @@ func (f *Filter) Refresh(ctx context.Context) (err error) {
 	}
 
 	return err
+}
+
+// RefreshInitial loads the content of the filter, using cached files if any,
+// regardless of their staleness.
+func (f *Filter) RefreshInitial(ctx context.Context) (err error) {
+	log.Info("hashprefix filter: initial refresh started")
+	defer log.Info("hashprefix filter: initial refresh finished")
+
+	err = f.refresh(ctx, true)
+	if err != nil {
+		return fmt.Errorf("refreshing hashprefix filter initially: %w", err)
+	}
+
+	return nil
 }
 
 // refresh reloads and resets the hash-filter data.  If acceptStale is true, do

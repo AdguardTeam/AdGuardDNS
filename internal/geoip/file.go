@@ -17,8 +17,17 @@ import (
 	"github.com/oschwald/maxminddb-golang"
 )
 
+// Constants that define cache identifiers for the cache manager.
+const (
+	CacheIDIP   = "geoip_ip"
+	CacheIDHost = "geoip_host"
+)
+
 // FileConfig is the file-based GeoIP configuration structure.
 type FileConfig struct {
+	// CacheManager is the global cache manager.  CacheManager must not be nil.
+	CacheManager agdcache.Manager
+
 	// AllTopASNs contains all subnets from CountryTopASNs.  While scanning the
 	// statistics data file this set is used to check if the current ASN
 	// included in CountryTopASNs.
@@ -42,7 +51,8 @@ type FileConfig struct {
 	IPCacheSize int
 }
 
-// File is a file implementation of [geoip.Interface].
+// File is a file implementation of [geoip.Interface].  It should be initially
+// refreshed before use.
 type File struct {
 	allTopASNs     *container.MapSet[ASN]
 	countryTopASNs map[Country]ASN
@@ -70,9 +80,6 @@ type File struct {
 
 	asnPath     string
 	countryPath string
-
-	ipCacheSize   int
-	hostCacheSize int
 }
 
 // countrySubnets is a country-to-subnet mapping.
@@ -108,30 +115,38 @@ func newLocationKey(asn ASN, ctry Country, subdiv string) (l locationKey) {
 	}
 }
 
-// NewFile returns a new GeoIP database that reads information from a file.
-func NewFile(c *FileConfig) (f *File, err error) {
-	f = &File{
+// NewFile returns a new GeoIP database that reads information from a file.  It
+// also adds the caches with IDs [CacheIDIP] and [CacheIDHost] to the cache
+// manager.
+func NewFile(c *FileConfig) (f *File) {
+	var hostCache agdcache.Interface[string, *Location]
+	if c.HostCacheSize == 0 {
+		hostCache = agdcache.Empty[string, *Location]{}
+	} else {
+		hostCache = agdcache.NewLRU[string, *Location](&agdcache.LRUConfig{
+			Size: c.HostCacheSize,
+		})
+	}
+
+	ipCache := agdcache.NewLRU[any, *Location](&agdcache.LRUConfig{
+		Size: c.IPCacheSize,
+	})
+
+	c.CacheManager.Add(CacheIDHost, hostCache)
+	c.CacheManager.Add(CacheIDIP, ipCache)
+
+	return &File{
 		mu: &sync.RWMutex{},
+
+		ipCache:   ipCache,
+		hostCache: hostCache,
 
 		asnPath:     c.ASNPath,
 		countryPath: c.CountryPath,
 
-		ipCacheSize:   c.IPCacheSize,
-		hostCacheSize: c.HostCacheSize,
-
 		allTopASNs:     c.AllTopASNs,
 		countryTopASNs: c.CountryTopASNs,
 	}
-
-	// TODO(a.garipov): Consider adding software module ID into the contexts and
-	// adding base contexts.
-	ctx := context.Background()
-	err = f.Refresh(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("initial refresh: %w", err)
-	}
-
-	return f, nil
 }
 
 // ipToCacheKey returns the cache key for ip.  The cache key is a three-byte
@@ -384,17 +399,8 @@ func (f *File) refresh() (err error) {
 
 	f.asn, f.country = asn, country
 
-	if f.hostCacheSize == 0 {
-		f.hostCache = agdcache.Empty[string, *Location]{}
-	} else {
-		f.hostCache = agdcache.NewLRU[string, *Location](&agdcache.LRUConfig{
-			Size: f.hostCacheSize,
-		})
-	}
-
-	f.ipCache = agdcache.NewLRU[any, *Location](&agdcache.LRUConfig{
-		Size: f.ipCacheSize,
-	})
+	f.hostCache.Clear()
+	f.ipCache.Clear()
 
 	return nil
 }

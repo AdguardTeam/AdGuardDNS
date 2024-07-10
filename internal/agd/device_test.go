@@ -1,7 +1,6 @@
 package agd_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -11,9 +10,6 @@ import (
 
 func TestNewDeviceName(t *testing.T) {
 	t.Parallel()
-
-	tooLong := strings.Repeat("a", 200)
-	tooLongUnicode := strings.Repeat("ы", 200)
 
 	testCases := []struct {
 		name       string
@@ -33,12 +29,12 @@ func TestNewDeviceName(t *testing.T) {
 		wantErrMsg: "",
 	}, {
 		name:       "too_long",
-		in:         tooLong,
-		wantErrMsg: `bad device name "` + tooLong + `": too long: got 200 runes, max 128`,
+		in:         testLongStr,
+		wantErrMsg: `bad device name "` + testLongStr + `": too long: got 200 runes, max 128`,
 	}, {
 		name:       "too_long_unicode",
-		in:         tooLongUnicode,
-		wantErrMsg: `bad device name "` + tooLongUnicode + `": too long: got 200 runes, max 128`,
+		in:         testLongStrUnicode,
+		wantErrMsg: `bad device name "` + testLongStrUnicode + `": too long: got 200 runes, max 128`,
 	}}
 
 	for _, tc := range testCases {

@@ -1,61 +1,45 @@
- #  AdGuard DNS Changelog
+# AdGuard DNS changelog
 
-All notable environment, configuration file, and other changes to this project
-will be documented in this file.
+All notable environment, configuration file, and other changes to this project will be documented in this file.
 
-The format is **not** based on [Keep a Changelog][kec], since the project
-**doesn't** currently adhere to [Semantic Versioning][sem].
+The format is **not** based on [Keep a Changelog][kec], since the project **doesn't** currently adhere to [Semantic Versioning][sem].
 
 [kec]: https://keepachangelog.com/en/1.0.0/
 [sem]: https://semver.org/spec/v2.0.0.html
 
+## AGDNS-2254 / Build 779
 
+- The environment variables `BILLSTAT_API_KEY` and `PROFILES_API_KEY` have been added.
 
-##  AGDNS-2048 / Build 750
+## AGDNS-2172 / Build 776
 
- *  The environment variables `RESEARCH_LOGS` and `RESEARCH_METRICS` have been
-    removed.
+- The version of the profile cache file has been incremented.
 
+## AGDNS-2048 / Build 750
 
+- The environment variables `RESEARCH_LOGS` and `RESEARCH_METRICS` have been removed.
 
-##  AGDNS-2022 / Build 746
+## AGDNS-2022 / Build 746
 
- *  The property `block_page_redirect` of objects within `server_groups` array
-    has been removed.
+- The property `block_page_redirect` of objects within `server_groups` array has been removed.
 
+## AGDNS-1981 / Build 744
 
+- The objects within `server_groups` array had a change in their `block_page_redirect` configuration, it now supports arrays of IP addresses in `ipv4` and `ipv6` fields.
 
-##  AGDNS-1981 / Build 744
+- Profile's file cache version was incremented. In case of `BlockingModeCustomIP` the `profile.blocking_mode` IPv4/IPv6 fields are now arrays of IP addresses.
 
- *  The objects within `server_groups` array had a change in their
-    `block_page_redirect` configuration, it now supports arrays of IP addresses
-    in `ipv4` and `ipv6` fields.
+## AGDNS-2012 / Build 732
 
- *  Profile's file cache version was incremented.  In case of
-    `BlockingModeCustomIP` the `profile.blocking_mode` IPv4/IPv6 fields are now
-    arrays of IP addresses.
+- The querylog now has a new field, `"rn"`, which is a 16-bit unsigned random number. Field `"u"`, the unique request ID, is deprecated and may be removed in the future.
 
+## AGDNS-1879 / Build 729
 
+- Profile's file cache version was incremented. The new field `authentication` has been added to profile's device object.
 
-##  AGDNS-2012 / Build 732
+## AGDNS-1934 / Build 728
 
- *  The querylog now has a new field, `"rn"`, which is a 16-bit unsigned random
-    number.  Field `"u"`, the unique request ID, is deprecated and may be
-    removed in the future.
-
-
-
-##  AGDNS-1879 / Build 729
-
- *  Profile's file cache version was incremented.  The new field
-    `authentication` has been added to profile's device object.
-
-
-
-##  AGDNS-1934 / Build 728
-
- *  The object `filters` has new properties: `index_refresh_timeout`, and
-    `rule_list_refresh_timeout`.  So replace this:
+- The object `filters` has new properties: `index_refresh_timeout`, and `rule_list_refresh_timeout`. So replace this:
 
     ```yaml
     filters:
@@ -71,8 +55,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project
         rule_list_refresh_timeout: 1m
     ```
 
- *  The objects `safe_browsing` and `adult_blocking` have a new property:
-    `refresh_timeout`.  So replace this:
+- The objects `safe_browsing` and `adult_blocking` have a new property: `refresh_timeout`. So replace this:
 
     ```yaml
     safe_browsing:
@@ -94,19 +77,13 @@ The format is **not** based on [Keep a Changelog][kec], since the project
         refresh_timeout: 1m
     ```
 
+## AGDNS-1954 / Build 726
 
+- The object `web` has a new optional property, `general_blocking`. Its format is the same as in `adult_blocking` and `safe_browsing`.
 
-##  AGDNS-1954 / Build 726
+## AGDNS-1954 / Build 719
 
- *  The object `web` has a new optional property, `general_blocking`.  Its
-    format is the same as in `adult_blocking` and `safe_browsing`.
-
-
-
-##  AGDNS-1954 / Build 719
-
- *  The objects within `server_groups` array have a new property
-    `block_page_redirect`:
+- The objects within `server_groups` array have a new property `block_page_redirect`:
 
     ```yaml
     block_page_redirect:
@@ -139,25 +116,13 @@ The format is **not** based on [Keep a Changelog][kec], since the project
         enabled: false
     ```
 
+## AGDNS-1888 / Build 717
 
+- The new environment variable `PROFILES_ENABLED` has been added. With `0` value it disables user profiles and devices recognition, and billing. Its default value is `1`. Adjust the value, if necessary.
 
-##  AGDNS-1888 / Build 717
+## AGDNS-1761 / Build 702
 
- *  The new environment variable `PROFILES_ENABLED` has been added.  With `0`
-    value it disables user profiles and devices recognition, and billing.  Its
-    default value is `1`.  Adjust the value, if necessary.
-
-
-
-##  AGDNS-1761 / Build 702
-
- *  The property `upstream` has been modified. Its property `timeout` has been
-    replaced with the new property `servers.timeout` for each server in the
-    `servers` list. Concomitantly the `fallback.timeout` has been replaced with
-    `fallback.servers.timeout` for each fallback server. The `fallback.servers`
-    now supports not only the addresses of the servers, but URLs in the
-    `[scheme://]ip:port` format like it's done with the main servers. So replace
-    this:
+- The property `upstream` has been modified. Its property `timeout` has been replaced with the new property `servers.timeout` for each server in the `servers` list. Concomitantly the `fallback.timeout` has been replaced with `fallback.servers.timeout` for each fallback server. The `fallback.servers` now supports not only the addresses of the servers, but URLs in the `[scheme://]ip:port` format like it's done with the main servers. So replace this:
 
     ```yaml
     upstream:
@@ -190,12 +155,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Adjust the value and add new ones, if necessary.
 
+## AGDNS-698 / Build 701
 
-
-##  AGDNS-698 / Build 701
-
- *  The object `dns` has new properties: `read_timeout`, `tcp_idle_timeout`, and
-    `write_timeout`.  So replace this:
+- The object `dns` has new properties: `read_timeout`, `tcp_idle_timeout`, and `write_timeout`. So replace this:
 
     ```yaml
     dns:
@@ -215,13 +177,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     The values in the example are previous defaults.
 
+## AGDNS-1751 / Build 691
 
-
-##  AGDNS-1751 / Build 691
-
- *  The property `upstream.server` has been removed.  Its former content is
-    moved to the newly added property `servers`, which now extended to contain
-    a list of URLs of main upstream servers.  So replace this:
+- The property `upstream.server` has been removed. Its former content is moved to the newly added property `servers`, which now extended to contain a list of URLs of main upstream servers. So replace this:
 
     ```yaml
     upstream:
@@ -240,12 +198,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Adjust the value and add new ones, if necessary.
 
+## AGDNS-1759 / Build 684
 
-
-##  AGDNS-1759 / Build 684
-
- *  The object `backend` has a new property, `full_refresh_retry_interval`.  So
-    replace this:
+- The object `backend` has a new property, `full_refresh_retry_interval`. So replace this:
 
     ```yaml
     backend:
@@ -264,20 +219,13 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Adjust the value, if necessary.
 
+## AGDNS-1744 / Build 681
 
+- Metric `forward_request_total` has a new label `network`. This label describes the network type (`tcp` or `udp`), over which an upstream has finished processing request.
 
-##  AGDNS-1744 / Build 681
+## AGDNS-1738 / Build 678
 
- *  Metric `forward_request_total` has a new label `network`.  This label
-    describes the network type (`tcp` or `udp`), over which an upstream has
-    finished processing request.
-
-
-
-##  AGDNS-1738 / Build 678
-
- *  Object `dns` has a new property, describing maximum size of DNS response
-    over UDP protocol.
+- Object `dns` has a new property, describing maximum size of DNS response over UDP protocol.
 
     ```yaml
     dns:
@@ -285,14 +233,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
         handle_timeout: 1s
     ```
 
+## AGDNS-1735 / Build 677
 
-
-##  AGDNS-1735 / Build 677
-
- *  The property `upstream.fallback` has been changed.  Its former content is
-    moved to the newly added property `servers`.  The new property `timeout`,
-    which describes query timeout to fallback servers, was added.  So replace
-    this:
+- The property `upstream.fallback` has been changed. Its former content is moved to the newly added property `servers`. The new property `timeout`, which describes query timeout to fallback servers, was added. So replace this:
 
     ```yaml
     upstream:
@@ -312,27 +255,20 @@ The format is **not** based on [Keep a Changelog][kec], since the project
             timeout: 1s
     ```
 
-   Adjust the new values, if necessary.  Note that the query timeout to fallback
-   servers was previously defined with `upstream.timeout` property, which now
-   describes the query timeout to the primary servers only.
+   Adjust the new values, if necessary. Note that the query timeout to fallback servers was previously defined with `upstream.timeout` property, which now describes the query timeout to the primary servers only.
 
+## AGDNS-1178 / Build 676
 
-
-##  AGDNS-1178 / Build 676
-
- *  The new object `dns` has been added:
+- The new object `dns` has been added:
 
     ```yaml
     dns:
         handle_timeout: 1s
     ```
 
+## AGDNS-1620 / Build 673
 
-
-##  AGDNS-1620 / Build 673
-
- *  Object `ratelimit` has two new properties: `quic` and `tcp`.  They configure
-    QUIC and TCP connection limits.  Example configuration:
+- Object `ratelimit` has two new properties: `quic` and `tcp`. They configure QUIC and TCP connection limits. Example configuration:
 
     ```yaml
     ratelimit:
@@ -345,27 +281,17 @@ The format is **not** based on [Keep a Changelog][kec], since the project
             max_pipeline_count: 100
     ```
 
+## AGDNS-1684 / Build 661
 
+- Profile's file cache version was incremented. The new field `access` has been added.
 
-##  AGDNS-1684 / Build 661
+## AGDNS-1664 / Build 636
 
- *  Profile's file cache version was incremented.  The new field `access` has
-    been added.
+- The environment variables `BILLSTAT_URL` and `PROFILES_URL` no longer support HTTP(s) endpoints. Use GRPC(S) instead.
 
+## AGDNS-1667 / Build 633
 
-
-##  AGDNS-1664 / Build 636
-
- *  The environment variables `BILLSTAT_URL` and `PROFILES_URL` no longer
-    support HTTP(s) endpoints.  Use GRPC(S) instead.
-
-
-
-##  AGDNS-1667 / Build 633
-
-*  `ratelimit` configuration properties `back_off_count`, `back_off_duration`
-   and `back_off_period` have been renamed to `backoff_count`,
-   `backoff_duration` and `backoff_period`.  So replace this:
+- `ratelimit` configuration properties `back_off_count`, `back_off_duration` and `back_off_period` have been renamed to `backoff_count`, `backoff_duration` and `backoff_period`. So replace this:
 
    ```yaml
    ratelimit:
@@ -383,13 +309,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
        backoff_duration: 30m
    ```
 
+## AGDNS-1607 / Build 617
 
-
-##  AGDNS-1607 / Build 617
-
- *  New configuration `access` has been added, it has an a list of AdBlock rules
-    to block requests, and a lists of client subnets to block access from.
-    Example configuration:
+- New configuration `access` has been added, it has an a list of AdBlock rules to block requests, and a lists of client subnets to block access from. Example configuration:
 
     ```yaml
     access:
@@ -401,38 +323,23 @@ The format is **not** based on [Keep a Changelog][kec], since the project
           - '2.2.2.0/8'
     ```
 
+## AGDNS-1619 / Build 611
 
+- Added a new metric `bill_stat_upload_duration` that counts the duration of billing statistics upload.
 
-##  AGDNS-1619 / Build 611
+- The environment variable `BILLSTAT_URL`, which describes the endpoint for backend billing statistics uploader API, now supports GRPC endpoints.
 
- *  Added a new metric `bill_stat_upload_duration` that counts the duration of
-    billing statistics upload.
+## AGDNS-1600 / Build 582
 
- *  The environment variable `BILLSTAT_URL`, which describes the endpoint for
-    backend billing statistics uploader API, now supports GRPC endpoints.
+- The environment variable `PROFILES_CACHE_PATH` no longer supports JSON files. Use protobuf with `.pb` extension instead. The default value has been changed to `./profilecache.pb`.
 
+## AGDNS-1539 / Build 581
 
+- The environment variable `PROFILES_URL`, which describes the endpoint for profiles sync API, now supports GRPC endpoints.
 
-##  AGDNS-1600 / Build 582
+## AGDNS-1579 / Build 580
 
- *  The environment variable `PROFILES_CACHE_PATH` no longer supports JSON
-    files.  Use protobuf with `.pb` extension instead.  The default value has
-    been changed to `./profilecache.pb`.
-
-
-
-##  AGDNS-1539 / Build 581
-
- *  The environment variable `PROFILES_URL`, which describes the endpoint for
-    profiles sync API, now supports GRPC endpoints.
-
-
-
-##  AGDNS-1579 / Build 580
-
- *  The optional property `bind_interfaces` of `server_groups.*.servers`
-    objects has been changed, property `subnet` is now an array and has been
-    renamed to `subnets`.  So replace this:
+- The optional property `bind_interfaces` of `server_groups.*.servers` objects has been changed, property `subnet` is now an array and has been renamed to `subnets`. So replace this:
 
     ```yaml
     bind_interfaces:
@@ -460,23 +367,15 @@ The format is **not** based on [Keep a Changelog][kec], since the project
           - '10.0.0.1/32'
     ```
 
+## AGDNS-1537 / Build 566
 
+- The configuration property `filtering_groups.safe_browsing` has been changed, new properties have been added: `block_dangerous_domains` and `block_newly_registered_domains`.
 
-##  AGDNS-1537 / Build 566
+## AGDNS-1580 / Build 562
 
- *  The configuration property `filtering_groups.safe_browsing` has been changed,
-    new properties have been added: `block_dangerous_domains` and
-    `block_newly_registered_domains`.
+- The environment variable `DNSDB_PATH` has been removed.
 
-
-
-##  AGDNS-1580 / Build 562
-
- *  The environment variable `DNSDB_PATH` has been removed.
-
- *  New configuration `dnsdb` has been added, it has an enabled/disabled flag
-    and the property `max_size` which describes the maximum amount of records in
-    the in-memory buffer.  Example configuration:
+- New configuration `dnsdb` has been added, it has an enabled/disabled flag and the property `max_size` which describes the maximum amount of records in the in-memory buffer. Example configuration:
 
     ```yaml
     dnsdb:
@@ -484,35 +383,23 @@ The format is **not** based on [Keep a Changelog][kec], since the project
         max_size: 500000
     ```
 
+## AGDNS-1537 / Build 559
 
+- Configuration properties `safe_browsing.url` and `adult_blocking.url` are now removed. Use newly added environment variables `ADULT_BLOCKING_URL` and `SAFE_BROWSING_URL`.
 
-##  AGDNS-1537 / Build 559
+- New environment variable `NEW_REG_DOMAINS_URL` has been added, this is the link to the source list of the newly registered domains.
 
- *  Configuration properties `safe_browsing.url` and `adult_blocking.url` are
-    now removed.  Use newly added environment variables `ADULT_BLOCKING_URL` and
-    `SAFE_BROWSING_URL`.
- *  New environment variable `NEW_REG_DOMAINS_URL` has been added, this is the
-    link to the source list of the newly registered domains.
+## AGDNS-1567 / Build 557
 
+- The environment variable `BACKEND_ENDPOINT` was replaced with three environment variables:
 
+    - `LINKED_IP_TARGET_URL`: the target URL to which linked IP API requests are proxied.
+    - `PROFILES_URL`: the endpoint for profiles sync API.
+    - `BILLSTAT_URL`: the endpoint for backend billing statistics uploader.
 
-##  AGDNS-1567 / Build 557
+## AGDNS-1561 / Build 554
 
- *  The environment variable `BACKEND_ENDPOINT` was replaced with three
-    environment variables:
-
-     *  `LINKED_IP_TARGET_URL`: the target URL to which linked IP API requests
-        are proxied.
-     *  `PROFILES_URL`: the endpoint for profiles sync API.
-     *  `BILLSTAT_URL`: the endpoint for backend billing statistics uploader.
-
-
-
-##  AGDNS-1561 / Build 554
-
- *  The `filters` object has a new property, `max_size`, which describes the
-    maximum size of the downloadable content for a rule-list in a human-readable
-    format.  Example configuration:
+- The `filters` object has a new property, `max_size`, which describes the maximum size of the downloadable content for a rule-list in a human-readable format. Example configuration:
 
     ```yaml
     filters:
@@ -520,12 +407,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
         max_size: 256MB
     ```
 
+## AGDNS-1561 / Build 550
 
-
-##  AGDNS-1561 / Build 550
-
- *  Properties `so_sndbuf` and `so_rcvbuf` of object `network` have been changed.
-    Now they are in a human-readable format.  Example configuration:
+- Properties `so_sndbuf` and `so_rcvbuf` of object `network` have been changed. Now they are in a human-readable format. Example configuration:
 
     ```yaml
     network:
@@ -533,10 +417,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project
         so_rcvbuf: 0
     ```
 
- *  The object `filters` has been changed. Two properties,
-    `rule_list_cache_size` and `use_rule_list_cache` have been extracted to the
-    new object `rule_list_cache` and renamed to `size` and `enabled`.  So
-    replace this:
+- The object `filters` has been changed. Two properties, `rule_list_cache_size` and `use_rule_list_cache` have been extracted to the new object `rule_list_cache` and renamed to `size` and `enabled`. So replace this:
 
     ```yaml
     filters:
@@ -565,29 +446,15 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Adjust the values, if necessary.
 
+## AGDNS-1566 / Build 549
 
+- There is now a new env variable `RESEARCH_LOGS` that controls whether logging of additional info for research purposes is enabled. These log records can be filtered out by `research:` prefix. The default value is `0`, i.e. additional logging is disabled. The first thing that is logged in this version is domains which responses have ECH config. The log will only be recorded when both `RESEARCH_LOGS` and `RESEARCH_METRICS` are set to `1`.
 
-##  AGDNS-1566 / Build 549
+- Added a new research metric `dns_research_response_ech` that counts the number of responses with a ECH configuration.
 
- *  There is now a new env variable `RESEARCH_LOGS` that controls whether
-    logging of additional info for research purposes is enabled.  These log
-    records can be filtered out by `research:` prefix.  The default value is
-    `0`, i.e. additional logging is disabled.  The first thing that is logged
-    in this version is domains which responses have ECH config.  The log will
-    only be recorded when both `RESEARCH_LOGS` and `RESEARCH_METRICS` are set
-    to `1`.
+## AGDNS-1556 / Build 547
 
- *  Added a new research metric `dns_research_response_ech` that counts the
-    number of responses with a ECH configuration.
-
-
-
-##  AGDNS-1556 / Build 547
-
- *  The object `cache` has a new property `ttl_override`.  It describes the TTL
-    override settings, such as the minimum TTL for cache items and the `enabled`
-    switch.  It overwrites the TTL from DNS response in case it's less than this
-    minimum value.  So replace this:
+- The object `cache` has a new property `ttl_override`. It describes the TTL override settings, such as the minimum TTL for cache items and the `enabled` switch. It overwrites the TTL from DNS response in case it's less than this minimum value. So replace this:
 
     ```yaml
     cache:
@@ -611,12 +478,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Adjust the values, if necessary.
 
+## AGDNS-1498 / Build 527
 
-
-##  AGDNS-1498 / Build 527
-
- *  Object `ratelimit` has a new property, `connection_limit`, which allows
-    setting stream-connection limits.  Example configuration:
+- Object `ratelimit` has a new property, `connection_limit`, which allows setting stream-connection limits. Example configuration:
 
     ```yaml
     ratelimit:
@@ -627,20 +491,13 @@ The format is **not** based on [Keep a Changelog][kec], since the project
             resume: 800
     ```
 
+## AGDNS-1383 / Build 525
 
+- The environment variable `PROFILES_CACHE_PATH` is now sensitive to the file extension. Use `.json` for the previous behavior of encoding the cache into a JSON file or `.pb` for encoding it into protobuf. Other extensions are invalid.
 
-##  AGDNS-1383 / Build 525
+## AGDNS-1381 / Build 518
 
- *  The environment variable `PROFILES_CACHE_PATH` is now sensitive to the file
-    extension.  Use `.json` for the previous behavior of encoding the cache into
-    a JSON file or `.pb` for encoding it into protobuf.  Other extensions are
-    invalid.
-
-
-
-##  AGDNS-1381 / Build 518
-
- *  The new object `network` has been added:
+- The new object `network` has been added:
 
     ```yaml
     network:
@@ -648,32 +505,21 @@ The format is **not** based on [Keep a Changelog][kec], since the project
         so_rcvbuf: 0
     ```
 
+## AGDNS-1383 / Build 515
 
+- The environment variable `PROFILES_CACHE_PATH` now has a new special value, `none`, which disables profile caching entirely. The default value of `./profilecache.json` has not been changed.
 
-##  AGDNS-1383 / Build 515
+## AGDNS-1479 / Build 513
 
- *  The environment variable `PROFILES_CACHE_PATH` now has a new special value,
-    `none`, which disables profile caching entirely.  The default value of
-    `./profilecache.json` has not been changed.
+- The profile-cache version has been changed to `6`. Versions of the profile cache from `3` to `5` are invalid and should not be reused.
 
+## AGDNS-1473 / Build 506
 
+- The profile-cache version has been changed to `5`.
 
-##  AGDNS-1479 / Build 513
+## AGDNS-1247 / Build 484
 
- *  The profile-cache version has been changed to `6`.  Versions of the profile
-    cache from `3` to `5` are invalid and should not be reused.
-
-
-
-##  AGDNS-1473 / Build 506
-
- *  The profile-cache version has been changed to `5`.
-
-
-
-##  AGDNS-1247 / Build 484
-
- *  The new object `interface_listeners` has been added:
+- The new object `interface_listeners` has been added:
 
     ```yaml
     interface_listeners:
@@ -687,8 +533,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project
                 port': 5353
     ```
 
- *  The objects within the `server_groups.*.servers` array have a new optional
-    property, `bind_interfaces`:
+- The objects within the `server_groups.*.servers` array have a new optional property, `bind_interfaces`:
 
     ```yaml
     server_groups:
@@ -706,28 +551,17 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     It is mutually exclusive with the current `bind_addresses` field.
 
+## AGDNS-1406 / Build 480
 
-
-##  AGDNS-1406 / Build 480
-
- *  The default behavior of the environment variable `DNSDB_PATH` has been
-    changed.  Previously, if the variable was unset then the default value,
-    `./dnsdb.bolt`, was used, but if it was an empty string, DNSDB was disabled.
-    Now both unset and empty value disable DNSDB, which is consistent with the
-    documentation.
+- The default behavior of the environment variable `DNSDB_PATH` has been changed. Previously, if the variable was unset then the default value, `./dnsdb.bolt`, was used, but if it was an empty string, DNSDB was disabled. Now both unset and empty value disable DNSDB, which is consistent with the documentation.
 
     This means that DNSDB is disabled by default.
 
- *  The default configuration file path has been changed from `config.yml` to
-    <code>./config.y<strong>a</strong>ml</code> for consistency with other
-    services.
+- The default configuration file path has been changed from `config.yml` to <code>./config.y<strong>a</strong>ml</code> for consistency with other services.
 
+## AGDNS-916 / Build 456
 
-
-##  AGDNS-916 / Build 456
-
- *  `ratelimit` now defines rate of requests per second for IPv4 and IPv6
-    addresses separately.  So replace this:
+- `ratelimit` now defines rate of requests per second for IPv4 and IPv6 addresses separately. So replace this:
 
     ```yaml
     ratelimit:
@@ -748,12 +582,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
             subnet_key_len: 48
     ```
 
+## AGDNS-907 / Build 449
 
-
-##  AGDNS-907 / Build 449
-
- *  The objects within the `filtering_groups` have a new property,
-    `block_firefox_canary`.  So replace this:
+- The objects within the `filtering_groups` have a new property, `block_firefox_canary`. So replace this:
 
     ```yaml
     filtering_groups:
@@ -774,23 +605,13 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     The recommended default value is `true`.
 
+## AGDNS-1308 / Build 447
 
+- There is now a new env variable `RESEARCH_METRICS` that controls whether collecting research metrics is enabled or not. Also, the first research metric is added: `dns_research_blocked_per_country_total`, it counts the number of blocked requests per country. Its default value is `0`, i.e. research metrics collection is disabled by default.
 
-##  AGDNS-1308 / Build 447
+## AGDNS-1051 / Build 443
 
- *  There is now a new env variable `RESEARCH_METRICS` that controls whether
-    collecting research metrics is enabled or not.  Also, the first research
-    metric is added: `dns_research_blocked_per_country_total`, it counts the
-    number of blocked requests per country.  Its default value is `0`, i.e.
-    research metrics collection is disabled by default.
-
-
-
-##  AGDNS-1051 / Build 443
-
- *  There are two changes in the keys of the `static_content` map.  Firstly,
-    properties `allow_origin` and `content_type` are removed.  Secondly, a new
-    property, called `headers`, is added.  So replace this:
+- There are two changes in the keys of the `static_content` map. Firstly, properties `allow_origin` and `content_type` are removed. Secondly, a new property, called `headers`, is added. So replace this:
 
     ```yaml
     static_content:
@@ -815,12 +636,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Adjust or add the values, if necessary.
 
+## AGDNS-1278 / Build 423
 
-
-##  AGDNS-1278 / Build 423
-
- *  The object `filters` has two new properties, `rule_list_cache_size` and
-    `use_rule_list_cache`.  So replace this:
+- The object `filters` has two new properties, `rule_list_cache_size` and `use_rule_list_cache`. So replace this:
 
     ```yaml
     filters:
@@ -846,12 +664,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Adjust the values, if necessary.
 
+## AGDNS-1278 / Build 422
 
-
-##  AGDNS-1278 / Build 422
-
- *  The object `filters` has a new property, `safe_search_cache_size`.  So
-    replace this:
+- The object `filters` has a new property, `safe_search_cache_size`. So replace this:
 
     ```yaml
     filters:
@@ -874,36 +689,21 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Adjust the values, if necessary.
 
+## AGDNS-1174 / Build 397
 
+- DNS Server Check now responds with NODATA message to all non-A neither non-AAAA requests.
 
-##  AGDNS-1174 / Build 397
+## AGDNS-911 / Build 375
 
- *  DNS Server Check now responds with NODATA message to all non-A neither non-AAAA requests.
+- Added support for running a DoH3 server. No configuration changes are required to run it. If there was a DoH server configured, it will start listening for HTTP/3 connections on the same port where it listens for HTTP/2. Make sure that udp/443 is allowed in the iptables configuration on the server.
 
+## AGDNS-842 / Build 372
 
+- The new environment variable `PROFILES_CACHE_PATH` has been added. Its default value is `./profilecache.json`. Adjust the value, if necessary.
 
-##  AGDNS-911 / Build 375
+## AGDNS-891 / Build 371
 
- *  Added support for running a DoH3 server.  No configuration changes are
-    required to run it.  If there was a DoH server configured, it will start
-    listening for HTTP/3 connections on the same port where it listens for
-    HTTP/2.  Make sure that udp/443 is allowed in the iptables configuration on
-    the server.
-
-
-
-##  AGDNS-842 / Build 372
-
- *  The new environment variable `PROFILES_CACHE_PATH` has been added.  Its
-    default value is `./profilecache.json`.  Adjust the value, if necessary.
-
-
-
-##  AGDNS-891 / Build 371
-
- *  The property `server` of `upstream` object has been changed.  Now it
-    is a URL optionally starting with `tcp://` or `udp://`, and then an address
-    in `ip:port` format.
+- The property `server` of `upstream` object has been changed. Now it is a URL optionally starting with `tcp://` or `udp://`, and then an address in `ip:port` format.
 
     ```yaml
     upstream:
@@ -912,11 +712,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Adjust the value, if necessary.
 
+## AGDNS-1032 / Build 363
 
-
-##  AGDNS-1032 / Build 363
-
- *  The new optional field `static_content.*.allow_origin` has been added:
+- The new optional field `static_content.*.allow_origin` has been added:
 
     ```yaml
     static_content:
@@ -924,25 +722,18 @@ The format is **not** based on [Keep a Changelog][kec], since the project
             allow_origin: '*'
     ```
 
+## AGDNS-898 / Build 359
 
-
-##  AGDNS-898 / Build 359
-
- *  The new optional object `additional_metrics_info` has been added:
+- The new optional object `additional_metrics_info` has been added:
 
     ```yaml
     additional_metrics_info:
         test_key: 'test_value'
     ```
 
+## AGDNS-986 / Build 346
 
-
-##  AGDNS-986 / Build 346
-
- *  The new object `upstream.healthcheck` now contains all healthcheck-related
-    fields, including the new field `domain_template`.  Property
-    `upstream.healthcheck_backoff_time` has been moved to
-    `upstream.healthcheck.backoff_duration`.  So replace this:
+- The new object `upstream.healthcheck` now contains all healthcheck-related fields, including the new field `domain_template`. Property `upstream.healthcheck_backoff_time` has been moved to `upstream.healthcheck.backoff_duration`. So replace this:
 
     ```yaml
     upstream:
@@ -976,12 +767,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Adjust the new value, if necessary.
 
+## AGDNS-960 / Build 342
 
-
-##  AGDNS-960 / Build 342
-
- *  The property `domain` of `check` object has been changed to `domains`.
-    So replace this:
+- The property `domain` of `check` object has been changed to `domains`. So replace this:
 
     ```yaml
     check:
@@ -999,14 +787,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Adjust the news values, if necessary.
 
+## AGDNS-838 / Build 338
 
-
-##  AGDNS-838 / Build 338
-
- *  The object `upstream` has new properties, `healthcheck_enabled`,
-    `healthcheck_interval`, `healthcheck_timeout`, and
-    `healthcheck_backoff_time`.
-    So replace this:
+- The object `upstream` has new properties, `healthcheck_enabled`, `healthcheck_interval`, `healthcheck_timeout`, and `healthcheck_backoff_time`. So replace this:
 
     ```yaml
     upstream:
@@ -1034,20 +817,13 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Adjust the new values, if necessary.
 
+## Build 336
 
+- The environment variable `SSLKEYLOGFILE` has been renamed to `SSL_KEY_LOG_FILE`.
 
-##  Build 336
+## AGDNS-915 / Build 334
 
- *  The environment variable `SSLKEYLOGFILE` has been renamed to
-    `SSL_KEY_LOG_FILE`.
-
-
-
-##  AGDNS-915 / Build 334
-
- *  The properties `subnet_key_ip_4_mask_len` and `subnet_key_ip_6_mask_len` of
-    object `ratelimit` have been renamed to `ipv4_subnet_key_len` and
-    `ipv6_subnet_key_len` correspondingly.  So replace this:
+- The properties `subnet_key_ip_4_mask_len` and `subnet_key_ip_6_mask_len` of object `ratelimit` have been renamed to `ipv4_subnet_key_len` and `ipv6_subnet_key_len` correspondingly. So replace this:
 
     ```yaml
     ratelimit:
@@ -1065,12 +841,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
         ipv6_subnet_key_len: 48
     ```
 
+## AGDNS-915 / Build 333
 
-
-##  AGDNS-915 / Build 333
-
- *  The `ratelimit` object has two new properties, `subnet_key_ip_4_mask_len`
-    and `subnet_key_ip_6_mask_len`.  So replace this:
+- The `ratelimit` object has two new properties, `subnet_key_ip_4_mask_len` and `subnet_key_ip_6_mask_len`. So replace this:
 
     ```yaml
     ratelimit:
@@ -1086,12 +859,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
         subnet_key_ip_6_mask_len: 48
     ```
 
+## AGDNS-897 / Build 329
 
-
-##  AGDNS-897 / Build 329
-
- *  The objects within the `filtering_groups` have a new property,
-    `block_private_relay`.
+- The objects within the `filtering_groups` have a new property, `block_private_relay`.
 
     ```yaml
     filtering_groups:
@@ -1112,14 +882,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     The recommended default value is `false`.
 
+## AGDNS-624 / Build 320
 
-
-##  AGDNS-624 / Build 320
-
- *  The objects within `server_groups` array had a change in their DDR
-    configuration.  There was an opinion that the previous configuration was too
-    limiting and that denormalized configuration is more self-describing. So
-    replace this:
+- The objects within `server_groups` array had a change in their DDR configuration. There was an opinion that the previous configuration was too limiting and that denormalized configuration is more self-describing. So replace this:
 
     ```yaml
     server_groups:
@@ -1161,14 +926,11 @@ The format is **not** based on [Keep a Changelog][kec], since the project
         # …
     ```
 
-    Adjust the values, if necessary.  Make sure to synchronize and keep in sync
-    the addresses and ports with the values of the server groups' servers.
+    Adjust the values, if necessary. Make sure to synchronize and keep in sync the addresses and ports with the values of the server groups' servers.
 
+## AGDNS-624 / Build 317
 
-
-##  AGDNS-624 / Build 317
-
- *  The objects within `server_groups` array have a new property `ddr_names`:
+- The objects within `server_groups` array have a new property `ddr_names`:
 
     ```yaml
     server_groups:
@@ -1179,19 +941,11 @@ The format is **not** based on [Keep a Changelog][kec], since the project
         # …
     ```
 
-    It is empty by default.  These values will be used for constructing a
-    response for Discovery of Designated Resolvers.  Empty value leads to a
-    NODATA response.  Adjust the new value, if necessary.
+    It is empty by default. These values will be used for constructing a response for Discovery of Designated Resolvers. Empty value leads to a NODATA response. Adjust the new value, if necessary.
 
+## AGDNS-624 / Build 314
 
-
-##  AGDNS-624 / Build 314
-
- *  The property `tls` of objects within the `server_groups.*.servers.*` array
-    has been moved to the `server_group` object becoming common for the whole
-    group.  Any group having at least a single server of DoH/DoT/DoQ protocols
-    will require the `tls` property specified.  Any group having no encrypted
-    resolvers will require the `tls` property absence.  So replace this:
+- The property `tls` of objects within the `server_groups.*.servers.*` array has been moved to the `server_group` object becoming common for the whole group. Any group having at least a single server of DoH/DoT/DoQ protocols will require the `tls` property specified. Any group having no encrypted resolvers will require the `tls` property absence. So replace this:
 
     ```yaml
     server_groups:
@@ -1223,11 +977,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Adjust the new value, if necessary.
 
+## AGDNS-829 / Build 308
 
-
-##  AGDNS-829 / Build 308
-
- *  The object `upstream` has a new property, `timeout`.  So replace this:
+- The object `upstream` has a new property, `timeout`. So replace this:
 
     ```yaml
     upstream:
@@ -1250,11 +1002,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Adjust the new value, if necessary.
 
+## AGDNS-286 / Build 307
 
-
-##  AGDNS-286 / Build 307
-
- *  The new object `connectivity_check` has been added:
+- The new object `connectivity_check` has been added:
 
     ```yaml
     connectivity_check:
@@ -1262,12 +1012,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
         probe_ipv6: '[2001:4860:4860::8888]:53'
     ```
 
+## AGDNS-745 / Build 298
 
-
-##  AGDNS-745 / Build 298
-
- *  The object `filters` has a new property, `refresh_timeout`.  So replace
-    this:
+- The object `filters` has a new property, `refresh_timeout`. So replace this:
 
     ```yaml
     filters:
@@ -1288,12 +1035,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Adjust the values, if necessary.
 
+## AGDNS-608 / Build 273
 
-
-##  AGDNS-608 / Build 273
-
- *  The object `cache` has two new properties, `type` and `ecs_size`.  So
-    replace this:
+- The object `cache` has two new properties, `type` and `ecs_size`. So replace this:
 
     ```yaml
     cache:
@@ -1311,34 +1055,22 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Adjust the values, if necessary.
 
+## AGDNS-327 / Build 259
 
-
-##  AGDNS-327 / Build 259
-
- *  Prometheus metric `dns_tls_handshake_total` has been updated with
-    `server_name` label.  This label represents "Server Name Indication"
-    identifiers, grouped by endpoint identifier and known server names.  All
-    unknown server names are grouped in `other` label:
+- Prometheus metric `dns_tls_handshake_total` has been updated with `server_name` label. This label represents "Server Name Indication" identifiers, grouped by endpoint identifier and known server names. All unknown server names are grouped in `other` label:
 
     ```none
     # TYPE dns_tls_handshake_total counter
     dns_tls_handshake_total{cipher_suite="TLS_AES_128_GCM_SHA256",did_resume="0",negotiated_proto="",proto="tls",server_name="default_dot: other",tls_version="tls1.3"} 4
     ```
 
+## AGDNS-607 / Build 258
 
+- The special "disallow-all" response is served on `/robots.txt` requests to `web` module.
 
-##  AGDNS-607 / Build 258
+## AGDNS-506 / Build 242
 
- *  The special "disallow-all" response is served on `/robots.txt` requests to
-    `web` module.
-
-
-
-##  AGDNS-506 / Build 242
-
- *  The property `cache_size` of object `geoip` has been renamed to
-    `ip_cache_size`.  Also, a new property named `host_cache_size` has been
-    added.  So replace this:
+- The property `cache_size` of object `geoip` has been renamed to `ip_cache_size`. Also, a new property named `host_cache_size` has been added. So replace this:
 
     ```yaml
     geoip:
@@ -1357,12 +1089,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Adjust the new value, if necessary.
 
+## AGDNS-505 / Build 238
 
-
-##  AGDNS-505 / Build 238
-
- *  The object `backend` has a new property, `bill_stat_interval`.  So replace
-    this:
+- The object `backend` has a new property, `bill_stat_interval`. So replace this:
 
     ```yaml
     backend:
@@ -1383,32 +1112,22 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Adjust the value, if necessary.
 
+## AGDNS-187 / Build 228
 
-
-##  AGDNS-187 / Build 228
-
- *  The new required environment variables `GENERAL_SAFE_SEARCH_URL` and
-    `YOUTUBE_SAFE_SEARCH_URL` has been added.  Those are expected to lead to
-    plain text filters, for example:
+- The new required environment variables `GENERAL_SAFE_SEARCH_URL` and `YOUTUBE_SAFE_SEARCH_URL` has been added. Those are expected to lead to plain text filters, for example:
 
     ```sh
     GENERAL_SAFE_SEARCH_URL='https://adguardteam.github.io/HostlistsRegistry/assets/engines_safe_search.txt'
     YOUTUBE_SAFE_SEARCH_URL='https://adguardteam.github.io/HostlistsRegistry/assets/youtube_safe_search.txt'
     ```
 
+## AGDNS-344 / Build 226
 
+- The environment variables `CONSUL_DNSCHECK_KV_URL` and `CONSUL_DNSCHECK_SESSION_URL` are now unset by default. Which means that by default HTTP key-value database isn't used.
 
-##  AGDNS-344 / Build 226
+## AGDNS-431 / Build 211
 
- *  The environment variables `CONSUL_DNSCHECK_KV_URL` and
-    `CONSUL_DNSCHECK_SESSION_URL` are now unset by default.  Which means that by
-    default HTTP key-value database isn't used.
-
-
-
-##  AGDNS-431 / Build 211
-
- *  The object `web` has a new optional property, `linked_ip`:
+- The object `web` has a new optional property, `linked_ip`:
 
     ```yaml
     web:
@@ -1424,13 +1143,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
                     key: ./test/cert.key
     ```
 
+## AGDNS-425 / Build 209
 
-
-##  AGDNS-425 / Build 209
-
- *  The objects within the `server_groups.*.servers` array have a new optional
-    property, `linked_ip_enabled`.  It is `false` by default.  Set to `true` to
-    enable linked IP address detection on that server:
+- The objects within the `server_groups.*.servers` array have a new optional property, `linked_ip_enabled`. It is `false` by default. Set to `true` to enable linked IP address detection on that server:
 
     ```yaml
     server_groups:
@@ -1444,27 +1159,19 @@ The format is **not** based on [Keep a Changelog][kec], since the project
             # …
     ```
 
+## AGDNS-405 / Build 195
 
+- Used our fork of miekg/dns library to fix the EDNS0 TCP keep-alive issue.
 
-##  AGDNS-405 / Build 195
+## AGDNS-341 / Build 183
 
- *  Used our fork of miekg/dns library to fix the EDNS0 TCP keep-alive issue.
+- Removed the static DNS check `/info.txt`. Now that `web` module is available, it is no more needed since it can be configured via the `web` module.
 
+## AGDNS-341 / Build 179
 
+- The object `doh` has been removed.
 
-##  AGDNS-341 / Build 183
-
- *  Removed the static DNS check `/info.txt`.  Now that `web` module is
-    available, it is no more needed since it can be configured via the `web`
-    module.
-
-
-
-##  AGDNS-341 / Build 179
-
- *  The object `doh` has been removed.
-
- *  The new optional object `web` has been added:
+- The new optional object `web` has been added:
 
     ```yaml
     web:
@@ -1509,63 +1216,39 @@ The format is **not** based on [Keep a Changelog][kec], since the project
         timeout: 1m
     ```
 
+## AGDNS-367 / Build 164
 
+- The object `geoip` has a new property, `cache_size`.
 
-##  AGDNS-367 / Build 164
+## AGDNS-310 / Build 153
 
- *  The object `geoip` has a new property, `cache_size`.
+- The environment variable `LOG_OUTPUT` has been removed. Logs are now always written to stdout.
 
+## AGDNS-339 / Build 136
 
-
-##  AGDNS-310 / Build 153
-
- *  The environment variable `LOG_OUTPUT` has been removed.  Logs are now always
-    written to stdout.
-
-
-
-##  AGDNS-339 / Build 136
-
- *  The environment variable `DNSDB_PATH` is now unset by default.  Which means
-    that by default DNSDB is disabled.
-
-
+- The environment variable `DNSDB_PATH` is now unset by default. Which means that by default DNSDB is disabled.
 
 ## AGDNS-350 / Build 135
 
- *  The new optional environment variable `SSLKEYLOGFILE` has been added.
+- The new optional environment variable `SSLKEYLOGFILE` has been added.
 
+## AGDNS-345 / Build 133
 
+- The object `check` has a new property, `node_location`.
 
-##  AGDNS-345 / Build 133
+## AGDNS-322 / Build 116
 
- *  The object `check` has a new property, `node_location`.
+- The property `device_id_wildcard_domains` in the objects within the `server_groups.*.servers` array has been renamed to the shorter `device_id_wildcards`.
 
+- The DNS names from certificates are not used to detect device IDs and perform additional validations anymore.
 
+## AGDNS-305 / Build 114
 
-##  AGDNS-322 / Build 116
+- The new required environment variable `BLOCKED_SERVICE_INDEX_URL` has been added. It has no default value, so it's necessary to set it.
 
- *  The property `device_id_wildcard_domains` in the objects within the
-    `server_groups.*.servers` array has been renamed to the shorter
-    `device_id_wildcards`.
+## AGDNS-319 / Build 113
 
- *  The DNS names from certificates are not used to detect device IDs and
-    perform additional validations anymore.
-
-
-
-##  AGDNS-305 / Build 114
-
- *  The new required environment variable `BLOCKED_SERVICE_INDEX_URL` has been
-    added.  It has no default value, so it's necessary to set it.
-
-
-
-##  AGDNS-319 / Build 113
-
- *  The objects within the `server_groups.*.servers` array have a new property,
-    `tls.device_id_wildcard_domains`.  It is an array of domain name wildcards
-    used to detect device IDs.  If necessary, add them:
+- The objects within the `server_groups.*.servers` array have a new property, `tls.device_id_wildcard_domains`. It is an array of domain name wildcards used to detect device IDs. If necessary, add them:
 
     ```yaml
     server_groups:
@@ -1581,56 +1264,35 @@ The format is **not** based on [Keep a Changelog][kec], since the project
                 - *.dns.adguard.com
     ```
 
+## AGDNS-292 / Build 111
 
+- The environment variable `CONSUL_URL` has been renamed to `CONSUL_ALLOWLIST_URL`.
 
-##  AGDNS-292 / Build 111
+- The new required environment variables `CONSUL_DNSCHECK_KV_URL` and `CONSUL_DNSCHECK_SESSION_URL` are added. They have no default value, so it's necessary to set them.
 
- *  The environment variable `CONSUL_URL` has been renamed to
-    `CONSUL_ALLOWLIST_URL`.
+- The object `check` has a new property, `ttl`. Set it to a human-readable duration, for example `1m`.
 
- *  The new required environment variables `CONSUL_DNSCHECK_KV_URL` and
-    `CONSUL_DNSCHECK_SESSION_URL` are added.  They have no default value, so
-    it's necessary to set them.
+## AGDNS-296 / Build 110
 
- *  The object `check` has a new property, `ttl`.  Set it to a human-readable
-    duration, for example `1m`.
+- The property `parental.safe_search` of objects within the `filtering_groups` array is renamed to `parental.general_safe_search` to synchronize it with the backend.
 
+## Build 109
 
+- The object `log` has been removed. Its properties have been moved to the environment.
 
-##  AGDNS-296 / Build 110
-
- *  The property `parental.safe_search` of objects within the `filtering_groups`
-    array is renamed to `parental.general_safe_search` to synchronize it with
-    the backend.
-
-
-
-##  Build 109
-
- *  The object `log` has been removed.  Its properties have been moved to the
-    environment.
-
- *  The new environment variable `LOG_OUTPUT` has been added.  It is the path to
-    the plain text log file.  If `stdout`, writes to standard output.  If
-    `stderr`, writes to standard error.
+- The new environment variable `LOG_OUTPUT` has been added. It is the path to the plain text log file. If `stdout`, writes to standard output. If `stderr`, writes to standard error.
 
     The default value is `stdout`, adjust the value, if necessary.
 
- *  The new environment variable `LOG_TIMESTAMP` has been added.  When it is set
-    to `1`, timestamps are shown in the plain text logs.  When set to `0`, they
-    are
-    not shown.
+- The new environment variable `LOG_TIMESTAMP` has been added. When it is set to `1`, timestamps are shown in the plain text logs. When set to `0`, they are not shown.
 
     The default value is `1`, adjust the value, if necessary.
 
- *  The environment variable `VERBOSE` doesn't support a set but empty value.
-    Unset the value or replace it with a `0`.
+- The environment variable `VERBOSE` doesn't support a set but empty value. Unset the value or replace it with a `0`.
 
+## AGDNS-295 / Build 105
 
-
-##  AGDNS-295 / Build 105
-
- *  Another change in the objects within the `filtering_groups`.  Before:
+- Another change in the objects within the `filtering_groups`. Before:
 
     ```yaml
     filtering_groups:
@@ -1664,19 +1326,13 @@ The format is **not** based on [Keep a Changelog][kec], since the project
             enabled: true
     ```
 
+## AGDNS-290 / Build 97
 
+- The object `check` has a new property, `node_name`.
 
-##  AGDNS-290 / Build 97
+## AGDNS-287 / Build 96
 
- *  The object `check` has a new property, `node_name`.
-
-
-
-##  AGDNS-287 / Build 96
-
- *  The objects within the `server_groups.*.servers` array have a new optional
-    property in their `dnscrypt` objects, `inline`.  Also, the property `config`
-    is renamed to `config_path`.  So replace this:
+- The objects within the `server_groups.*.servers` array have a new optional property in their `dnscrypt` objects, `inline`. Also, the property `config` is renamed to `config_path`. So replace this:
 
     ```yaml
     server_groups:
@@ -1733,30 +1389,22 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Adjust the values, if necessary.
 
+## AGDNS-290 / Build 95
 
+- The property `server_name` of object `check` is removed.
 
-##  AGDNS-290 / Build 95
+## AGDNS-272 / Build 94
 
- *  The property `server_name` of object `check` is removed.
-
-
-
-##  AGDNS-272 / Build 94
-
- *  The new optional object `doh` has been added, which supplements the
-    DNS-over-HTTP server configuration.  Example:
+- The new optional object `doh` has been added, which supplements the DNS-over-HTTP server configuration. Example:
 
     ```yaml
     doh:
         root_redirect_url: "https://adguard-dns.com/"
     ```
 
+## AGDNS-140 / Build 90
 
-
-##  AGDNS-140 / Build 90
-
- *  The objects within the `server_groups.*.servers` array have a new property,
-    `tls.session_keys`.  So, if necessary, replace this:
+- The objects within the `server_groups.*.servers` array have a new property, `tls.session_keys`. So, if necessary, replace this:
 
     ```yaml
     server_groups:
@@ -1796,12 +1444,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
         # …
     ```
 
+## AGDNS-233 / Build 88
 
-
-##  AGDNS-233 / Build 88
-
- *  The object `backend` has a new property, `full_refresh_interval`.  So
-    replace this:
+- The object `backend` has a new property, `full_refresh_interval`. So replace this:
 
     ```yaml
     backend:
@@ -1820,12 +1465,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Adjust the value, if necessary.
 
+## AGDNS-247 / Build 86
 
-
-##  AGDNS-247 / Build 86
-
- *  The new object `check` has been added, which configures the DNS checks
-    mechanism.  Example:
+- The new object `check` has been added, which configures the DNS checks mechanism. Example:
 
     ```yaml
     check:
@@ -1839,29 +1481,19 @@ The format is **not** based on [Keep a Changelog][kec], since the project
         server_name: "AdGuard DNS Default"
     ```
 
+## AGDNS-246 / Build 83
 
+- The new environment variable `RULESTAT_URL` has been added. Its default value is <code></code>, which means that no statistics are gathered. Adjust the value, if necessary.
 
-##  AGDNS-246 / Build 83
+## AGDNS-245 / Build 74
 
- *  The new environment variable `RULESTAT_URL` has been added.  Its default
-    value is <code></code>, which means that no statistics are gathered.  Adjust
-    the value, if necessary.
+- The new environment variable `DNSDB_PATH` has been added. Its default value is `./dnsdb.bolt`. Adjust the value, if necessary.
 
+## AGDNS-139 / Build 73
 
+- The new required environment variable `CONSUL_URL` has been added. It has no default value, so it's necessary to set it.
 
-##  AGDNS-245 / Build 74
-
- *  The new environment variable `DNSDB_PATH` has been added.  Its default value
-    is `./dnsdb.bolt`.  Adjust the value, if necessary.
-
-
-
-##  AGDNS-139 / Build 73
-
- *  The new required environment variable `CONSUL_URL` has been added.  It has
-    no default value, so it's necessary to set it.
-
- *  The ratelimit configuration for a server has changed from this:
+- The ratelimit configuration for a server has changed from this:
 
     ```yaml
     ratelimit:
@@ -1892,44 +1524,31 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     See README.md for documentation.
 
+## AGDNS-154 / Build 71
 
+- The property `backend` of the `query_log` object is removed.
 
-##  AGDNS-154 / Build 71
+## AGDNS-230 / Build 67
 
- *  The property `backend` of the `query_log` object is removed.
+- The new required environment variable `FILTER_INDEX_URL` has been added. It has no default value, so it's necessary to set it.
 
+- The environment variable `BACKEND_ENDPOINT` is now required and has no default value.
 
+- Property `lists` of the `filters` object is removed.
 
-##  AGDNS-230 / Build 67
+- A new property `refresh_interval` has been added to the `filters` object.
 
- *  The new required environment variable `FILTER_INDEX_URL` has been added.  It
-    has no default value, so it's necessary to set it.
+## AGDNS-229 / Build 62
 
- *  The environment variable `BACKEND_ENDPOINT` is now required and has no
-    default value.
+- The new environment variable `FILTER_CACHE_PATH` has been added. Its default value is `./filters/`. Adjust the value, if necessary.
 
- *  Property `lists` of the `filters` object is removed.
+- The `list` property of `safe_browsing` and `adult_blocking` objects as well as the `path` property of the `filters.lists` objects are removed.
 
- *  A new property `refresh_interval` has been added to the `filters` object.
+- Property `url` of the `filters.lists` objects is now required.
 
+## AGDNS-188 / Build 61
 
-
-##  AGDNS-229 / Build 62
-
- *  The new environment variable `FILTER_CACHE_PATH` has been added.  Its
-    default value is `./filters/`.  Adjust the value, if necessary.
-
- *  The `list` property of `safe_browsing` and `adult_blocking` objects as well
-    as the `path` property of the `filters.lists` objects are removed.
-
- *  Property `url` of the `filters.lists` objects is now required.
-
-
-
-##  AGDNS-188 / Build 61
-
- *  The type of the `cache.size` property was changed from bytes to integer.  So
-    replace this:
+- The type of the `cache.size` property was changed from bytes to integer. So replace this:
 
     ```yaml
     cache:
@@ -1945,14 +1564,11 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Set the new values accordingly.
 
+## AGDNS-149, AGDNS-150, AGDNS-189 / Build 52
 
+- The top-level object `parental` was renamed to `adult_blocking`.
 
-##  AGDNS-149, AGDNS-150, AGDNS-189 / Build 52
-
- *  The top-level object `parental` was renamed to `adult_blocking`.
-
- *  The objects `safe_browsing` and `adult_blocking` have four new properties,
-    `cache_size`, `cache_ttl`, `refresh_interval`, and `url`.  So replace this:
+- The objects `safe_browsing` and `adult_blocking` have four new properties, `cache_size`, `cache_ttl`, `refresh_interval`, and `url`. So replace this:
 
     ```yaml
     safe_browsing:
@@ -1986,8 +1602,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Set the new values accordingly.
 
- *  The objects within the `filtering_groups` array have a new property,
-    `block_adult`.  So replace this:
+- The objects within the `filtering_groups` array have a new property, `block_adult`. So replace this:
 
     ```yaml
     filtering_groups:
@@ -2020,9 +1635,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Set the new value accordingly.
 
- *  The objects within the `filters.lists` array have a new property,
-    `refresh_interval`.  The property is only required when the property `url`
-    is also set.  So replace this:
+- The objects within the `filters.lists` array have a new property, `refresh_interval`. The property is only required when the property `url` is also set. So replace this:
 
     ```yaml
     filters:
@@ -2055,12 +1668,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     Set the new value accordingly.
 
+## Build 45
 
-
-##  Build 45
-
- *  The property `youtube_restricted` was renamed to `youtube_safe_search`.
-    So replace this:
+- The property `youtube_restricted` was renamed to `youtube_safe_search`. So replace this:
 
     ```yaml
     filtering_groups:
@@ -2088,11 +1698,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
         youtube_safe_search: true
     ```
 
+## AGDNS-152 / Build 43
 
-
-##  AGDNS-152 / Build 43
-
- *  The blocked response TTL parameter has been moved and renamed.  From this:
+- The blocked response TTL parameter has been moved and renamed. From this:
 
     ```yaml
     dns:
@@ -2108,11 +1716,9 @@ The format is **not** based on [Keep a Changelog][kec], since the project
 
     The `dns` object has been completely removed.
 
+## AGDNS-177 / Build 40
 
-
-##  AGDNS-177 / Build 40
-
- *  The TLS configuration for a server has changed from this:
+- The TLS configuration for a server has changed from this:
 
     ```yaml
     tls:
@@ -2134,14 +1740,11 @@ The format is **not** based on [Keep a Changelog][kec], since the project
             key: /test/cert.key
     ```
 
-    The domains to be used in device ID detection are now expected to be
-    contained in the certificate's DNS Names section of SAN.
+    The domains to be used in device ID detection are now expected to be contained in the certificate's DNS Names section of SAN.
 
+## AGDNS-167 / Build 39
 
-
-##  AGDNS-167 / Build 39
-
- *  The filtering configuration has changed from this:
+- The filtering configuration has changed from this:
 
     ```yaml
     filters:

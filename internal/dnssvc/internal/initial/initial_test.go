@@ -170,7 +170,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 				TLSServerName: srvNameForProto(tc.device, resolverName, tc.srv.Protocol),
 			})
 
-			rw := dnsserver.NewNonWriterResponseWriter(nil, dnssvctest.RemoteAddr)
+			rw := dnsserver.NewNonWriterResponseWriter(nil, dnssvctest.ClientTCPAddr)
 			req := &dns.Msg{
 				Question: []dns.Question{{
 					Name:   tc.host,
@@ -278,7 +278,7 @@ func TestMiddleware_Wrap_error(t *testing.T) {
 	ctx := context.Background()
 	ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{})
 
-	rw := dnsserver.NewNonWriterResponseWriter(nil, dnssvctest.RemoteAddr)
+	rw := dnsserver.NewNonWriterResponseWriter(nil, dnssvctest.ClientTCPAddr)
 	req := &dns.Msg{
 		Question: []dns.Question{{
 			Name:   "www.example.com.",
@@ -652,7 +652,7 @@ func BenchmarkMiddleware_Wrap(b *testing.B) {
 		return rw.WriteMsg(ctx, req, resp)
 	})
 
-	rw := dnsserver.NewNonWriterResponseWriter(nil, dnssvctest.RemoteAddr)
+	rw := dnsserver.NewNonWriterResponseWriter(nil, dnssvctest.ClientTCPAddr)
 
 	b.Run("success", func(b *testing.B) {
 		ds := &dnssvctest.DeviceSetter{

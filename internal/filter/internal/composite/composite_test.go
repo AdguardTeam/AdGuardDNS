@@ -37,7 +37,7 @@ const (
 func newFromStr(tb testing.TB, text string, id agd.FilterListID) (rl *rulelist.Refreshable) {
 	tb.Helper()
 
-	rl, err := rulelist.NewFromString(text, id, "", 0, false)
+	rl, err := rulelist.NewFromString(text, id, "", rulelist.ResultCacheEmpty{})
 	require.NoError(tb, err)
 
 	return rl
@@ -48,7 +48,7 @@ func newFromStr(tb testing.TB, text string, id agd.FilterListID) (rl *rulelist.R
 func newImmutable(tb testing.TB, text string, id agd.FilterListID) (rl *rulelist.Immutable) {
 	tb.Helper()
 
-	rl, err := rulelist.NewImmutable(text, id, "", 0, false)
+	rl, err := rulelist.NewImmutable(text, id, "", rulelist.ResultCacheEmpty{})
 	require.NoError(tb, err)
 
 	return rl
@@ -452,18 +452,20 @@ func TestFilter_FilterRequest_safeSearch(t *testing.T) {
 
 	const fltListID = agd.FilterListIDGeneralSafeSearch
 
-	gen := safesearch.New(&safesearch.Config{
-		Refreshable: &internal.RefreshableConfig{
-			URL:       srvURL,
-			ID:        fltListID,
-			CachePath: cachePath,
-			Staleness: filtertest.Staleness,
-			Timeout:   filtertest.Timeout,
-			MaxSize:   filtertest.FilterMaxSize,
+	gen := safesearch.New(
+		&safesearch.Config{
+			Refreshable: &internal.RefreshableConfig{
+				URL:       srvURL,
+				ID:        fltListID,
+				CachePath: cachePath,
+				Staleness: filtertest.Staleness,
+				Timeout:   filtertest.Timeout,
+				MaxSize:   filtertest.FilterMaxSize,
+			},
+			CacheTTL: 1 * time.Minute,
 		},
-		CacheTTL:  1 * time.Minute,
-		CacheSize: 100,
-	})
+		rulelist.NewResultCache(100, true),
+	)
 
 	err := gen.Refresh(testutil.ContextWithTimeout(t, filtertest.Timeout), false)
 	require.NoError(t, err)
@@ -494,8 +496,7 @@ func TestFilter_FilterRequest_services(t *testing.T) {
 		filtertest.BlockRule,
 		agd.FilterListIDBlockedService,
 		svcID,
-		0,
-		false,
+		rulelist.ResultCacheEmpty{},
 	)
 	require.NoError(t, err)
 

@@ -32,14 +32,20 @@ const testFltListID agd.FilterListID = "fl1"
 const testBlockRule = "||" + testReqHost + "\n"
 
 func TestRefreshable_RulesCount(t *testing.T) {
-	rl, err := rulelist.NewFromString(testBlockRule, testFltListID, "", 0, false)
+	rl, err := rulelist.NewFromString(
+		testBlockRule,
+		testFltListID,
+		"",
+		rulelist.ResultCacheEmpty{},
+	)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, rl.RulesCount())
 }
 
 func TestRefreshable_DNSResult_cache(t *testing.T) {
-	rl, err := rulelist.NewFromString(testBlockRule, testFltListID, "", 100, true)
+	cache := rulelist.NewResultCache(100, true)
+	rl, err := rulelist.NewFromString(testBlockRule, testFltListID, "", cache)
 	require.NoError(t, err)
 
 	const qt = dns.TypeA
@@ -69,7 +75,12 @@ func TestRefreshable_DNSResult_cache(t *testing.T) {
 
 func TestRefreshable_ID(t *testing.T) {
 	const svcID = agd.BlockedServiceID("test_service")
-	rl, err := rulelist.NewFromString(testBlockRule, testFltListID, svcID, 0, false)
+	rl, err := rulelist.NewFromString(
+		testBlockRule,
+		testFltListID,
+		svcID,
+		rulelist.ResultCacheEmpty{},
+	)
 	require.NoError(t, err)
 
 	gotID, gotSvcID := rl.ID()
@@ -87,8 +98,7 @@ func TestRefreshable_Refresh(t *testing.T) {
 			Staleness: filtertest.Staleness,
 			MaxSize:   filtertest.FilterMaxSize,
 		},
-		100,
-		true,
+		rulelist.NewResultCache(100, true),
 	)
 
 	ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)

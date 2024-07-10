@@ -11,10 +11,10 @@ import (
 // ConfigTLS is a struct that needs to be passed to NewServerTLS to
 // initialize a new ServerTLS instance.
 type ConfigTLS struct {
-	ConfigDNS
-
 	// TLSConfig is the TLS configuration for TLS.
 	TLSConfig *tls.Config
+
+	ConfigDNS
 }
 
 // ServerTLS implements a DNS-over-TLS server.
@@ -43,8 +43,8 @@ func NewServerTLS(conf ConfigTLS) (s *ServerTLS) {
 func (s *ServerTLS) Start(ctx context.Context) (err error) {
 	defer func() { err = errors.Annotate(err, "starting dot server: %w") }()
 
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	if s.conf.TLSConfig == nil {
 		return errors.Error("tls config is required")

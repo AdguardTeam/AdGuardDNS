@@ -23,10 +23,19 @@ type Filters struct {
 	errColl errcoll.Interface
 }
 
-// New returns a new custom filter storage.
-func New(conf *agdcache.LRUConfig, errColl errcoll.Interface) (f *Filters) {
+// New returns a new custom filter storage.  It also adds the cache with ID
+// [agd.FilterListIDCustom] to the cache manager.
+func New(
+	conf *agdcache.LRUConfig,
+	errColl errcoll.Interface,
+	cacheManager agdcache.Manager,
+) (f *Filters) {
+	cache := agdcache.NewLRU[agd.ProfileID, *customFilterCacheItem](conf)
+
+	cacheManager.Add(string(agd.FilterListIDCustom), cache)
+
 	return &Filters{
-		cache:   agdcache.NewLRU[agd.ProfileID, *customFilterCacheItem](conf),
+		cache:   cache,
 		errColl: errColl,
 	}
 }
@@ -77,8 +86,7 @@ func (f *Filters) Get(ctx context.Context, p *agd.Profile) (rl *rulelist.Immutab
 		// doesn't take $client rules into account.
 		//
 		// TODO(a.garipov): Consider enabling caching if necessary.
-		0,
-		false,
+		rulelist.ResultCacheEmpty{},
 	)
 	if err != nil {
 		// In a rare situation where the custom rules are so badly formed that

@@ -29,16 +29,13 @@ type Config struct {
 	//
 	//lint:ignore U1000 TODO(a.garipov): Currently unused.  See AGDNS-398.
 	CacheTTL time.Duration
-
-	// CacheSize is the number of items in the result cache.
-	CacheSize int
 }
 
 // New returns a new safe-search filter.  c must not be nil.  The initial
 // refresh should be called explicitly if necessary.
-func New(c *Config) (f *Filter) {
+func New(c *Config, cache rulelist.ResultCache) (f *Filter) {
 	return &Filter{
-		flt: rulelist.NewRefreshable(c.Refreshable, c.CacheSize, true),
+		flt: rulelist.NewRefreshable(c.Refreshable, cache),
 	}
 }
 

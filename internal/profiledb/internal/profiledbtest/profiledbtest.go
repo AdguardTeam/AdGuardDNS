@@ -18,8 +18,17 @@ import (
 // ProfileID is the profile ID for tests.
 const ProfileID agd.ProfileID = "prof1234"
 
-// DeviceID is the profile ID for tests.
-const DeviceID agd.DeviceID = "dev1234"
+// Device IDs for tests.
+const (
+	DeviceID     agd.DeviceID = "dev1234"
+	DeviceIDAuto agd.DeviceID = "auto1234"
+)
+
+// HumanID values for tests.
+const (
+	HumanID      agd.HumanID      = "My-Device-X--10"
+	HumanIDLower agd.HumanIDLower = "my-device-x--10"
+)
 
 // NewProfile returns the common profile and device for tests.
 func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
@@ -87,5 +96,6 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 		BlockPrivateRelay:  true,
 		BlockFirefoxCanary: true,
 		IPLogEnabled:       true,
+		AutoDevicesEnabled: true,
 	}, dev
 }

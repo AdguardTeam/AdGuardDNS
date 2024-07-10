@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
@@ -70,7 +71,7 @@ func TestFilter(t *testing.T) {
 	f := serviceblock.New(refr, errColl)
 
 	ctx := context.Background()
-	err := f.Refresh(ctx, 0, false, false)
+	err := f.Refresh(ctx, agdcache.EmptyManager{}, 0, false, false)
 	require.NoError(t, err)
 
 	testutil.RequireReceive(t, reqCh, filtertest.Timeout)

@@ -58,8 +58,6 @@ var nextProtoDoH3 = []string{http3.NextProtoH3, http2.NextProtoTLS, "http/1.1"}
 // will listen to both HTTP/2 and HTTP/3, but if you set it to NetworkTCP, the
 // server will only use HTTP/2 and NetworkUDP will mean HTTP/3 only.
 type ConfigHTTPS struct {
-	ConfigBase
-
 	// TLSConfig is the TLS configuration for HTTPS.  If not set and
 	// [ConfigBase.Network] is set to NetworkTCP the server will listen to
 	// plain HTTP.
@@ -68,6 +66,8 @@ type ConfigHTTPS struct {
 	// NonDNSHandler handles requests with the path not equal to /dns-query.
 	// If it is empty, the server will return 404 for requests like that.
 	NonDNSHandler http.Handler
+
+	ConfigBase
 
 	// MaxStreamsPerPeer is the maximum number of concurrent streams that a peer
 	// is allowed to open.
@@ -124,8 +124,8 @@ func NewServerHTTPS(conf ConfigHTTPS) (s *ServerHTTPS) {
 func (s *ServerHTTPS) Start(ctx context.Context) (err error) {
 	defer func() { err = errors.Annotate(err, "starting doh server: %w") }()
 
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	if s.started {
 		return ErrServerAlreadyStarted
@@ -241,8 +241,9 @@ func (s *ServerHTTPS) startH3Server(ctx context.Context) (err error) {
 
 // shutdown marks the server as stopped and closes active listeners.
 func (s *ServerHTTPS) shutdown(ctx context.Context) (err error) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if !s.started {
 		return ErrServerNotStarted
 	}
@@ -570,7 +571,7 @@ func addRequestInfo(parent context.Context, r *http.Request) (ctx context.Contex
 	}
 
 	if r.TLS != nil {
-		ri.TLSServerName = strings.ToLower(r.TLS.ServerName)
+		ri.TLSServerName = r.TLS.ServerName
 	}
 
 	if username, pass, ok := r.BasicAuth(); ok {

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
@@ -122,6 +123,7 @@ func TestPreUpstreamMwHandler_ServeDNS_withECSCache(t *testing.T) {
 
 	mw := preupstream.New(&preupstream.Config{
 		Cloner:       agdtest.NewCloner(),
+		CacheManager: agdcache.EmptyManager{},
 		DB:           dnsdb.Empty{},
 		GeoIP:        geoIP,
 		CacheSize:    100,
@@ -233,7 +235,7 @@ func TestPreUpstreamMwHandler_ServeDNS_androidMetric(t *testing.T) {
 
 			h := mw.Wrap(handler)
 
-			rw := dnsserver.NewNonWriterResponseWriter(nil, dnssvctest.RemoteAddr)
+			rw := dnsserver.NewNonWriterResponseWriter(nil, dnssvctest.ClientTCPAddr)
 
 			err := h.ServeDNS(ctx, rw, tc.req)
 			require.NoError(t, err)

@@ -33,11 +33,7 @@ type Refreshable struct {
 // NewRefreshable returns a new refreshable DNS request and response filter
 // based on the provided rule list.  c must be non-nil.  The initial refresh
 // should be called explicitly if necessary.
-func NewRefreshable(
-	c *internal.RefreshableConfig,
-	memCacheSize int,
-	useMemCache bool,
-) (f *Refreshable) {
+func NewRefreshable(c *internal.RefreshableConfig, cache ResultCache) (f *Refreshable) {
 	f = &Refreshable{
 		mu: &sync.RWMutex{},
 		refr: internal.NewRefreshable(&internal.RefreshableConfig{
@@ -51,7 +47,7 @@ func NewRefreshable(
 	}
 
 	var err error
-	f.filter, err = newFilter("", c.ID, "", memCacheSize, useMemCache)
+	f.filter, err = newFilter("", c.ID, "", cache)
 	if err != nil {
 		// Should never happen, since text is empty.
 		panic(fmt.Errorf("unexpected filter error: %w", err))
@@ -68,20 +64,18 @@ func NewFromString(
 	text string,
 	id agd.FilterListID,
 	svcID agd.BlockedServiceID,
-	memCacheSize int,
-	useMemCache bool,
+	cache ResultCache,
 ) (f *Refreshable, err error) {
-	f = &Refreshable{
-		mu: &sync.RWMutex{},
-	}
-
-	f.filter, err = newFilter(text, id, svcID, memCacheSize, useMemCache)
+	filter, err := newFilter(text, id, svcID, cache)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
 	}
 
-	return f, nil
+	return &Refreshable{
+		mu:     &sync.RWMutex{},
+		filter: filter,
+	}, nil
 }
 
 // DNSResult returns the result of applying the urlfilter DNS filtering engine.

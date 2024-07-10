@@ -18,13 +18,31 @@ service DNSService {
 
     The trailers headers will include a "sync_time", given in milliseconds,
     that should be used for subsequent incremental DNS profile synchronization requests.
-   */
+
+    This method may return the following errors:
+    - RateLimitedError: If too many "full sync" concurrent requests are made.
+    - AuthenticationFailedError: If the authentication failed.
+  */
   rpc getDNSProfiles(DNSProfilesRequest) returns (stream DNSProfile);
 
   /*
     Stores devices activity.
- */
+
+    This method may return the following errors:
+    - AuthenticationFailedError: If the authentication failed.
+  */
   rpc saveDevicesBillingStat(stream DeviceBillingStat) returns (google.protobuf.Empty);
+
+  /*
+    Create device by "human_id".
+
+    This method may return the following errors:
+    - RateLimitedError: If the request was made too frequently and the client must wait before retrying.
+    - DeviceQuotaExceededError: If the client has exceeded its quota for creating devices.
+    - BadRequestError: If the request is invalid: DNS server does not exist, creation of auto-devices is disabled or human_id validation failed.
+    - AuthenticationFailedError: If the authentication failed.
+  */
+  rpc createDeviceByHumanId(CreateDeviceRequest) returns (CreateDeviceResponse);
 }
 
 message DNSProfilesRequest {
@@ -52,6 +70,7 @@ message DNSProfile {
   }
   bool ip_log_enabled = 17;
   AccessSettings access = 18;
+  bool auto_devices_enabled = 19;
 }
 
 message SafeBrowsingSettings {
@@ -67,6 +86,8 @@ message DeviceSettings {
   bytes linked_ip = 4;
   repeated bytes dedicated_ips = 5;
   AuthenticationSettings authentication = 6;
+  // Value in lower case. Will be empty for "ordinary" devices and non-empty for "automatically" created devices.
+  string human_id_lower = 7;
 }
 
 message ParentalSettings {
@@ -143,4 +164,44 @@ message AuthenticationSettings {
   oneof doh_password_hash {
     bytes password_hash_bcrypt = 2;
   }
+}
+
+enum DeviceType {
+  INVALID = 0;
+  WINDOWS = 1;
+  ANDROID = 2;
+  MAC = 3;
+  IOS = 4;
+  LINUX = 5;
+  ROUTER = 6;
+  SMART_TV = 7;
+  GAME_CONSOLE = 8;
+  OTHER = 9;
+}
+
+message CreateDeviceRequest {
+  string dns_id = 1;
+  string human_id = 2;
+  DeviceType device_type = 3;
+}
+
+message CreateDeviceResponse {
+  DeviceSettings device = 1;
+}
+
+message RateLimitedError {
+  string message = 1;
+  google.protobuf.Duration retry_delay = 2;
+}
+
+message DeviceQuotaExceededError {
+  string message = 1;
+}
+
+message BadRequestError {
+  string message = 1;
+}
+
+message AuthenticationFailedError {
+  string message = 1;
 }

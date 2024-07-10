@@ -58,8 +58,11 @@ rules to remember, which property means what.  The properties are:
     “destination”.
 
      >  [!NOTE]
-     >  AdGuard DNS uses the common user-assigned ISO 3166-1 alpha-2 code `XK`
-     >  for the partially-recognized state of the Republic of Kosovo.
+     >  Just like in the `c` field, `XK` is used for the partially-recognized
+     >  state of the Republic of Kosovo.  In addition to that, the code `QN`,
+     >  “Not Applicable”, is used when the resource-record type of the response
+     >  does not contain any IP-address information (for example, responses to
+     >  `TXT` requests).
 
     **Example:** `"US"`
 

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
@@ -99,8 +100,9 @@ var (
 const testDataFiltersTmpl = `{
   "filters": [
     {
-      "filterId": %q,
-      "downloadUrl":"http://example.com"
+      "filterKey": %q,
+      "filterId": 42,
+      "downloadUrl": "http://example.com"
     }
   ]
 }
@@ -180,6 +182,7 @@ func prepareConf(t testing.TB) (c *filter.DefaultStorageConfig) {
 		NewRegDomains:             &hashprefix.Filter{},
 		Now:                       time.Now,
 		ErrColl:                   nil,
+		CacheManager:              agdcache.EmptyManager{},
 		CacheDir:                  cacheDir,
 		CustomFilterCacheSize:     100,
 		SafeSearchCacheSize:       100,

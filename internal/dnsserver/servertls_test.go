@@ -48,10 +48,10 @@ func TestServerTLS_integration_msgIgnore(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
+		expectedError func(t *testing.T, err error)
 		name          string
 		buf           []byte
 		timeout       time.Duration
-		expectedError func(t *testing.T, err error)
 	}{
 		{
 			name: "invalid_input_timeout",

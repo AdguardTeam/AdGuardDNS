@@ -203,7 +203,7 @@ func TestMiddleware_ServeDNS_specialDomain(t *testing.T) {
 			ctx := context.Background()
 			ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{})
 
-			rw := dnsserver.NewNonWriterResponseWriter(nil, dnssvctest.RemoteAddr)
+			rw := dnsserver.NewNonWriterResponseWriter(nil, dnssvctest.ClientTCPAddr)
 			req := &dns.Msg{
 				Question: []dns.Question{{
 					Name:   dns.Fqdn(tc.host),

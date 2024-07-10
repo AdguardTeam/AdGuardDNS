@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -173,7 +172,7 @@ func (s *ServerDNS) acceptTCPMsg(
 		StartTime: time.Now(),
 	}
 	if cs, ok := conn.(tlsConnectionStater); ok {
-		ri.TLSServerName = strings.ToLower(cs.ConnectionState().ServerName)
+		ri.TLSServerName = cs.ConnectionState().ServerName
 	}
 
 	reqCtx, reqCancel := s.requestContext()

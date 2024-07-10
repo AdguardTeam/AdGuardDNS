@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
@@ -22,6 +23,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testTimeout is the common timeout for tests and contexts.
+const testTimeout = 10 * time.Second
+
 // TODO(a.garipov): Refactor the common stages, such as storage initialization,
 // into a single method.
 
@@ -31,8 +35,10 @@ func TestStorage_FilterFromContext(t *testing.T) {
 		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
 	}
 
-	s, err := filter.NewDefaultStorage(c)
-	require.NoError(t, err)
+	s := filter.NewDefaultStorage(c)
+
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	require.NoError(t, s.RefreshInitial(ctx))
 
 	p := &agd.Profile{
 		ID: "prof1234",
@@ -60,14 +66,14 @@ func TestStorage_FilterFromContext(t *testing.T) {
 			}},
 		}
 
+		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 		ri := newReqInfo(g, p, blockedHost, clientIP, dns.TypeA)
-		ctx := agd.ContextWithRequestInfo(context.Background(), ri)
+		ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 		f := s.FilterFromContext(ctx, ri)
 		require.NotNil(t, f)
 
-		var r filter.Result
-		r, err = f.FilterRequest(ctx, req, ri)
+		r, err := f.FilterRequest(ctx, req, ri)
 		require.NoError(t, err)
 
 		rb := testutil.RequireTypeAssert[*filter.ResultBlocked](t, r)
@@ -85,14 +91,14 @@ func TestStorage_FilterFromContext(t *testing.T) {
 			}},
 		}
 
+		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 		ri := newReqInfo(g, p, customHost, clientIP, dns.TypeA)
-		ctx := agd.ContextWithRequestInfo(context.Background(), ri)
+		ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 		f := s.FilterFromContext(ctx, ri)
 		require.NotNil(t, f)
 
-		var r filter.Result
-		r, err = f.FilterRequest(ctx, req, ri)
+		r, err := f.FilterRequest(ctx, req, ri)
 		require.NoError(t, err)
 
 		rb := testutil.RequireTypeAssert[*filter.ResultBlocked](t, r)
@@ -110,14 +116,14 @@ func TestStorage_FilterFromContext(t *testing.T) {
 			}},
 		}
 
+		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 		ri := newReqInfo(g, &agd.Profile{}, customHost, clientIP, dns.TypeA)
-		ctx := agd.ContextWithRequestInfo(context.Background(), ri)
+		ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 		f := s.FilterFromContext(ctx, ri)
 		require.NotNil(t, f)
 
-		var r filter.Result
-		r, err = f.FilterRequest(ctx, req, ri)
+		r, err := f.FilterRequest(ctx, req, ri)
 		require.NoError(t, err)
 
 		assert.Nil(t, r)
@@ -142,8 +148,9 @@ func TestStorage_FilterFromContext_customAllow(t *testing.T) {
 
 	c := prepareConf(t)
 
-	c.SafeBrowsing, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
+	safeBrowsing, err := hashprefix.NewFilter(&hashprefix.FilterConfig{
 		Cloner:          agdtest.NewCloner(),
+		CacheManager:    agdcache.EmptyManager{},
 		Hashes:          hashes,
 		ErrColl:         errColl,
 		ID:              agd.FilterListIDSafeBrowsing,
@@ -155,10 +162,14 @@ func TestStorage_FilterFromContext_customAllow(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	c.ErrColl = errColl
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	require.NoError(t, safeBrowsing.RefreshInitial(ctx))
 
-	s, err := filter.NewDefaultStorage(c)
-	require.NoError(t, err)
+	c.ErrColl = errColl
+	c.SafeBrowsing = safeBrowsing
+
+	s := filter.NewDefaultStorage(c)
+	require.NoError(t, s.RefreshInitial(ctx))
 
 	const safeBrowsingAllowRule = "@@||" + safeBrowsingHost + "^"
 	p := &agd.Profile{
@@ -190,8 +201,9 @@ func TestStorage_FilterFromContext_customAllow(t *testing.T) {
 		}},
 	}
 
+	ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 	ri := newReqInfo(g, p, safeBrowsingSubHost, clientIP, dns.TypeA)
-	ctx := agd.ContextWithRequestInfo(context.Background(), ri)
+	ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 	f := s.FilterFromContext(ctx, ri)
 	require.NotNil(t, f)
@@ -228,8 +240,9 @@ func TestStorage_FilterFromContext_schedule(t *testing.T) {
 	c := prepareConf(t)
 
 	// Use AdultBlocking, because SafeBrowsing is NOT affected by the schedule.
-	c.AdultBlocking, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
+	adultBlocking, err := hashprefix.NewFilter(&hashprefix.FilterConfig{
 		Cloner:          agdtest.NewCloner(),
+		CacheManager:    agdcache.EmptyManager{},
 		Hashes:          hashes,
 		ErrColl:         errColl,
 		ID:              agd.FilterListIDAdultBlocking,
@@ -241,14 +254,17 @@ func TestStorage_FilterFromContext_schedule(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	require.NoError(t, adultBlocking.RefreshInitial(ctx))
+
 	c.Now = func() (t time.Time) {
 		return nowTime
 	}
-
 	c.ErrColl = errColl
+	c.AdultBlocking = adultBlocking
 
-	s, err := filter.NewDefaultStorage(c)
-	require.NoError(t, err)
+	s := filter.NewDefaultStorage(c)
+	require.NoError(t, s.RefreshInitial(ctx))
 
 	// Set up our profile with the schedule that disables filtering at the
 	// current moment.
@@ -294,8 +310,9 @@ func TestStorage_FilterFromContext_schedule(t *testing.T) {
 		}},
 	}
 
+	ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 	ri := newReqInfo(g, p, safeBrowsingSubHost, clientIP, dns.TypeA)
-	ctx := agd.ContextWithRequestInfo(context.Background(), ri)
+	ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 	// The adult blocking filter should not be triggered, since we're within the
 	// schedule.
@@ -335,8 +352,10 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
 	}
 
-	s, err := filter.NewDefaultStorage(c)
-	require.NoError(t, err)
+	s := filter.NewDefaultStorage(c)
+
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	require.NoError(t, s.RefreshInitial(ctx))
 
 	g := &agd.FilteringGroup{
 		ID:               "default",
@@ -353,14 +372,14 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 			}},
 		}
 
+		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 		ri := newReqInfo(g, nil, blockedHost, clientIP, dns.TypeA)
-		ctx := agd.ContextWithRequestInfo(context.Background(), ri)
+		ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 		f := s.FilterFromContext(ctx, ri)
 		require.NotNil(t, f)
 
-		var r filter.Result
-		r, err = f.FilterRequest(ctx, req, ri)
+		r, err := f.FilterRequest(ctx, req, ri)
 		require.NoError(t, err)
 
 		rb := testutil.RequireTypeAssert[*filter.ResultBlocked](t, r)
@@ -378,14 +397,14 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 			}},
 		}
 
+		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 		ri := newReqInfo(g, nil, allowedHost, clientIP, dns.TypeA)
-		ctx := agd.ContextWithRequestInfo(context.Background(), ri)
+		ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 		f := s.FilterFromContext(ctx, ri)
 		require.NotNil(t, f)
 
-		var r filter.Result
-		r, err = f.FilterRequest(ctx, req, ri)
+		r, err := f.FilterRequest(ctx, req, ri)
 		require.NoError(t, err)
 
 		ra := testutil.RequireTypeAssert[*filter.ResultAllowed](t, r)
@@ -403,14 +422,14 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 			}},
 		}
 
+		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 		ri := newReqInfo(g, nil, blockedClientHost, clientIP, dns.TypeA)
-		ctx := agd.ContextWithRequestInfo(context.Background(), ri)
+		ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 		f := s.FilterFromContext(ctx, ri)
 		require.NotNil(t, f)
 
-		var r filter.Result
-		r, err = f.FilterRequest(ctx, req, ri)
+		r, err := f.FilterRequest(ctx, req, ri)
 		require.NoError(t, err)
 
 		rb := testutil.RequireTypeAssert[*filter.ResultBlocked](t, r)
@@ -428,14 +447,14 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 			}},
 		}
 
+		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 		ri := newReqInfo(g, nil, allowedClientHost, clientIP, dns.TypeA)
-		ctx := agd.ContextWithRequestInfo(context.Background(), ri)
+		ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 		f := s.FilterFromContext(ctx, ri)
 		require.NotNil(t, f)
 
-		var r filter.Result
-		r, err = f.FilterRequest(ctx, req, ri)
+		r, err := f.FilterRequest(ctx, req, ri)
 		require.NoError(t, err)
 
 		ra := testutil.RequireTypeAssert[*filter.ResultAllowed](t, r)
@@ -453,14 +472,14 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 			}},
 		}
 
+		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 		ri := newReqInfo(g, nil, otherNetHost, clientIP, dns.TypeA)
-		ctx := agd.ContextWithRequestInfo(context.Background(), ri)
+		ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 		f := s.FilterFromContext(ctx, ri)
 		require.NotNil(t, f)
 
-		var r filter.Result
-		r, err = f.FilterRequest(ctx, req, ri)
+		r, err := f.FilterRequest(ctx, req, ri)
 		require.NoError(t, err)
 
 		assert.Nil(t, r)
@@ -473,8 +492,10 @@ func TestStorage_FilterFromContext_customDevice(t *testing.T) {
 		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
 	}
 
-	s, errStrg := filter.NewDefaultStorage(c)
-	require.NoError(t, errStrg)
+	s := filter.NewDefaultStorage(c)
+
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	require.NoError(t, s.RefreshInitial(ctx))
 
 	g := &agd.FilteringGroup{}
 	p := &agd.Profile{
@@ -495,8 +516,9 @@ func TestStorage_FilterFromContext_customDevice(t *testing.T) {
 			}},
 		}
 
+		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 		ri := newReqInfo(g, p, blockedDeviceHost, deviceIP, dns.TypeA)
-		ctx := agd.ContextWithRequestInfo(context.Background(), ri)
+		ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 		f := s.FilterFromContext(ctx, ri)
 		require.NotNil(t, f)
@@ -519,8 +541,9 @@ func TestStorage_FilterFromContext_customDevice(t *testing.T) {
 			}},
 		}
 
+		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 		ri := newReqInfo(g, p, allowedDeviceHost, deviceIP, dns.TypeA)
-		ctx := agd.ContextWithRequestInfo(context.Background(), ri)
+		ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 		f := s.FilterFromContext(ctx, ri)
 		require.NotNil(t, f)
@@ -542,8 +565,10 @@ func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
 	}
 
-	s, err := filter.NewDefaultStorage(c)
-	require.NoError(t, err)
+	s := filter.NewDefaultStorage(c)
+
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	require.NoError(t, s.RefreshInitial(ctx))
 
 	g := &agd.FilteringGroup{
 		ID:               "default",
@@ -551,8 +576,9 @@ func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 		RuleListsEnabled: true,
 	}
 
+	ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 	ri := newReqInfo(g, nil, otherNetHost, clientIP, dns.TypeA)
-	ctx := agd.ContextWithRequestInfo(context.Background(), ri)
+	ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 	f := s.FilterFromContext(ctx, ri)
 	require.NotNil(t, f)
@@ -571,8 +597,7 @@ func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 			}},
 		}
 
-		var r filter.Result
-		r, err = f.FilterResponse(ctx, resp, ri)
+		r, err := f.FilterResponse(ctx, resp, ri)
 		require.NoError(t, err)
 
 		rb := testutil.RequireTypeAssert[*filter.ResultBlocked](t, r)
@@ -589,8 +614,7 @@ func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 			}},
 		}
 
-		var r filter.Result
-		r, err = f.FilterResponse(ctx, resp, ri)
+		r, err := f.FilterResponse(ctx, resp, ri)
 		require.NoError(t, err)
 
 		ra := testutil.RequireTypeAssert[*filter.ResultAllowed](t, r)
@@ -607,8 +631,7 @@ func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 			}},
 		}
 
-		var r filter.Result
-		r, err = f.FilterResponse(ctx, resp, ri)
+		r, err := f.FilterResponse(ctx, resp, ri)
 		require.NoError(t, err)
 
 		rb := testutil.RequireTypeAssert[*filter.ResultBlocked](t, r)
@@ -625,8 +648,7 @@ func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 			}},
 		}
 
-		var r filter.Result
-		r, err = f.FilterResponse(ctx, resp, ri)
+		r, err := f.FilterResponse(ctx, resp, ri)
 		require.NoError(t, err)
 
 		ra := testutil.RequireTypeAssert[*filter.ResultAllowed](t, r)
@@ -643,8 +665,7 @@ func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 			}},
 		}
 
-		var r filter.Result
-		r, err = f.FilterResponse(ctx, resp, ri)
+		r, err := f.FilterResponse(ctx, resp, ri)
 		require.NoError(t, err)
 
 		rb := testutil.RequireTypeAssert[*filter.ResultBlocked](t, r)
@@ -661,8 +682,7 @@ func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 			}},
 		}
 
-		var r filter.Result
-		r, err = f.FilterResponse(ctx, req, ri)
+		r, err := f.FilterResponse(ctx, req, ri)
 		require.NoError(t, err)
 
 		ra := testutil.RequireTypeAssert[*filter.ResultAllowed](t, r)
@@ -679,8 +699,7 @@ func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 			}},
 		}
 
-		var r filter.Result
-		r, err = f.FilterResponse(ctx, req, ri)
+		r, err := f.FilterResponse(ctx, req, ri)
 		require.NoError(t, err)
 
 		assert.Nil(t, r)
@@ -694,8 +713,7 @@ func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 			}},
 		}
 
-		var r filter.Result
-		r, err = f.FilterResponse(ctx, req, ri)
+		r, err := f.FilterResponse(ctx, req, ri)
 		require.NoError(t, err)
 
 		rb := testutil.RequireTypeAssert[*filter.ResultBlocked](t, r)
@@ -712,8 +730,7 @@ func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 			}},
 		}
 
-		var r filter.Result
-		r, err = f.FilterRequest(ctx, req, ri)
+		r, err := f.FilterRequest(ctx, req, ri)
 		require.NoError(t, err)
 
 		assert.Nil(t, r)
@@ -735,10 +752,10 @@ func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
 		},
 	}
 
-	c := prepareConf(t)
-
-	c.SafeBrowsing, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	safeBrowsing, err := hashprefix.NewFilter(&hashprefix.FilterConfig{
 		Cloner:          agdtest.NewCloner(),
+		CacheManager:    agdcache.EmptyManager{},
 		Hashes:          hashes,
 		ErrColl:         errColl,
 		ID:              agd.FilterListIDSafeBrowsing,
@@ -749,11 +766,14 @@ func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
 		CacheSize:       100,
 	})
 	require.NoError(t, err)
+	require.NoError(t, safeBrowsing.RefreshInitial(ctx))
 
+	c := prepareConf(t)
 	c.ErrColl = errColl
+	c.SafeBrowsing = safeBrowsing
 
-	s, err := filter.NewDefaultStorage(c)
-	require.NoError(t, err)
+	s := filter.NewDefaultStorage(c)
+	require.NoError(t, s.RefreshInitial(ctx))
 
 	g := &agd.FilteringGroup{
 		ID:                          "default",
@@ -774,14 +794,14 @@ func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
 		}},
 	}
 
+	ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 	ri := newReqInfo(g, nil, safeBrowsingSubHost, clientIP, dns.TypeA)
-	ctx := agd.ContextWithRequestInfo(context.Background(), ri)
+	ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 	f := s.FilterFromContext(ctx, ri)
 	require.NotNil(t, f)
 
-	var r filter.Result
-	r, err = f.FilterRequest(ctx, req, ri)
+	r, err := f.FilterRequest(ctx, req, ri)
 	require.NoError(t, err)
 
 	rm := testutil.RequireTypeAssert[*filter.ResultModifiedRequest](t, r)
@@ -794,8 +814,10 @@ func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
 func TestStorage_FilterFromContext_safeSearch(t *testing.T) {
 	c := prepareConf(t)
 
-	s, err := filter.NewDefaultStorage(c)
-	require.NoError(t, err)
+	s := filter.NewDefaultStorage(c)
+
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	require.NoError(t, s.RefreshInitial(ctx))
 
 	g := &agd.FilteringGroup{
 		ID:                "default",
@@ -843,16 +865,16 @@ func TestStorage_FilterFromContext_safeSearch(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 			ri := newReqInfo(g, nil, tc.host, clientIP, tc.rrtype)
-			ctx := agd.ContextWithRequestInfo(context.Background(), ri)
+			ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 			f := s.FilterFromContext(ctx, ri)
 			require.NotNil(t, f)
 
 			req := dnsservertest.CreateMessage(tc.host, tc.rrtype)
 
-			var r filter.Result
-			r, err = f.FilterRequest(ctx, req, ri)
+			r, err := f.FilterRequest(ctx, req, ri)
 			require.NoError(t, err)
 			require.NotNil(t, r)
 
@@ -879,32 +901,35 @@ func TestStorage_FilterFromContext_safeSearch(t *testing.T) {
 	}
 }
 
+// Typed sinks for benchmarks.
 var (
-	defaultStorageSink *filter.DefaultStorage
-	errSink            error
+	errSink error
 )
 
-func BenchmarkStorage_NewDefaultStorage(b *testing.B) {
+func BenchmarkStorage_DefaultStorage_Initialize(b *testing.B) {
 	c := prepareConf(b)
 
 	c.ErrColl = &agdtest.ErrorCollector{
 		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
 	}
 
+	s := filter.NewDefaultStorage(c)
+	ctx := context.Background()
+
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	for range b.N {
-		defaultStorageSink, errSink = filter.NewDefaultStorage(c)
+		errSink = s.RefreshInitial(ctx)
 	}
 
-	assert.NotNil(b, defaultStorageSink)
 	assert.NoError(b, errSink)
 
 	// Recent result on MBP 15:
 	//
-	//	goos: darwin
-	//	goarch: amd64
-	//	cpu: Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz
-	//	BenchmarkStorage_NewDefaultStorage/success-12    3238    344513 ns/op    198096 B/op    952 allocs/op
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkStorage_DefaultStorage_Initialize-12	5301	221029 ns/op	260449 B/op		806 allocs/op
 }

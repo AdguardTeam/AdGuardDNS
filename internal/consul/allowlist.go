@@ -19,7 +19,8 @@ import (
 	"github.com/AdguardTeam/golibs/log"
 )
 
-// AllowlistRefresher is a refresh wrapper that updates the allowlist.
+// AllowlistRefresher is a refresh wrapper that updates the allowlist.  It
+// should be initially refreshed before use.
 type AllowlistRefresher struct {
 	allowlist *ratelimit.DynamicAllowlist
 	http      *agdhttp.Client
@@ -32,8 +33,8 @@ func NewAllowlistRefresher(
 	allowlist *ratelimit.DynamicAllowlist,
 	consulURL *url.URL,
 	errColl errcoll.Interface,
-) (l *AllowlistRefresher, err error) {
-	l = &AllowlistRefresher{
+) (l *AllowlistRefresher) {
+	return &AllowlistRefresher{
 		allowlist: allowlist,
 		http: agdhttp.NewClient(&agdhttp.ClientConfig{
 			// TODO(a.garipov): Consider making configurable.
@@ -42,13 +43,6 @@ func NewAllowlistRefresher(
 		url:     consulURL,
 		errColl: errColl,
 	}
-
-	err = l.Refresh(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("initial refresh: %w", err)
-	}
-
-	return l, nil
 }
 
 // type check

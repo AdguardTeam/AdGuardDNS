@@ -114,8 +114,8 @@ This endpoint, defined by [`FILTER_INDEX_URL`][env-filters], must respond with a
 {
   "filters": [
     {
-      "downloadUrl": "https://cdn.example.com/assets/my_filter.txt",
-      "id": "my_filter"
+      "filterKey": "my_filter",
+      "downloadUrl": "https://cdn.example.com/assets/my_filter.txt"
     }
   ]
 }

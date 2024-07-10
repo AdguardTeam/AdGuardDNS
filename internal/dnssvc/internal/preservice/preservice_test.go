@@ -122,7 +122,7 @@ func TestPreServiceMwHandler_ServeDNS(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			rw := dnsserver.NewNonWriterResponseWriter(nil, dnssvctest.RemoteAddr)
+			rw := dnsserver.NewNonWriterResponseWriter(nil, dnssvctest.ClientTCPAddr)
 			tctx := agd.ContextWithRequestInfo(ctx, tc.ri)
 
 			dnsCk := &agdtest.DNSCheck{

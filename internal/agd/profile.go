@@ -11,8 +11,6 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 )
 
-// Profiles
-
 // Profile contains information about an AdGuard DNS profile.  In other parts of
 // the infrastructure, a profile is also called a “DNS server”.  We call it
 // profile, because it's less confusing.
@@ -139,6 +137,13 @@ type Profile struct {
 	// NOTE: Do not change fields of this structure without incrementing
 	// [internal/profiledb/internal.FileCacheVersion].
 	IPLogEnabled bool
+
+	// AutoDevicesEnabled shows if the automatic creation of devices using
+	// HumanIDs should be enabled for this profile.
+	//
+	// NOTE: Do not change fields of this structure without incrementing
+	// [internal/profiledb/internal.FileCacheVersion].
+	AutoDevicesEnabled bool
 }
 
 // ProfileID is the ID of a profile.  It is an opaque string.

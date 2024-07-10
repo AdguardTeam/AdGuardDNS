@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
@@ -63,6 +64,7 @@ type filtersConfig struct {
 // cacheDir must exist.  c is assumed to be valid.
 func (c *filtersConfig) toInternal(
 	errColl errcoll.Interface,
+	cacheManager agdcache.Manager,
 	envs *environments,
 	safeBrowsing *hashprefix.Filter,
 	adultBlocking *hashprefix.Filter,
@@ -78,6 +80,7 @@ func (c *filtersConfig) toInternal(
 		NewRegDomains:             newRegDomains,
 		Now:                       time.Now,
 		ErrColl:                   errColl,
+		CacheManager:              cacheManager,
 		CacheDir:                  envs.FilterCachePath,
 		CustomFilterCacheSize:     c.CustomFilterCacheSize,
 		SafeSearchCacheSize:       c.SafeSearchCacheSize,
@@ -148,11 +151,14 @@ func (c *fltRuleListCache) validate() (err error) {
 // setupFilterStorage creates and returns a filter storage as well as starts and
 // registers its refresher in the signal handler.
 func setupFilterStorage(
+	ctx context.Context,
 	conf *filter.DefaultStorageConfig,
 	sigHdlr *service.SignalHandler,
 	refreshTimeout time.Duration,
 ) (strg *filter.DefaultStorage, err error) {
-	strg, err = filter.NewDefaultStorage(conf)
+	strg = filter.NewDefaultStorage(conf)
+
+	err = strg.RefreshInitial(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("creating default filter storage: %w", err)
 	}
@@ -162,12 +168,12 @@ func setupFilterStorage(
 			return context.WithTimeout(context.Background(), refreshTimeout)
 		},
 		Refresher:         strg,
-		Name:              "filters",
+		Name:              "filter_storage",
 		Interval:          conf.RefreshIvl,
 		RefreshOnShutdown: false,
 		RandomizeStart:    false,
 	})
-	err = refr.Start(context.Background())
+	err = refr.Start(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("starting default filter storage update: %w", err)
 	}

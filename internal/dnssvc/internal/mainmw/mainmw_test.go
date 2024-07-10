@@ -244,7 +244,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 			h := mw.Wrap(newSimpleHandler(t, tc.req, wantResp))
 
 			ctx := newContext(tc.device, tc.profile, reqHost, reqQType, reqStart)
-			rw := dnsserver.NewNonWriterResponseWriter(dnssvctest.LocalAddr, dnssvctest.RemoteAddr)
+			rw := dnsserver.NewNonWriterResponseWriter(dnssvctest.ServerTCPAddr, dnssvctest.ClientTCPAddr)
 
 			err := h.ServeDNS(ctx, rw, tc.req)
 			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)
@@ -707,7 +707,7 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 			h := mw.Wrap(newSimpleHandler(t, tc.wantUpsReq, tc.upsResp))
 
 			ctx := newContext(tc.device, tc.profile, reqHost, reqQType, reqStart)
-			rw := dnsserver.NewNonWriterResponseWriter(dnssvctest.LocalAddr, dnssvctest.RemoteAddr)
+			rw := dnsserver.NewNonWriterResponseWriter(dnssvctest.ServerTCPAddr, dnssvctest.ClientTCPAddr)
 
 			err := h.ServeDNS(ctx, rw, tc.req)
 			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)

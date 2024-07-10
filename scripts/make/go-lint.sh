@@ -167,36 +167,29 @@ git ls-files -- 'Makefile' '*.conf' '*.go' '*.mod' '*.sh' '*.yaml' '*.yml'\
 
 run_linter nilness ./... "$dnssrvmod"
 
-# Do not use fieldalignment on $dnssrvmod, because ameshkov likes to place
-# struct fields in an order that he considers more readable.
+# TODO(a.garipov):  Remove the grep crutch once golang/go#60509 is fixed.
 #
-# TODO(a.garipov): Remove the loop once golang/go#60509, golang/go#61574 are
-# fixed.
-(
-	run_linter fieldalignment ./main.go
-	run_linter -e shadow --strict ./main.go
+# TODO(a.garipov):  Add a filtering function to run_linter.
+fieldalignment_output="$( fieldalignment ./... "$dnssrvmod" 2>&1 | grep -e '\.pb\.go' -v || : )"
+readonly fieldalignment_output
 
-	set +f
-	for d in ./internal/*/ ./internal/*/*/ ./internal/*/*/*/
-	do
-		case "$d"
-		in
-		(*/testdata/*|\
-			./internal/dnsserver/*|\
-			./internal/backendpb/|\
-			./internal/profiledb/internal/filecachepb/|\
-			./internal/tools/)
-			continue
-			;;
-		(*)
-			run_linter fieldalignment "$d"
-			run_linter -e shadow --strict "$d"
-			;;
-		esac
-	done
-)
+if [ "$fieldalignment_output" != '' ]
+then
+	printf '%s\n' "$fieldalignment_output"
 
-run_linter -e shadow --strict "$dnssrvmod"
+	exit 1
+fi
+
+# TODO(a.garipov): Remove the grep crutch once golang/go#61574 is fixed.
+shadow_output="$( shadow --strict ./... "$dnssrvmod" 2>&1 | grep -e '\.pb\.go' -v || : )"
+readonly shadow_output
+
+if [ "$shadow_output" != '' ]
+then
+	printf '%s\n' "$shadow_output"
+
+	exit 1
+fi
 
 run_linter gosec --quiet ./... "$dnssrvmod"
 

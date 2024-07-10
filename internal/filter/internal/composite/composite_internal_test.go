@@ -19,7 +19,12 @@ var (
 )
 
 func BenchmarkFilter_FilterReqWithRuleLists(b *testing.B) {
-	blockingRL, err := rulelist.NewFromString(filtertest.BlockRule+"\n", "test", "", 0, false)
+	blockingRL, err := rulelist.NewFromString(
+		filtertest.BlockRule+"\n",
+		"test",
+		"",
+		rulelist.ResultCacheEmpty{},
+	)
 	require.NoError(b, err)
 
 	f := New(&Config{

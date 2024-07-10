@@ -5,6 +5,7 @@ package dnssvctest
 import (
 	"crypto/tls"
 	"net"
+	"net/netip"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -14,17 +15,18 @@ import (
 // Timeout is the common timeout for tests.
 const Timeout time.Duration = 1 * time.Second
 
-// String representations of the common IDs for tests.
+// Common IDs for tests and their string representations.
 const (
-	DeviceIDStr  = "dev1234"
-	ProfileIDStr = "prof1234"
+	DeviceIDStr     = "dev1234"
+	ProfileIDStr    = "prof1234"
+	HumanIDStr      = "My-Device-X--10"
+	HumanIDLowerStr = "my-device-x--10"
+
+	DeviceID     agd.DeviceID     = DeviceIDStr
+	ProfileID    agd.ProfileID    = ProfileIDStr
+	HumanID      agd.HumanID      = HumanIDStr
+	HumanIDLower agd.HumanIDLower = HumanIDLowerStr
 )
-
-// DeviceID is the common device ID for tests.
-const DeviceID agd.DeviceID = DeviceIDStr
-
-// ProfileID is the common profile ID for tests.
-const ProfileID agd.ProfileID = ProfileIDStr
 
 // String representations for the common filtering-rule list ID for tests.
 const (
@@ -66,28 +68,62 @@ const (
 	// [agd.DeviceID] or use [DeviceIDSrvName].
 	DeviceIDWildcard = "*." + DomainForDevices
 
-	// DeviceIDSrvName is the common client server-name for tests.
+	// DeviceIDSrvName is the common client server-name with a device ID for
+	// tests.
 	DeviceIDSrvName = DeviceIDStr + "." + DomainForDevices
+
+	// HumanIDPath is the common client URL path with human-readable device-data
+	// for tests.
+	HumanIDPath = "otr-" + ProfileIDStr + "-" + HumanIDStr
+
+	// HumanIDSrvName is the common client server-name with human-readable
+	// device-data for tests.
+	HumanIDSrvName = HumanIDPath + "." + DomainForDevices
+)
+
+// Use a constant block with iota to keep track of the unique final bytes of IP
+// addresses more easily.
+const (
+	ipByteZero = iota
+	ipByteClient
+	ipByteServer
+	ipByteDomain
+	ipByteLinked
+	ipByteDedicated
 )
 
 // Common addresses for tests.
 var (
-	ClientIP   = net.IP{1, 2, 3, 4}
-	RemoteAddr = &net.TCPAddr{
+	ClientIP      = net.IP{192, 0, 2, ipByteClient}
+	ClientTCPAddr = &net.TCPAddr{
 		IP:   ClientIP,
 		Port: 12345,
 	}
 
-	ClientAddrPort = RemoteAddr.AddrPort()
+	ClientAddrPort = ClientTCPAddr.AddrPort()
 	ClientAddr     = ClientAddrPort.Addr()
 
-	LocalAddr = &net.TCPAddr{
-		IP:   net.IP{5, 6, 7, 8},
+	ServerTCPAddr = &net.TCPAddr{
+		IP:   net.IP{192, 0, 2, ipByteServer},
 		Port: 54321,
 	}
 
-	ServerAddrPort = LocalAddr.AddrPort()
+	ServerAddrPort = ServerTCPAddr.AddrPort()
 	ServerAddr     = ServerAddrPort.Addr()
+
+	DomainAddrIPv4 = netip.AddrFrom4([4]byte{192, 0, 2, ipByteDomain})
+	DomainAddrIPv6 = netip.AddrFrom16([16]byte{
+		0x20, 0x01, 0x0d, 0xb8,
+		0, 0, 0, 0,
+		0, 0, 0, 0,
+		0, 0, 0, ipByteDomain,
+	})
+
+	LinkedAddr     = netip.AddrFrom4([4]byte{192, 0, 2, ipByteLinked})
+	LinkedAddrPort = netip.AddrPortFrom(LinkedAddr, 12345)
+
+	DedicatedAddr     = netip.AddrFrom4([4]byte{192, 0, 2, ipByteDedicated})
+	DedicatedAddrPort = netip.AddrPortFrom(DedicatedAddr, 53)
 )
 
 // NewServer is a helper that returns a new *agd.Server for tests.

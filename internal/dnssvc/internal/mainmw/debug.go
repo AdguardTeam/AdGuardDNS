@@ -17,17 +17,19 @@ import (
 
 // Debug header name constants.
 const (
-	hdrNameResType     = "res-type"
-	hdrNameRuleListID  = "rule-list-id"
-	hdrNameRule        = "rule"
-	hdrNameClientIP    = "client-ip"
-	hdrNameServerIP    = "server-ip"
-	hdrNameDeviceID    = "device-id"
-	hdrNameProfileID   = "profile-id"
-	hdrNameCountry     = "country"
 	hdrNameASN         = "asn"
+	hdrNameClientIP    = "client-ip"
+	hdrNameCountry     = "country"
+	hdrNameDeviceID    = "device-id"
+	hdrNameHumanID     = "human-id"
+	hdrNameProfileID   = "profile-id"
+	hdrNameResType     = "res-type"
+	hdrNameRule        = "rule"
+	hdrNameRuleListID  = "rule-list-id"
+	hdrNameServerIP    = "server-ip"
 	hdrNameSubdivision = "subdivision"
-	hdrNameHost        = "adguard-dns.com."
+
+	hdrDomain = "adguard-dns.com."
 )
 
 // writeDebugResponse writes the debug response to rw.
@@ -90,12 +92,10 @@ func (mw *Middleware) appendDebugExtraFromContext(
 	resp *dns.Msg,
 ) (err error) {
 	ri := agd.MustRequestInfoFromContext(ctx)
-	if d := ri.Device; d != nil {
-		setQuestionName(debugReq, "", hdrNameDeviceID)
-		err = mw.messages.AppendDebugExtra(debugReq, resp, string(d.ID))
-		if err != nil {
-			return fmt.Errorf("adding %s extra: %w", hdrNameDeviceID, err)
-		}
+	err = mw.appendDebugExtraFromDevice(ri.Device, debugReq, resp)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return err
 	}
 
 	if p := ri.Profile; p != nil {
@@ -117,8 +117,36 @@ func (mw *Middleware) appendDebugExtraFromContext(
 	return nil
 }
 
+// appendDebugExtraFromDevice adds debug info to response got from devices data,
+// if any.
+func (mw *Middleware) appendDebugExtraFromDevice(
+	dev *agd.Device,
+	debugReq *dns.Msg,
+	resp *dns.Msg,
+) (err error) {
+	if dev == nil {
+		return nil
+	}
+
+	setQuestionName(debugReq, "", hdrNameDeviceID)
+	err = mw.messages.AppendDebugExtra(debugReq, resp, string(dev.ID))
+	if err != nil {
+		return fmt.Errorf("adding %s extra: %w", hdrNameDeviceID, err)
+	}
+
+	if humanID := dev.HumanIDLower; humanID != "" {
+		setQuestionName(debugReq, "", hdrNameHumanID)
+		err = mw.messages.AppendDebugExtra(debugReq, resp, string(humanID))
+		if err != nil {
+			return fmt.Errorf("adding %s extra: %w", hdrNameHumanID, err)
+		}
+	}
+
+	return nil
+}
+
 // appendDebugExtraFromLocation adds debug info to response got from request
-// info location.  loc should not be nil.
+// info location.  loc must not be nil.
 func (mw *Middleware) appendDebugExtraFromLocation(
 	loc *geoip.Location,
 	debugReq *dns.Msg,
@@ -221,9 +249,9 @@ func (mw *Middleware) addDebugExtraFromFiltering(
 func setQuestionName(req *dns.Msg, prefix, suffix string) {
 	var strs []string
 	if prefix == "" {
-		strs = []string{suffix, hdrNameHost}
+		strs = []string{suffix, hdrDomain}
 	} else {
-		strs = []string{prefix, suffix, hdrNameHost}
+		strs = []string{prefix, suffix, hdrDomain}
 	}
 
 	req.Question[0].Name = strings.Join(strs, ".")

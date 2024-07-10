@@ -23,21 +23,24 @@ type BillStatConfig struct {
 	// Endpoint is the backend API URL.  The scheme should be either "grpc" or
 	// "grpcs".
 	Endpoint *url.URL
+
+	// APIKey is the API key used for authentication, if any.
+	APIKey string
 }
 
 // NewBillStat creates a new billing statistics uploader.  c must not be nil.
 func NewBillStat(c *BillStatConfig) (b *BillStat, err error) {
-	b = &BillStat{
-		errColl: c.ErrColl,
-	}
-
-	b.client, err = newClient(c.Endpoint)
+	client, err := newClient(c.Endpoint)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
 	}
 
-	return b, nil
+	return &BillStat{
+		errColl: c.ErrColl,
+		client:  client,
+		apiKey:  c.APIKey,
+	}, nil
 }
 
 // BillStat is the implementation of the [billstat.Uploader] interface that
@@ -48,9 +51,8 @@ func NewBillStat(c *BillStatConfig) (b *BillStat, err error) {
 // backendpb.Client.
 type BillStat struct {
 	errColl errcoll.Interface
-
-	// client is the current GRPC client.
-	client DNSServiceClient
+	client  DNSServiceClient
+	apiKey  string
 }
 
 // type check
@@ -62,9 +64,10 @@ func (b *BillStat) Upload(ctx context.Context, records billstat.Records) (err er
 		return nil
 	}
 
+	ctx = ctxWithAuthentication(ctx, b.apiKey)
 	stream, err := b.client.SaveDevicesBillingStat(ctx)
 	if err != nil {
-		return fmt.Errorf("opening stream: %w", err)
+		return fmt.Errorf("opening stream: %w", fixGRPCError(err))
 	}
 
 	for deviceID, record := range records {
@@ -76,7 +79,7 @@ func (b *BillStat) Upload(ctx context.Context, records billstat.Records) (err er
 
 		sendErr := stream.Send(recordToProtobuf(record, deviceID))
 		if sendErr != nil {
-			return fmt.Errorf("uploading device %q record: %w", deviceID, sendErr)
+			return fmt.Errorf("uploading device %q record: %w", deviceID, fixGRPCError(sendErr))
 		}
 	}
 

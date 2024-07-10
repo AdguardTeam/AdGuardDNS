@@ -1,6 +1,8 @@
 package metrics
 
 import (
+	"fmt"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -131,4 +133,56 @@ var (
 	ProfilesSyncPartTimeouts = profilesSyncTimeouts.With(prometheus.Labels{
 		"is_full_sync": "0",
 	})
+)
+
+// gRPC error types for [IncGRPCErrorsCounter].
+const (
+	GRPCErrorTypeAuthentication = "auth"
+	GRPCErrorTypeBadRequest     = "bad_req"
+	GRPCErrorTypeDeviceQuota    = "dev_quota"
+	GRPCErrorTypeOther          = "other"
+	GRPCErrorTypeRateLimit      = "rate_limit"
+	GRPCErrorTypeTimeout        = "timeout"
+)
+
+// IncGRPCErrorsCounter increments the gRPC errors counter based on the type.
+// typ must be a valid type.
+func IncGRPCErrorsCounter(typ string) {
+	var ctr prometheus.Counter
+	switch typ {
+	case GRPCErrorTypeAuthentication:
+		ctr = grpcErrorsTotalAuthentication
+	case GRPCErrorTypeBadRequest:
+		ctr = grpcErrorsTotalBadRequest
+	case GRPCErrorTypeDeviceQuota:
+		ctr = grpcErrorsTotalDeviceQuota
+	case GRPCErrorTypeOther:
+		ctr = grpcErrorsTotalOther
+	case GRPCErrorTypeRateLimit:
+		ctr = grpcErrorsTotalRateLimit
+	case GRPCErrorTypeTimeout:
+		ctr = grpcErrorsTotalTimeout
+	default:
+		panic(fmt.Errorf("metrics.IncGRPCErrorsCounter: bad type %q", typ))
+	}
+
+	ctr.Inc()
+}
+
+// grpcErrorsTotal is a vector of counters of gRPC errors by type.  This block
+// contains it and the related counters by type.
+var (
+	grpcErrorsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name:      "grpc_errors_total",
+		Subsystem: subsystemBackend,
+		Namespace: namespace,
+		Help:      "The total number of errors by type.",
+	}, []string{"type"})
+
+	grpcErrorsTotalAuthentication = grpcErrorsTotal.WithLabelValues(GRPCErrorTypeAuthentication)
+	grpcErrorsTotalBadRequest     = grpcErrorsTotal.WithLabelValues(GRPCErrorTypeBadRequest)
+	grpcErrorsTotalDeviceQuota    = grpcErrorsTotal.WithLabelValues(GRPCErrorTypeDeviceQuota)
+	grpcErrorsTotalOther          = grpcErrorsTotal.WithLabelValues(GRPCErrorTypeOther)
+	grpcErrorsTotalRateLimit      = grpcErrorsTotal.WithLabelValues(GRPCErrorTypeRateLimit)
+	grpcErrorsTotalTimeout        = grpcErrorsTotal.WithLabelValues(GRPCErrorTypeTimeout)
 )

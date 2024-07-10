@@ -10,8 +10,6 @@ import (
 	"github.com/AdguardTeam/golibs/netutil"
 )
 
-// Devices
-
 // Device is a device of a device attached to a profile.
 //
 // NOTE: Do not change fields of this structure without incrementing
@@ -29,6 +27,10 @@ type Device struct {
 
 	// Name is the human-readable name of the device.
 	Name DeviceName
+
+	// HumanIDLower is the lower-case version of the normalized [HumanID] used
+	// to create this device, if any.
+	HumanIDLower HumanIDLower
 
 	// DedicatedIPs are the destination (server) IP-addresses dedicated to this
 	// device, if any.  A device can use one of these addresses as a DNS server

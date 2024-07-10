@@ -15,7 +15,9 @@ message FileCache {
 }
 
 message Profile {
+  AccessSettings access = 21;
   ParentalProtectionSettings parental = 1;
+  SafeBrowsingSettings safe_browsing = 19;
   oneof blocking_mode {
     BlockingModeCustomIP blocking_mode_custom_ip = 2;
     BlockingModeNXDOMAIN blocking_mode_nxdomain = 3;
@@ -35,9 +37,8 @@ message Profile {
   bool deleted = 16;
   bool block_private_relay = 17;
   bool block_firefox_canary = 18;
-  SafeBrowsingSettings safe_browsing = 19;
   bool ip_log_enabled = 20;
-  AccessSettings access = 21;
+  bool auto_devices_enabled = 22;
 }
 
 message ParentalProtectionSettings {
@@ -83,12 +84,13 @@ message BlockingModeNullIP {}
 message BlockingModeREFUSED {}
 
 message Device {
+  AuthenticationSettings authentication = 6;
   string device_id = 1;
-  bytes linked_ip = 2;
   string device_name = 3;
+  string human_id_lower = 7;
+  bytes linked_ip = 2;
   repeated bytes dedicated_ips = 4;
   bool filtering_enabled = 5;
-  AuthenticationSettings authentication = 6;
 }
 
 message AccessSettings {

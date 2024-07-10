@@ -2,6 +2,7 @@ package dnsserver
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"time"
 
@@ -17,23 +18,20 @@ import (
 type ConfigDNSCrypt struct {
 	ConfigBase
 
-	// DNSCryptProviderName is a DNSCrypt provider name (see DNSCrypt spec).
-	DNSCryptProviderName string
-
 	// DNSCryptResolverCert is a DNSCrypt server certificate.
 	DNSCryptResolverCert *dnscrypt.Cert
+
+	// DNSCryptProviderName is a DNSCrypt provider name (see DNSCrypt spec).
+	DNSCryptProviderName string
 }
 
 // ServerDNSCrypt is a DNSCrypt server implementation.
 type ServerDNSCrypt struct {
 	*ServerBase
 
+	dnsCryptServer *dnscrypt.Server
+
 	conf ConfigDNSCrypt
-
-	// Internal server properties
-	// --
-
-	dnsCryptServer *dnscrypt.Server // dnscrypt server instance
 }
 
 // type check
@@ -55,8 +53,8 @@ func NewServerDNSCrypt(conf ConfigDNSCrypt) (s *ServerDNSCrypt) {
 func (s *ServerDNSCrypt) Start(ctx context.Context) (err error) {
 	defer func() { err = errors.Annotate(err, "starting dnscrypt server: %w") }()
 
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	// First, validate the protocol.
 	if s.proto != ProtoDNSCrypt {
@@ -116,23 +114,32 @@ func (s *ServerDNSCrypt) Shutdown(ctx context.Context) (err error) {
 
 // startServe creates listeners and starts serving DNSCrypt.
 func (s *ServerDNSCrypt) startServe(ctx context.Context) (err error) {
+	var errs []error
+
 	if s.network.CanUDP() {
 		err = s.listenUDP(ctx)
 		if err != nil {
-			return err
+			// Don't wrap the error, because it's informative enough as is.
+			errs = append(errs, err)
 		}
-
-		go s.startServeUDP(ctx)
 	}
 
 	if s.network.CanTCP() {
 		err = s.listenTCP(ctx)
 		if err != nil {
-			return err
+			// Don't wrap the error, because it's informative enough as is.
+			errs = append(errs, err)
 		}
-
-		go s.startServeTCP(ctx)
 	}
+
+	if len(errs) > 0 {
+		s.closeListeners()
+
+		return fmt.Errorf("creating listeners: %w", errors.Join(errs...))
+	}
+
+	go s.startServeUDP(ctx)
+	go s.startServeTCP(ctx)
 
 	return nil
 }
@@ -176,8 +183,9 @@ func (s *ServerDNSCrypt) startServeTCP(ctx context.Context) {
 
 // shutdown marks the server as stopped and closes active listeners.
 func (s *ServerDNSCrypt) shutdown() (err error) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if !s.started {
 		return ErrServerNotStarted
 	}

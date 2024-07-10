@@ -138,6 +138,7 @@ func (c *rateLimitConfig) validate() (err error) {
 // setupRateLimiter creates and returns a backoff rate limiter as well as starts
 // and registers its refresher in the signal handler.
 func setupRateLimiter(
+	ctx context.Context,
 	conf *rateLimitConfig,
 	consulAllowlist *url.URL,
 	sigHdlr *service.SignalHandler,
@@ -145,9 +146,11 @@ func setupRateLimiter(
 ) (rateLimiter *ratelimit.Backoff, connLimiter *connlimiter.Limiter, err error) {
 	allowSubnets := netutil.UnembedPrefixes(conf.Allowlist.List)
 	allowlist := ratelimit.NewDynamicAllowlist(allowSubnets, nil)
-	refresher, err := consul.NewAllowlistRefresher(allowlist, consulAllowlist, errColl)
+	refresher := consul.NewAllowlistRefresher(allowlist, consulAllowlist, errColl)
+
+	err = refresher.Refresh(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("creating allowlist refresher: %w", err)
+		return nil, nil, fmt.Errorf("allowlist: initial refresh: %w", err)
 	}
 
 	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
@@ -159,7 +162,7 @@ func setupRateLimiter(
 		RandomizeStart:    false,
 	})
 
-	err = refr.Start(context.Background())
+	err = refr.Start(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("starting allowlist refresher: %w", err)
 	}

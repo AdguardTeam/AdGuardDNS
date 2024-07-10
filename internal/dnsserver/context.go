@@ -133,9 +133,9 @@ type RequestInfo struct {
 	// StartTime is the request's start time.  It's never zero value.
 	StartTime time.Time
 
-	// TLSServerName is the server name field of the client's TLS hello request.
-	// It is set only if the protocol of the server is either DoQ, DoT or DoH.
-	// Note, that the original SNI is transformed to lower-case.
+	// TLSServerName is the original, non-lowercased server name field of the
+	// client's TLS hello request.  It is set only if the protocol of the server
+	// is either DoQ, DoT or DoH.
 	//
 	// TODO(ameshkov): use r.TLS with DoH3 (see addRequestInfo).
 	TLSServerName string

@@ -184,7 +184,8 @@ func (certs tlsConfigCerts) validate() (err error) {
 
 // TLS Session Ticket Key Rotator
 
-// ticketRotator is a refresh worker that rereads and resets TLS session tickets.
+// ticketRotator is a refresh worker that rereads and resets TLS session
+// tickets.  It should be initially refreshed before use.
 type ticketRotator struct {
 	errColl errcoll.Interface
 	confs   map[*tls.Config][]string
@@ -197,7 +198,7 @@ type ticketRotator struct {
 func newTicketRotator(
 	errColl errcoll.Interface,
 	grps []*agd.ServerGroup,
-) (tr *ticketRotator, err error) {
+) (tr *ticketRotator) {
 	confs := map[*tls.Config][]string{}
 
 	for _, g := range grps {
@@ -213,17 +214,10 @@ func newTicketRotator(
 		}
 	}
 
-	tr = &ticketRotator{
+	return &ticketRotator{
 		errColl: errColl,
 		confs:   confs,
 	}
-
-	err = tr.Refresh(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("initial session ticket refresh: %w", err)
-	}
-
-	return tr, nil
 }
 
 // sessTickLen is the length of a single TLS session ticket key in bytes.
@@ -320,9 +314,11 @@ func setupTicketRotator(
 	sigHdlr *service.SignalHandler,
 	errColl errcoll.Interface,
 ) (err error) {
-	tickRot, err := newTicketRotator(errColl, srvGrps)
+	tickRot := newTicketRotator(errColl, srvGrps)
+
+	err = tickRot.Refresh(context.Background())
 	if err != nil {
-		return fmt.Errorf("setting up ticket rotator: %w", err)
+		return fmt.Errorf("setting up ticket rotator: initial session ticket refresh: %w", err)
 	}
 
 	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{

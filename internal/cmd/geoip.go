@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
@@ -55,8 +56,12 @@ func setupGeoIP(
 	conf *geoIPConfig,
 	envs *environments,
 	errColl errcoll.Interface,
+	cacheManager agdcache.Manager,
 ) {
-	geoIP, err := envs.geoIP(conf)
+	// TODO(e.burkov):  Pass the context through arguments.
+	ctx := context.Background()
+
+	geoIP, err := envs.geoIP(ctx, conf, cacheManager)
 	if err != nil {
 		errCh <- fmt.Errorf("creating geoip: %w", err)
 
@@ -78,7 +83,7 @@ func setupGeoIP(
 		RefreshOnShutdown: false,
 		RandomizeStart:    false,
 	})
-	err = refr.Start(context.Background())
+	err = refr.Start(ctx)
 	if err != nil {
 		errCh <- fmt.Errorf("starting geoip refresher: %w", err)
 

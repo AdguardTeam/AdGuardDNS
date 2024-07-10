@@ -38,7 +38,8 @@ type Storage interface {
 
 // DefaultStorage is the default storage for filters, including the filters
 // based on rule lists, custom filters of profiles, safe browsing, and safe
-// search ones.
+// search ones.  It should be initially refreshed with
+// [DefaultStorage.RefreshInitial].
 type DefaultStorage struct {
 	// refr is the helper entity containing the refreshable part of the index
 	// refresh and caching logic.
@@ -74,6 +75,9 @@ type DefaultStorage struct {
 	// errColl used to collect non-critical and rare errors, for example caching
 	// errors.
 	errColl errcoll.Interface
+
+	// cacheManager is the global cache manager.  cacheManager must not be nil.
+	cacheManager agdcache.Manager
 
 	// customFilters is the storage of custom filters for profiles.
 	customFilters *custom.Filters
@@ -149,6 +153,9 @@ type DefaultStorageConfig struct {
 	// refresh errors.
 	ErrColl errcoll.Interface
 
+	// CacheManager is the global cache manager.  CacheManager must not be nil.
+	CacheManager agdcache.Manager
+
 	// CacheDir is the path to the directory where the cached filter files are
 	// put.  The directory must exist.
 	CacheDir string
@@ -196,33 +203,53 @@ type DefaultStorageConfig struct {
 // blocked-service index.
 const svcIdxRefreshTimeout = 3 * time.Minute
 
-// NewDefaultStorage returns a new filter storage.  c must not be nil.
-func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage, err error) {
-	genSafeSearch := safesearch.New(&safesearch.Config{
-		Refreshable: &internal.RefreshableConfig{
-			URL:       c.GeneralSafeSearchRulesURL,
-			ID:        agd.FilterListIDGeneralSafeSearch,
-			CachePath: filepath.Join(c.CacheDir, string(agd.FilterListIDGeneralSafeSearch)),
-			Staleness: c.RefreshIvl,
-			Timeout:   c.RuleListRefreshTimeout,
-			MaxSize:   c.MaxRuleListSize,
+// NewDefaultStorage returns a new filter storage.  It also adds the caches with
+// IDs [agd.FilterListIDGeneralSafeSearch] and
+// [agd.FilterListIDYoutubeSafeSearch] to the cache manager.  c must not be nil.
+func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage) {
+	fltIDGenSafeSearchStr := string(agd.FilterListIDGeneralSafeSearch)
+	genSafeSearchCache := rulelist.NewManagedResultCache(
+		c.CacheManager,
+		fltIDGenSafeSearchStr,
+		c.SafeSearchCacheSize,
+		true,
+	)
+	genSafeSearch := safesearch.New(
+		&safesearch.Config{
+			Refreshable: &internal.RefreshableConfig{
+				URL:       c.GeneralSafeSearchRulesURL,
+				ID:        agd.FilterListIDGeneralSafeSearch,
+				CachePath: filepath.Join(c.CacheDir, fltIDGenSafeSearchStr),
+				Staleness: c.RefreshIvl,
+				Timeout:   c.RuleListRefreshTimeout,
+				MaxSize:   c.MaxRuleListSize,
+			},
+			CacheTTL: c.SafeSearchCacheTTL,
 		},
-		CacheTTL:  c.SafeSearchCacheTTL,
-		CacheSize: c.SafeSearchCacheSize,
-	})
+		genSafeSearchCache,
+	)
 
-	ytSafeSearch := safesearch.New(&safesearch.Config{
-		Refreshable: &internal.RefreshableConfig{
-			URL:       c.YoutubeSafeSearchRulesURL,
-			ID:        agd.FilterListIDYoutubeSafeSearch,
-			CachePath: filepath.Join(c.CacheDir, string(agd.FilterListIDYoutubeSafeSearch)),
-			Staleness: c.RefreshIvl,
-			Timeout:   c.RuleListRefreshTimeout,
-			MaxSize:   c.MaxRuleListSize,
+	fltIDYTSafeSearchStr := string(agd.FilterListIDYoutubeSafeSearch)
+	ytSafeSearchCache := rulelist.NewManagedResultCache(
+		c.CacheManager,
+		fltIDYTSafeSearchStr,
+		c.SafeSearchCacheSize,
+		true,
+	)
+	ytSafeSearch := safesearch.New(
+		&safesearch.Config{
+			Refreshable: &internal.RefreshableConfig{
+				URL:       c.YoutubeSafeSearchRulesURL,
+				ID:        agd.FilterListIDYoutubeSafeSearch,
+				CachePath: filepath.Join(c.CacheDir, fltIDYTSafeSearchStr),
+				Staleness: c.RefreshIvl,
+				Timeout:   c.RuleListRefreshTimeout,
+				MaxSize:   c.MaxRuleListSize,
+			},
+			CacheTTL: c.SafeSearchCacheTTL,
 		},
-		CacheTTL:  c.SafeSearchCacheTTL,
-		CacheSize: c.SafeSearchCacheSize,
-	})
+		ytSafeSearchCache,
+	)
 
 	ruleListIdxRefr := internal.NewRefreshable(&internal.RefreshableConfig{
 		URL: c.FilterIndexURL,
@@ -247,7 +274,7 @@ func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage, err error) {
 		MaxSize: c.MaxRuleListSize,
 	})
 
-	s = &DefaultStorage{
+	return &DefaultStorage{
 		refr:          ruleListIdxRefr,
 		mu:            &sync.RWMutex{},
 		services:      serviceblock.New(svcIdxRefr, c.ErrColl),
@@ -258,11 +285,13 @@ func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage, err error) {
 		ytSafeSearch:  ytSafeSearch,
 		now:           c.Now,
 		errColl:       c.ErrColl,
+		cacheManager:  c.CacheManager,
 		customFilters: custom.New(
 			&agdcache.LRUConfig{
 				Size: c.CustomFilterCacheSize,
 			},
 			c.ErrColl,
+			c.CacheManager,
 		),
 		cacheDir:               c.CacheDir,
 		refreshIvl:             c.RefreshIvl,
@@ -271,13 +300,6 @@ func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage, err error) {
 		maxRuleListSize:        c.MaxRuleListSize,
 		useRuleListCache:       c.UseRuleListCache,
 	}
-
-	err = s.refresh(context.Background(), true)
-	if err != nil {
-		return nil, fmt.Errorf("initial refresh: %w", err)
-	}
-
-	return s, nil
 }
 
 // type check
@@ -493,6 +515,20 @@ func (s *DefaultStorage) Refresh(ctx context.Context) (err error) {
 	return err
 }
 
+// RefreshInitial loads the content of the storage, using cached files if any,
+// regardless of their staleness.
+func (s *DefaultStorage) RefreshInitial(ctx context.Context) (err error) {
+	log.Info("filter storage: initial refresh started")
+	defer log.Info("filter storage: initial refresh finished")
+
+	err = s.refresh(ctx, true)
+	if err != nil {
+		return fmt.Errorf("refreshing filter storage initially: %w", err)
+	}
+
+	return nil
+}
+
 // enrichFromContext adds information from ctx to origErr if it can assume that
 // origErr is caused by ctx being canceled.
 func enrichFromContext(ctx context.Context, origErr error) (err error) {
@@ -509,9 +545,9 @@ func enrichFromContext(ctx context.Context, origErr error) (err error) {
 	return fmt.Errorf("storage refresh with deadline at %s: %w", dl, origErr)
 }
 
-// refresh is the inner method of Refresh that allows accepting stale files.  It
-// refreshes the index from the index URL and updates all rule list filters, as
-// well as the service filters.
+// refresh refreshes the index from the index URL and updates all rule list
+// filters, as well as the service filters.  If acceptStale is true, the cache
+// files are used regardless of their staleness.
 func (s *DefaultStorage) refresh(ctx context.Context, acceptStale bool) (err error) {
 	resp, err := s.loadIndex(ctx, acceptStale)
 	if err != nil {
@@ -541,7 +577,13 @@ func (s *DefaultStorage) refresh(ctx context.Context, acceptStale bool) (err err
 
 	log.Info("%s: got %d filter lists from index after compilation", strgLogPrefix, len(ruleLists))
 
-	err = s.services.Refresh(ctx, s.ruleListCacheSize, s.useRuleListCache, acceptStale)
+	err = s.services.Refresh(
+		ctx,
+		s.cacheManager,
+		s.ruleListCacheSize,
+		s.useRuleListCache,
+		acceptStale,
+	)
 	if err != nil {
 		return fmt.Errorf("refreshing blocked services: %w", err)
 	}
@@ -562,7 +604,8 @@ func (s *DefaultStorage) refresh(ctx context.Context, acceptStale bool) (err err
 }
 
 // addRuleList adds the data from fl to ruleLists and handles all validations
-// and errors.
+// and errors.  It also adds the cache with [filterIndexFilterData.id] to the
+// cache manager.
 func (s *DefaultStorage) addRuleList(
 	ctx context.Context,
 	ruleLists filteringRuleLists,
@@ -576,6 +619,13 @@ func (s *DefaultStorage) addRuleList(
 	}
 
 	fltIDStr := string(fl.id)
+	cache := rulelist.NewManagedResultCache(
+		s.cacheManager,
+		fltIDStr,
+		s.ruleListCacheSize,
+		s.useRuleListCache,
+	)
+
 	rl := rulelist.NewRefreshable(
 		&internal.RefreshableConfig{
 			URL:       fl.url,
@@ -585,8 +635,7 @@ func (s *DefaultStorage) addRuleList(
 			Timeout:   s.ruleListRefreshTimeout,
 			MaxSize:   s.maxRuleListSize,
 		},
-		s.ruleListCacheSize,
-		s.useRuleListCache,
+		cache,
 	)
 	err := rl.Refresh(ctx, acceptStale)
 	if err == nil {

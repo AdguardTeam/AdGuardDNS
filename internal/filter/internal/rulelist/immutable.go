@@ -26,11 +26,10 @@ func NewImmutable(
 	text string,
 	id agd.FilterListID,
 	svcID agd.BlockedServiceID,
-	memCacheSize int,
-	useMemCache bool,
+	cache ResultCache,
 ) (f *Immutable, err error) {
 	f = &Immutable{}
-	f.filter, err = newFilter(text, id, svcID, memCacheSize, useMemCache)
+	f.filter, err = newFilter(text, id, svcID, cache)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err

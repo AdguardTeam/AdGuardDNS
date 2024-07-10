@@ -25,11 +25,12 @@ type Storage struct {
 	hashSuffixes *atomic.Pointer[suffixMap]
 }
 
-// suffixMap is a convenient alias for a map of has prefixes to its suffixes.
+// suffixMap is a convenient alias for a map of hash prefixes to its suffixes.
 type suffixMap = map[Prefix][]suffix
 
 // NewStorage returns a new hash storage containing hashes of the domain names
-// listed in hostnames, one domain name per line.
+// listed in hostnames, one domain name per line, requirements are described in
+// [Storage.Reset].  Empty string causes no errors.
 func NewStorage(hostnames string) (s *Storage, err error) {
 	s = &Storage{
 		resetMu:      &sync.Mutex{},

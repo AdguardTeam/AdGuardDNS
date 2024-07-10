@@ -107,17 +107,6 @@ var (
 	}
 )
 
-// Common addresses for tests.
-//
-// TODO(a.garipov): Move more common variables and constants to dnssvctest.
-var (
-	linkedAddr    = netip.MustParseAddr("192.0.2.1")
-	dedicatedAddr = netip.MustParseAddr("192.0.2.2")
-
-	linkedAddrPort    = netip.AddrPortFrom(linkedAddr, 12345)
-	dedicatedAddrPort = netip.AddrPortFrom(dedicatedAddr, 53)
-)
-
 // Common profiles and devices for tests.
 var (
 	profNormal = &agd.Profile{
@@ -139,7 +128,15 @@ var (
 			Enabled: false,
 		},
 		ID:       dnssvctest.DeviceID,
-		LinkedIP: linkedAddr,
+		LinkedIP: dnssvctest.LinkedAddr,
+	}
+
+	devAuto = &agd.Device{
+		Auth: &agd.AuthSettings{
+			Enabled: false,
+		},
+		ID:           dnssvctest.DeviceID,
+		HumanIDLower: dnssvctest.HumanIDLower,
 	}
 )
 
@@ -189,6 +186,32 @@ func newOnProfileByDeviceID(
 	}
 }
 
+// newOnProfileByHumanID returns a function with the type of
+// [agdtest.ProfileDB.OnProfileByHumanID] that returns p and d only when id and
+// humanID are equal to the given one.
+func newOnProfileByHumanID(
+	wantProfID agd.ProfileID,
+	wantHumanID agd.HumanIDLower,
+) (
+	f func(
+		_ context.Context,
+		id agd.ProfileID,
+		humanID agd.HumanIDLower,
+	) (p *agd.Profile, d *agd.Device, err error),
+) {
+	return func(
+		_ context.Context,
+		id agd.ProfileID,
+		humanID agd.HumanIDLower,
+	) (p *agd.Profile, d *agd.Device, err error) {
+		if id == wantProfID && humanID == wantHumanID {
+			return profNormal, devAuto, nil
+		}
+
+		return nil, nil, profiledb.ErrDeviceNotFound
+	}
+}
+
 // newOnProfileByLinkedIP returns a function with the type of
 // [agdtest.ProfileDB.OnProfileByLinkedIP] that returns p and d only when
 // remoteIP is equal to the given one.
@@ -208,6 +231,7 @@ func TestDefault_SetDevice_dnscrypt(t *testing.T) {
 	t.Parallel()
 
 	df := devicesetter.NewDefault(&devicesetter.Config{
+		HumanIDParser: agd.NewHumanIDParser(),
 		Server: &agd.Server{
 			Protocol: agd.ProtoDNSCrypt,
 		},

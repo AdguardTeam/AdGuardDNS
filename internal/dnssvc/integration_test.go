@@ -79,6 +79,22 @@ func newTestService(
 	}
 
 	db := &agdtest.ProfileDB{
+		OnCreateAutoDevice: func(
+			ctx context.Context,
+			id agd.ProfileID,
+			humanID agd.HumanID,
+			devType agd.DeviceType,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic("not implemented")
+		},
+
+		OnProfileByDedicatedIP: func(
+			_ context.Context,
+			_ netip.Addr,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic("not implemented")
+		},
+
 		OnProfileByDeviceID: func(
 			_ context.Context,
 			id agd.DeviceID,
@@ -87,12 +103,15 @@ func newTestService(
 
 			return prof, dev, nil
 		},
-		OnProfileByDedicatedIP: func(
+
+		OnProfileByHumanID: func(
 			_ context.Context,
-			_ netip.Addr,
+			_ agd.ProfileID,
+			_ agd.HumanIDLower,
 		) (p *agd.Profile, d *agd.Device, err error) {
 			panic("not implemented")
 		},
+
 		OnProfileByLinkedIP: func(
 			ctx context.Context,
 			ip netip.Addr,

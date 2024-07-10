@@ -24,6 +24,8 @@ import (
 )
 
 func TestBillStat_Upload(t *testing.T) {
+	t.Parallel()
+
 	const (
 		wantDeviceID    = "test"
 		invalidDeviceID = "invalid"
@@ -43,6 +45,20 @@ func TestBillStat_Upload(t *testing.T) {
 	}
 
 	srv := &testDNSServiceServer{
+		OnCreateDeviceByHumanId: func(
+			ctx context.Context,
+			req *backendpb.CreateDeviceRequest,
+		) (resp *backendpb.CreateDeviceResponse, err error) {
+			panic("not implemented")
+		},
+
+		OnGetDNSProfiles: func(
+			req *backendpb.DNSProfilesRequest,
+			srv backendpb.DNSService_GetDNSProfilesServer,
+		) (err error) {
+			panic("not implemented")
+		},
+
 		OnSaveDevicesBillingStat: func(
 			srv backendpb.DNSService_SaveDevicesBillingStatServer,
 		) (err error) {

@@ -2,6 +2,7 @@ package mainmw
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/netip"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
@@ -74,7 +76,7 @@ func (mw *Middleware) recordQueryInfo(
 		ProfileID:       prof.ID,
 		DeviceID:        devID,
 		ClientCountry:   reqCtry,
-		ResponseCountry: mw.responseCountry(ctx, fctx, ri, respIP),
+		ResponseCountry: mw.responseCountry(ctx, fctx, ri.Host, respIP, rcode),
 		DomainFQDN:      q.Name,
 		ClientASN:       reqASN,
 		Elapsed:         uint16(time.Since(start).Milliseconds()),
@@ -93,30 +95,34 @@ func (mw *Middleware) recordQueryInfo(
 }
 
 // responseCountry returns the country of the response IP address based on the
-// request and filtering data.
+// request and filtering data.  If rcode is not a NOERROR one or there is no
+// IP-address data in the response, ctry is [geoip.CountryNotApplicable].
 func (mw *Middleware) responseCountry(
 	ctx context.Context,
 	fctx *filteringContext,
-	ri *agd.RequestInfo,
+	host string,
 	respIP netip.Addr,
+	rcode dnsmsg.RCode,
 ) (ctry geoip.Country) {
-	if respIP == (netip.Addr{}) || respIP.IsUnspecified() {
-		return geoip.CountryNone
+	if rcode != dns.RcodeSuccess || respIP == (netip.Addr{}) || respIP.IsUnspecified() {
+		return geoip.CountryNotApplicable
 	}
 
-	host := ri.Host
 	if modReq := fctx.modifiedRequest; modReq != nil {
 		// If the request was modified by CNAME rule, the actual result
 		// belongs to the hostname from that CNAME.
 		host = agdnet.NormalizeDomain(modReq.Question[0].Name)
 	}
 
-	return mw.country(ctx, host, respIP)
+	ctry = mw.country(ctx, host, respIP)
+	optlog.Debug2("mainmw: got ctry %q for resp ip %v", ctry, respIP)
+
+	return ctry
 }
 
 // responseData is a helper that returns the response code, the first IP
 // address, and the DNSSEC AD flag from the DNS query response if the answer has
-// the type of A or AAAA or an empty IP address otherwise.
+// the type of A, AAAA, or HTTPS or an empty IP address otherwise.
 //
 // If resp is nil or contains invalid data, it returns 0xff (an unassigned
 // RCODE), net.Addr{}, and false.  It reports all errors using
@@ -129,12 +135,23 @@ func (mw *Middleware) responseData(
 		return 0xff, netip.Addr{}, false
 	}
 
+	dnssec = resp.AuthenticatedData
+	rcode = dnsmsg.RCode(resp.Rcode)
+
+	ip, err := ipFromAnswer(resp.Answer)
+	if err != nil {
+		mw.reportf(ctx, "getting response data: %w", err)
+	}
+
+	return rcode, ip, dnssec
+}
+
+// ipFromAnswer returns the first IP address from the answer resource records.
+func ipFromAnswer(answer []dns.RR) (ip netip.Addr, err error) {
 	var rrType dns.Type
 	var fam netutil.AddrFamily
 	var netIP net.IP
-	dnssec = resp.AuthenticatedData
-	rcode = dnsmsg.RCode(resp.Rcode)
-	for _, rr := range resp.Answer {
+	for _, rr := range answer {
 		switch v := rr.(type) {
 		case *dns.A:
 			fam = netutil.AddrFamilyIPv4
@@ -142,6 +159,8 @@ func (mw *Middleware) responseData(
 		case *dns.AAAA:
 			fam = netutil.AddrFamilyIPv6
 			rrType, netIP = dns.Type(v.Hdr.Rrtype), v.AAAA
+		case *dns.HTTPS:
+			return ipFromHTTPSRR(v)
 		default:
 			continue
 		}
@@ -149,15 +168,60 @@ func (mw *Middleware) responseData(
 		break
 	}
 
-	if netIP != nil {
-		var err error
-		ip, err = netutil.IPToAddr(netIP, fam)
-		if err != nil {
-			mw.reportf(ctx, "converting %s resp data: %w", rrType, err)
+	if netIP == nil {
+		return netip.Addr{}, nil
+	}
+
+	ip, err = netutil.IPToAddr(netIP, fam)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("converting %s resp data: %w", rrType, err)
+	}
+
+	return ip, nil
+}
+
+// ipFromHTTPSRR returns the data for the first IP hint in an HTTPS resource
+// record.
+func ipFromHTTPSRR(https *dns.HTTPS) (ip netip.Addr, err error) {
+	var fam netutil.AddrFamily
+	var netIP net.IP
+	for _, v := range https.Value {
+		fam, netIP = ipFromHTTPSRRKV(v)
+		if fam != netutil.AddrFamilyNone {
+			break
 		}
 	}
 
-	return rcode, ip, dnssec
+	if netIP == nil {
+		return netip.Addr{}, nil
+	}
+
+	ip, err = netutil.IPToAddr(netIP, fam)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("converting https rr %s hint data: %w", fam, err)
+	}
+
+	return ip, nil
+}
+
+// ipFromHTTPSRRKV returns the IP-address data from the IP hint of an HTTPS
+// resource record.  If the hint does not contain an IP address, fam is
+// [netutil.AddrFamilyNone] and netIP is nil.
+func ipFromHTTPSRRKV(kv dns.SVCBKeyValue) (fam netutil.AddrFamily, netIP net.IP) {
+	switch kv := kv.(type) {
+	case *dns.SVCBIPv4Hint:
+		if len(kv.Hint) > 0 {
+			return netutil.AddrFamilyIPv4, kv.Hint[0]
+		}
+	case *dns.SVCBIPv6Hint:
+		if len(kv.Hint) > 0 {
+			return netutil.AddrFamilyIPv6, kv.Hint[0]
+		}
+	default:
+		// Go on.
+	}
+
+	return netutil.AddrFamilyNone, nil
 }
 
 // country is a wrapper around the GeoIP call that contains the handling of

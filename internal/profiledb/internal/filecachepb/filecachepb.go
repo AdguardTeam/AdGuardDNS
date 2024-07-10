@@ -99,6 +99,7 @@ func (x *Profile) toInternal() (prof *agd.Profile, err error) {
 		BlockPrivateRelay:   x.BlockPrivateRelay,
 		BlockFirefoxCanary:  x.BlockFirefoxCanary,
 		IPLogEnabled:        x.IpLogEnabled,
+		AutoDevicesEnabled:  x.AutoDevicesEnabled,
 	}, nil
 }
 
@@ -228,7 +229,9 @@ func (x *Device) toInternal() (d *agd.Device, err error) {
 		ID:       agd.DeviceID(x.DeviceId),
 		LinkedIP: linkedIP,
 		// Consider device names to have been prevalidated.
-		Name:             agd.DeviceName(x.DeviceName),
+		Name: agd.DeviceName(x.DeviceName),
+		// Consider lowercase HumanIDs to have been prevalidated.
+		HumanIDLower:     agd.HumanIDLower(x.HumanIdLower),
 		DedicatedIPs:     dedicatedIPs,
 		FilteringEnabled: x.FilteringEnabled,
 	}, nil
@@ -354,6 +357,7 @@ func profilesToProtobuf(profiles []*agd.Profile) (pbProfiles []*Profile) {
 			BlockPrivateRelay:   p.BlockPrivateRelay,
 			BlockFirefoxCanary:  p.BlockFirefoxCanary,
 			IpLogEnabled:        p.IPLogEnabled,
+			AutoDevicesEnabled:  p.AutoDevicesEnabled,
 		})
 	}
 
@@ -497,6 +501,7 @@ func devicesToProtobuf(devices []*agd.Device) (pbDevices []*Device) {
 			Authentication:   authToProtobuf(d.Auth),
 			DeviceId:         string(d.ID),
 			LinkedIp:         ipToBytes(d.LinkedIP),
+			HumanIdLower:     string(d.HumanIDLower),
 			DeviceName:       string(d.Name),
 			DedicatedIps:     ipsToByteSlices(d.DedicatedIPs),
 			FilteringEnabled: d.FilteringEnabled,
@@ -521,7 +526,9 @@ func authToProtobuf(s *agd.AuthSettings) (a *AuthenticationSettings) {
 
 // dohPasswordToProtobuf converts an auth password hash sum-type to a protobuf
 // one.
-func dohPasswordToProtobuf(p agdpasswd.Authenticator) (pbp isAuthenticationSettings_DohPasswordHash) {
+func dohPasswordToProtobuf(
+	p agdpasswd.Authenticator,
+) (pbp isAuthenticationSettings_DohPasswordHash) {
 	switch p := p.(type) {
 	case agdpasswd.AllowAuthenticator:
 		return nil

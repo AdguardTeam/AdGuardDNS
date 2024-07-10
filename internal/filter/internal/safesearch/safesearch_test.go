@@ -13,6 +13,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
@@ -48,18 +49,20 @@ func TestFilter(t *testing.T) {
 	reqCh := make(chan struct{}, 1)
 	cachePath, srvURL := filtertest.PrepareRefreshable(t, reqCh, testFilterRules, http.StatusOK)
 
-	f := safesearch.New(&safesearch.Config{
-		Refreshable: &internal.RefreshableConfig{
-			ID:        agd.FilterListIDGeneralSafeSearch,
-			URL:       srvURL,
-			CachePath: cachePath,
-			Staleness: filtertest.Staleness,
-			Timeout:   filtertest.Timeout,
-			MaxSize:   filtertest.FilterMaxSize,
+	f := safesearch.New(
+		&safesearch.Config{
+			Refreshable: &internal.RefreshableConfig{
+				ID:        agd.FilterListIDGeneralSafeSearch,
+				URL:       srvURL,
+				CachePath: cachePath,
+				Staleness: filtertest.Staleness,
+				Timeout:   filtertest.Timeout,
+				MaxSize:   filtertest.FilterMaxSize,
+			},
+			CacheTTL: 1 * time.Minute,
 		},
-		CacheTTL:  1 * time.Minute,
-		CacheSize: 100,
-	})
+		rulelist.NewResultCache(100, true),
+	)
 
 	refrErr := f.Refresh(testutil.ContextWithTimeout(t, filtertest.Timeout), true)
 	require.NoError(t, refrErr)

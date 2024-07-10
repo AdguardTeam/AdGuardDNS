@@ -4,11 +4,13 @@ package debugsvc
 import (
 	"context"
 	"fmt"
-	"io"
+	"log/slog"
 	"net/http"
+	"os"
 
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/osutil"
 	"github.com/AdguardTeam/golibs/pprofutil"
 	"github.com/AdguardTeam/golibs/service"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -17,16 +19,25 @@ import (
 // Service is the HTTP service of AdGuard DNS.  It serves prometheus metrics,
 // pprof, health check, DNSDB, and other endpoints..
 type Service struct {
-	servers map[string]*server
-	dnsDB   http.Handler
+	log      *slog.Logger
+	refrHdlr *refreshHandler
+	dnsDB    http.Handler
+	servers  map[string]*server
 }
 
 // Config is the AdGuard DNS HTTP service configuration structure.
 type Config struct {
+	Logger *slog.Logger
+
 	DNSDBAddr    string
 	DNSDBHandler http.Handler
 
-	HealthAddr     string
+	Refreshers Refreshers
+
+	// TODO(a.garipov):  Consider using one address and removing addServer
+	// logic.
+
+	APIAddr        string
 	PprofAddr      string
 	PrometheusAddr string
 }
@@ -34,6 +45,10 @@ type Config struct {
 // New returns a new properly initialized *Service.
 func New(c *Config) (svc *Service) {
 	svc = &Service{
+		log: c.Logger,
+		refrHdlr: &refreshHandler{
+			refrs: c.Refreshers,
+		},
 		servers: make(map[string]*server),
 		dnsDB:   c.DNSDBHandler,
 	}
@@ -42,9 +57,9 @@ func New(c *Config) (svc *Service) {
 	svc.addServer(c.PrometheusAddr, "prometheus")
 	svc.addServer(c.PprofAddr, "pprof")
 
-	// The health-check server causes panic if it doesn't start because the
-	// server is needed to check if the dns server is active.
-	svc.addServer(c.HealthAddr, "health-check")
+	// The health-check and API server causes panic if it doesn't start because
+	// the server is needed to check if the dns server is active.
+	svc.addServer(c.APIAddr, "api")
 
 	return svc
 }
@@ -56,16 +71,39 @@ type server struct {
 }
 
 // startServer starts one server and panics if there is an unexpected error.
-func startServer(s *server) {
-	defer log.OnPanicAndExit("startServer", 1)
+func startServer(ctx context.Context, l *slog.Logger, s *server) {
+	defer recoverAndExit(ctx, l)
 
-	log.Info("debugsvc: %s: listen on %s", s.name, s.http.Addr)
+	l.Info("listening", "name", s.name, "addr", s.http.Addr)
 
 	srv := s.http
 	err := srv.ListenAndServe()
 	if !errors.Is(err, http.ErrServerClosed) {
 		panic(fmt.Errorf("%s: failed listen on %s: %s", srv.Addr, s.name, err))
 	}
+}
+
+// recoverAndExit recovers a panic, logs it using l, and then exits with
+// [osutil.ExitCodeFailure].
+//
+// TODO(a.garipov):  Move to golibs.
+func recoverAndExit(ctx context.Context, l *slog.Logger) {
+	v := recover()
+	if v == nil {
+		return
+	}
+
+	var args []any
+	if err, ok := v.(error); ok {
+		args = []any{slogutil.KeyError, err}
+	} else {
+		args = []any{"value", v}
+	}
+
+	l.ErrorContext(ctx, "recovered from panic", args...)
+	slogutil.PrintStack(ctx, l, slog.LevelError)
+
+	os.Exit(osutil.ExitCodeFailure)
 }
 
 // type check
@@ -78,9 +116,9 @@ var _ service.Interface = (*Service)(nil)
 // TODO(a.garipov): Wait for the services to go online.
 //
 // TODO(a.garipov): Use the context for cancelation.
-func (svc *Service) Start(_ context.Context) (err error) {
+func (svc *Service) Start(ctx context.Context) (err error) {
 	for _, srv := range svc.servers {
-		go startServer(srv)
+		go startServer(ctx, svc.log, srv)
 	}
 
 	return nil
@@ -98,10 +136,10 @@ func (svc *Service) Shutdown(ctx context.Context) (err error) {
 
 		srvNum++
 
-		log.Info("debugsvc: %s: server is shutdown", srv.name)
+		svc.log.Info("server is shutdown", "name", srv.name)
 	}
 
-	log.Info("debugsvc: servers shutdown: %d", srvNum)
+	svc.log.Info("all servers shutdown", "num", srvNum)
 
 	return nil
 }
@@ -127,7 +165,7 @@ func (svc *Service) addServer(addr, name string) {
 			http: &http.Server{
 				Addr:     addr,
 				Handler:  mux,
-				ErrorLog: log.StdLog("debugsvc", log.DEBUG),
+				ErrorLog: slog.NewLogLogger(svc.log.Handler(), slog.LevelDebug),
 			},
 			name: name,
 		}
@@ -143,35 +181,37 @@ func (svc *Service) addServer(addr, name string) {
 // addHandler func returns the resMux that combine with the mux from args.
 func (svc *Service) addHandler(serviceName string, mux *http.ServeMux) {
 	switch serviceName {
+	case "api":
+		svc.apiMux(mux)
 	case "dnsdb":
 		svc.dnsDBMux(mux)
-	case "health-check":
-		healthMux(mux)
 	case "pprof":
+		// TODO(a.garipov): Find ways to wrap pprof handlers.
 		pprofutil.RoutePprof(mux)
 	case "prometheus":
-		promMux(mux)
+		svc.promMux(mux)
 	default:
 		panic(fmt.Errorf("debugsvc: could not find mux for service %q", serviceName))
 	}
 }
 
+// apiMux adds the health-check and other debug API handlers to mux.
+func (svc *Service) apiMux(mux *http.ServeMux) {
+	mux.Handle("GET /health-check", svc.middleware(
+		http.HandlerFunc(serveHealthCheck),
+		slog.LevelDebug,
+	))
+	mux.Handle("POST /debug/api/refresh", svc.middleware(svc.refrHdlr, slog.LevelInfo))
+}
+
 // dnsDBMux adds the DNSDB CSV dump handler to mux.
+//
+// TODO(a.garipov):  Tests.
 func (svc *Service) dnsDBMux(mux *http.ServeMux) {
-	mux.Handle("/dnsdb/csv", svc.dnsDB)
+	mux.Handle("POST /dnsdb/csv", svc.middleware(svc.dnsDB, slog.LevelInfo))
 }
 
-// healthMux adds handler func to the mux from args for the health check service.
-func healthMux(mux *http.ServeMux) {
-	mux.HandleFunc(
-		"/health-check",
-		func(w http.ResponseWriter, _ *http.Request) {
-			_, _ = io.WriteString(w, "OK")
-		},
-	)
-}
-
-// promMux adds handler func to the mux from args for the prometheus service.
-func promMux(mux *http.ServeMux) {
-	mux.Handle("/metrics", promhttp.Handler())
+// promMux adds the prometheus service handler to mux.
+func (svc *Service) promMux(mux *http.ServeMux) {
+	mux.Handle("GET /metrics", svc.middleware(promhttp.Handler(), slog.LevelDebug))
 }

@@ -3,6 +3,7 @@ package devicesetter_test
 import (
 	"context"
 	"net/netip"
+	"strings"
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -10,6 +11,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/devicesetter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -44,7 +46,7 @@ func TestDefault_SetDevice_plainAddrs(t *testing.T) {
 		wantDev:    devNormal,
 		wantErrMsg: "",
 		laddr:      dnssvctest.ServerAddrPort,
-		raddr:      linkedAddrPort,
+		raddr:      dnssvctest.LinkedAddrPort,
 		name:       "linked_ip",
 	}, {
 		req:        reqNormal,
@@ -53,7 +55,7 @@ func TestDefault_SetDevice_plainAddrs(t *testing.T) {
 		wantDev:    nil,
 		wantErrMsg: "",
 		laddr:      dnssvctest.ServerAddrPort,
-		raddr:      linkedAddrPort,
+		raddr:      dnssvctest.LinkedAddrPort,
 		name:       "linked_ip_not_supported",
 	}, {
 		req:        reqNormal,
@@ -61,7 +63,7 @@ func TestDefault_SetDevice_plainAddrs(t *testing.T) {
 		wantProf:   profNormal,
 		wantDev:    devNormal,
 		wantErrMsg: "",
-		laddr:      dedicatedAddrPort,
+		laddr:      dnssvctest.DedicatedAddrPort,
 		raddr:      dnssvctest.ClientAddrPort,
 		name:       "dedicated",
 	}, {
@@ -79,7 +81,7 @@ func TestDefault_SetDevice_plainAddrs(t *testing.T) {
 		wantProf:   nil,
 		wantDev:    nil,
 		wantErrMsg: "",
-		laddr:      dedicatedAddrPort,
+		laddr:      dnssvctest.DedicatedAddrPort,
 		raddr:      dnssvctest.ClientAddrPort,
 		name:       "dedicated_not_supported",
 	}}
@@ -89,18 +91,38 @@ func TestDefault_SetDevice_plainAddrs(t *testing.T) {
 			t.Parallel()
 
 			profDB := &agdtest.ProfileDB{
-				OnProfileByDedicatedIP: newOnProfileByDedicatedIP(dedicatedAddr),
+				OnCreateAutoDevice: func(
+					ctx context.Context,
+					id agd.ProfileID,
+					humanID agd.HumanID,
+					devType agd.DeviceType,
+				) (p *agd.Profile, d *agd.Device, err error) {
+					panic("not implemented")
+				},
+
+				OnProfileByDedicatedIP: newOnProfileByDedicatedIP(dnssvctest.DedicatedAddr),
+
 				OnProfileByDeviceID: func(
 					_ context.Context,
 					_ agd.DeviceID,
 				) (p *agd.Profile, d *agd.Device, err error) {
 					panic("not implemented")
 				},
-				OnProfileByLinkedIP: newOnProfileByLinkedIP(linkedAddr),
+
+				OnProfileByHumanID: func(
+					_ context.Context,
+					_ agd.ProfileID,
+					_ agd.HumanIDLower,
+				) (p *agd.Profile, d *agd.Device, err error) {
+					panic("not implemented")
+				},
+
+				OnProfileByLinkedIP: newOnProfileByLinkedIP(dnssvctest.LinkedAddr),
 			}
 
 			pf := devicesetter.NewDefault(&devicesetter.Config{
 				ProfileDB:         profDB,
+				HumanIDParser:     agd.NewHumanIDParser(),
 				Server:            tc.srv,
 				DeviceIDWildcards: nil,
 			})
@@ -171,13 +193,32 @@ func TestDefault_SetDevice_plainEDNS(t *testing.T) {
 			t.Parallel()
 
 			profDB := &agdtest.ProfileDB{
+				OnCreateAutoDevice: func(
+					ctx context.Context,
+					id agd.ProfileID,
+					humanID agd.HumanID,
+					devType agd.DeviceType,
+				) (p *agd.Profile, d *agd.Device, err error) {
+					panic("not implemented")
+				},
+
 				OnProfileByDedicatedIP: func(
 					_ context.Context,
 					_ netip.Addr,
 				) (p *agd.Profile, d *agd.Device, err error) {
 					panic("not implemented")
 				},
+
 				OnProfileByDeviceID: newOnProfileByDeviceID(dnssvctest.DeviceID),
+
+				OnProfileByHumanID: func(
+					_ context.Context,
+					_ agd.ProfileID,
+					_ agd.HumanIDLower,
+				) (p *agd.Profile, d *agd.Device, err error) {
+					panic("not implemented")
+				},
+
 				OnProfileByLinkedIP: func(
 					_ context.Context,
 					_ netip.Addr,
@@ -188,6 +229,7 @@ func TestDefault_SetDevice_plainEDNS(t *testing.T) {
 
 			pf := devicesetter.NewDefault(&devicesetter.Config{
 				ProfileDB:         profDB,
+				HumanIDParser:     agd.NewHumanIDParser(),
 				Server:            tc.srv,
 				DeviceIDWildcards: nil,
 			})
@@ -209,18 +251,37 @@ func TestDefault_SetDevice_deleted(t *testing.T) {
 	t.Parallel()
 
 	profDB := &agdtest.ProfileDB{
+		OnCreateAutoDevice: func(
+			ctx context.Context,
+			id agd.ProfileID,
+			humanID agd.HumanID,
+			devType agd.DeviceType,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic("not implemented")
+		},
+
 		OnProfileByDedicatedIP: func(
 			_ context.Context,
 			_ netip.Addr,
 		) (p *agd.Profile, d *agd.Device, err error) {
 			panic("not implemented")
 		},
+
 		OnProfileByDeviceID: func(
 			_ context.Context,
 			_ agd.DeviceID,
 		) (p *agd.Profile, d *agd.Device, err error) {
 			panic("not implemented")
 		},
+
+		OnProfileByHumanID: func(
+			_ context.Context,
+			_ agd.ProfileID,
+			_ agd.HumanIDLower,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic("not implemented")
+		},
+
 		OnProfileByLinkedIP: func(
 			_ context.Context,
 			_ netip.Addr,
@@ -230,11 +291,12 @@ func TestDefault_SetDevice_deleted(t *testing.T) {
 	}
 
 	pf := devicesetter.NewDefault(&devicesetter.Config{
-		ProfileDB: profDB,
-		Server:    srvPlainWithLinkedIP,
+		ProfileDB:     profDB,
+		HumanIDParser: agd.NewHumanIDParser(),
+		Server:        srvPlainWithLinkedIP,
 	})
 
-	raddr := linkedAddrPort
+	raddr := dnssvctest.LinkedAddrPort
 	msgCons := agdtest.NewConstructor()
 	ri := &agd.RequestInfo{
 		Messages: msgCons,
@@ -248,4 +310,72 @@ func TestDefault_SetDevice_deleted(t *testing.T) {
 	assert.Nil(t, ri.Profile)
 	assert.Nil(t, ri.Device)
 	assert.Same(t, msgCons, ri.Messages)
+}
+
+func TestDefault_SetDevice_byHumanID(t *testing.T) {
+	t.Parallel()
+
+	// Use uppercase versions to make sure that the device setter recognizes the
+	// device-type and profile data regardless of the case.
+	extIDStr := "OTR-" + strings.ToUpper(dnssvctest.ProfileIDStr) + "-" + dnssvctest.HumanIDStr + "-!!!"
+
+	profDB := &agdtest.ProfileDB{
+		OnCreateAutoDevice: func(
+			ctx context.Context,
+			id agd.ProfileID,
+			humanID agd.HumanID,
+			devType agd.DeviceType,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			return profNormal, devAuto, nil
+		},
+
+		OnProfileByDedicatedIP: func(
+			_ context.Context,
+			_ netip.Addr,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic("not implemented")
+		},
+
+		OnProfileByDeviceID: func(
+			_ context.Context,
+			devID agd.DeviceID,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic("not implemented")
+		},
+
+		OnProfileByHumanID: func(
+			_ context.Context,
+			_ agd.ProfileID,
+			_ agd.HumanIDLower,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			return nil, nil, profiledb.ErrDeviceNotFound
+		},
+
+		OnProfileByLinkedIP: func(
+			_ context.Context,
+			_ netip.Addr,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic("not implemented")
+		},
+	}
+
+	df := devicesetter.NewDefault(&devicesetter.Config{
+		ProfileDB:         profDB,
+		HumanIDParser:     agd.NewHumanIDParser(),
+		Server:            srvDoT,
+		DeviceIDWildcards: []string{dnssvctest.DomainForDevices},
+	})
+
+	ctx := dnsserver.ContextWithRequestInfo(context.Background(), &dnsserver.RequestInfo{
+		TLSServerName: extIDStr + "." + dnssvctest.DomainForDevices,
+	})
+	ri := &agd.RequestInfo{
+		RemoteIP: dnssvctest.ClientAddr,
+	}
+
+	err := df.SetDevice(ctx, reqNormal, ri, dnssvctest.ServerAddrPort)
+	require.NoError(t, err)
+
+	assert.Equal(t, profNormal, ri.Profile)
+	assert.Equal(t, devAuto, ri.Device)
 }

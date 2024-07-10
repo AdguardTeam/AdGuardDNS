@@ -23,7 +23,6 @@ type httpsCloner struct {
 	ipv6hint  *syncutil.Pool[dns.SVCBIPv6Hint]
 	local     *syncutil.Pool[dns.SVCBLocal]
 	mandatory *syncutil.Pool[dns.SVCBMandatory]
-	noDefALPN *syncutil.Pool[dns.SVCBNoDefaultAlpn]
 	port      *syncutil.Pool[dns.SVCBPort]
 
 	// Miscellaneous.
@@ -59,9 +58,6 @@ func newHTTPSCloner() (c *httpsCloner) {
 		mandatory: syncutil.NewPool(func() (v *dns.SVCBMandatory) {
 			return &dns.SVCBMandatory{}
 		}),
-		noDefALPN: syncutil.NewPool(func() (v *dns.SVCBNoDefaultAlpn) {
-			return &dns.SVCBNoDefaultAlpn{}
-		}),
 		port: syncutil.NewPool(func() (v *dns.SVCBPort) {
 			return &dns.SVCBPort{}
 		}),
@@ -94,8 +90,8 @@ func (c *httpsCloner) clone(rr *dns.HTTPS) (clone *dns.HTTPS, full bool) {
 
 	clone.Value = clone.Value[:0]
 	for _, orig := range rr.Value {
-		valClone, valFull := c.cloneKV(orig)
-		if !valFull {
+		valClone := c.cloneKV(orig)
+		if valClone == nil {
 			// This branch is only reached if there is a new SVCB key-value type
 			// in miekg/dns.  Give up and just use their copy function.
 			return dns.Copy(rr).(*dns.HTTPS), false
@@ -107,12 +103,12 @@ func (c *httpsCloner) clone(rr *dns.HTTPS) (clone *dns.HTTPS, full bool) {
 	return clone, true
 }
 
-// cloneKV returns a deep clone of orig.  full is true if orig was recognized.
-func (c *httpsCloner) cloneKV(orig dns.SVCBKeyValue) (clone dns.SVCBKeyValue, full bool) {
+// cloneKV returns a deep clone of orig.  clone is nil if orig wasn't
+// recognized.
+func (c *httpsCloner) cloneKV(orig dns.SVCBKeyValue) (clone dns.SVCBKeyValue) {
 	switch orig := orig.(type) {
 	case *dns.SVCBAlpn:
 		v := c.alpn.Get()
-
 		v.Alpn = appendIfNotNil(v.Alpn[:0], orig.Alpn)
 
 		clone = v
@@ -123,49 +119,57 @@ func (c *httpsCloner) cloneKV(orig dns.SVCBKeyValue) (clone dns.SVCBKeyValue, fu
 		clone = v
 	case *dns.SVCBECHConfig:
 		v := c.echconfig.Get()
-
 		v.ECH = appendIfNotNil(v.ECH[:0], orig.ECH)
-
-		clone = v
-	case *dns.SVCBIPv4Hint:
-		v := c.ipv4hint.Get()
-
-		v.Hint = c.appendIPs(v.Hint[:0], orig.Hint)
-
-		clone = v
-	case *dns.SVCBIPv6Hint:
-		v := c.ipv6hint.Get()
-
-		v.Hint = c.appendIPs(v.Hint[:0], orig.Hint)
 
 		clone = v
 	case *dns.SVCBLocal:
 		v := c.local.Get()
 		v.KeyCode = orig.KeyCode
-
 		v.Data = appendIfNotNil(v.Data[:0], orig.Data)
 
 		clone = v
 	case *dns.SVCBMandatory:
 		v := c.mandatory.Get()
-
 		v.Code = appendIfNotNil(v.Code[:0], orig.Code)
 
 		clone = v
-	case *dns.SVCBNoDefaultAlpn:
-		clone = c.noDefALPN.Get()
 	case *dns.SVCBPort:
 		v := c.port.Get()
 		*v = *orig
 
 		clone = v
+	case
+		*dns.SVCBNoDefaultAlpn,
+		*dns.SVCBOhttp:
+		// Just use the original value since these [dns.SVCBKeyValue] types are
+		// pointers to empty structures, so we're only interested in the actual
+		// type.
+		clone = orig
 	default:
-		// This branch is only reached if there is a new SVCB key-value type
-		// in miekg/dns.
-		return nil, false
+		clone = c.cloneIfHint(orig)
 	}
 
-	return clone, true
+	// This is only nil if there is a new SVCB key-value type in miekg/dns.
+	return clone
+}
+
+// cloneIfHint returns a deep clone of orig if it's either an [dns.SVCBIPv4Hint]
+// or [dns.SVCBIPv6Hint].  Otherwise, it returns nil.
+func (c *httpsCloner) cloneIfHint(orig dns.SVCBKeyValue) (clone dns.SVCBKeyValue) {
+	switch orig := orig.(type) {
+	case *dns.SVCBIPv4Hint:
+		v := c.ipv4hint.Get()
+		v.Hint = c.appendIPs(v.Hint[:0], orig.Hint)
+
+		return v
+	case *dns.SVCBIPv6Hint:
+		v := c.ipv6hint.Get()
+		v.Hint = c.appendIPs(v.Hint[:0], orig.Hint)
+
+		return v
+	default:
+		return nil
+	}
 }
 
 // appendIPs appends the clones of IP addresses from orig to hints and returns
@@ -220,10 +224,12 @@ func (c *httpsCloner) putKV(kv dns.SVCBKeyValue) {
 		c.local.Put(kv)
 	case *dns.SVCBMandatory:
 		c.mandatory.Put(kv)
-	case *dns.SVCBNoDefaultAlpn:
-		c.noDefALPN.Put(kv)
 	case *dns.SVCBPort:
 		c.port.Put(kv)
+	case
+		*dns.SVCBNoDefaultAlpn,
+		*dns.SVCBOhttp:
+		// Don't use pool for empty structures, see comment in [cloneKV].
 	default:
 		// This branch is only reached if there is a new SVCB key-value type
 		// in miekg/dns.  Noting to do.
@@ -234,7 +240,6 @@ func (c *httpsCloner) putKV(kv dns.SVCBKeyValue) {
 func (c *httpsCloner) putIPs(ips []net.IP) {
 	for _, ip := range ips {
 		if cap(ip) >= 16 {
-			// nolint:looppointer // Slicing is used to get the array pointer.
 			c.ip.Put((*[16]byte)(ip[:16]))
 		}
 	}

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strings"
 	"sync"
 	"time"
 
@@ -141,8 +140,8 @@ var _ Server = (*ServerQUIC)(nil)
 func (s *ServerQUIC) Start(ctx context.Context) (err error) {
 	defer func() { err = errors.Annotate(err, "starting doq server: %w") }()
 
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	if s.conf.TLSConfig == nil {
 		return errors.Error("tls config is required")
@@ -202,8 +201,9 @@ func (s *ServerQUIC) Shutdown(ctx context.Context) (err error) {
 
 // shutdown marks the server as stopped and closes active listeners.
 func (s *ServerQUIC) shutdown() (err error) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if !s.started {
 		return ErrServerNotStarted
 	}
@@ -371,7 +371,7 @@ func (s *ServerQUIC) serveQUICConn(ctx context.Context, conn quic.Connection) (e
 
 		ri := &RequestInfo{
 			StartTime:     time.Now(),
-			TLSServerName: strings.ToLower(conn.ConnectionState().TLS.ServerName),
+			TLSServerName: conn.ConnectionState().TLS.ServerName,
 		}
 
 		reqCtx, reqCancel := s.requestContext()

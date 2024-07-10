@@ -78,17 +78,25 @@ type Country string
 // user-assigned ones.
 const (
 	// CountryNone is an invalid or unknown country code.
-	CountryNone Country = ""{{ range . }}
-	{{ $name := (index . 0) -}}
-	{{ $code := (index . 1) -}}
-	// Country{{$code}} is the ISO 3166-1 alpha-2 code for
-	// {{ $name }}.
-	Country{{$code}} Country = {{ printf "%q" $code }}{{ end }}
+	CountryNone Country = ""
+
+	// CountryNotApplicable is the user-assigned ISO 3166-1 alpha-2 code used
+	// when a country of origin cannot be determined due to a lack of
+	// information, for example a response of the record type that doesn't
+	// contain an IP address.
+	CountryNotApplicable Country = "QN"
 
 	// CountryXK is the user-assigned ISO 3166-1 alpha-2 code for Republic of
 	// Kosovo.  Kosovo does not have a recognized ISO 3166 code, but it is still
 	// an entity whose user-assigned code is relatively common.
 	CountryXK Country = "XK"
+{{ range . }}
+	{{ $name := (index . 0) -}}
+	{{ $code := (index . 1) -}}
+	// Country{{ $code }} is the ISO 3166-1 alpha-2 code for
+	// {{ $name }}.
+	Country{{ $code }} Country = {{ printf "%q" $code }}
+{{- end }}
 )
 
 // NewCountry converts s into a Country while also validating it.  Prefer to use

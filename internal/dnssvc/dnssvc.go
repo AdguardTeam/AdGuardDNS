@@ -12,6 +12,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
@@ -48,12 +49,19 @@ type Config struct {
 	// of DNS responses for later reuse.
 	Cloner *dnsmsg.Cloner
 
+	// CacheManager is the global cache manager.  CacheManager must not be nil.
+	CacheManager agdcache.Manager
+
 	// ControlConf is the configuration of socket options.
 	ControlConf *netext.ControlConfig
 
 	// ConnLimiter, if not nil, is used to limit the number of simultaneously
 	// active stream-connections.
 	ConnLimiter *connlimiter.Limiter
+
+	// HumanIDParser is used to normalize and parse human-readable device
+	// identifiers.
+	HumanIDParser *agd.HumanIDParser
 
 	// AccessManager is used to block requests.
 	AccessManager access.Interface
@@ -168,6 +176,7 @@ func New(c *Config) (svc *Service, err error) {
 	// groups.
 	preUps := preupstream.New(&preupstream.Config{
 		Cloner:              c.Cloner,
+		CacheManager:        c.CacheManager,
 		DB:                  c.DNSDB,
 		GeoIP:               c.GeoIP,
 		CacheSize:           c.CacheSize,
@@ -549,6 +558,7 @@ func newDeviceSetter(c *Config, g *agd.ServerGroup, s *agd.Server) (ds deviceset
 
 	return devicesetter.NewDefault(&devicesetter.Config{
 		ProfileDB:         c.ProfileDB,
+		HumanIDParser:     c.HumanIDParser,
 		Server:            s,
 		DeviceIDWildcards: g.TLS.DeviceIDWildcards,
 	})

@@ -39,8 +39,8 @@ func TestMiddleware_Wrap(t *testing.T) {
 	testCases := []struct {
 		req        *dns.Msg
 		resp       *dns.Msg
-		name       string
 		minTTL     *time.Duration
+		name       string
 		wantNumReq int
 		wantTTL    uint32
 	}{{

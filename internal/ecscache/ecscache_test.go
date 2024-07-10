@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
@@ -686,6 +687,7 @@ func newWithCache(
 		h,
 		ecscache.NewMiddleware(&ecscache.MiddlewareConfig{
 			Cloner:         agdtest.NewCloner(),
+			CacheManager:   agdcache.EmptyManager{},
 			GeoIP:          geoIP,
 			Size:           100,
 			ECSSize:        100,

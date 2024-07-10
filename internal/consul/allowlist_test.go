@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
@@ -21,6 +22,9 @@ import (
 func TestMain(m *testing.M) {
 	testutil.DiscardLogOutput(m)
 }
+
+// testTimeout is the common timeout for tests and contexts.
+const testTimeout = 1 * time.Second
 
 // handleWithURL starts the test server with h, finishes it on cleanup, and
 // returns it's URL.
@@ -83,12 +87,15 @@ func TestNewAllowlistRefresher(t *testing.T) {
 				},
 			}
 
-			_, err := consul.NewAllowlistRefresher(al, u, errColl)
+			alr := consul.NewAllowlistRefresher(al, u, errColl)
+
+			ctx := testutil.ContextWithTimeout(t, testTimeout)
+			err := alr.Refresh(ctx)
 			require.NoError(t, err)
 
 			for _, ip := range tc.wantAllow {
 				var ok bool
-				ok, err = al.IsAllowed(context.Background(), ip)
+				ok, err = al.IsAllowed(ctx, ip)
 				require.NoError(t, err)
 
 				assert.True(t, ok)
@@ -96,7 +103,7 @@ func TestNewAllowlistRefresher(t *testing.T) {
 
 			for _, ip := range tc.wantNotAllow {
 				var ok bool
-				ok, err = al.IsAllowed(context.Background(), ip)
+				ok, err = al.IsAllowed(ctx, ip)
 				require.NoError(t, err)
 
 				assert.False(t, ok)
@@ -119,7 +126,10 @@ func TestNewAllowlistRefresher(t *testing.T) {
 			},
 		}
 
-		_, err := consul.NewAllowlistRefresher(al, u, errColl)
+		alr := consul.NewAllowlistRefresher(al, u, errColl)
+
+		ctx := testutil.ContextWithTimeout(t, testTimeout)
+		err := alr.Refresh(ctx)
 		require.ErrorAs(t, err, &wantErr)
 
 		assert.Equal(t, wantErr.Got, status)
@@ -143,13 +153,12 @@ func TestAllowlistRefresher_Refresh_deadline(t *testing.T) {
 		},
 	}
 
-	c, err := consul.NewAllowlistRefresher(al, u, errColl)
-	require.NoError(t, err)
+	alr := consul.NewAllowlistRefresher(al, u, errColl)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err = c.Refresh(ctx)
+	err := alr.Refresh(ctx)
 	assert.ErrorIs(t, err, context.Canceled)
 	assert.ErrorIs(t, gotCollErr, context.Canceled)
 }

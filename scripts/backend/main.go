@@ -3,16 +3,21 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/netip"
+	"os"
 	"strconv"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/httphdr"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/osutil"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -20,30 +25,62 @@ import (
 )
 
 func main() {
+	l := slogutil.New(nil)
+
 	const listenAddr = "localhost:6062"
-	l, err := net.Listen("tcp", listenAddr)
+	lsnr, err := net.Listen("tcp", listenAddr)
 	if err != nil {
-		log.Fatalf("getting listener: %s", err)
+		l.Error("getting listener", slogutil.KeyError, err)
+
+		os.Exit(osutil.ExitCodeFailure)
 	}
 
 	grpcSrv := grpc.NewServer()
-	srv := &mockDNSServiceServer{}
+	srv := &mockDNSServiceServer{
+		log: slogutil.New(nil),
+	}
 	backendpb.RegisterDNSServiceServer(grpcSrv, srv)
 
-	log.Info("staring serving on %s", listenAddr)
-	err = grpcSrv.Serve(l)
+	l.Info("staring serving", "laddr", listenAddr)
+	err = grpcSrv.Serve(lsnr)
 	if err != nil {
-		log.Fatalf("serving grpc: %s", err)
+		l.Error("serving grpc", slogutil.KeyError, err)
+
+		os.Exit(osutil.ExitCodeFailure)
 	}
 }
 
 // mockDNSServiceServer is the mock [backendpb.DNSServiceServer].
 type mockDNSServiceServer struct {
 	backendpb.UnimplementedDNSServiceServer
+	log *slog.Logger
 }
 
 // type check
 var _ backendpb.DNSServiceServer = (*mockDNSServiceServer)(nil)
+
+// CreateDeviceByHumanId implements the [backendpb.DNSServiceServer] interface
+// for *mockDNSServiceServer.
+//
+//lint:ignore ST1003 The name is necessary for the interface.
+func (s *mockDNSServiceServer) CreateDeviceByHumanId(
+	ctx context.Context,
+	req *backendpb.CreateDeviceRequest,
+) (resp *backendpb.CreateDeviceResponse, err error) {
+	md, _ := metadata.FromIncomingContext(ctx)
+	s.log.InfoContext(
+		ctx,
+		"creating by id",
+		"auth", md.Get(httphdr.Authorization),
+		"req", req,
+	)
+
+	p := newDNSProfile()
+
+	return &backendpb.CreateDeviceResponse{
+		Device: p.Devices[1],
+	}, nil
+}
 
 // GetDNSProfiles implements the [backendpb.DNSServiceServer] interface for
 // *mockDNSServiceServer
@@ -51,7 +88,14 @@ func (s *mockDNSServiceServer) GetDNSProfiles(
 	req *backendpb.DNSProfilesRequest,
 	srv backendpb.DNSService_GetDNSProfilesServer,
 ) (err error) {
-	log.Info("getting dns profiles: sync time: %s", req.SyncTime.AsTime())
+	ctx := srv.Context()
+	md, _ := metadata.FromIncomingContext(ctx)
+	s.log.InfoContext(
+		ctx,
+		"getting dns profiles",
+		"auth", md.Get(httphdr.Authorization),
+		"sync_time", req.SyncTime.AsTime(),
+	)
 
 	t := time.Now()
 	syncTime := strconv.FormatInt(t.UnixMilli(), 10)
@@ -60,9 +104,9 @@ func (s *mockDNSServiceServer) GetDNSProfiles(
 	}
 
 	srv.SetTrailer(trailerMD)
-	err = srv.Send(mockDNSProfile())
+	err = srv.Send(newDNSProfile())
 	if err != nil {
-		log.Info("sending dns profile: %s", err)
+		s.log.WarnContext(ctx, "sending dns profile", slogutil.KeyError, err)
 	}
 
 	return nil
@@ -73,8 +117,13 @@ func (s *mockDNSServiceServer) GetDNSProfiles(
 func (s *mockDNSServiceServer) SaveDevicesBillingStat(
 	srv backendpb.DNSService_SaveDevicesBillingStatServer,
 ) (err error) {
+	ctx := srv.Context()
+	md, _ := metadata.FromIncomingContext(ctx)
+	s.log.InfoContext(ctx, "saving devices", "auth", md.Get(httphdr.Authorization))
+
 	for {
-		bs, err := srv.Recv()
+		var bs *backendpb.DeviceBillingStat
+		bs, err = srv.Recv()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				return srv.SendAndClose(&emptypb.Empty{})
@@ -83,12 +132,12 @@ func (s *mockDNSServiceServer) SaveDevicesBillingStat(
 			}
 		}
 
-		log.Info("saving billing stat: device: %q", bs.DeviceId)
+		s.log.InfoContext(ctx, "saving billing stat", "device_id", bs.DeviceId)
 	}
 }
 
-// mockDNSProfile returns a mock instance of [*backendpb.DNSProfile].
-func mockDNSProfile() (dp *backendpb.DNSProfile) {
+// newDNSProfile returns a mock instance of [*backendpb.DNSProfile].
+func newDNSProfile() (dp *backendpb.DNSProfile) {
 	dayRange := &backendpb.DayRange{
 		Start: durationpb.New(0),
 		End:   durationpb.New(59 * time.Minute),
@@ -100,13 +149,19 @@ func mockDNSProfile() (dp *backendpb.DNSProfile) {
 		FilteringEnabled: false,
 		LinkedIp:         []byte{1, 1, 1, 1},
 		DedicatedIps:     [][]byte{{127, 0, 0, 1}},
+	}, {
+		Id:           "auto",
+		Name:         "My Device X-10",
+		HumanIdLower: "my-device-x--10",
 	}}
 
 	return &backendpb.DNSProfile{
-		DnsId:            "mock1234",
-		FilteringEnabled: true,
-		QueryLogEnabled:  true,
-		Deleted:          false,
+		DnsId:              "mock1234",
+		FilteringEnabled:   true,
+		QueryLogEnabled:    true,
+		Deleted:            false,
+		AutoDevicesEnabled: true,
+		IpLogEnabled:       true,
 		SafeBrowsing: &backendpb.SafeBrowsingSettings{
 			Enabled:               true,
 			BlockDangerousDomains: true,

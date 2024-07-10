@@ -82,25 +82,3 @@ func (c *LRU[K, T]) Len() (n int) {
 
 	return c.cache.Len(checkExpired)
 }
-
-// Manager manages caches.
-type Manager struct {
-	caches map[string]Clearer
-}
-
-// NewManager returns a new initialized *Manager.
-func NewManager() (m *Manager) {
-	return &Manager{
-		caches: map[string]Clearer{},
-	}
-}
-
-// Add adds cache by id.
-func (m *Manager) Add(id string, cache Clearer) {
-	m.caches[id] = cache
-}
-
-// ClearByID clears cache by id.
-func (m *Manager) ClearByID(id string) {
-	m.caches[id].Clear()
-}

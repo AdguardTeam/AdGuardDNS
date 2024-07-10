@@ -14,11 +14,10 @@ import (
 
 func TestServerDNSCrypt_integration_query(t *testing.T) {
 	testCases := []struct {
-		name    string
-		network dnsserver.Network
-		req     *dns.Msg
-		// if nil, use DefaultTestHandler
 		handler              dnsserver.Handler
+		req                  *dns.Msg
+		name                 string
+		network              dnsserver.Network
 		expectedRecordsCount int
 		expectedRCode        int
 		expectedTruncated    bool

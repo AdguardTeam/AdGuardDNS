@@ -26,11 +26,11 @@ func TestMain(m *testing.M) {
 
 // Common IPs for tests
 var (
-	testClientIPv4      = netip.MustParseAddr("1.2.3.4")
-	testOtherClientIPv4 = netip.MustParseAddr("1.2.3.5")
+	testClientIPv4      = netip.MustParseAddr("192.0.2.1")
+	testOtherClientIPv4 = netip.MustParseAddr("192.0.2.2")
 
-	testDedicatedIPv4      = netip.MustParseAddr("1.2.4.5")
-	testOtherDedicatedIPv4 = netip.MustParseAddr("1.2.4.6")
+	testDedicatedIPv4      = netip.MustParseAddr("192.0.2.3")
+	testOtherDedicatedIPv4 = netip.MustParseAddr("192.0.2.4")
 )
 
 // testTimeout is the common timeout for tests.
@@ -44,15 +44,15 @@ func newDefaultProfileDB(tb testing.TB, devices <-chan []*agd.Device) (db *profi
 
 	onProfiles := func(
 		_ context.Context,
-		_ *profiledb.StorageRequest,
-	) (resp *profiledb.StorageResponse, err error) {
+		_ *profiledb.StorageProfilesRequest,
+	) (resp *profiledb.StorageProfilesResponse, err error) {
 		devices, _ := testutil.RequireReceive(tb, devices, testTimeout)
 		devIDs := make([]agd.DeviceID, 0, len(devices))
 		for _, d := range devices {
 			devIDs = append(devIDs, d.ID)
 		}
 
-		return &profiledb.StorageResponse{
+		return &profiledb.StorageProfilesResponse{
 			Profiles: []*agd.Profile{{
 				BlockingMode: &dnsmsg.BlockingModeNullIP{},
 				ID:           profiledbtest.ProfileID,
@@ -63,6 +63,12 @@ func newDefaultProfileDB(tb testing.TB, devices <-chan []*agd.Device) (db *profi
 	}
 
 	ps := &agdtest.ProfileStorage{
+		OnCreateAutoDevice: func(
+			_ context.Context,
+			_ *profiledb.StorageCreateAutoDeviceRequest,
+		) (resp *profiledb.StorageCreateAutoDeviceResponse, err error) {
+			panic("not implemented")
+		},
 		OnProfiles: onProfiles,
 	}
 
@@ -70,56 +76,90 @@ func newDefaultProfileDB(tb testing.TB, devices <-chan []*agd.Device) (db *profi
 		Storage:          ps,
 		FullSyncIvl:      1 * time.Minute,
 		FullSyncRetryIvl: 1 * time.Minute,
-		InitialTimeout:   testTimeout,
 		CacheFilePath:    "none",
 	})
 	require.NoError(tb, err)
+
+	ctx := testutil.ContextWithTimeout(tb, testTimeout)
+	require.NoError(tb, db.Refresh(ctx))
 
 	return db
 }
 
 func TestDefaultProfileDB(t *testing.T) {
-	dev := &agd.Device{
-		ID:       profiledbtest.DeviceID,
-		LinkedIP: testClientIPv4,
-		DedicatedIPs: []netip.Addr{
-			testDedicatedIPv4,
+	t.Parallel()
+
+	const (
+		devIdxDefault = iota
+		devIdxAuto
+	)
+
+	devices := []*agd.Device{
+		devIdxDefault: {
+			ID:       profiledbtest.DeviceID,
+			LinkedIP: testClientIPv4,
+			DedicatedIPs: []netip.Addr{
+				testDedicatedIPv4,
+			},
+		},
+		devIdxAuto: {
+			ID:           profiledbtest.DeviceIDAuto,
+			HumanIDLower: profiledbtest.HumanIDLower,
 		},
 	}
 
-	devicesCh := make(chan []*agd.Device, 1)
-	devicesCh <- []*agd.Device{dev}
+	devicesCh := make(chan []*agd.Device, 2)
+	devicesCh <- devices
 	db := newDefaultProfileDB(t, devicesCh)
 
-	t.Run("by_device_id", func(t *testing.T) {
-		ctx := testutil.ContextWithTimeout(t, testTimeout)
-		p, d, err := db.ProfileByDeviceID(ctx, profiledbtest.DeviceID)
-		require.NoError(t, err)
-
-		assert.Equal(t, profiledbtest.ProfileID, p.ID)
-		assert.Equal(t, d, dev)
-	})
-
 	t.Run("by_dedicated_ip", func(t *testing.T) {
+		t.Parallel()
+
 		ctx := testutil.ContextWithTimeout(t, testTimeout)
 		p, d, err := db.ProfileByDedicatedIP(ctx, testDedicatedIPv4)
 		require.NoError(t, err)
 
 		assert.Equal(t, profiledbtest.ProfileID, p.ID)
-		assert.Equal(t, d, dev)
+		assert.Equal(t, d, devices[devIdxDefault])
+	})
+
+	t.Run("by_device_id", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := testutil.ContextWithTimeout(t, testTimeout)
+		p, d, err := db.ProfileByDeviceID(ctx, profiledbtest.DeviceID)
+		require.NoError(t, err)
+
+		assert.Equal(t, profiledbtest.ProfileID, p.ID)
+		assert.Equal(t, d, devices[devIdxDefault])
+	})
+
+	t.Run("by_human_id", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := testutil.ContextWithTimeout(t, testTimeout)
+		p, d, err := db.ProfileByHumanID(ctx, profiledbtest.ProfileID, profiledbtest.HumanIDLower)
+		require.NoError(t, err)
+
+		assert.Equal(t, profiledbtest.ProfileID, p.ID)
+		assert.Equal(t, d, devices[devIdxAuto])
 	})
 
 	t.Run("by_linked_ip", func(t *testing.T) {
+		t.Parallel()
+
 		ctx := testutil.ContextWithTimeout(t, testTimeout)
 		p, d, err := db.ProfileByLinkedIP(ctx, testClientIPv4)
 		require.NoError(t, err)
 
 		assert.Equal(t, profiledbtest.ProfileID, p.ID)
-		assert.Equal(t, d, dev)
+		assert.Equal(t, d, devices[devIdxDefault])
 	})
 }
 
 func TestDefaultProfileDB_ProfileByDedicatedIP_removedDevice(t *testing.T) {
+	t.Parallel()
+
 	dev := &agd.Device{
 		ID: profiledbtest.DeviceID,
 		DedicatedIPs: []netip.Addr{
@@ -156,6 +196,8 @@ func TestDefaultProfileDB_ProfileByDedicatedIP_removedDevice(t *testing.T) {
 }
 
 func TestDefaultProfileDB_ProfileByDedicatedIP_deviceNewIP(t *testing.T) {
+	t.Parallel()
+
 	dev := &agd.Device{
 		ID: profiledbtest.DeviceID,
 		DedicatedIPs: []netip.Addr{
@@ -199,7 +241,81 @@ func TestDefaultProfileDB_ProfileByDedicatedIP_deviceNewIP(t *testing.T) {
 	}, testTimeout, testTimeout/10)
 }
 
+func TestDefaultProfileDB_ProfileByHumanID_removedDevice(t *testing.T) {
+	t.Parallel()
+
+	dev := &agd.Device{
+		ID:           profiledbtest.DeviceIDAuto,
+		HumanIDLower: profiledbtest.HumanIDLower,
+	}
+
+	devicesCh := make(chan []*agd.Device, 2)
+
+	// The first response, the device is still there.
+	devicesCh <- []*agd.Device{dev}
+
+	db := newDefaultProfileDB(t, devicesCh)
+
+	ctx := context.Background()
+	_, d, err := db.ProfileByHumanID(ctx, profiledbtest.ProfileID, profiledbtest.HumanIDLower)
+	require.NoError(t, err)
+
+	assert.Equal(t, d, dev)
+
+	// The second response, the device is removed.
+	devicesCh <- nil
+
+	err = db.Refresh(ctx)
+	require.NoError(t, err)
+
+	assert.Eventually(t, func() (ok bool) {
+		_, d, err = db.ProfileByHumanID(ctx, profiledbtest.ProfileID, profiledbtest.HumanIDLower)
+
+		return errors.Is(err, profiledb.ErrDeviceNotFound)
+	}, testTimeout, testTimeout/10)
+}
+
+func TestDefaultProfileDB_ProfileByHumanID_deviceNotAuto(t *testing.T) {
+	t.Parallel()
+
+	dev := &agd.Device{
+		ID:           profiledbtest.DeviceIDAuto,
+		HumanIDLower: profiledbtest.HumanIDLower,
+	}
+
+	devicesCh := make(chan []*agd.Device, 2)
+
+	// The first response, the device is still there.
+	devicesCh <- []*agd.Device{dev}
+
+	db := newDefaultProfileDB(t, devicesCh)
+
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	_, d, err := db.ProfileByHumanID(ctx, profiledbtest.ProfileID, profiledbtest.HumanIDLower)
+	require.NoError(t, err)
+
+	assert.Equal(t, d, dev)
+
+	// The second response, the device is now a non-auto device.
+	devicesCh <- []*agd.Device{{
+		ID: profiledbtest.DeviceIDAuto,
+	}}
+
+	ctx = testutil.ContextWithTimeout(t, testTimeout)
+	err = db.Refresh(ctx)
+	require.NoError(t, err)
+
+	assert.Eventually(t, func() (ok bool) {
+		ctx = testutil.ContextWithTimeout(t, testTimeout)
+		_, d, err = db.ProfileByHumanID(ctx, profiledbtest.ProfileID, profiledbtest.HumanIDLower)
+
+		return errors.Is(err, profiledb.ErrDeviceNotFound)
+	}, testTimeout, testTimeout/10)
+}
+
 func TestDefaultProfileDB_ProfileByLinkedIP_removedDevice(t *testing.T) {
+	t.Parallel()
+
 	dev := &agd.Device{
 		ID:       profiledbtest.DeviceID,
 		LinkedIP: testClientIPv4,
@@ -232,6 +348,8 @@ func TestDefaultProfileDB_ProfileByLinkedIP_removedDevice(t *testing.T) {
 }
 
 func TestDefaultProfileDB_ProfileByLinkedIP_deviceNewIP(t *testing.T) {
+	t.Parallel()
+
 	dev := &agd.Device{
 		ID:       profiledbtest.DeviceID,
 		LinkedIP: testClientIPv4,
@@ -274,17 +392,25 @@ func TestDefaultProfileDB_ProfileByLinkedIP_deviceNewIP(t *testing.T) {
 }
 
 func TestDefaultProfileDB_fileCache_success(t *testing.T) {
+	t.Parallel()
+
 	var gotSyncTime time.Time
 	onProfiles := func(
 		_ context.Context,
-		req *profiledb.StorageRequest,
-	) (resp *profiledb.StorageResponse, err error) {
+		req *profiledb.StorageProfilesRequest,
+	) (resp *profiledb.StorageProfilesResponse, err error) {
 		gotSyncTime = req.SyncTime
 
-		return &profiledb.StorageResponse{}, nil
+		return &profiledb.StorageProfilesResponse{}, nil
 	}
 
 	ps := &agdtest.ProfileStorage{
+		OnCreateAutoDevice: func(
+			_ context.Context,
+			_ *profiledb.StorageCreateAutoDeviceRequest,
+		) (resp *profiledb.StorageCreateAutoDeviceResponse, err error) {
+			panic("not implemented")
+		},
 		OnProfiles: onProfiles,
 	}
 
@@ -307,11 +433,13 @@ func TestDefaultProfileDB_fileCache_success(t *testing.T) {
 		Storage:          ps,
 		FullSyncIvl:      1 * time.Minute,
 		FullSyncRetryIvl: 1 * time.Minute,
-		InitialTimeout:   testTimeout,
 		CacheFilePath:    cacheFilePath,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, db)
+
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	require.NoError(t, db.Refresh(ctx))
 
 	assert.Equal(t, wantSyncTime, gotSyncTime)
 
@@ -322,15 +450,23 @@ func TestDefaultProfileDB_fileCache_success(t *testing.T) {
 }
 
 func TestDefaultProfileDB_fileCache_badVersion(t *testing.T) {
+	t.Parallel()
+
 	storageCalled := false
 	ps := &agdtest.ProfileStorage{
+		OnCreateAutoDevice: func(
+			_ context.Context,
+			_ *profiledb.StorageCreateAutoDeviceRequest,
+		) (resp *profiledb.StorageCreateAutoDeviceResponse, err error) {
+			panic("not implemented")
+		},
 		OnProfiles: func(
 			_ context.Context,
-			_ *profiledb.StorageRequest,
-		) (resp *profiledb.StorageResponse, err error) {
+			_ *profiledb.StorageProfilesRequest,
+		) (resp *profiledb.StorageProfilesResponse, err error) {
 			storageCalled = true
 
-			return &profiledb.StorageResponse{}, nil
+			return &profiledb.StorageProfilesResponse{}, nil
 		},
 	}
 
@@ -345,12 +481,73 @@ func TestDefaultProfileDB_fileCache_badVersion(t *testing.T) {
 		Storage:          ps,
 		FullSyncIvl:      1 * time.Minute,
 		FullSyncRetryIvl: 1 * time.Minute,
-		InitialTimeout:   testTimeout,
 		CacheFilePath:    cacheFilePath,
 	})
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
+
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	require.NoError(t, db.Refresh(ctx))
+
 	assert.True(t, storageCalled)
+}
+
+func TestDefaultProfileDB_CreateAutoDevice(t *testing.T) {
+	t.Parallel()
+
+	wantDev := &agd.Device{
+		ID:           profiledbtest.DeviceIDAuto,
+		HumanIDLower: profiledbtest.HumanIDLower,
+	}
+	wantProf := &agd.Profile{
+		BlockingMode:       &dnsmsg.BlockingModeNullIP{},
+		ID:                 profiledbtest.ProfileID,
+		DeviceIDs:          nil,
+		AutoDevicesEnabled: true,
+	}
+
+	ps := &agdtest.ProfileStorage{
+		OnCreateAutoDevice: func(
+			_ context.Context,
+			_ *profiledb.StorageCreateAutoDeviceRequest,
+		) (resp *profiledb.StorageCreateAutoDeviceResponse, err error) {
+			return &profiledb.StorageCreateAutoDeviceResponse{
+				Device: wantDev,
+			}, nil
+		},
+		OnProfiles: func(
+			_ context.Context,
+			_ *profiledb.StorageProfilesRequest,
+		) (resp *profiledb.StorageProfilesResponse, err error) {
+			return &profiledb.StorageProfilesResponse{
+				Profiles: []*agd.Profile{wantProf},
+				Devices:  nil,
+			}, nil
+		},
+	}
+
+	db, err := profiledb.New(&profiledb.Config{
+		Storage:          ps,
+		FullSyncIvl:      1 * time.Minute,
+		FullSyncRetryIvl: 1 * time.Minute,
+		CacheFilePath:    "none",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, db)
+
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	require.NoError(t, db.Refresh(ctx))
+
+	p, d, err := db.CreateAutoDevice(
+		ctx,
+		profiledbtest.ProfileID,
+		profiledbtest.HumanID,
+		agd.DeviceTypeOther,
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, wantDev, d)
+	assert.Equal(t, wantProf, p)
 }
 
 // Sinks for benchmarks.
@@ -404,8 +601,8 @@ func BenchmarkDefaultProfileDB_ProfileByDeviceID(b *testing.B) {
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/profiledb
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkDefaultProfileDB_ProfileByDeviceID/success-16          59396382                21.36 ns/op            0 B/op          0 allocs/op
-	//	BenchmarkDefaultProfileDB_ProfileByDeviceID/not_found-16        74497800                16.45 ns/op            0 B/op          0 allocs/op
+	//	BenchmarkDefaultProfileDB_ProfileByDeviceID/success-16         	55459413	        23.43 ns/op	       0 B/op	       0 allocs/op
+	//	BenchmarkDefaultProfileDB_ProfileByDeviceID/not_found-16       	61798608	        17.87 ns/op	       0 B/op	       0 allocs/op
 }
 
 func BenchmarkDefaultProfileDB_ProfileByLinkedIP(b *testing.B) {
@@ -451,8 +648,8 @@ func BenchmarkDefaultProfileDB_ProfileByLinkedIP(b *testing.B) {
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/profiledb
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkDefaultProfileDB_ProfileByLinkedIP/success-16          24822542                44.11 ns/op            0 B/op          0 allocs/op
-	//	BenchmarkDefaultProfileDB_ProfileByLinkedIP/not_found-16        63539154                20.04 ns/op            0 B/op          0 allocs/op
+	//	BenchmarkDefaultProfileDB_ProfileByLinkedIP/success-16         	26068507	        44.23 ns/op	       0 B/op	       0 allocs/op
+	//	BenchmarkDefaultProfileDB_ProfileByLinkedIP/not_found-16       	53764724	        22.63 ns/op	       0 B/op	       0 allocs/op
 }
 
 func BenchmarkDefaultProfileDB_ProfileByDedicatedIP(b *testing.B) {
@@ -500,6 +697,6 @@ func BenchmarkDefaultProfileDB_ProfileByDedicatedIP(b *testing.B) {
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/profiledb
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkDefaultProfileDB_ProfileByDedicatedIP/success-16               22697658                48.19 ns/op            0 B/op          0 allocs/op
-	//	BenchmarkDefaultProfileDB_ProfileByDedicatedIP/not_found-16             61062061                19.89 ns/op            0 B/op          0 allocs/op
+	//	BenchmarkDefaultProfileDB_ProfileByDedicatedIP/success-16      	26034816	        48.21 ns/op	       0 B/op	       0 allocs/op
+	//	BenchmarkDefaultProfileDB_ProfileByDedicatedIP/not_found-16    	54165615	        22.38 ns/op	       0 B/op	       0 allocs/op
 }

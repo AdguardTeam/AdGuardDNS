@@ -284,18 +284,53 @@ var _ profiledb.Interface = (*ProfileDB)(nil)
 
 // ProfileDB is a [profiledb.Interface] for tests.
 type ProfileDB struct {
-	OnProfileByDeviceID func(
+	OnCreateAutoDevice func(
 		ctx context.Context,
-		id agd.DeviceID,
+		id agd.ProfileID,
+		humanID agd.HumanID,
+		devType agd.DeviceType,
 	) (p *agd.Profile, d *agd.Device, err error)
+
 	OnProfileByDedicatedIP func(
 		ctx context.Context,
 		ip netip.Addr,
 	) (p *agd.Profile, d *agd.Device, err error)
+
+	OnProfileByDeviceID func(
+		ctx context.Context,
+		id agd.DeviceID,
+	) (p *agd.Profile, d *agd.Device, err error)
+
+	OnProfileByHumanID func(
+		ctx context.Context,
+		id agd.ProfileID,
+		humanID agd.HumanIDLower,
+	) (p *agd.Profile, d *agd.Device, err error)
+
 	OnProfileByLinkedIP func(
 		ctx context.Context,
 		ip netip.Addr,
 	) (p *agd.Profile, d *agd.Device, err error)
+}
+
+// CreateAutoDevice implements the [profiledb.Interface] interface for
+// *ProfileDB.
+func (db *ProfileDB) CreateAutoDevice(
+	ctx context.Context,
+	id agd.ProfileID,
+	humanID agd.HumanID,
+	devType agd.DeviceType,
+) (p *agd.Profile, d *agd.Device, err error) {
+	return db.OnCreateAutoDevice(ctx, id, humanID, devType)
+}
+
+// ProfileByDedicatedIP implements the [profiledb.Interface] interface for
+// *ProfileDB.
+func (db *ProfileDB) ProfileByDedicatedIP(
+	ctx context.Context,
+	ip netip.Addr,
+) (p *agd.Profile, d *agd.Device, err error) {
+	return db.OnProfileByDedicatedIP(ctx, ip)
 }
 
 // ProfileByDeviceID implements the [profiledb.Interface] interface for
@@ -307,13 +342,14 @@ func (db *ProfileDB) ProfileByDeviceID(
 	return db.OnProfileByDeviceID(ctx, id)
 }
 
-// ProfileByDedicatedIP implements the [profiledb.Interface] interface for
+// ProfileByHumanID implements the [profiledb.Interface] interface for
 // *ProfileDB.
-func (db *ProfileDB) ProfileByDedicatedIP(
+func (db *ProfileDB) ProfileByHumanID(
 	ctx context.Context,
-	ip netip.Addr,
+	id agd.ProfileID,
+	humanID agd.HumanIDLower,
 ) (p *agd.Profile, d *agd.Device, err error) {
-	return db.OnProfileByDedicatedIP(ctx, ip)
+	return db.OnProfileByHumanID(ctx, id, humanID)
 }
 
 // ProfileByLinkedIP implements the [profiledb.Interface] interface for
@@ -328,19 +364,33 @@ func (db *ProfileDB) ProfileByLinkedIP(
 // type check
 var _ profiledb.Storage = (*ProfileStorage)(nil)
 
-// ProfileStorage is a profiledb.Storage for tests.
+// ProfileStorage is a [profiledb.Storage] implementation for tests.
 type ProfileStorage struct {
+	OnCreateAutoDevice func(
+		ctx context.Context,
+		req *profiledb.StorageCreateAutoDeviceRequest,
+	) (resp *profiledb.StorageCreateAutoDeviceResponse, err error)
+
 	OnProfiles func(
 		ctx context.Context,
-		req *profiledb.StorageRequest,
-	) (resp *profiledb.StorageResponse, err error)
+		req *profiledb.StorageProfilesRequest,
+	) (resp *profiledb.StorageProfilesResponse, err error)
+}
+
+// CreateAutoDevice implements the [profiledb.Storage] interface for
+// *ProfileStorage.
+func (s *ProfileStorage) CreateAutoDevice(
+	ctx context.Context,
+	req *profiledb.StorageCreateAutoDeviceRequest,
+) (resp *profiledb.StorageCreateAutoDeviceResponse, err error) {
+	return s.OnCreateAutoDevice(ctx, req)
 }
 
 // Profiles implements the [profiledb.Storage] interface for *ProfileStorage.
 func (s *ProfileStorage) Profiles(
 	ctx context.Context,
-	req *profiledb.StorageRequest,
-) (resp *profiledb.StorageResponse, err error) {
+	req *profiledb.StorageProfilesRequest,
+) (resp *profiledb.StorageProfilesResponse, err error) {
 	return s.OnProfiles(ctx, req)
 }
 

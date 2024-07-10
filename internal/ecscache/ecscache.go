@@ -21,6 +21,12 @@ import (
 	"github.com/miekg/dns"
 )
 
+// Constants that define cache identifiers for the cache manager.
+const (
+	CacheIDWithECS = "ecscache_with_ecs"
+	CacheIDNoECS   = "ecscache_no_ecs"
+)
+
 // Middleware is a dnsserver.Middleware with ECS-aware caching.
 type Middleware struct {
 	// cloner is the memory-efficient cloner of DNS messages.
@@ -50,6 +56,9 @@ type MiddlewareConfig struct {
 	// Cloner is used to clone messages taken from cache.
 	Cloner *dnsmsg.Cloner
 
+	// CacheManager is the global cache manager.  CacheManager must not be nil.
+	CacheManager agdcache.Manager
+
 	// GeoIP is the GeoIP database used to get subnets for countries.  It must
 	// not be nil.
 	GeoIP geoip.Interface
@@ -69,18 +78,25 @@ type MiddlewareConfig struct {
 	UseTTLOverride bool
 }
 
-// NewMiddleware initializes a new ECS-aware LRU caching middleware.  c must not
-// be nil.
+// NewMiddleware initializes a new ECS-aware LRU caching middleware.  It also
+// adds the caches with IDs [CacheIDNoECS] and [CacheIDWithECS] to the cache
+// manager.  c must not be nil.
 func NewMiddleware(c *MiddlewareConfig) (m *Middleware) {
+	cache := agdcache.NewLRU[uint64, *cacheItem](&agdcache.LRUConfig{
+		Size: c.Size,
+	})
+	ecsCache := agdcache.NewLRU[uint64, *cacheItem](&agdcache.LRUConfig{
+		Size: c.ECSSize,
+	})
+
+	c.CacheManager.Add(CacheIDNoECS, cache)
+	c.CacheManager.Add(CacheIDWithECS, ecsCache)
+
 	return &Middleware{
-		cloner: c.Cloner,
-		cache: agdcache.NewLRU[uint64, *cacheItem](&agdcache.LRUConfig{
-			Size: c.Size,
-		}),
-		ecsCache: agdcache.NewLRU[uint64, *cacheItem](&agdcache.LRUConfig{
-			Size: c.ECSSize,
-		}),
-		geoIP: c.GeoIP,
+		cloner:   c.Cloner,
+		cache:    cache,
+		ecsCache: ecsCache,
+		geoIP:    c.GeoIP,
 		cacheReqPool: syncutil.NewPool(func() (req *cacheRequest) {
 			return &cacheRequest{}
 		}),

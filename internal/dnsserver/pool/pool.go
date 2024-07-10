@@ -18,21 +18,24 @@ const ErrClosed = errors.Error("the pool is closed")
 // must use the context's deadline if it's specified.
 type Factory func(ctx context.Context) (conn net.Conn, err error)
 
-// Pool is a structure that implements a net.Conn pool. Must be initialized
-// using the NewPool method.
+// Pool is a structure that implements a net.Conn pool.
 type Pool struct {
-	// IdleTimeout is the maximum TTL of an idle connection in the pool.
-	// Connections that weren't used for more than the specified duration will
-	// be closed. If set to 0, connections don't expire. Default value is 0.
-	IdleTimeout time.Duration
+	// connsChanMu is used to synchronize the closing of connsChan.
+	connsChanMu *sync.RWMutex
 
 	// connsChan is the storage for our connections.
-	connsChan   chan *Conn
-	connsChanMu sync.RWMutex
+	connsChan chan *Conn
 
-	// factory is the Pool's factory method. It is called whenever there are no
+	// factory is the Pool's factory method.  It is called whenever there are no
 	// more connections in the pool.
 	factory Factory
+
+	// IdleTimeout is the maximum TTL of an idle connection in the pool.
+	// Connections that weren't used for more than the specified duration will
+	// be closed.  If set to 0, connections don't expire.
+	//
+	// TODO(a.garipov):  Put into a config.
+	IdleTimeout time.Duration
 }
 
 // NewPool creates a new Pool instance.  maxCapacity configures the maximum
@@ -40,8 +43,9 @@ type Pool struct {
 // Put will close the connection instead of adding it to the pool.
 func NewPool(maxCapacity int, factory Factory) (p *Pool) {
 	return &Pool{
-		connsChan: make(chan *Conn, maxCapacity),
-		factory:   factory,
+		connsChan:   make(chan *Conn, maxCapacity),
+		connsChanMu: &sync.RWMutex{},
+		factory:     factory,
 	}
 }
 
@@ -65,7 +69,7 @@ func (p *Pool) Get(ctx context.Context) (conn *Conn, err error) {
 
 			if isExpired(conn, p.IdleTimeout) {
 				// Close the expired connection immediately and look for a new
-				// one. Ignoring the error here since it's not important what
+				// one.  Ignoring the error here since it's not important what
 				// happens with it and I'd like to avoid logging
 				_ = conn.Close()
 				continue

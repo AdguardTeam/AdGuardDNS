@@ -10,6 +10,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/debugsvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
@@ -36,6 +37,9 @@ func Main() {
 
 	agd.InitRequestID()
 
+	// TODO(a.garipov, e.burkov):  Consider adding timeouts for initialization.
+	ctx := context.Background()
+
 	// Log only to stdout and let users decide how to process it.
 	log.SetOutput(os.Stdout)
 
@@ -57,6 +61,10 @@ func Main() {
 	check(err)
 
 	defer collectPanics(errColl)
+
+	// Cache manager
+
+	cacheManager := agdcache.NewDefaultManager()
 
 	// Configuration file
 
@@ -86,7 +94,7 @@ func Main() {
 	geoIP, geoIPRefr := &geoip.File{}, &agdservice.RefreshWorker{}
 	geoIPErrCh := make(chan error, 1)
 
-	go setupGeoIP(geoIP, geoIPRefr, geoIPErrCh, c.GeoIP, envs, errColl)
+	go setupGeoIP(geoIP, geoIPRefr, geoIPErrCh, c.GeoIP, envs, errColl, cacheManager)
 
 	// Safe-browsing and adult-blocking filters
 
@@ -98,55 +106,57 @@ func Main() {
 	maxFilterSize := c.Filters.MaxSize.Bytes()
 
 	cloner := dnsmsg.NewCloner(metrics.ClonerStat{})
-	safeBrowsingHashes, safeBrowsingFilter, err := setupHashPrefixFilter(
-		c.SafeBrowsing,
+
+	sbConf := c.SafeBrowsing.toInternal(
+		errColl,
 		cloner,
+		cacheManager,
 		agd.FilterListIDSafeBrowsing,
 		envs.SafeBrowsingURL,
 		envs.FilterCachePath,
 		maxFilterSize,
-		sigHdlr,
-		errColl,
 	)
+	sbHashes, sbFilter, err := setupHashPrefixFilter(ctx, sbConf, sigHdlr)
 	check(err)
 
-	adultBlockingHashes, adultBlockingFilter, err := setupHashPrefixFilter(
-		c.AdultBlocking,
+	abConf := c.AdultBlocking.toInternal(
+		errColl,
 		cloner,
+		cacheManager,
 		agd.FilterListIDAdultBlocking,
 		envs.AdultBlockingURL,
 		envs.FilterCachePath,
 		maxFilterSize,
-		sigHdlr,
-		errColl,
 	)
+	abHashes, abFilter, err := setupHashPrefixFilter(ctx, abConf, sigHdlr)
 	check(err)
 
-	_, newRegDomainsFilter, err := setupHashPrefixFilter(
-		// Reuse general safe browsing filter configuration.
-		c.SafeBrowsing,
+	// Reuse general safe browsing filter configuration.
+	nrdConf := c.SafeBrowsing.toInternal(
+		errColl,
 		cloner,
+		cacheManager,
 		agd.FilterListIDNewRegDomains,
 		envs.NewRegDomainsURL,
 		envs.FilterCachePath,
 		maxFilterSize,
-		sigHdlr,
-		errColl,
 	)
+	_, nrdFilter, err := setupHashPrefixFilter(ctx, nrdConf, sigHdlr)
 	check(err)
 
 	// Filter storage and filtering groups
 
 	fltStrgConf := c.Filters.toInternal(
 		errColl,
+		cacheManager,
 		envs,
-		safeBrowsingFilter,
-		adultBlockingFilter,
-		newRegDomainsFilter,
+		sbFilter,
+		abFilter,
+		nrdFilter,
 	)
 
 	fltRefrTimeout := c.Filters.RefreshTimeout.Duration
-	fltStrg, err := setupFilterStorage(fltStrgConf, sigHdlr, fltRefrTimeout)
+	fltStrg, err := setupFilterStorage(ctx, fltStrgConf, sigHdlr, fltRefrTimeout)
 	check(err)
 
 	fltGroups, err := c.FilteringGroups.toInternal(fltStrg)
@@ -175,8 +185,6 @@ func Main() {
 
 	srvGrps, err := c.ServerGroups.toInternal(messages, btdMgr, fltGroups, c.RateLimit, c.DNS)
 	check(err)
-
-	ctx := context.Background()
 
 	// Start the bind-to-device manager here, now that no further calls to
 	// btdMgr.ListenConfig are required.
@@ -220,7 +228,13 @@ func Main() {
 	// Rate limiting
 
 	consulAllowlistURL := &envs.ConsulAllowlistURL.URL
-	rateLimiter, connLimiter, err := setupRateLimiter(c.RateLimit, consulAllowlistURL, sigHdlr, errColl)
+	rateLimiter, connLimiter, err := setupRateLimiter(
+		ctx,
+		c.RateLimit,
+		consulAllowlistURL,
+		sigHdlr,
+		errColl,
+	)
 	check(err)
 
 	// GeoIP database
@@ -251,15 +265,17 @@ func Main() {
 	// TODO(a.garipov): Consider making these configurable via the configuration
 	// file.
 	hashStorages := map[string]*hashprefix.Storage{
-		filter.GeneralTXTSuffix:       safeBrowsingHashes,
-		filter.AdultBlockingTXTSuffix: adultBlockingHashes,
+		filter.GeneralTXTSuffix:       sbHashes,
+		filter.AdultBlockingTXTSuffix: abHashes,
 	}
 
 	dnsConf := &dnssvc.Config{
 		Messages:            messages,
 		Cloner:              cloner,
+		CacheManager:        cacheManager,
 		ControlConf:         ctrlConf,
 		ConnLimiter:         connLimiter,
+		HumanIDParser:       agd.NewHumanIDParser(),
 		AccessManager:       accessGlobal,
 		SafeBrowsing:        hashprefix.NewMatcher(hashStorages),
 		BillStat:            billStatRec,
@@ -307,7 +323,15 @@ func Main() {
 
 	// Debug HTTP-service
 
-	debugSvc := debugsvc.New(envs.debugConf(dnsDB))
+	debugSvcConf := envs.debugConf(dnsDB)
+	debugSvcConf.Logger = slogLogger.With(slogutil.KeyPrefix, "debugsvc")
+	debugSvcConf.Refreshers = debugsvc.Refreshers{
+		"filter_storage":                      fltStrg,
+		string(agd.FilterListIDSafeBrowsing):  sbFilter,
+		string(agd.FilterListIDAdultBlocking): abFilter,
+		string(agd.FilterListIDNewRegDomains): nrdFilter,
+	}
+	debugSvc := debugsvc.New(debugSvcConf)
 
 	// The debug HTTP service is considered critical, so its Start method panics
 	// instead of returning an error.
@@ -323,6 +347,9 @@ func Main() {
 		agd.Revision(),
 		runtime.Version(),
 	)
+
+	// TODO(s.chzhen):  Remove it.
+	log.Debug("cache manager ids: %q", cacheManager.IDs())
 
 	os.Exit(sigHdlr.Handle(ctx))
 }

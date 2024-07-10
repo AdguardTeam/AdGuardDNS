@@ -31,16 +31,42 @@ func newURLFilterID() (id int) {
 }
 
 type (
-	// resultCache is a convenient alias for cache to keep types in check.
-	resultCache = agdcache.Interface[internal.CacheKey, *cacheItem]
+	// ResultCache is a convenient alias for cache to keep types in check.
+	ResultCache = agdcache.Interface[internal.CacheKey, *CacheItem]
 
-	// resultCacheEmpty is a convenient alias for empty cache to keep types in
+	// ResultCacheEmpty is a convenient alias for empty cache to keep types in
 	// check.  See [filter.DNSResult].
-	resultCacheEmpty = agdcache.Empty[internal.CacheKey, *cacheItem]
+	ResultCacheEmpty = agdcache.Empty[internal.CacheKey, *CacheItem]
 )
 
-// cacheItem represents an item that we will store in the cache.
-type cacheItem struct {
+// NewResultCache returns a new initialized cache with the given size.  If
+// useCache is false, it returns a cache implementation that does nothing.
+func NewResultCache(size int, useCache bool) (cache ResultCache) {
+	if !useCache {
+		return ResultCacheEmpty{}
+	}
+
+	return agdcache.NewLRU[internal.CacheKey, *CacheItem](&agdcache.LRUConfig{
+		Size: size,
+	})
+}
+
+// NewManagedResultCache is like [NewResultCache] but it also adds a newly
+// created cache to the cache manager by id.
+func NewManagedResultCache(
+	m agdcache.Manager,
+	id string,
+	size int,
+	useCache bool,
+) (cache ResultCache) {
+	cache = NewResultCache(size, useCache)
+	m.Add(id, cache)
+
+	return cache
+}
+
+// CacheItem represents an item that we will store in the cache.
+type CacheItem struct {
 	// res is the DNS filtering result.
 	res *urlfilter.DNSResult
 
@@ -53,10 +79,10 @@ type cacheItem struct {
 // detect key collisions.  If there is a key collision, it returns nil and
 // false.
 func itemFromCache(
-	cache resultCache,
+	cache ResultCache,
 	key internal.CacheKey,
 	host string,
-) (item *cacheItem, ok bool) {
+) (item *CacheItem, ok bool) {
 	item, ok = cache.Get(key)
 	if !ok {
 		return nil, false
@@ -84,7 +110,7 @@ type filter struct {
 	// cache contains cached results of filtering.
 	//
 	// TODO(ameshkov): Add metrics for these caches.
-	cache resultCache
+	cache ResultCache
 
 	// id is the filter list ID, if any.
 	id agd.FilterListID
@@ -105,21 +131,13 @@ func newFilter(
 	text string,
 	id agd.FilterListID,
 	svcID agd.BlockedServiceID,
-	memCacheSize int,
-	useMemCache bool,
+	cache agdcache.Interface[internal.CacheKey, *CacheItem],
 ) (f *filter, err error) {
 	f = &filter{
+		cache:       cache,
 		id:          id,
 		svcID:       svcID,
 		urlFilterID: newURLFilterID(),
-	}
-
-	if useMemCache {
-		f.cache = agdcache.NewLRU[internal.CacheKey, *cacheItem](&agdcache.LRUConfig{
-			Size: memCacheSize,
-		})
-	} else {
-		f.cache = resultCacheEmpty{}
 	}
 
 	// TODO(a.garipov): Add filterlist.BytesRuleList.
@@ -150,11 +168,11 @@ func (f *filter) DNSResult(
 ) (res *urlfilter.DNSResult) {
 	var ok bool
 	var cacheKey internal.CacheKey
-	var item *cacheItem
+	var item *CacheItem
 
 	// Don't waste resources on computing the cache key if the cache is not
 	// enabled.
-	_, emptyCache := f.cache.(resultCacheEmpty)
+	_, emptyCache := f.cache.(ResultCacheEmpty)
 	if !emptyCache {
 		// TODO(a.garipov): Add real class here.
 		cacheKey = internal.NewCacheKey(host, rrType, dns.ClassINET, isAns)
@@ -177,7 +195,7 @@ func (f *filter) DNSResult(
 		res = nil
 	}
 
-	f.cache.Set(cacheKey, &cacheItem{
+	f.cache.Set(cacheKey, &CacheItem{
 		res:  res,
 		host: host,
 	})

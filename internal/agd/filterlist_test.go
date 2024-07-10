@@ -12,8 +12,6 @@ import (
 func TestNewFilterListID(t *testing.T) {
 	t.Parallel()
 
-	tooLong := strings.Repeat("a", agd.MaxFilterListIDLen+1)
-
 	testCases := []struct {
 		name       string
 		in         string
@@ -28,8 +26,8 @@ func TestNewFilterListID(t *testing.T) {
 		wantErrMsg: `bad filter list id "": too short: got 0 bytes, min 1`,
 	}, {
 		name:       "too_long",
-		in:         tooLong,
-		wantErrMsg: `bad filter list id "` + tooLong + `": too long: got 129 bytes, max 128`,
+		in:         testLongStr,
+		wantErrMsg: `bad filter list id "` + testLongStr + `": too long: got 200 bytes, max 128`,
 	}, {
 		name:       "bad",
 		in:         "bad/name",

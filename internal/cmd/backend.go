@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
-	"net/url"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
@@ -12,6 +12,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/service"
@@ -103,8 +104,7 @@ func setupBillStat(
 	sigHdlr *service.SignalHandler,
 	errColl errcoll.Interface,
 ) (rec *billstat.RuntimeRecorder, err error) {
-	apiURL := netutil.CloneURL(&envs.BillStatURL.URL)
-	billStatUploader, err := setupBillStatUploader(apiURL, errColl)
+	billStatUploader, err := setupBillStatUploader(envs, errColl)
 	if err != nil {
 		return nil, fmt.Errorf("creating bill stat uploader: %w", err)
 	}
@@ -146,9 +146,8 @@ func setupProfDB(
 	sigHdlr *service.SignalHandler,
 	errColl errcoll.Interface,
 ) (profDB *profiledb.Default, err error) {
-	apiURL := netutil.CloneURL(&envs.ProfilesURL.URL)
 	bindSet := collectBindSubnetSet(grps)
-	profStrg, err := setupProfStorage(apiURL, bindSet, errColl)
+	profStrg, err := setupProfStorage(envs, bindSet, errColl)
 	if err != nil {
 		return nil, fmt.Errorf("creating profile storage: %w", err)
 	}
@@ -159,14 +158,16 @@ func setupProfDB(
 		ErrColl:          errColl,
 		FullSyncIvl:      conf.FullRefreshIvl.Duration,
 		FullSyncRetryIvl: conf.FullRefreshRetryIvl.Duration,
-		InitialTimeout:   timeout,
 		CacheFilePath:    envs.ProfilesCachePath,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating default profile database: %w", err)
 	}
 
-	refrIvl := conf.RefreshIvl.Duration
+	err = initProfDB(profDB, timeout)
+	if err != nil {
+		return nil, fmt.Errorf("preparing default profile database: %w", err)
+	}
 
 	profDBRefr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
 		Context: func() (ctx context.Context, cancel context.CancelFunc) {
@@ -174,7 +175,7 @@ func setupProfDB(
 		},
 		Refresher:         profDB,
 		Name:              "profiledb",
-		Interval:          refrIvl,
+		Interval:          conf.RefreshIvl.Duration,
 		RefreshOnShutdown: false,
 		RandomizeStart:    true,
 	})
@@ -186,6 +187,27 @@ func setupProfDB(
 	sigHdlr.Add(profDBRefr)
 
 	return profDB, nil
+}
+
+// initProfDB refreshes the profile database initially.  It logs an error if
+// it's a timeout, and returns it otherwise.
+func initProfDB(profDB *profiledb.Default, timeout time.Duration) (err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	log.Info("main: initial profiledb refresh")
+
+	err = profDB.Refresh(ctx)
+	switch {
+	case err == nil:
+		log.Info("main: initial profiledb refresh succeeded")
+	case errors.Is(err, context.DeadlineExceeded):
+		log.Info("main: warning: initial profiledb refresh timeout: %s", err)
+	default:
+		return fmt.Errorf("initial refresh: %w", err)
+	}
+
+	return nil
 }
 
 // collectBindSubnetSet returns a subnet set with IP addresses of servers in the
@@ -223,36 +245,40 @@ const (
 	schemeGRPCS = "grpcs"
 )
 
-// setupProfStorage creates and returns a profile storage depending on the
-// provided API URL.
-func setupProfStorage(
-	apiURL *url.URL,
-	bindSet netutil.SubnetSet,
+// setupBillStatUploader creates and returns a billstat uploader depending on
+// the provided API URL.
+func setupBillStatUploader(
+	envs *environments,
 	errColl errcoll.Interface,
-) (s profiledb.Storage, err error) {
+) (s billstat.Uploader, err error) {
+	apiURL := netutil.CloneURL(&envs.BillStatURL.URL)
 	scheme := apiURL.Scheme
 	if scheme == schemeGRPC || scheme == schemeGRPCS {
-		return backendpb.NewProfileStorage(&backendpb.ProfileStorageConfig{
-			BindSet:  bindSet,
-			Endpoint: apiURL,
+		return backendpb.NewBillStat(&backendpb.BillStatConfig{
 			ErrColl:  errColl,
+			Endpoint: apiURL,
+			APIKey:   envs.BillStatAPIKey,
 		})
 	}
 
 	return nil, fmt.Errorf("invalid backend api url: %s", apiURL)
 }
 
-// setupBillStatUploader creates and returns a billstat uploader depending on
-// the provided API URL.
-func setupBillStatUploader(
-	apiURL *url.URL,
+// setupProfStorage creates and returns a profile storage depending on the
+// provided API URL.
+func setupProfStorage(
+	envs *environments,
+	bindSet netutil.SubnetSet,
 	errColl errcoll.Interface,
-) (s billstat.Uploader, err error) {
+) (s profiledb.Storage, err error) {
+	apiURL := netutil.CloneURL(&envs.ProfilesURL.URL)
 	scheme := apiURL.Scheme
 	if scheme == schemeGRPC || scheme == schemeGRPCS {
-		return backendpb.NewBillStat(&backendpb.BillStatConfig{
+		return backendpb.NewProfileStorage(&backendpb.ProfileStorageConfig{
+			BindSet:  bindSet,
 			ErrColl:  errColl,
 			Endpoint: apiURL,
+			APIKey:   envs.ProfilesAPIKey,
 		})
 	}
 

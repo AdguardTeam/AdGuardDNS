@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
@@ -20,6 +21,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// testTimeout is the common timeout for tests and contexts.
+const testTimeout = 10 * time.Second
 
 func TestFilter_FilterRequest_host(t *testing.T) {
 	testCases := []struct {
@@ -263,9 +267,10 @@ func newFilter(tb testing.TB, replHost string) (f *hashprefix.Filter) {
 	require.NoError(tb, err)
 
 	f, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
-		Cloner: agdtest.NewCloner(),
-		Hashes: strg,
-		URL:    srvURL,
+		Cloner:       agdtest.NewCloner(),
+		CacheManager: agdcache.EmptyManager{},
+		Hashes:       strg,
+		URL:          srvURL,
 		ErrColl: &agdtest.ErrorCollector{
 			OnCollect: func(_ context.Context, _ error) {
 				panic("not implemented")
@@ -281,6 +286,9 @@ func newFilter(tb testing.TB, replHost string) (f *hashprefix.Filter) {
 	})
 	require.NoError(tb, err)
 
+	ctx := testutil.ContextWithTimeout(tb, testTimeout)
+	require.NoError(tb, f.RefreshInitial(ctx))
+
 	return f
 }
 
@@ -292,9 +300,10 @@ func TestFilter_Refresh(t *testing.T) {
 	require.NoError(t, err)
 
 	f, err := hashprefix.NewFilter(&hashprefix.FilterConfig{
-		Cloner: agdtest.NewCloner(),
-		Hashes: strg,
-		URL:    srvURL,
+		Cloner:       agdtest.NewCloner(),
+		CacheManager: agdcache.EmptyManager{},
+		Hashes:       strg,
+		URL:          srvURL,
 		ErrColl: &agdtest.ErrorCollector{
 			OnCollect: func(_ context.Context, _ error) {
 				panic("not implemented")
@@ -310,7 +319,10 @@ func TestFilter_Refresh(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	require.NoError(t, f.RefreshInitial(ctx))
+
+	ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 
 	err = f.Refresh(ctx)
 	assert.NoError(t, err)
@@ -337,9 +349,10 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	require.NoError(t, err)
 
 	fconf := &hashprefix.FilterConfig{
-		Cloner: agdtest.NewCloner(),
-		Hashes: strg,
-		URL:    srvURL,
+		Cloner:       agdtest.NewCloner(),
+		CacheManager: agdcache.EmptyManager{},
+		Hashes:       strg,
+		URL:          srvURL,
 		ErrColl: &agdtest.ErrorCollector{
 			OnCollect: func(_ context.Context, _ error) {
 				panic("not implemented")
@@ -355,6 +368,9 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	}
 	f, err := hashprefix.NewFilter(fconf)
 	require.NoError(t, err)
+
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	require.NoError(t, f.RefreshInitial(ctx))
 
 	messages := agdtest.NewConstructor()
 
@@ -372,7 +388,7 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	testOtherReqInfo := &agd.RequestInfo{Messages: messages, Host: testOtherHost, QType: dns.TypeA}
 
 	require.True(t, t.Run("hit_cached_host", func(t *testing.T) {
-		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
+		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 
 		var r internal.Result
 		r, err = f.FilterRequest(ctx, testOtherHostReq, testOtherReqInfo)
@@ -387,7 +403,7 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 		err = os.Chtimes(cachePath, now, now.Add(-2*fconf.Staleness))
 		require.NoError(t, err)
 
-		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
+		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 
 		err = f.Refresh(ctx)
 		assert.NoError(t, err)
@@ -396,7 +412,7 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	}))
 
 	require.True(t, t.Run("previously_cached", func(t *testing.T) {
-		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
+		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 
 		var r internal.Result
 		r, err = f.FilterRequest(ctx, testOtherHostReq, testOtherReqInfo)
@@ -406,7 +422,7 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	}))
 
 	require.True(t, t.Run("new_host", func(t *testing.T) {
-		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
+		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 
 		var r internal.Result
 		r, err = f.FilterRequest(ctx, testHostReq, testReqInfo)

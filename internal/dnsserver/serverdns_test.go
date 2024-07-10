@@ -25,11 +25,11 @@ func TestServerDNS_StartShutdown(t *testing.T) {
 
 func TestServerDNS_integration_query(t *testing.T) {
 	testCases := []struct {
+		handler          dnsserver.Handler
+		req              *dns.Msg
+		wantMsg          func(t *testing.T, m *dns.Msg)
 		name             string
 		network          dnsserver.Network
-		req              *dns.Msg
-		handler          dnsserver.Handler
-		wantMsg          func(t *testing.T, m *dns.Msg)
 		wantRecordsCount int
 		wantRCode        int
 		wantTruncated    bool
@@ -419,10 +419,10 @@ func TestServerDNS_integration_tcpMsgIgnore(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
+		expectedError func(err error)
 		name          string
 		buf           []byte
 		timeout       time.Duration
-		expectedError func(err error)
 	}{
 		{
 			name: "invalid_input_timeout",

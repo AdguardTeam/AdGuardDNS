@@ -44,6 +44,15 @@ type ConfigDNS struct {
 	// not set it defaults to DefaultWriteTimeout.
 	WriteTimeout time.Duration
 
+	// TCPIdleTimeout is the timeout for waiting between multiple queries.  If
+	// not set it defaults to [DefaultTCPIdleTimeout].
+	TCPIdleTimeout time.Duration
+
+	// MaxPipelineCount is the maximum number of simultaneously processing TCP
+	// messages per one connection.  If MaxPipelineEnabled is true, it must be
+	// greater than zero.
+	MaxPipelineCount uint
+
 	// UDPSize is the size of the buffers used to read incoming UDP messages.
 	// If not set it defaults to [dns.MinMsgSize], 512 B.
 	UDPSize int
@@ -54,15 +63,6 @@ type ConfigDNS struct {
 
 	// MaxUDPRespSize is the maximum size of DNS response over UDP protocol.
 	MaxUDPRespSize uint16
-
-	// TCPIdleTimeout is the timeout for waiting between multiple queries.  If
-	// not set it defaults to [DefaultTCPIdleTimeout].
-	TCPIdleTimeout time.Duration
-
-	// MaxPipelineCount is the maximum number of simultaneously processing TCP
-	// messages per one connection.  If MaxPipelineEnabled is true, it must be
-	// greater than zero.
-	MaxPipelineCount uint
 
 	// MaxPipelineEnabled, if true, enables TCP pipeline limiting.
 	MaxPipelineEnabled bool
@@ -143,8 +143,8 @@ func newServerDNS(proto Protocol, conf ConfigDNS) (s *ServerDNS) {
 func (s *ServerDNS) Start(ctx context.Context) (err error) {
 	defer func() { err = errors.Annotate(err, "starting dns server: %w") }()
 
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	if s.started {
 		return ErrServerAlreadyStarted
@@ -243,8 +243,9 @@ func (s *ServerDNS) startServeTCP(ctx context.Context) {
 
 // shutdown marks the server as stopped and closes active listeners.
 func (s *ServerDNS) shutdown() (err error) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if !s.started {
 		return ErrServerNotStarted
 	}

@@ -8,21 +8,51 @@ import (
 )
 
 // Storage is a storage from which an [Default] receives data about profiles and
-// devices.
+// devices.  All methods must be safe for concurrent use.
+//
+// TODO(a.garipov):  Consider separating into a new package along with its
+// errors.
 type Storage interface {
+	// CreateAutoDevice creates an auto device based on the given data.
+	// req must not be nil.
+	CreateAutoDevice(
+		ctx context.Context,
+		req *StorageCreateAutoDeviceRequest,
+	) (resp *StorageCreateAutoDeviceResponse, err error)
+
 	// Profiles returns profile and device data that has changed since
 	// req.SyncTime.  req must not be nil.
-	Profiles(ctx context.Context, req *StorageRequest) (resp *StorageResponse, err error)
+	Profiles(
+		ctx context.Context,
+		req *StorageProfilesRequest,
+	) (resp *StorageProfilesResponse, err error)
 }
 
-// StorageRequest is the request to [Storage] for profiles and devices.
-type StorageRequest struct {
+// StorageCreateAutoDeviceRequest contains the data for a call to the
+// [Storage.CreateAutoDevice] method.  All fields should be valid.
+type StorageCreateAutoDeviceRequest struct {
+	ProfileID  agd.ProfileID
+	HumanID    agd.HumanID
+	DeviceType agd.DeviceType
+}
+
+// StorageCreateAutoDeviceResponse is the response from the
+// [Storage.CreateAutoDevice] method.
+type StorageCreateAutoDeviceResponse struct {
+	// Device is the resulting device.  If the error returned with this response
+	// is nil, Device is never nil.
+	Device *agd.Device
+}
+
+// StorageProfilesRequest contains the data for a call to the [Storage.Profiles]
+// method.
+type StorageProfilesRequest struct {
 	// SyncTime is the last time profiles were synced.
 	SyncTime time.Time
 }
 
-// StorageResponse is the ProfileStorage.Profiles response.
-type StorageResponse struct {
+// StorageProfilesResponse is the response from the [Storage.Profiles] method.
+type StorageProfilesResponse struct {
 	// SyncTime is the time that should be saved and used as the next
 	// [ProfilesRequest.SyncTime].
 	SyncTime time.Time

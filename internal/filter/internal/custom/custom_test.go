@@ -30,6 +30,7 @@ func TestFilters_Get(t *testing.T) {
 		&agdtest.ErrorCollector{
 			OnCollect: func(ctx context.Context, err error) { panic("not implemented") },
 		},
+		agdcache.EmptyManager{},
 	)
 
 	p := &agd.Profile{
@@ -62,6 +63,7 @@ func BenchmarkFilters_Get(b *testing.B) {
 		&agdtest.ErrorCollector{
 			OnCollect: func(ctx context.Context, err error) { panic("not implemented") },
 		},
+		agdcache.EmptyManager{},
 	)
 
 	p := &agd.Profile{

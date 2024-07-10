@@ -15,12 +15,6 @@ import (
 // ConfigBase contains the necessary minimum that every Server needs to
 // be initialized.
 type ConfigBase struct {
-	// Network is the network this server listens to.  If empty, the server will
-	// listen to all networks that are supposed to be used by the server's
-	// protocol.  Note, that it only makes sense for [ServerDNS],
-	// [ServerDNSCrypt], and [ServerHTTPS].
-	Network Network
-
 	// Handler is a handler that processes incoming DNS messages.  If not set,
 	// the default handler, which returns error response to any query, is used.
 	Handler Handler
@@ -41,6 +35,12 @@ type ConfigBase struct {
 	// DNS server.  If nil, an appropriate default ListenConfig is used.
 	ListenConfig netext.ListenConfig
 
+	// Network is the network this server listens to.  If empty, the server will
+	// listen to all networks that are supposed to be used by the server's
+	// protocol.  Note, that it only makes sense for [ServerDNS],
+	// [ServerDNSCrypt], and [ServerHTTPS].
+	Network Network
+
 	// Name is used for logging, and it may be used for perf counters reporting.
 	Name string
 
@@ -51,19 +51,6 @@ type ConfigBase struct {
 
 // ServerBase implements base methods that every Server implementation uses.
 type ServerBase struct {
-	// name is used for logging and it may be used for perf counters reporting.
-	name string
-
-	// addr is the address the server listens to.
-	addr string
-
-	// proto is the server protocol.
-	proto Protocol
-
-	// network is the network to listen to.  It only makes sense for the
-	// following protocols: ProtoDNS, ProtoDNSCrypt, ProtoDoH.
-	network Network
-
 	// handler is a handler that processes incoming DNS messages.
 	handler Handler
 
@@ -79,9 +66,6 @@ type ServerBase struct {
 	// listenConfig is used to set tcpListener and udpListener.
 	listenConfig netext.ListenConfig
 
-	// Server operation
-	// --
-
 	// tcpListener is used to accept new TCP connections.  It is nil for servers
 	// that don't use TCP.
 	tcpListener net.Listener
@@ -90,15 +74,27 @@ type ServerBase struct {
 	// that don't use UDP.
 	udpListener net.PacketConn
 
-	// Shutdown handling
-	// --
+	// mu protects started, tcpListener, and udpListener.
+	mu *sync.RWMutex
 
-	// lock protects started, tcpListener and udpListener.
-	lock    sync.RWMutex
-	started bool
 	// wg tracks active workers (listeners or query processing). Shutdown
 	// won't finish until there's at least one active worker.
-	wg sync.WaitGroup
+	wg *sync.WaitGroup
+
+	// name is used for logging and it may be used for perf counters reporting.
+	name string
+
+	// addr is the address the server listens to.
+	addr string
+
+	// network is the network to listen to.  It only makes sense for the
+	// following protocols: [ProtoDNS], [ProtoDNSCrypt], [ProtoDoH].
+	network Network
+
+	// proto is the server protocol.
+	proto Protocol
+
+	started bool
 }
 
 // type check
@@ -108,15 +104,17 @@ var _ Server = (*ServerBase)(nil)
 // some of its internal properties.
 func newServerBase(proto Protocol, conf ConfigBase) (s *ServerBase) {
 	s = &ServerBase{
-		name:         conf.Name,
-		addr:         conf.Addr,
-		proto:        proto,
-		network:      conf.Network,
 		handler:      conf.Handler,
+		reqCtx:       conf.RequestContext,
 		metrics:      conf.Metrics,
 		disposer:     conf.Disposer,
 		listenConfig: conf.ListenConfig,
-		reqCtx:       conf.RequestContext,
+		mu:           &sync.RWMutex{},
+		wg:           &sync.WaitGroup{},
+		name:         conf.Name,
+		addr:         conf.Addr,
+		network:      conf.Network,
+		proto:        proto,
 	}
 
 	if s.reqCtx == nil {
@@ -473,8 +471,8 @@ func (s *ServerBase) waitShutdown(ctx context.Context) (err error) {
 
 // isStarted returns true if the server is started.
 func (s *ServerBase) isStarted() (started bool) {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	return s.started
 }

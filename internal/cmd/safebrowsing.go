@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
@@ -46,18 +47,21 @@ type safeBrowsingConfig struct {
 func (c *safeBrowsingConfig) toInternal(
 	errColl errcoll.Interface,
 	cloner *dnsmsg.Cloner,
+	cacheManager agdcache.Manager,
 	id agd.FilterListID,
 	url *urlutil.URL,
 	cacheDir string,
 	maxSize uint64,
-) (fltConf *hashprefix.FilterConfig, err error) {
+) (fltConf *hashprefix.FilterConfig) {
 	hashes, err := hashprefix.NewStorage("")
 	if err != nil {
-		return nil, err
+		// Don't expect errors here because we pass an empty string.
+		panic(err)
 	}
 
 	return &hashprefix.FilterConfig{
 		Cloner:          cloner,
+		CacheManager:    cacheManager,
 		Hashes:          hashes,
 		URL:             netutil.CloneURL(&url.URL),
 		ErrColl:         errColl,
@@ -69,7 +73,7 @@ func (c *safeBrowsingConfig) toInternal(
 		CacheTTL:        c.CacheTTL.Duration,
 		CacheSize:       c.CacheSize,
 		MaxSize:         maxSize,
-	}, nil
+	}
 }
 
 // validate returns an error if the safe browsing filter configuration is
@@ -96,23 +100,18 @@ func (c *safeBrowsingConfig) validate() (err error) {
 // setupHashPrefixFilter creates and returns a hash-prefix filter as well as
 // starts and registers its refresher in the signal handler.
 func setupHashPrefixFilter(
-	conf *safeBrowsingConfig,
-	cloner *dnsmsg.Cloner,
-	id agd.FilterListID,
-	url *urlutil.URL,
-	cachePath string,
-	maxSize uint64,
+	ctx context.Context,
+	fltConf *hashprefix.FilterConfig,
 	sigHdlr *service.SignalHandler,
-	errColl errcoll.Interface,
 ) (strg *hashprefix.Storage, flt *hashprefix.Filter, err error) {
-	fltConf, err := conf.toInternal(errColl, cloner, id, url, cachePath, maxSize)
-	if err != nil {
-		return nil, nil, fmt.Errorf("configuring hash prefix filter %s: %w", id, err)
-	}
-
 	flt, err = hashprefix.NewFilter(fltConf)
 	if err != nil {
-		return nil, nil, fmt.Errorf("creating hash prefix filter %s: %w", id, err)
+		return nil, nil, fmt.Errorf("creating hash prefix filter %s: %w", fltConf.ID, err)
+	}
+
+	err = flt.RefreshInitial(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("initializing hash prefix filter %s: %w", fltConf.ID, err)
 	}
 
 	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
@@ -122,14 +121,14 @@ func setupHashPrefixFilter(
 			return context.WithTimeout(context.Background(), fltConf.RefreshTimeout)
 		},
 		Refresher:         flt,
-		Name:              string(id),
+		Name:              string(fltConf.ID),
 		Interval:          fltConf.Staleness,
 		RefreshOnShutdown: false,
 		RandomizeStart:    false,
 	})
-	err = refr.Start(context.Background())
+	err = refr.Start(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("starting refresher for hash prefix filter %s: %w", id, err)
+		return nil, nil, fmt.Errorf("starting hash prefix filter %s refresher: %w", fltConf.ID, err)
 	}
 
 	sigHdlr.Add(refr)

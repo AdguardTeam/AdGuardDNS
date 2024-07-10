@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/debugsvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
@@ -24,8 +25,6 @@ import (
 	"github.com/caarlos0/env/v7"
 	"github.com/getsentry/sentry-go"
 )
-
-// Environment configuration
 
 // environments represents the configuration that is kept in the environment.
 type environments struct {
@@ -44,14 +43,16 @@ type environments struct {
 	SafeBrowsingURL          *urlutil.URL `env:"SAFE_BROWSING_URL,notEmpty"`
 	YoutubeSafeSearchURL     *urlutil.URL `env:"YOUTUBE_SAFE_SEARCH_URL,notEmpty"`
 
+	BillStatAPIKey    string `env:"BILLSTAT_API_KEY"`
 	ConfPath          string `env:"CONFIG_PATH" envDefault:"./config.yaml"`
 	FilterCachePath   string `env:"FILTER_CACHE_PATH" envDefault:"./filters/"`
-	ProfilesCachePath string `env:"PROFILES_CACHE_PATH" envDefault:"./profilecache.pb"`
 	GeoIPASNPath      string `env:"GEOIP_ASN_PATH" envDefault:"./asn.mmdb"`
 	GeoIPCountryPath  string `env:"GEOIP_COUNTRY_PATH" envDefault:"./country.mmdb"`
+	ProfilesAPIKey    string `env:"PROFILES_API_KEY"`
+	ProfilesCachePath string `env:"PROFILES_CACHE_PATH" envDefault:"./profilecache.pb"`
 	QueryLogPath      string `env:"QUERYLOG_PATH" envDefault:"./querylog.jsonl"`
-	SentryDSN         string `env:"SENTRY_DSN" envDefault:"stderr"`
 	SSLKeyLogFile     string `env:"SSL_KEY_LOG_FILE"`
+	SentryDSN         string `env:"SENTRY_DSN" envDefault:"stderr"`
 
 	ListenAddr net.IP `env:"LISTEN_ADDR" envDefault:"127.0.0.1"`
 
@@ -115,10 +116,15 @@ func (envs *environments) buildErrColl() (errColl errcoll.Interface, err error) 
 }
 
 // geoIP returns an GeoIP database implementation from environment.
-func (envs *environments) geoIP(c *geoIPConfig) (g *geoip.File, err error) {
+func (envs *environments) geoIP(
+	ctx context.Context,
+	c *geoIPConfig,
+	cacheManager agdcache.Manager,
+) (g *geoip.File, err error) {
 	log.Debug("using geoip files %q and %q", envs.GeoIPASNPath, envs.GeoIPCountryPath)
 
-	g, err = geoip.NewFile(&geoip.FileConfig{
+	g = geoip.NewFile(&geoip.FileConfig{
+		CacheManager:   cacheManager,
 		ASNPath:        envs.GeoIPASNPath,
 		CountryPath:    envs.GeoIPCountryPath,
 		HostCacheSize:  c.HostCacheSize,
@@ -126,8 +132,10 @@ func (envs *environments) geoIP(c *geoIPConfig) (g *geoip.File, err error) {
 		AllTopASNs:     geoip.DefaultTopASNs,
 		CountryTopASNs: geoip.DefaultCountryTopASNs,
 	})
+
+	err = g.Refresh(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating geoip: initial refresh: %w", err)
 	}
 
 	return g, nil
@@ -155,7 +163,7 @@ func (envs *environments) debugConf(dnsDB dnsdb.Interface) (conf *debugsvc.Confi
 		DNSDBAddr:    dnsDBAddr,
 		DNSDBHandler: dnsDBHdlr,
 
-		HealthAddr:     addr,
+		APIAddr:        addr,
 		PprofAddr:      addr,
 		PrometheusAddr: addr,
 	}

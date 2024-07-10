@@ -185,6 +185,7 @@ cp -f config.dist.yaml config.yaml
    ###  <a href="#run-4" id="run-4" name="run-4">Step 4: prepare the test data</a>
 
 ```sh
+echo '<html><body>General content ahead</body></html>' > ./test/block_page_general.html
 echo '<html><body>Dangerous content ahead</body></html>' > ./test/block_page_sb.html
 echo '<html><body>Adult content ahead</body></html>' > ./test/block_page_adult.html
 echo '<html><body>Error 404</body></html>' > ./test/error_404.html

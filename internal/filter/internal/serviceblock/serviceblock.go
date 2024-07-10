@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
@@ -77,6 +78,7 @@ func (f *Filter) RuleLists(
 // Refresh loads new service data from the index URL.
 func (f *Filter) Refresh(
 	ctx context.Context,
+	cacheManager agdcache.Manager,
 	cacheSize int,
 	useCache bool,
 	acceptStale bool,
@@ -94,7 +96,7 @@ func (f *Filter) Refresh(
 		return err
 	}
 
-	services, err := resp.toInternal(ctx, f.errColl, cacheSize, useCache)
+	services, err := resp.toInternal(ctx, f.errColl, cacheManager, cacheSize, useCache)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return err
