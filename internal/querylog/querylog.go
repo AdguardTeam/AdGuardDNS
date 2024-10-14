@@ -6,8 +6,6 @@ import (
 	"context"
 )
 
-// Common Constants, Functions, And Types
-
 // Interface is the query log interface.  All methods must be safe for
 // concurrent use.
 type Interface interface {

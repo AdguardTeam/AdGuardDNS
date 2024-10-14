@@ -5,7 +5,6 @@ import (
 	"math"
 	"net/netip"
 	"testing"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
@@ -18,12 +17,6 @@ import (
 func TestMain(m *testing.M) {
 	testutil.DiscardLogOutput(m)
 }
-
-// Common filtered response TTL constants.
-const (
-	testFltRespTTL    = 10 * time.Second
-	testFltRespTTLSec = uint32(testFltRespTTL / time.Second)
-)
 
 // Common domain names for tests.
 const (

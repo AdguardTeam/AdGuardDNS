@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"path/filepath"
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
@@ -16,8 +17,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	// blockPageFileName is the name of test block page content file.
+	blockPageFileName = "block_page.html"
+
+	// blockPageContent is the content of test block page file.
+	blockPageContent = "<html><body>Block page</body></html>\n"
+)
+
 func TestBlockPageServers(t *testing.T) {
-	content := []byte("blocking page content\n")
 	notFoundContent := []byte("404 page not found\n")
 	robotsContent := []byte(agdhttp.RobotsDisallowAll)
 
@@ -29,23 +37,23 @@ func TestBlockPageServers(t *testing.T) {
 
 	// TODO(a.garipov): Do not use hardcoded ports.
 	testCases := []struct {
-		updateConfig func(c *websvc.Config, bps *websvc.BlockPageServer)
+		updateConfig func(c *websvc.Config, bps *websvc.BlockPageServerConfig)
 		addr         netip.AddrPort
 		name         string
 	}{{
-		updateConfig: func(c *websvc.Config, bps *websvc.BlockPageServer) {
+		updateConfig: func(c *websvc.Config, bps *websvc.BlockPageServerConfig) {
 			c.AdultBlocking = bps
 		},
 		addr: netip.MustParseAddrPort("127.0.0.1:3000"),
 		name: "adult_blocking",
 	}, {
-		updateConfig: func(c *websvc.Config, bps *websvc.BlockPageServer) {
+		updateConfig: func(c *websvc.Config, bps *websvc.BlockPageServerConfig) {
 			c.GeneralBlocking = bps
 		},
 		addr: netip.MustParseAddrPort("127.0.0.1:3001"),
 		name: "general_blocking",
 	}, {
-		updateConfig: func(c *websvc.Config, bps *websvc.BlockPageServer) {
+		updateConfig: func(c *websvc.Config, bps *websvc.BlockPageServerConfig) {
 			c.SafeBrowsing = bps
 		},
 		addr: netip.MustParseAddrPort("127.0.0.1:3002"),
@@ -56,8 +64,8 @@ func TestBlockPageServers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			bps := &websvc.BlockPageServer{
-				Content: content,
+			bps := &websvc.BlockPageServerConfig{
+				ContentFilePath: filepath.Join("testdata", blockPageFileName),
 				Bind: []*websvc.BindData{{
 					TLS:     nil,
 					Address: tc.addr,
@@ -71,7 +79,7 @@ func TestBlockPageServers(t *testing.T) {
 
 			startService(t, conf)
 
-			assertContent(t, tc.addr, "/", contentStatus, content)
+			assertContent(t, tc.addr, "/", contentStatus, []byte(blockPageContent))
 			assertContent(t, tc.addr, "/favicon.ico", faviconStatus, notFoundContent)
 			assertContent(t, tc.addr, "/robots.txt", robotsStatus, robotsContent)
 		})
@@ -93,10 +101,10 @@ func TestBlockPageServers_noBlockPages(t *testing.T) {
 }
 
 func TestBlockPageServers_gzip(t *testing.T) {
+	// TODO(a.garipov): Do not use hardcoded ports.
 	addr := netip.MustParseAddrPort("127.0.0.1:3001")
-	content := []byte("generalBlockingContent")
-	bps := &websvc.BlockPageServer{
-		Content: content,
+	bps := &websvc.BlockPageServerConfig{
+		ContentFilePath: filepath.Join("testdata", blockPageFileName),
 		Bind: []*websvc.BindData{{
 			TLS:     nil,
 			Address: addr,
@@ -139,7 +147,7 @@ func TestBlockPageServers_gzip(t *testing.T) {
 	body, err := io.ReadAll(zr)
 	require.NoError(t, err)
 
-	assert.Equal(t, content, body)
+	assert.Equal(t, []byte(blockPageContent), body)
 	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 	assert.Equal(t, agdhttp.UserAgent(), resp.Header.Get(httphdr.Server))
 	assert.Equal(t, agdhttp.HdrValGzip, resp.Header.Get(httphdr.ContentEncoding))

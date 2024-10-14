@@ -1,28 +1,19 @@
 package cmd
 
 import (
-	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
-	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
-	"github.com/AdguardTeam/golibs/service"
 	"github.com/prometheus/client_golang/prometheus"
 )
-
-// TLS Configuration And Utilities
 
 // tlsConfig are the TLS settings of a DNS server, if any.
 type tlsConfig struct {
@@ -36,13 +27,16 @@ type tlsConfig struct {
 	// DeviceIDWildcards are the wildcard domains that are used to infer device
 	// IDs from the clients' server names.
 	//
-	// TODO(a.garipov): Validate the actual DNS Names in the certificates
+	// TODO(a.garipov):  Validate the actual DNS Names in the certificates
 	// against these?
+	//
+	// TODO(a.garipov):  Replace with just domain names, since the "*." isn't
+	// really necessary at all.
 	DeviceIDWildcards []string `yaml:"device_id_wildcards"`
 }
 
-// toInternal converts c to the TLS configuration for a DNS server.  c is
-// assumed to be valid.
+// toInternal converts c to the TLS configuration for a DNS server.  c must be
+// valid.
 func (c *tlsConfig) toInternal() (conf *agd.TLS, err error) {
 	if c == nil {
 		return nil, nil
@@ -53,12 +47,15 @@ func (c *tlsConfig) toInternal() (conf *agd.TLS, err error) {
 		return nil, fmt.Errorf("certificates: %w", err)
 	}
 
+	var deviceDomains []string
+	for _, w := range c.DeviceIDWildcards {
+		deviceDomains = append(deviceDomains, strings.TrimPrefix(w, "*."))
+	}
+
 	return &agd.TLS{
-		Conf: tlsConf,
-		// TODO(e.burkov):  Consider trimming the asterisk since the values are
-		// only used in this way.
-		DeviceIDWildcards: slices.Clone(c.DeviceIDWildcards),
-		SessionKeys:       c.SessionKeys,
+		Conf:          tlsConf,
+		DeviceDomains: deviceDomains,
+		SessionKeys:   c.SessionKeys,
 	}, nil
 }
 
@@ -78,7 +75,7 @@ func (c *tlsConfig) validate(needsTLS bool) (err error) {
 	}
 
 	if len(c.Certificates) == 0 {
-		return errors.Error("no certificates")
+		return fmt.Errorf("certificates: %w", errors.ErrEmptyValue)
 	}
 
 	err = c.Certificates.validate()
@@ -125,8 +122,7 @@ type tlsConfigCert struct {
 // no nil items.
 type tlsConfigCerts []*tlsConfigCert
 
-// toInternal converts certs to a TLS configuration.  certs are assumed to be
-// valid.
+// toInternal converts certs to a TLS configuration.  certs must be valid.
 func (certs tlsConfigCerts) toInternal() (conf *tls.Config, err error) {
 	if len(certs) == 0 {
 		return nil, nil
@@ -166,124 +162,23 @@ func (certs tlsConfigCerts) toInternal() (conf *tls.Config, err error) {
 	}, nil
 }
 
-// validate returns an error if the certificates are invalid.
+// type check
+var _ validator = tlsConfigCerts(nil)
+
+// validate implements the [validator] interface for tlsConfigCerts.
 func (certs tlsConfigCerts) validate() (err error) {
 	for i, c := range certs {
 		switch {
 		case c == nil:
-			return fmt.Errorf("at index %d: no certificate object", i)
+			return fmt.Errorf("at index %d: %w", i, errors.ErrNoValue)
 		case c.Certificate == "":
-			return fmt.Errorf("at index %d: no certificate", i)
+			return fmt.Errorf("at index %d: certificate: %w", i, errors.ErrEmptyValue)
 		case c.Key == "":
-			return fmt.Errorf("at index %d: no key", i)
+			return fmt.Errorf("at index %d: key: %w", i, errors.ErrEmptyValue)
 		}
 	}
 
 	return nil
-}
-
-// TLS Session Ticket Key Rotator
-
-// ticketRotator is a refresh worker that rereads and resets TLS session
-// tickets.  It should be initially refreshed before use.
-type ticketRotator struct {
-	errColl errcoll.Interface
-	confs   map[*tls.Config][]string
-}
-
-// newTicketRotator creates a new TLS session ticket rotator that rotates
-// tickets for the TLS configurations of all servers in grps.
-//
-// grps is assumed to be valid.
-func newTicketRotator(
-	errColl errcoll.Interface,
-	grps []*agd.ServerGroup,
-) (tr *ticketRotator) {
-	confs := map[*tls.Config][]string{}
-
-	for _, g := range grps {
-		t := g.TLS
-		if t == nil || len(t.SessionKeys) == 0 {
-			continue
-		}
-
-		for _, srv := range g.Servers {
-			if srv.TLS != nil {
-				confs[srv.TLS] = t.SessionKeys
-			}
-		}
-	}
-
-	return &ticketRotator{
-		errColl: errColl,
-		confs:   confs,
-	}
-}
-
-// sessTickLen is the length of a single TLS session ticket key in bytes.
-//
-// NOTE: Unlike Nginx, Go's crypto/tls doesn't use the random bytes from the
-// session ticket keys as-is, but instead hashes these bytes and uses the first
-// 48 bytes of the hashed data as the key name, the AES key, and the HMAC key.
-const sessTickLen = 32
-
-// type check
-var _ agdservice.Refresher = (*ticketRotator)(nil)
-
-// Refresh implements the [agdservice.Refresher] interface for *ticketRotator.
-func (r *ticketRotator) Refresh(ctx context.Context) (err error) {
-	// TODO(a.garipov):  Use slog.
-	log.Debug("tickrot_refresh: started")
-	defer log.Debug("tickrot_refresh: finished")
-
-	defer func() {
-		if err != nil {
-			errcoll.Collectf(ctx, r.errColl, "tickrot_refresh: %w", err)
-		}
-	}()
-
-	for conf, files := range r.confs {
-		keys := make([][sessTickLen]byte, 0, len(files))
-
-		for _, fileName := range files {
-			var key [sessTickLen]byte
-			key, err = readSessionTicketKey(fileName)
-			if err != nil {
-				metrics.TLSSessionTicketsRotateStatus.Set(0)
-
-				return fmt.Errorf("session ticket for srv %s: %w", conf.ServerName, err)
-			}
-
-			keys = append(keys, key)
-		}
-
-		if len(keys) == 0 {
-			return fmt.Errorf("no session tickets for srv %s in %q", conf.ServerName, files)
-		}
-
-		conf.SetSessionTicketKeys(keys)
-	}
-
-	metrics.TLSSessionTicketsRotateStatus.Set(1)
-	metrics.TLSSessionTicketsRotateTime.SetToCurrentTime()
-
-	return nil
-}
-
-// readSessionTicketKey reads a single TLS session ticket key from a file.
-func readSessionTicketKey(fn string) (key [sessTickLen]byte, err error) {
-	// #nosec G304 -- Trust the file paths that are given to us in the
-	// configuration file.
-	b, err := os.ReadFile(fn)
-	if err != nil {
-		return key, fmt.Errorf("reading session ticket: %w", err)
-	}
-
-	if len(b) < sessTickLen {
-		return key, fmt.Errorf("session ticket in %s: bad len %d, want %d", fn, len(b), sessTickLen)
-	}
-
-	return [sessTickLen]byte(b), nil
 }
 
 // enableTLSKeyLogging enables TLS key logging (use for debug purposes only).
@@ -303,39 +198,6 @@ func enableTLSKeyLogging(grps []*agd.ServerGroup, keyLogFileName string) (err er
 			}
 		}
 	}
-
-	return nil
-}
-
-// setupTicketRotator creates and returns a ticket rotator as well as starts and
-// registers its refresher in the signal handler.
-func setupTicketRotator(
-	srvGrps []*agd.ServerGroup,
-	sigHdlr *service.SignalHandler,
-	errColl errcoll.Interface,
-) (err error) {
-	tickRot := newTicketRotator(errColl, srvGrps)
-
-	err = tickRot.Refresh(context.Background())
-	if err != nil {
-		return fmt.Errorf("setting up ticket rotator: initial session ticket refresh: %w", err)
-	}
-
-	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
-		Context:   ctxWithDefaultTimeout,
-		Refresher: tickRot,
-		Name:      "tickrot",
-		// TODO(ameshkov): Consider making configurable.
-		Interval:          1 * time.Minute,
-		RefreshOnShutdown: false,
-		RandomizeStart:    false,
-	})
-	err = refr.Start(context.Background())
-	if err != nil {
-		return fmt.Errorf("starting ticket rotator refresh: %w", err)
-	}
-
-	sigHdlr.Add(refr)
 
 	return nil
 }

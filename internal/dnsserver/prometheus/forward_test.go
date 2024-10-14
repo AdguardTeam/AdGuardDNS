@@ -9,6 +9,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 )
@@ -21,11 +22,12 @@ func TestForwardMetricsListener_integration_request(t *testing.T) {
 
 	// Initialize a new forward.Handler and set the metrics listener.
 	handler := forward.NewHandler(&forward.HandlerConfig{
+		Logger: slogutil.NewDiscardLogger(),
 		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
 			Network: forward.NetworkAny,
 			Address: netip.MustParseAddrPort(addr),
 		}},
-		MetricsListener: prometheus.NewForwardMetricsListener(0),
+		MetricsListener: prometheus.NewForwardMetricsListener(testNamespace, 0),
 	})
 
 	// Prepare a test DNS message and call the handler's ServeDNS function.

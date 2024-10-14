@@ -2,14 +2,17 @@ package internal_test
 
 import (
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -74,7 +77,7 @@ func TestRefreshable_Refresh(t *testing.T) {
 		wantErrMsg:   "",
 		srvText:      "",
 		staleness:    filtertest.Staleness,
-		srvCode:      0,
+		srvCode:      http.StatusOK,
 		acceptStale:  true,
 		expectReq:    false,
 		useCacheFile: true,
@@ -94,7 +97,7 @@ func TestRefreshable_Refresh(t *testing.T) {
 		wantErrMsg:   "",
 		srvText:      "",
 		staleness:    -1 * time.Hour,
-		srvCode:      0,
+		srvCode:      http.StatusOK,
 		acceptStale:  true,
 		expectReq:    false,
 		useCacheFile: true,
@@ -107,6 +110,7 @@ func TestRefreshable_Refresh(t *testing.T) {
 			cachePath := prepareCachePath(t, realCachePath, tc.useCacheFile)
 
 			c := &internal.RefreshableConfig{
+				Logger:    slogutil.NewDiscardLogger(),
 				URL:       srvURL,
 				ID:        refrID,
 				CachePath: cachePath,
@@ -115,7 +119,8 @@ func TestRefreshable_Refresh(t *testing.T) {
 				MaxSize:   filtertest.FilterMaxSize,
 			}
 
-			f := internal.NewRefreshable(c)
+			f, err := internal.NewRefreshable(c)
+			require.NoError(t, err)
 
 			ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 			gotText, err := f.Refresh(ctx, tc.acceptStale)
@@ -158,6 +163,7 @@ func TestRefreshable_Refresh_properStaleness(t *testing.T) {
 	cachePath, addr := filtertest.PrepareRefreshable(t, reqCh, filtertest.BlockRule, http.StatusOK)
 
 	c := &internal.RefreshableConfig{
+		Logger:    slogutil.NewDiscardLogger(),
 		URL:       addr,
 		ID:        refrID,
 		CachePath: cachePath,
@@ -166,9 +172,9 @@ func TestRefreshable_Refresh_properStaleness(t *testing.T) {
 		MaxSize:   filtertest.FilterMaxSize,
 	}
 
-	f := internal.NewRefreshable(c)
+	f, err := internal.NewRefreshable(c)
+	require.NoError(t, err)
 
-	var err error
 	var now time.Time
 	ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 	go func() {
@@ -200,4 +206,37 @@ func TestRefreshable_Refresh_properStaleness(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.InDelta(t, fi.ModTime().Sub(now), 0, float64(time.Millisecond))
+}
+
+func TestRefreshable_Refresh_fileURL(t *testing.T) {
+	dir := t.TempDir()
+	fltFile, err := os.CreateTemp(dir, filepath.Base(t.Name()))
+	require.NoError(t, err)
+
+	_, err = fltFile.WriteString(testFileText)
+	require.NoError(t, err)
+
+	require.NoError(t, fltFile.Close())
+
+	c := &internal.RefreshableConfig{
+		Logger: slogutil.NewDiscardLogger(),
+		URL: &url.URL{
+			Scheme: agdhttp.SchemeFile,
+			Path:   fltFile.Name(),
+		},
+		ID:        refrID,
+		CachePath: fltFile.Name() + ".cache",
+		Staleness: filtertest.Staleness,
+		Timeout:   filtertest.Timeout,
+		MaxSize:   filtertest.FilterMaxSize,
+	}
+
+	f, err := internal.NewRefreshable(c)
+	require.NoError(t, err)
+
+	ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
+	text, err := f.Refresh(ctx, true)
+	require.NoError(t, err)
+
+	assert.Equal(t, testFileText, text)
 }

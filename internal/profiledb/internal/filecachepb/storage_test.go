@@ -9,6 +9,8 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecachepb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/profiledbtest"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,7 +18,7 @@ import (
 func TestStorage(t *testing.T) {
 	prof, dev := profiledbtest.NewProfile(t)
 	cachePath := filepath.Join(t.TempDir(), "profiles.pb")
-	s := filecachepb.New(cachePath)
+	s := filecachepb.New(slogutil.NewDiscardLogger(), cachePath, profiledbtest.RespSzEst)
 	require.NotNil(t, s)
 
 	fc := &internal.FileCache{
@@ -26,10 +28,11 @@ func TestStorage(t *testing.T) {
 		Version:  internal.FileCacheVersion,
 	}
 
-	err := s.Store(fc)
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	err := s.Store(ctx, fc)
 	require.NoError(t, err)
 
-	gotFC, err := s.Load()
+	gotFC, err := s.Load(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, gotFC)
 	require.NotEmpty(t, *gotFC)
@@ -39,10 +42,11 @@ func TestStorage(t *testing.T) {
 
 func TestStorage_Load_noFile(t *testing.T) {
 	cachePath := filepath.Join(t.TempDir(), "profiles.pb")
-	s := filecachepb.New(cachePath)
+	s := filecachepb.New(slogutil.NewDiscardLogger(), cachePath, profiledbtest.RespSzEst)
 	require.NotNil(t, s)
 
-	fc, err := s.Load()
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	fc, err := s.Load(ctx)
 	assert.NoError(t, err)
 	assert.Nil(t, fc)
 }

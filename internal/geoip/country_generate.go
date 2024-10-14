@@ -3,7 +3,9 @@
 package main
 
 import (
+	"context"
 	"encoding/csv"
+	"log/slog"
 	"net/http"
 	"os"
 	"slices"
@@ -13,10 +15,15 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/golibs/httphdr"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/osutil"
 )
 
 func main() {
+	ctx := context.Background()
+	logger := slogutil.New(nil)
+	defer slogutil.RecoverAndExit(ctx, logger, osutil.ExitCodeFailure)
+
 	c := &http.Client{
 		Timeout: 10 * time.Second,
 	}
@@ -28,11 +35,11 @@ func main() {
 
 	resp, err := c.Do(req)
 	check(err)
-	defer log.OnCloserError(resp.Body, log.ERROR)
+	defer slogutil.CloseAndLog(ctx, logger, resp.Body, slog.LevelError)
 
 	out, err := os.OpenFile("./country.go", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o664)
 	check(err)
-	defer log.OnCloserError(out, log.ERROR)
+	defer slogutil.CloseAndLog(ctx, logger, out, slog.LevelError)
 
 	r := csv.NewReader(resp.Body)
 	rows, err := r.ReadAll()

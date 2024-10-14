@@ -14,14 +14,11 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/consul"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
 
 // testTimeout is the common timeout for tests and contexts.
 const testTimeout = 1 * time.Second
@@ -41,7 +38,7 @@ func handleWithURL(t *testing.T, h http.Handler) (u *url.URL) {
 }
 
 // TODO(e.burkov):  Enhance with actual IP networks.
-func TestNewAllowlistRefresher(t *testing.T) {
+func TestNewAllowlistUpdater(t *testing.T) {
 	al := ratelimit.NewDynamicAllowlist([]netip.Prefix{}, []netip.Prefix{})
 
 	testIPs := []netip.Addr{
@@ -81,16 +78,16 @@ func TestNewAllowlistRefresher(t *testing.T) {
 		}))
 
 		t.Run(tc.name, func(t *testing.T) {
-			errColl := &agdtest.ErrorCollector{
-				OnCollect: func(_ context.Context, err error) {
-					panic("not implemented")
-				},
-			}
-
-			alr := consul.NewAllowlistRefresher(al, u, errColl)
+			upd := consul.NewAllowlistUpdater(&consul.AllowlistUpdaterConfig{
+				Logger:    slogutil.NewDiscardLogger(),
+				Allowlist: al,
+				ConsulURL: u,
+				ErrColl:   agdtest.NewErrorCollector(),
+				Timeout:   testTimeout,
+			})
 
 			ctx := testutil.ContextWithTimeout(t, testTimeout)
-			err := alr.Refresh(ctx)
+			err := upd.Refresh(ctx)
 			require.NoError(t, err)
 
 			for _, ip := range tc.wantAllow {
@@ -126,10 +123,16 @@ func TestNewAllowlistRefresher(t *testing.T) {
 			},
 		}
 
-		alr := consul.NewAllowlistRefresher(al, u, errColl)
+		upd := consul.NewAllowlistUpdater(&consul.AllowlistUpdaterConfig{
+			Logger:    slogutil.NewDiscardLogger(),
+			Allowlist: al,
+			ConsulURL: u,
+			ErrColl:   errColl,
+			Timeout:   testTimeout,
+		})
 
 		ctx := testutil.ContextWithTimeout(t, testTimeout)
-		err := alr.Refresh(ctx)
+		err := upd.Refresh(ctx)
 		require.ErrorAs(t, err, &wantErr)
 
 		assert.Equal(t, wantErr.Got, status)
@@ -137,7 +140,7 @@ func TestNewAllowlistRefresher(t *testing.T) {
 	})
 }
 
-func TestAllowlistRefresher_Refresh_deadline(t *testing.T) {
+func TestAllowlistUpdater_Refresh_deadline(t *testing.T) {
 	al := ratelimit.NewDynamicAllowlist([]netip.Prefix{}, []netip.Prefix{})
 	u := handleWithURL(t, http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
 		pt := testutil.PanicT{}
@@ -153,12 +156,18 @@ func TestAllowlistRefresher_Refresh_deadline(t *testing.T) {
 		},
 	}
 
-	alr := consul.NewAllowlistRefresher(al, u, errColl)
+	upd := consul.NewAllowlistUpdater(&consul.AllowlistUpdaterConfig{
+		Logger:    slogutil.NewDiscardLogger(),
+		Allowlist: al,
+		ConsulURL: u,
+		ErrColl:   errColl,
+		Timeout:   testTimeout,
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := alr.Refresh(ctx)
+	err := upd.Refresh(ctx)
 	assert.ErrorIs(t, err, context.Canceled)
 	assert.ErrorIs(t, gotCollErr, context.Canceled)
 }

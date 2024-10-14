@@ -5,21 +5,28 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"math"
 	"net/netip"
 	"os"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
+	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/mathutil"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"golang.org/x/exp/rand"
 )
 
-// FileSystemConfig is the configuration of the file system query log.
+// FileSystemConfig is the configuration of the file system query log.  All
+// fields must not be empty.
 type FileSystemConfig struct {
+	// Logger is used for debug logging.
+	Logger *slog.Logger
+
 	// Path is the path to the log file.
 	Path string
 
@@ -34,6 +41,7 @@ func NewFileSystem(c *FileSystemConfig) (l *FileSystem) {
 	rng.Seed(c.RandSeed)
 
 	return &FileSystem{
+		logger: c.Logger,
 		bufferPool: syncutil.NewPool(func() (v *entryBuffer) {
 			return &entryBuffer{
 				ent: &jsonlEntry{},
@@ -54,6 +62,9 @@ type entryBuffer struct {
 
 // FileSystem is the file system implementation of the AdGuard DNS query log.
 type FileSystem struct {
+	// logger is used for debug logging.
+	logger *slog.Logger
+
 	// bufferPool is a pool with [*entryBuffer] instances used to avoid extra
 	// allocations when serializing query log items to JSON and writing them.
 	bufferPool *syncutil.Pool[entryBuffer]
@@ -70,10 +81,16 @@ type FileSystem struct {
 var _ Interface = (*FileSystem)(nil)
 
 // Write implements the Interface interface for *FileSystem.
-func (l *FileSystem) Write(_ context.Context, e *Entry) (err error) {
-	optlog.Debug1("writing file logs for request %q", e.RequestID)
+func (l *FileSystem) Write(ctx context.Context, e *Entry) (err error) {
+	optslog.Trace1(ctx, l.logger, "writing file logs", "req_id", e.RequestID)
 	defer func() {
-		optlog.Debug2("finished writing file logs for request %q, errors: %v", e.RequestID, err)
+		optslog.Trace2(
+			ctx,
+			l.logger,
+			"writing file logs",
+			"req_id", e.RequestID,
+			slogutil.KeyError, err,
+		)
 	}()
 
 	startTime := time.Now()
@@ -103,14 +120,15 @@ func (l *FileSystem) Write(_ context.Context, e *Entry) (err error) {
 		FilterRule:      r,
 		Timestamp:       e.Time.UnixMilli(),
 		ClientASN:       e.ClientASN,
-		Elapsed:         e.Elapsed,
+		Elapsed:         l.convertElapsed(ctx, e.Elapsed),
 		RequestType:     e.RequestType,
-		Random:          uint16(l.rng.Uint32()),
-		DNSSEC:          mathutil.BoolToNumber[uint8](e.DNSSEC),
-		Protocol:        e.Protocol,
-		ResultCode:      c,
 		ResponseCode:    e.ResponseCode,
-		RemoteIP:        remoteIP,
+		// #nosec G115 -- The overflow is safe, since this is a random number.
+		Random:     uint16(l.rng.Uint32()),
+		DNSSEC:     mathutil.BoolToNumber[uint8](e.DNSSEC),
+		Protocol:   e.Protocol,
+		ResultCode: c,
+		RemoteIP:   remoteIP,
 	}
 
 	var f *os.File
@@ -136,4 +154,24 @@ func (l *FileSystem) Write(_ context.Context, e *Entry) (err error) {
 	metrics.QueryLogItemSize.Observe(float64(written))
 
 	return nil
+}
+
+// convertElapsed converts the elapsed duration and writes warnings to the log
+// if the value is outside of the allowed limits.
+func (l *FileSystem) convertElapsed(ctx context.Context, elapsed time.Duration) (elapsedMs uint32) {
+	elapsedMs64 := elapsed.Milliseconds()
+	if elapsedMs64 < 0 {
+		l.logger.WarnContext(ctx, "elapsed below zero; setting to zero")
+
+		return 0
+	}
+
+	const maxElapsedMs = math.MaxUint32
+	if elapsedMs64 > maxElapsedMs {
+		l.logger.WarnContext(ctx, "elapsed above max uint32; setting to max uint32")
+
+		return maxElapsedMs
+	}
+
+	return uint32(elapsedMs64)
 }

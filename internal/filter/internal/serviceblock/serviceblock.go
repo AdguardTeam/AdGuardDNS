@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 
@@ -16,13 +17,13 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
-	"github.com/AdguardTeam/golibs/log"
 )
 
 // Filter is a service-blocking filter that uses rule lists that it gets from an
 // index.
 type Filter struct {
+	logger *slog.Logger
+
 	// refr is the helper entity containing the refreshable part of the index
 	// refresh and caching logic.
 	refr *internal.Refreshable
@@ -41,13 +42,19 @@ type Filter struct {
 type serviceRuleLists = map[agd.BlockedServiceID]*rulelist.Immutable
 
 // New returns a fully initialized service blocker.
-func New(refr *internal.Refreshable, errColl errcoll.Interface) (f *Filter) {
+func New(c *internal.RefreshableConfig, errColl errcoll.Interface) (f *Filter, err error) {
+	refr, err := internal.NewRefreshable(c)
+	if err != nil {
+		return nil, fmt.Errorf("creating refreshable for service index: %w", err)
+	}
+
 	return &Filter{
+		logger:   c.Logger,
 		refr:     refr,
 		mu:       &sync.RWMutex{},
 		services: serviceRuleLists{},
 		errColl:  errColl,
-	}
+	}, nil
 }
 
 // RuleLists returns the rule-list filters for the given blocked service IDs.
@@ -66,7 +73,7 @@ func (f *Filter) RuleLists(
 	for _, id := range ids {
 		rl := f.services[id]
 		if rl == nil {
-			log.Info("service filter: warning: no service with id %s", id)
+			f.logger.WarnContext(ctx, "no service with id", "id", id)
 		} else {
 			rls = append(rls, rl)
 		}
@@ -96,7 +103,7 @@ func (f *Filter) Refresh(
 		return err
 	}
 
-	services, err := resp.toInternal(ctx, f.errColl, cacheManager, cacheSize, useCache)
+	services, err := resp.toInternal(ctx, f.logger, f.errColl, cacheManager, cacheSize, useCache)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return err
@@ -132,7 +139,7 @@ func (f *Filter) loadIndex(ctx context.Context, acceptStale bool) (resp *indexRe
 		return nil, fmt.Errorf("decoding index: %w", err)
 	}
 
-	optlog.Debug1("service filter: loaded index with %d blocked services", len(resp.BlockedServices))
+	f.logger.DebugContext(ctx, "loaded index", "num_svc", len(resp.BlockedServices))
 
 	return resp, nil
 }

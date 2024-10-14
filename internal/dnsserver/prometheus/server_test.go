@@ -25,7 +25,7 @@ func TestServerMetricsListener_integration_requestLifetime(t *testing.T) {
 			Name:    "test",
 			Addr:    "127.0.0.1:0",
 			Handler: dnsservertest.DefaultHandler(),
-			Metrics: prometheus.NewServerMetricsListener(),
+			Metrics: prometheus.NewServerMetricsListener(testNamespace),
 		},
 	}
 	srv := dnsserver.NewServerDNS(conf)
@@ -67,7 +67,7 @@ func TestServerMetricsListener_integration_requestLifetime(t *testing.T) {
 }
 
 func BenchmarkServerMetricsListener(b *testing.B) {
-	l := prometheus.NewServerMetricsListener()
+	l := prometheus.NewServerMetricsListener(testNamespace)
 
 	ctx := dnsserver.ContextWithServerInfo(context.Background(), testServerInfo)
 	ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{

@@ -32,6 +32,7 @@ func TestService_ServeHTTP(t *testing.T) {
 
 	c := &websvc.Config{
 		RootRedirectURL: rootRedirectURL,
+		StaticContent:   http.NotFoundHandler(),
 		DNSCheck:        mockHandler,
 	}
 

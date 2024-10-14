@@ -8,6 +8,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,8 +56,8 @@ func newRefrConfig(
 		Context: func() (ctx context.Context, cancel context.CancelFunc) {
 			return context.WithTimeout(context.Background(), testTimeout)
 		},
+		Logger:            slogutil.NewDiscardLogger(),
 		Refresher:         refr,
-		Name:              name,
 		Interval:          ivl,
 		RefreshOnShutdown: refrOnShutDown,
 		RandomizeStart:    false,

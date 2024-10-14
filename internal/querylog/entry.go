@@ -46,25 +46,24 @@ type Entry struct {
 	// TODO(a.garipov): Remove once not necessary anymore.
 	RequestID agd.RequestID
 
+	// Elapsed is the time passed since the beginning of the request processing.
+	Elapsed time.Duration
+
 	// ClientASN is the detected autonomous system number of the client's IP
 	// address, if any.
 	ClientASN geoip.ASN
 
-	// Elapsed is the time passed since the beginning of the request processing
-	// in milliseconds.
-	Elapsed uint16
-
 	// RequestType is the type of the resource record of the query.
 	RequestType dnsmsg.RRType
+
+	// ResponseCode is the response code sent to the client.
+	ResponseCode dnsmsg.RCode
 
 	// Protocol is the DNS protocol used.
 	Protocol agd.Protocol
 
 	// DNSSEC is set to true if the response was validated with DNSSEC.
 	DNSSEC bool
-
-	// ResponseCode is the response code sent to the client.
-	ResponseCode dnsmsg.RCode
 }
 
 // resultCode is the code that identifies the code of actions performed for
@@ -203,12 +202,17 @@ type jsonlEntry struct {
 	// in milliseconds.
 	//
 	// The short name "e" stands for "elapsed".
-	Elapsed uint16 `json:"e"`
+	Elapsed uint32 `json:"e"`
 
 	// RequestType is the type of the resource record of the query.
 	//
 	// The short name "q" stands for "question".
 	RequestType dnsmsg.RRType `json:"q"`
+
+	// ResponseCode is the response code sent to the client.
+	//
+	// The short name "r" stands for "response".
+	ResponseCode dnsmsg.RCode `json:"r"`
 
 	// Random is a random number added to an entry for easier deduplication.
 	//
@@ -231,9 +235,4 @@ type jsonlEntry struct {
 	//
 	// The short name "p" stands for "protocol".
 	Protocol agd.Protocol `json:"p"`
-
-	// ResponseCode is the response code sent to the client.
-	//
-	// The short name "r" stands for "response".
-	ResponseCode dnsmsg.RCode `json:"r"`
 }

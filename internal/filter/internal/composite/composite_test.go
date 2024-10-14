@@ -16,15 +16,12 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
 
 // Common filter list IDs for tests.
 const (
@@ -64,7 +61,7 @@ func newReqData(tb testing.TB) (ctx context.Context, req *dns.Msg, ri *agd.Reque
 	ctx = testutil.ContextWithTimeout(tb, filtertest.Timeout)
 	req = dnsservertest.NewReq(filtertest.ReqFQDN, dns.TypeA, dns.ClassINET)
 	ri = &agd.RequestInfo{
-		Messages: agdtest.NewConstructor(),
+		Messages: agdtest.NewConstructor(tb),
 		RemoteIP: filtertest.RemoteIP,
 		Host:     filtertest.ReqHost,
 		QType:    dns.TypeA,
@@ -120,8 +117,11 @@ func TestFilter_FilterRequest_customWithClientName(t *testing.T) {
 
 	assert.Nil(t, res)
 
-	ri.Device = &agd.Device{
-		Name: devName,
+	ri.DeviceResult = &agd.DeviceResultOK{
+		Device: &agd.Device{
+			Name: devName,
+		},
+		Profile: &agd.Profile{},
 	}
 
 	res, err = f.FilterRequest(ctx, req, ri)
@@ -343,7 +343,7 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 
 			ctx := context.Background()
 			ri := &agd.RequestInfo{
-				Messages: agdtest.NewConstructor(),
+				Messages: agdtest.NewConstructor(t),
 				Host:     filtertest.ReqHost,
 				QType:    tc.req.Question[0].Qtype,
 			}
@@ -418,7 +418,7 @@ func TestFilter_FilterRequest_hostsRules(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ri := &agd.RequestInfo{
-				Messages: agdtest.NewConstructor(),
+				Messages: agdtest.NewConstructor(t),
 				Host:     tc.reqHost,
 				QType:    tc.reqType,
 			}
@@ -452,9 +452,10 @@ func TestFilter_FilterRequest_safeSearch(t *testing.T) {
 
 	const fltListID = agd.FilterListIDGeneralSafeSearch
 
-	gen := safesearch.New(
+	gen, err := safesearch.New(
 		&safesearch.Config{
 			Refreshable: &internal.RefreshableConfig{
+				Logger:    slogutil.NewDiscardLogger(),
 				URL:       srvURL,
 				ID:        fltListID,
 				CachePath: cachePath,
@@ -466,8 +467,9 @@ func TestFilter_FilterRequest_safeSearch(t *testing.T) {
 		},
 		rulelist.NewResultCache(100, true),
 	)
+	require.NoError(t, err)
 
-	err := gen.Refresh(testutil.ContextWithTimeout(t, filtertest.Timeout), false)
+	err = gen.Refresh(testutil.ContextWithTimeout(t, filtertest.Timeout), false)
 	require.NoError(t, err)
 
 	f := composite.New(&composite.Config{

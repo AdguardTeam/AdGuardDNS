@@ -4,7 +4,6 @@ package mainmw
 
 import (
 	"context"
-	"strconv"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
@@ -15,7 +14,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
@@ -29,6 +27,7 @@ type Middleware struct {
 	messages   *dnsmsg.Constructor
 	cloner     *dnsmsg.Cloner
 	fltCtxPool *syncutil.Pool[filteringContext]
+	metrics    Metrics
 	billStat   billstat.Recorder
 	errColl    errcoll.Interface
 	fltStrg    filter.Storage
@@ -40,6 +39,9 @@ type Middleware struct {
 // Config is the configuration structure for the main middleware.  All fields
 // must be non-nil.
 type Config struct {
+	// Metrics is used to collect the statistics.
+	Metrics Metrics
+
 	// Messages is the message constructor used to create blocked and other
 	// messages for this middleware.
 	Messages *dnsmsg.Constructor
@@ -75,6 +77,7 @@ type Config struct {
 // New returns a new main middleware.  c must not be nil.
 func New(c *Config) (mw *Middleware) {
 	return &Middleware{
+		metrics:  c.Metrics,
 		messages: c.Messages,
 		cloner:   c.Cloner,
 		fltCtxPool: syncutil.NewPool(func() (v *filteringContext) {
@@ -126,7 +129,7 @@ func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
 		fctx.originalResponse = nwrw.Msg()
 		mw.filterResponse(ctx, fctx, flt, ri)
 
-		mw.reportMetrics(fctx, ri)
+		mw.reportMetrics(ctx, fctx, ri)
 
 		mw.setFilteredResponse(ctx, fctx, ri)
 
@@ -192,28 +195,31 @@ func (mw *Middleware) nextParams(
 
 // reportMetrics extracts filtering metrics data from the context and reports it
 // to Prometheus.
-func (mw *Middleware) reportMetrics(fctx *filteringContext, ri *agd.RequestInfo) {
+func (mw *Middleware) reportMetrics(
+	ctx context.Context,
+	fctx *filteringContext,
+	ri *agd.RequestInfo,
+) {
 	var ctry, cont string
-	asn := "0"
+	var asn uint32
 	if l := ri.Location; l != nil {
 		ctry, cont = string(l.Country), string(l.Continent)
-		asn = strconv.FormatUint(uint64(l.ASN), 10)
+		asn = uint32(l.ASN)
 	}
 
-	// Here and below stick to using WithLabelValues instead of With in order to
-	// avoid extra allocations on prometheus.Labels.
+	id, _, isBlocked := filteringData(fctx)
+	p, _ := ri.DeviceData()
 
-	metrics.DNSSvcRequestByCountryTotal.WithLabelValues(cont, ctry).Inc()
-	metrics.DNSSvcRequestByASNTotal.WithLabelValues(ctry, asn).Inc()
-
-	id, _, _ := filteringData(fctx)
-	metrics.DNSSvcRequestByFilterTotal.WithLabelValues(
-		string(id),
-		metrics.BoolString(ri.Profile == nil),
-	).Inc()
-
-	metrics.DNSSvcFilteringDuration.Observe(fctx.elapsed.Seconds())
-	metrics.DNSSvcUsersCountUpdate(ri.RemoteIP)
+	mw.metrics.OnRequest(ctx, &RequestMetrics{
+		RemoteIP:          ri.RemoteIP,
+		Continent:         cont,
+		Country:           ctry,
+		FilterListID:      string(id),
+		FilteringDuration: fctx.elapsed,
+		ASN:               asn,
+		IsAnonymous:       p == nil,
+		IsBlocked:         isBlocked,
+	})
 }
 
 // reportf is a helper method for reporting non-critical errors.

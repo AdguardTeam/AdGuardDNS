@@ -3,7 +3,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"os"
 	"text/template"
@@ -12,26 +14,31 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/httphdr"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/osutil"
 )
 
 func main() {
+	ctx := context.Background()
+	logger := slogutil.New(nil)
+	defer slogutil.RecoverAndExit(ctx, logger, osutil.ExitCodeFailure)
+
 	c := &http.Client{
 		Timeout: 10 * time.Second,
 	}
 
-	req, err := http.NewRequest(http.MethodGet, countriesASNURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, countriesASNURL, nil)
 	check(err)
 
 	req.Header.Add(httphdr.UserAgent, agdhttp.UserAgent())
 
 	resp, err := c.Do(req)
 	check(err)
-	defer log.OnCloserError(resp.Body, log.ERROR)
+	defer slogutil.CloseAndLog(ctx, logger, resp.Body, slog.LevelError)
 
 	out, err := os.OpenFile("./asntops.go", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o664)
 	check(err)
-	defer log.OnCloserError(out, log.ERROR)
+	defer slogutil.CloseAndLog(ctx, logger, out, slog.LevelError)
 
 	defaultCountryTopASNs := map[geoip.Country][]geoip.ASN{}
 	err = json.NewDecoder(resp.Body).Decode(&defaultCountryTopASNs)

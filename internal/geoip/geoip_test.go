@@ -2,16 +2,10 @@ package geoip_test
 
 import (
 	"net/netip"
-	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/container"
-	"github.com/AdguardTeam/golibs/testutil"
 )
-
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
 
 // Paths to test data.
 const (

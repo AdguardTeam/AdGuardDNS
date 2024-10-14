@@ -14,7 +14,7 @@ import (
 
 func TestTLSMetricsAfterHandshake(t *testing.T) {
 	serverName := "test_server"
-	wildcards := []string{"*.d.adguard-dns.com"}
+	devDomains := []string{"d.adguard-dns.com"}
 	dnsNames := []string{
 		"dns.adguard.com",
 		"dns-unfiltered.adguard.com",
@@ -26,55 +26,55 @@ func TestTLSMetricsAfterHandshake(t *testing.T) {
 		name                 string
 		connectionServerName string
 		expectedLabelValue   string
-		wildcards            []string
+		devDomains           []string
 		DNSNames             []string
 	}{{
 		name:                 "empty",
 		connectionServerName: "",
 		expectedLabelValue:   serverName + ": other",
-		wildcards:            wildcards,
+		devDomains:           devDomains,
 		DNSNames:             dnsNames,
 	}, {
 		name:                 "other",
 		connectionServerName: "test",
 		expectedLabelValue:   serverName + ": other",
-		wildcards:            wildcards,
+		devDomains:           devDomains,
 		DNSNames:             dnsNames,
 	}, {
 		name:                 "public_dns_hostnames_sni",
 		connectionServerName: "dns.adguard.com",
 		expectedLabelValue:   serverName + ": dns.adguard.com",
-		wildcards:            wildcards,
+		devDomains:           devDomains,
 		DNSNames:             dnsNames,
 	}, {
 		name:                 "public_dns_hostnames_cert",
 		connectionServerName: "",
 		expectedLabelValue:   serverName + ": dns.adguard.com",
-		wildcards:            nil,
+		devDomains:           nil,
 		DNSNames:             dnsNames,
 	}, {
 		name:                 "public_dns_hostnames_cert_wildcards",
 		connectionServerName: "test.adguard-dns.io",
 		expectedLabelValue:   serverName + ": *.adguard-dns.io",
-		wildcards:            nil,
+		devDomains:           nil,
 		DNSNames:             dnsNames,
 	}, {
 		name:                 "public_dns_ip",
 		connectionServerName: "94.140.14.14",
 		expectedLabelValue:   serverName + ": 94.140.14.14",
-		wildcards:            wildcards,
+		devDomains:           devDomains,
 		DNSNames:             []string{"94.140.14.14"},
 	}, {
 		name:                 "private_dns",
 		connectionServerName: "test.d.adguard-dns.com",
 		expectedLabelValue:   serverName + ": d.adguard-dns.com",
-		wildcards:            wildcards,
+		devDomains:           devDomains,
 		DNSNames:             dnsNames,
 	}, {
 		name:                 "private_dns_cert",
 		connectionServerName: "test.d.adguard-dns.com",
 		expectedLabelValue:   serverName + ": d.adguard-dns.com",
-		wildcards:            wildcards,
+		devDomains:           devDomains,
 		DNSNames:             dnsNames,
 	}}
 
@@ -90,7 +90,7 @@ func TestTLSMetricsAfterHandshake(t *testing.T) {
 			listener := metrics.TLSMetricsAfterHandshake(
 				"",
 				serverName,
-				tc.wildcards,
+				tc.devDomains,
 				[]tls.Certificate{cert},
 			)
 

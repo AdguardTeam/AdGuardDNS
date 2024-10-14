@@ -11,6 +11,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/c2h5oh/datasize"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -97,15 +98,16 @@ func TestRatelimitMiddleware(t *testing.T) {
 				Period:               time.Minute,
 				Duration:             time.Minute,
 				Count:                rps,
-				ResponseSizeEstimate: 128,
+				ResponseSizeEstimate: 128 * datasize.B,
 				IPv4RPS:              rps,
 				IPv4SubnetKeyLen:     24,
 				IPv6RPS:              rps,
 				IPv6SubnetKeyLen:     48,
 				RefuseANY:            true,
 			})
-			rlMw, err := ratelimit.NewMiddleware(rl, []dnsserver.Protocol{
-				dnsserver.ProtoDNS,
+			rlMw, err := ratelimit.NewMiddleware(&ratelimit.MiddlewareConfig{
+				RateLimit: rl,
+				Protocols: []dnsserver.Protocol{dnsserver.ProtoDNS},
 			})
 			require.NoError(t, err)
 

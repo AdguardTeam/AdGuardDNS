@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/url"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -22,7 +24,8 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/serviceblock"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/c2h5oh/datasize"
 )
 
 // Storage is a storage for filters.
@@ -41,6 +44,12 @@ type Storage interface {
 // search ones.  It should be initially refreshed with
 // [DefaultStorage.RefreshInitial].
 type DefaultStorage struct {
+	// baseLogger is used to create loggers for other filters in the storage.
+	baseLogger *slog.Logger
+
+	// logger is the logger of the storage itself.
+	logger *slog.Logger
+
 	// refr is the helper entity containing the refreshable part of the index
 	// refresh and caching logic.
 	refr *internal.Refreshable
@@ -100,7 +109,7 @@ type DefaultStorage struct {
 
 	// maxRuleListSize is the maximum size in bytes of the downloadable
 	// rule-list content.
-	maxRuleListSize uint64
+	maxRuleListSize datasize.ByteSize
 
 	// useRuleListCache, if true, enables rule list cache.
 	useRuleListCache bool
@@ -120,30 +129,36 @@ const (
 // DefaultStorageConfig contains configuration for a filter storage based on
 // rule lists.
 type DefaultStorageConfig struct {
+	// BaseLogger is used to create loggers with custom prefixes for filters and
+	// the storage itself.
+	BaseLogger *slog.Logger
+
 	// FilterIndexURL is the URL of the filtering rule index document.
 	FilterIndexURL *url.URL
 
 	// BlockedServiceIndexURL is the URL of the blocked service index document.
+	// If nil, no blocked service filtering is performed.
 	BlockedServiceIndexURL *url.URL
 
 	// GeneralSafeSearchRulesURL is the URL to refresh general safe search rules
-	// list.
+	// list.  If nil, no general safe search filtering is performed.
 	GeneralSafeSearchRulesURL *url.URL
 
 	// YoutubeSafeSearchRulesURL is the URL to refresh YouTube safe search rules
-	// list.
+	// list.  If nil, no youtube safe search filtering is performed.
 	YoutubeSafeSearchRulesURL *url.URL
 
 	// SafeBrowsing is the configuration for the default safe browsing filter.
-	// It must not be nil.
+	// If nil, no safe-browsing filtering is performed.
 	SafeBrowsing *hashprefix.Filter
 
 	// AdultBlocking is the configuration for the adult content blocking safe
-	// browsing filter.  It must not be nil.
+	// browsing filter.  If nil, no adult-blocking filtering is performed.
 	AdultBlocking *hashprefix.Filter
 
-	// NewRegDomains is the configuration for the newly registered domains safe
-	// browsing filter.  It must not be nil.
+	// NewRegDomains is the configuration for the newly-registered domains
+	// safe-browsing filter.  If nil, no blocking of newly-registered domains is
+	// performed.
 	NewRegDomains *hashprefix.Filter
 
 	// Now is a function that returns current time.
@@ -196,88 +211,98 @@ type DefaultStorageConfig struct {
 
 	// MaxRuleListSize is the maximum size in bytes of the downloadable
 	// rule-list content.
-	MaxRuleListSize uint64
+	MaxRuleListSize datasize.ByteSize
 }
 
 // svcIdxRefreshTimeout is the default timeout to use when fetching the
 // blocked-service index.
 const svcIdxRefreshTimeout = 3 * time.Minute
 
+// Constants that define cache identifiers for the cache manager.
+const (
+	// cachePrefixSafeSearch is used as a cache category.
+	cachePrefixSafeSearch = "filters/safe_search"
+
+	// cachePrefixRuleList is used a cache category.
+	cachePrefixRuleList = "filters/rulelist"
+)
+
 // NewDefaultStorage returns a new filter storage.  It also adds the caches with
 // IDs [agd.FilterListIDGeneralSafeSearch] and
 // [agd.FilterListIDYoutubeSafeSearch] to the cache manager.  c must not be nil.
 func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage) {
-	fltIDGenSafeSearchStr := string(agd.FilterListIDGeneralSafeSearch)
-	genSafeSearchCache := rulelist.NewManagedResultCache(
-		c.CacheManager,
-		fltIDGenSafeSearchStr,
-		c.SafeSearchCacheSize,
-		true,
+	genSafeSearch, err := newSafeSearchFilter(
+		c,
+		c.GeneralSafeSearchRulesURL,
+		agd.FilterListIDGeneralSafeSearch,
 	)
-	genSafeSearch := safesearch.New(
-		&safesearch.Config{
-			Refreshable: &internal.RefreshableConfig{
-				URL:       c.GeneralSafeSearchRulesURL,
-				ID:        agd.FilterListIDGeneralSafeSearch,
-				CachePath: filepath.Join(c.CacheDir, fltIDGenSafeSearchStr),
-				Staleness: c.RefreshIvl,
-				Timeout:   c.RuleListRefreshTimeout,
-				MaxSize:   c.MaxRuleListSize,
-			},
-			CacheTTL: c.SafeSearchCacheTTL,
-		},
-		genSafeSearchCache,
-	)
+	if err != nil {
+		// Shouldn't happen, since the safe-search URL must be checked in cmd.
+		//
+		// TODO(a.garipov):  Consider returning.
+		panic(fmt.Errorf("creating refreshable for general safe search: %w", err))
+	}
 
-	fltIDYTSafeSearchStr := string(agd.FilterListIDYoutubeSafeSearch)
-	ytSafeSearchCache := rulelist.NewManagedResultCache(
-		c.CacheManager,
-		fltIDYTSafeSearchStr,
-		c.SafeSearchCacheSize,
-		true,
+	ytSafeSearch, err := newSafeSearchFilter(
+		c,
+		c.YoutubeSafeSearchRulesURL,
+		agd.FilterListIDYoutubeSafeSearch,
 	)
-	ytSafeSearch := safesearch.New(
-		&safesearch.Config{
-			Refreshable: &internal.RefreshableConfig{
-				URL:       c.YoutubeSafeSearchRulesURL,
-				ID:        agd.FilterListIDYoutubeSafeSearch,
-				CachePath: filepath.Join(c.CacheDir, fltIDYTSafeSearchStr),
-				Staleness: c.RefreshIvl,
-				Timeout:   c.RuleListRefreshTimeout,
-				MaxSize:   c.MaxRuleListSize,
-			},
-			CacheTTL: c.SafeSearchCacheTTL,
-		},
-		ytSafeSearchCache,
-	)
+	if err != nil {
+		// Shouldn't happen, since the safe-search URL must be checked in cmd.
+		//
+		// TODO(a.garipov):  Consider returning.
+		panic(fmt.Errorf("creating refreshable for youtube safe search: %w", err))
+	}
 
-	ruleListIdxRefr := internal.NewRefreshable(&internal.RefreshableConfig{
-		URL: c.FilterIndexURL,
+	ruleListIdxID := "rule_list_index"
+	ruleListIdxRefr, err := internal.NewRefreshable(&internal.RefreshableConfig{
+		Logger: c.BaseLogger.With(slogutil.KeyPrefix, path.Join("filters", ruleListIdxID)),
+		URL:    c.FilterIndexURL,
 		// TODO(a.garipov): Consider adding special IDs for indexes.
-		ID:        "rule_list_index",
+		ID:        agd.FilterListID(ruleListIdxID),
 		CachePath: filepath.Join(c.CacheDir, ruleListIndexFilename),
 		Staleness: c.RefreshIvl,
 		Timeout:   c.IndexRefreshTimeout,
 		// TODO(a.garipov): Consider using a different limit here.
 		MaxSize: c.MaxRuleListSize,
 	})
+	if err != nil {
+		// Shouldn't happen, since the index URL must be checked in cmd.
+		//
+		// TODO(a.garipov):  Consider returning.
+		panic(fmt.Errorf("creating refreshable for rule-list index: %w", err))
+	}
 
-	svcIdxRefr := internal.NewRefreshable(&internal.RefreshableConfig{
-		URL: c.BlockedServiceIndexURL,
+	var svcBlockFilter *serviceblock.Filter
+	if c.BlockedServiceIndexURL != nil {
 		// TODO(a.garipov): Consider adding special IDs for indexes.
-		ID:        "blocked_service_index",
-		CachePath: filepath.Join(c.CacheDir, serviceIndexFilename),
-		Staleness: c.RefreshIvl,
-		// TODO(ameshkov): Consider making configurable.
-		Timeout: svcIdxRefreshTimeout,
-		// TODO(a.garipov): Consider using a different limit here.
-		MaxSize: c.MaxRuleListSize,
-	})
+		id := "blocked_service_index"
+		svcBlockFilter, err = serviceblock.New(&internal.RefreshableConfig{
+			Logger:    c.BaseLogger.With(slogutil.KeyPrefix, path.Join("filters", id)),
+			URL:       c.BlockedServiceIndexURL,
+			ID:        agd.FilterListID(id),
+			CachePath: filepath.Join(c.CacheDir, serviceIndexFilename),
+			Staleness: c.RefreshIvl,
+			// TODO(ameshkov): Consider making configurable.
+			Timeout: svcIdxRefreshTimeout,
+			// TODO(a.garipov): Consider using a different limit here.
+			MaxSize: c.MaxRuleListSize,
+		}, c.ErrColl)
+		if err != nil {
+			// Shouldn't happen, since the index URL must be checked in cmd.
+			//
+			// TODO(a.garipov):  Consider returning.
+			panic(fmt.Errorf("creating refreshable for service index: %w", err))
+		}
+	}
 
 	return &DefaultStorage{
+		baseLogger:    c.BaseLogger,
+		logger:        c.BaseLogger.With(slogutil.KeyPrefix, StoragePrefix),
 		refr:          ruleListIdxRefr,
 		mu:            &sync.RWMutex{},
-		services:      serviceblock.New(svcIdxRefr, c.ErrColl),
+		services:      svcBlockFilter,
 		safeBrowsing:  c.SafeBrowsing,
 		adultBlocking: c.AdultBlocking,
 		newRegDomains: c.NewRegDomains,
@@ -286,13 +311,17 @@ func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage) {
 		now:           c.Now,
 		errColl:       c.ErrColl,
 		cacheManager:  c.CacheManager,
-		customFilters: custom.New(
-			&agdcache.LRUConfig{
+		customFilters: custom.New(&custom.Config{
+			Logger: c.BaseLogger.With(slogutil.KeyPrefix, path.Join(
+				"filters",
+				string(agd.FilterListIDCustom),
+			)),
+			ErrColl: c.ErrColl,
+			CacheConf: &agdcache.LRUConfig{
 				Size: c.CustomFilterCacheSize,
 			},
-			c.ErrColl,
-			c.CacheManager,
-		),
+			CacheManager: c.CacheManager,
+		}),
 		cacheDir:               c.CacheDir,
 		refreshIvl:             c.RefreshIvl,
 		ruleListRefreshTimeout: c.RuleListRefreshTimeout,
@@ -302,13 +331,53 @@ func NewDefaultStorage(c *DefaultStorageConfig) (s *DefaultStorage) {
 	}
 }
 
+// StoragePrefix is a common prefix for logging and refreshes of the filter
+// storage.
+//
+// TODO(a.garipov): Consider extracting these kinds of IDs to agdcache or some
+// other package.
+const StoragePrefix = "filters/storage"
+
+// newSafeSearchFilter returns an initialized safe search filter.  If
+// safeSearchURL is nil, then the filter is nil.  Otherwise, c must not be nil,
+// and both fltID and cacheID should not be empty.
+func newSafeSearchFilter(
+	c *DefaultStorageConfig,
+	safeSearchURL *url.URL,
+	fltID agd.FilterListID,
+) (f *safesearch.Filter, err error) {
+	if safeSearchURL == nil {
+		return nil, nil
+	}
+
+	fltIDStr := string(fltID)
+	cacheID := path.Join(cachePrefixSafeSearch, fltIDStr)
+	cache := rulelist.NewManagedResultCache(c.CacheManager, cacheID, c.SafeSearchCacheSize, true)
+
+	return safesearch.New(
+		&safesearch.Config{
+			Refreshable: &internal.RefreshableConfig{
+				Logger:    c.BaseLogger.With(slogutil.KeyPrefix, cacheID),
+				URL:       safeSearchURL,
+				ID:        fltID,
+				CachePath: filepath.Join(c.CacheDir, fltIDStr),
+				Staleness: c.RefreshIvl,
+				Timeout:   c.RuleListRefreshTimeout,
+				MaxSize:   c.MaxRuleListSize,
+			},
+			CacheTTL: c.SafeSearchCacheTTL,
+		},
+		cache,
+	)
+}
+
 // type check
 var _ Storage = (*DefaultStorage)(nil)
 
 // FilterFromContext implements the Storage interface for *DefaultStorage.
 func (s *DefaultStorage) FilterFromContext(ctx context.Context, ri *agd.RequestInfo) (f Interface) {
-	if ri.Profile != nil {
-		return s.filterForProfile(ctx, ri)
+	if p, d := ri.DeviceData(); p != nil {
+		return s.filterForProfile(ctx, p, d)
 	}
 
 	c := &composite.Config{}
@@ -324,17 +393,20 @@ func (s *DefaultStorage) FilterFromContext(ctx context.Context, ri *agd.RequestI
 	return composite.New(c)
 }
 
-// filterForProfile returns a composite filter for profile.
-func (s *DefaultStorage) filterForProfile(ctx context.Context, ri *agd.RequestInfo) (f Interface) {
-	p := ri.Profile
-	if !p.FilteringEnabled {
+// filterForProfile returns a composite filter for profile.  All arguments must
+// not be nil.
+func (s *DefaultStorage) filterForProfile(
+	ctx context.Context,
+	prof *agd.Profile,
+	dev *agd.Device,
+) (f Interface) {
+	if !prof.FilteringEnabled {
 		// According to the current requirements, this means that the profile
 		// should receive no filtering at all.
 		return composite.New(nil)
 	}
 
-	d := ri.Device
-	if d != nil && !d.FilteringEnabled {
+	if !dev.FilteringEnabled {
 		// According to the current requirements, this means that the device
 		// should receive no filtering at all.
 		return composite.New(nil)
@@ -343,16 +415,19 @@ func (s *DefaultStorage) filterForProfile(ctx context.Context, ri *agd.RequestIn
 	// Assume that if we have a profile then we also have a device.
 
 	c := &composite.Config{}
-	c.RuleLists = s.filters(p.RuleListIDs)
-	c.Custom = s.customFilters.Get(ctx, p)
+	c.RuleLists = s.filters(prof.RuleListIDs)
+	c.Custom = s.customFilters.Get(ctx, prof)
 
-	pp := p.Parental
+	pp := prof.Parental
 	parentalEnabled := pp != nil && pp.Enabled && s.pcBySchedule(pp.Schedule)
 
-	c.ServiceLists = s.serviceFilters(ctx, p, parentalEnabled)
+	c.ServiceLists = s.serviceFilters(ctx, prof, parentalEnabled)
 
-	c.SafeBrowsing, c.AdultBlocking, c.NewRegisteredDomains = s.safeBrowsingForProfile(p, parentalEnabled)
-	c.GeneralSafeSearch, c.YouTubeSafeSearch = s.safeSearchForProfile(p, parentalEnabled)
+	c.SafeBrowsing, c.AdultBlocking, c.NewRegisteredDomains = s.safeBrowsingForProfile(
+		prof,
+		parentalEnabled,
+	)
+	c.GeneralSafeSearch, c.YouTubeSafeSearch = s.safeSearchForProfile(prof, parentalEnabled)
 
 	return composite.New(c)
 }
@@ -363,7 +438,7 @@ func (s *DefaultStorage) serviceFilters(
 	p *agd.Profile,
 	parentalEnabled bool,
 ) (rls []*rulelist.Immutable) {
-	if !parentalEnabled || len(p.Parental.BlockedServices) == 0 {
+	if !parentalEnabled || len(p.Parental.BlockedServices) == 0 || s.services == nil {
 		return nil
 	}
 
@@ -497,19 +572,14 @@ func (s *DefaultStorage) HasListID(id agd.FilterListID) (ok bool) {
 // type check
 var _ agdservice.Refresher = (*DefaultStorage)(nil)
 
-// strgLogPrefix is the logging prefix for reportable errors and logs that
-// DefaultStorage.Refresh uses.
-const strgLogPrefix = "filter storage: refresh"
-
 // Refresh implements the [agdservice.Refresher] interface for *DefaultStorage.
 func (s *DefaultStorage) Refresh(ctx context.Context) (err error) {
-	// TODO(a.garipov):  Use slog.
-	log.Info("filters_refresh: started")
-	defer log.Info("filters_refresh: finished")
+	s.logger.InfoContext(ctx, "refresh started")
+	defer s.logger.InfoContext(ctx, "refresh finished")
 
 	err = s.refresh(ctx, false)
 	if err != nil {
-		errcoll.Collectf(ctx, s.errColl, "filters_refresh: %w", enrichFromContext(ctx, err))
+		errcoll.Collect(ctx, s.errColl, s.logger, "refresh", enrichFromContext(ctx, err))
 	}
 
 	return err
@@ -518,8 +588,8 @@ func (s *DefaultStorage) Refresh(ctx context.Context) (err error) {
 // RefreshInitial loads the content of the storage, using cached files if any,
 // regardless of their staleness.
 func (s *DefaultStorage) RefreshInitial(ctx context.Context) (err error) {
-	log.Info("filter storage: initial refresh started")
-	defer log.Info("filter storage: initial refresh finished")
+	s.logger.InfoContext(ctx, "initial refresh started")
+	defer s.logger.InfoContext(ctx, "initial refresh finished")
 
 	err = s.refresh(ctx, true)
 	if err != nil {
@@ -555,11 +625,11 @@ func (s *DefaultStorage) refresh(ctx context.Context, acceptStale bool) (err err
 		return err
 	}
 
-	log.Info("%s: got %d filters from index", strgLogPrefix, len(resp.Filters))
+	s.logger.InfoContext(ctx, "loaded index", "num_filters", len(resp.Filters))
 
-	fls := resp.toInternal(ctx, s.errColl)
+	fls := resp.toInternal(ctx, s.logger, s.errColl)
 
-	log.Info("%s: got %d filter lists from index after validations", strgLogPrefix, len(fls))
+	s.logger.InfoContext(ctx, "validated lists", "num_lists", len(fls))
 
 	ruleLists := make(filteringRuleLists, len(resp.Filters))
 	for _, fl := range fls {
@@ -568,32 +638,37 @@ func (s *DefaultStorage) refresh(ctx context.Context, acceptStale bool) (err err
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			// If the context has already been canceled, no need to continue, as
 			// the other refreshes won't be able to finish either way.
-			err = fmt.Errorf("after refreshing rule lists: %w", ctxErr)
-			log.Error("filters_refresh: %s", err)
+			s.logger.ErrorContext(ctx, "after refreshing lists", slogutil.KeyError, ctxErr)
 
-			return err
+			return fmt.Errorf("after refreshing rule lists: %w", ctxErr)
 		}
 	}
 
-	log.Info("%s: got %d filter lists from index after compilation", strgLogPrefix, len(ruleLists))
+	s.logger.InfoContext(ctx, "compiled lists", "num_lists", len(ruleLists))
 
-	err = s.services.Refresh(
-		ctx,
-		s.cacheManager,
-		s.ruleListCacheSize,
-		s.useRuleListCache,
-		acceptStale,
-	)
+	if s.services != nil {
+		err = s.services.Refresh(
+			ctx,
+			s.cacheManager,
+			s.ruleListCacheSize,
+			s.useRuleListCache,
+			acceptStale,
+		)
+	}
 	if err != nil {
 		return fmt.Errorf("refreshing blocked services: %w", err)
 	}
 
-	err = s.genSafeSearch.Refresh(ctx, acceptStale)
+	if s.genSafeSearch != nil {
+		err = s.genSafeSearch.Refresh(ctx, acceptStale)
+	}
 	if err != nil {
 		return fmt.Errorf("refreshing general safe search: %w", err)
 	}
 
-	err = s.ytSafeSearch.Refresh(ctx, acceptStale)
+	if s.ytSafeSearch != nil {
+		err = s.ytSafeSearch.Refresh(ctx, acceptStale)
+	}
 	if err != nil {
 		return fmt.Errorf("refreshing youtube safe search: %w", err)
 	}
@@ -613,21 +688,24 @@ func (s *DefaultStorage) addRuleList(
 	acceptStale bool,
 ) {
 	if _, ok := ruleLists[fl.id]; ok {
-		errcoll.Collectf(ctx, s.errColl, "%s: duplicated id %q", strgLogPrefix, fl.id)
+		err := fmt.Errorf("duplicated rule-list id %q", fl.id)
+		errcoll.Collect(ctx, s.errColl, s.logger, "adding rule list", err)
 
 		return
 	}
 
 	fltIDStr := string(fl.id)
+	cacheID := path.Join(cachePrefixRuleList, fltIDStr)
 	cache := rulelist.NewManagedResultCache(
 		s.cacheManager,
-		fltIDStr,
+		cacheID,
 		s.ruleListCacheSize,
 		s.useRuleListCache,
 	)
 
-	rl := rulelist.NewRefreshable(
+	rl, err := rulelist.NewRefreshable(
 		&internal.RefreshableConfig{
+			Logger:    s.baseLogger.With(slogutil.KeyPrefix, cacheID),
 			URL:       fl.url,
 			ID:        fl.id,
 			CachePath: filepath.Join(s.cacheDir, fltIDStr),
@@ -637,19 +715,37 @@ func (s *DefaultStorage) addRuleList(
 		},
 		cache,
 	)
-	err := rl.Refresh(ctx, acceptStale)
-	if err == nil {
-		ruleLists[fl.id] = rl
-
-		metrics.FilterUpdatedStatus.WithLabelValues(fltIDStr).Set(1)
-		metrics.FilterUpdatedTime.WithLabelValues(fltIDStr).SetToCurrentTime()
-		metrics.FilterRulesTotal.WithLabelValues(fltIDStr).Set(float64(rl.RulesCount()))
+	if err != nil {
+		s.reportRuleListError(ctx, ruleLists, fl, fmt.Errorf("creating rulelist: %w", err))
 
 		return
 	}
 
-	errcoll.Collectf(ctx, s.errColl, "%s: %w", strgLogPrefix, err)
-	metrics.FilterUpdatedStatus.WithLabelValues(fltIDStr).Set(0)
+	err = rl.Refresh(ctx, acceptStale)
+	if err != nil {
+		s.reportRuleListError(ctx, ruleLists, fl, fmt.Errorf("refreshing rulelist: %w", err))
+
+		return
+	}
+
+	ruleLists[fl.id] = rl
+
+	metrics.FilterUpdatedStatus.WithLabelValues(fltIDStr).Set(1)
+	metrics.FilterUpdatedTime.WithLabelValues(fltIDStr).SetToCurrentTime()
+	metrics.FilterRulesTotal.WithLabelValues(fltIDStr).Set(float64(rl.RulesCount()))
+}
+
+// reportRuleListError reports the error encountered when refreshing a rule-list
+// filter and makes sure that the previous version of the filter is used, if
+// there is one.
+func (s *DefaultStorage) reportRuleListError(
+	ctx context.Context,
+	ruleLists filteringRuleLists,
+	fl *filterIndexFilterData,
+	err error,
+) {
+	errcoll.Collect(ctx, s.errColl, s.logger, "rule-list error", err)
+	metrics.FilterUpdatedStatus.WithLabelValues(string(fl.id)).Set(0)
 
 	// If we can't get the new filter, and there is an old version of the same
 	// rule list, use it.

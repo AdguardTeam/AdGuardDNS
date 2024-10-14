@@ -3,6 +3,8 @@ package serviceblock
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"path"
 	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -10,7 +12,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
 )
 
 // indexResp is the struct for the JSON response from a blocked service index
@@ -22,6 +23,7 @@ type indexResp struct {
 // toInternal converts the services from the index to serviceRuleLists.
 func (r *indexResp) toInternal(
 	ctx context.Context,
+	logger *slog.Logger,
 	errColl errcoll.Interface,
 	cacheManager agdcache.Manager,
 	cacheSize int,
@@ -40,7 +42,7 @@ func (r *indexResp) toInternal(
 			rl    *rulelist.Immutable
 		)
 
-		svcID, rl, err = svc.toInternal(ctx, errColl, cacheManager, cacheSize, useCache)
+		svcID, rl, err = svc.toInternal(ctx, logger, errColl, cacheManager, cacheSize, useCache)
 		if err != nil {
 			errs[i] = fmt.Errorf("service at index %d: %w", i, err)
 
@@ -65,11 +67,15 @@ type indexRespService struct {
 	Rules []string `json:"rules"`
 }
 
+// cachePrefix is used as a cache category for filter's caches.
+const cachePrefix = "filters"
+
 // toInternal converts the service from the index to a rule-list filter.  It
 // also adds the cache with ID "[agd.FilterListIDBlockedService]/[svc.ID]" to
 // the cache manager.
 func (svc *indexRespService) toInternal(
 	ctx context.Context,
+	logger *slog.Logger,
 	errColl errcoll.Interface,
 	cacheManager agdcache.Manager,
 	cacheSize int,
@@ -81,12 +87,11 @@ func (svc *indexRespService) toInternal(
 	}
 
 	if len(svc.Rules) == 0 {
-		reportErr := fmt.Errorf("service filter: no rules for service with id %s", svcID)
-		errColl.Collect(ctx, reportErr)
-		log.Info("warning: %s", reportErr)
+		errColl.Collect(ctx, fmt.Errorf("service filter: no rules for service with id %s", svcID))
+		logger.WarnContext(ctx, "service has no rules", "svc_id", svcID)
 	}
 
-	fltIDStr := string(agd.FilterListIDBlockedService) + "/" + string(svcID)
+	fltIDStr := path.Join(cachePrefix, string(agd.FilterListIDBlockedService), string(svcID))
 	cache := rulelist.NewManagedResultCache(
 		cacheManager,
 		fltIDStr,
@@ -103,7 +108,7 @@ func (svc *indexRespService) toInternal(
 		return "", nil, fmt.Errorf("compiling %s: %w", svc.ID, err)
 	}
 
-	log.Info("%s: got %d rules", fltIDStr, rl.RulesCount())
+	logger.InfoContext(ctx, "converted service", "svc_id", svcID, "num_rules", rl.RulesCount())
 
 	return svcID, rl, nil
 }

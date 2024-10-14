@@ -2,7 +2,6 @@ package mainmw_test
 
 import (
 	"context"
-	"fmt"
 	"net/netip"
 	"testing"
 	"time"
@@ -98,12 +97,6 @@ func TestMiddleware_Wrap(t *testing.T) {
 		}
 	)
 
-	errColl := &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, err error) {
-			panic(fmt.Errorf("unexpected error: %v", err))
-		},
-	}
-
 	flt := &agdtest.Filter{
 		OnFilterRequest: func(
 			_ context.Context,
@@ -155,6 +148,14 @@ func TestMiddleware_Wrap(t *testing.T) {
 			require.Equal(pt, agd.FilterRuleText(""), text)
 		},
 	}
+
+	cloner := agdtest.NewCloner()
+	msgs, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
+		Cloner:              cloner,
+		BlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		FilteredResponseTTL: agdtest.FilteredResponseTTL,
+	})
+	require.NoError(t, err)
 
 	testCases := []struct {
 		req        *dns.Msg
@@ -226,10 +227,11 @@ func TestMiddleware_Wrap(t *testing.T) {
 			}
 
 			c := &mainmw.Config{
-				Messages:      agdtest.NewConstructor(),
-				Cloner:        agdtest.NewCloner(),
+				Metrics:       mainmw.EmptyMetrics{},
+				Messages:      msgs,
+				Cloner:        cloner,
 				BillStat:      tc.billStat,
-				ErrColl:       errColl,
+				ErrColl:       agdtest.NewErrorCollector(),
 				FilterStorage: fltStrg,
 				GeoIP:         geoIP,
 				QueryLog:      queryLog,
@@ -243,11 +245,11 @@ func TestMiddleware_Wrap(t *testing.T) {
 			})
 			h := mw.Wrap(newSimpleHandler(t, tc.req, wantResp))
 
-			ctx := newContext(tc.device, tc.profile, reqHost, reqQType, reqStart)
+			ctx := newContext(t, tc.device, tc.profile, reqHost, reqQType, reqStart)
 			rw := dnsserver.NewNonWriterResponseWriter(dnssvctest.ServerTCPAddr, dnssvctest.ClientTCPAddr)
 
-			err := h.ServeDNS(ctx, rw, tc.req)
-			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)
+			serveErr := h.ServeDNS(ctx, rw, tc.req)
+			testutil.AssertErrorMsg(t, tc.wantErrMsg, serveErr)
 
 			assert.Equal(t, wantResp, rw.Msg())
 		})
@@ -325,19 +327,24 @@ func wantAns(t testing.TB, qtype dnsmsg.RRType) (ans dns.RR) {
 // for location and protocol, as well as an enabled filtering-group with the
 // standard list IDs.
 func newContext(
+	tb testing.TB,
 	d *agd.Device,
 	p *agd.Profile,
 	host string,
 	qType dnsmsg.RRType,
 	start time.Time,
 ) (ctx context.Context) {
+	tb.Helper()
+
 	ctx = context.Background()
 	ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
 		StartTime: start,
 	})
 	ctx = agd.ContextWithRequestInfo(ctx, &agd.RequestInfo{
-		Device:  d,
-		Profile: p,
+		DeviceResult: &agd.DeviceResultOK{
+			Device:  d,
+			Profile: p,
+		},
 		Location: &geoip.Location{
 			Country: testCountry,
 			ASN:     testASN,
@@ -349,7 +356,7 @@ func newContext(
 			},
 			RuleListsEnabled: true,
 		},
-		Messages: agdtest.NewConstructor(),
+		Messages: agdtest.NewConstructor(tb),
 		RemoteIP: dnssvctest.ClientAddr,
 		Host:     host,
 		QType:    qType,
@@ -403,12 +410,6 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 			},
 		}
 	)
-
-	errColl := &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, err error) {
-			panic(fmt.Errorf("unexpected error: %v", err))
-		},
-	}
 
 	geoIP := &agdtest.GeoIP{
 		OnSubnetByLocation: func(
@@ -531,6 +532,14 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 			Rule: testRuleBlockResp,
 		}
 	)
+
+	cloner := agdtest.NewCloner()
+	msgs, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
+		Cloner:              cloner,
+		BlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		FilteredResponseTTL: agdtest.FilteredResponseTTL,
+	})
+	require.NoError(t, err)
 
 	testCases := []struct {
 		req        *dns.Msg
@@ -692,10 +701,11 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 			}
 
 			c := &mainmw.Config{
-				Messages:      agdtest.NewConstructor(),
-				Cloner:        agdtest.NewCloner(),
+				Metrics:       mainmw.EmptyMetrics{},
+				Messages:      msgs,
+				Cloner:        cloner,
 				BillStat:      tc.billStat,
-				ErrColl:       errColl,
+				ErrColl:       agdtest.NewErrorCollector(),
 				FilterStorage: fltStrg,
 				GeoIP:         geoIP,
 				QueryLog:      queryLog,
@@ -706,11 +716,11 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 
 			h := mw.Wrap(newSimpleHandler(t, tc.wantUpsReq, tc.upsResp))
 
-			ctx := newContext(tc.device, tc.profile, reqHost, reqQType, reqStart)
+			ctx := newContext(t, tc.device, tc.profile, reqHost, reqQType, reqStart)
 			rw := dnsserver.NewNonWriterResponseWriter(dnssvctest.ServerTCPAddr, dnssvctest.ClientTCPAddr)
 
-			err := h.ServeDNS(ctx, rw, tc.req)
-			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)
+			serveErr := h.ServeDNS(ctx, rw, tc.req)
+			testutil.AssertErrorMsg(t, tc.wantErrMsg, serveErr)
 
 			assert.Equal(t, tc.wantResp, rw.Msg())
 		})

@@ -8,7 +8,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/urlfilter/rules"
 	"github.com/miekg/dns"
@@ -173,8 +172,6 @@ func filterDNSRewriteResponse(
 	case dns.TypeSRV:
 		return newAnswerSRV(messages, v, rr, req)
 	default:
-		optlog.Debug1("filters: don't know how to handle dns rr type %d, skipping", rr)
-
 		return nil, nil
 	}
 }

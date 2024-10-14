@@ -3,13 +3,14 @@ package rulelist
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/AdguardTeam/urlfilter/filterlist"
 )
@@ -23,6 +24,8 @@ import (
 type Refreshable struct {
 	*filter
 
+	logger *slog.Logger
+
 	// mu protects filter.engine.
 	mu *sync.RWMutex
 
@@ -31,29 +34,38 @@ type Refreshable struct {
 }
 
 // NewRefreshable returns a new refreshable DNS request and response filter
-// based on the provided rule list.  c must be non-nil.  The initial refresh
-// should be called explicitly if necessary.
-func NewRefreshable(c *internal.RefreshableConfig, cache ResultCache) (f *Refreshable) {
+// based on the provided rule list.  c must be non-nil.  c.URL should be an
+// HTTP(S) URL.  The initial refresh should be called explicitly if necessary.
+func NewRefreshable(c *internal.RefreshableConfig, cache ResultCache) (f *Refreshable, err error) {
 	f = &Refreshable{
-		mu: &sync.RWMutex{},
-		refr: internal.NewRefreshable(&internal.RefreshableConfig{
-			URL:       c.URL,
-			ID:        c.ID,
-			CachePath: c.CachePath,
-			Staleness: c.Staleness,
-			Timeout:   c.Timeout,
-			MaxSize:   c.MaxSize,
-		}),
+		logger: c.Logger,
+		mu:     &sync.RWMutex{},
 	}
 
-	var err error
+	if c.URL.Scheme == agdhttp.SchemeFile {
+		return nil, fmt.Errorf("unsupported url %q", c.URL)
+	}
+
+	f.refr, err = internal.NewRefreshable(&internal.RefreshableConfig{
+		Logger:    c.Logger,
+		URL:       c.URL,
+		ID:        c.ID,
+		CachePath: c.CachePath,
+		Staleness: c.Staleness,
+		Timeout:   c.Timeout,
+		MaxSize:   c.MaxSize,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating refreshable: %w", err)
+	}
+
 	f.filter, err = newFilter("", c.ID, "", cache)
 	if err != nil {
 		// Should never happen, since text is empty.
 		panic(fmt.Errorf("unexpected filter error: %w", err))
 	}
 
-	return f
+	return f, nil
 }
 
 // NewFromString returns a new DNS request and response filter using the
@@ -122,7 +134,7 @@ func (f *Refreshable) Refresh(ctx context.Context, acceptStale bool) (err error)
 
 	f.engine = urlfilter.NewDNSEngine(s)
 
-	log.Info("%s: reset %d rules", f.id, f.engine.RulesCount)
+	f.logger.InfoContext(ctx, "reset rules", "num", f.engine.RulesCount)
 
 	return nil
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
@@ -34,6 +35,7 @@ func newFile(tb testing.TB, conf *geoip.FileConfig) (g *geoip.File) {
 
 func TestFile_Data_cityDB(t *testing.T) {
 	conf := &geoip.FileConfig{
+		Logger:         slogutil.NewDiscardLogger(),
 		CacheManager:   agdcache.EmptyManager{},
 		ASNPath:        asnPath,
 		CountryPath:    cityPath,
@@ -60,6 +62,7 @@ func TestFile_Data_cityDB(t *testing.T) {
 
 func TestFile_Data_countryDB(t *testing.T) {
 	conf := &geoip.FileConfig{
+		Logger:         slogutil.NewDiscardLogger(),
 		CacheManager:   agdcache.EmptyManager{},
 		ASNPath:        asnPath,
 		CountryPath:    countryPath,
@@ -86,6 +89,7 @@ func TestFile_Data_countryDB(t *testing.T) {
 
 func TestFile_Data_hostCache(t *testing.T) {
 	conf := &geoip.FileConfig{
+		Logger:         slogutil.NewDiscardLogger(),
 		CacheManager:   agdcache.EmptyManager{},
 		ASNPath:        asnPath,
 		CountryPath:    cityPath,
@@ -115,6 +119,7 @@ func TestFile_Data_hostCache(t *testing.T) {
 
 func TestFile_SubnetByLocation(t *testing.T) {
 	conf := &geoip.FileConfig{
+		Logger:         slogutil.NewDiscardLogger(),
 		CacheManager:   agdcache.EmptyManager{},
 		ASNPath:        asnPath,
 		CountryPath:    cityPath,
@@ -193,6 +198,7 @@ var (
 
 func BenchmarkFile_Data(b *testing.B) {
 	conf := &geoip.FileConfig{
+		Logger:         slogutil.NewDiscardLogger(),
 		CacheManager:   agdcache.EmptyManager{},
 		ASNPath:        asnPath,
 		CountryPath:    cityPath,
@@ -244,6 +250,7 @@ func BenchmarkFile_Data(b *testing.B) {
 
 func BenchmarkFile_Refresh(b *testing.B) {
 	conf := &geoip.FileConfig{
+		Logger:         slogutil.NewDiscardLogger(),
 		CacheManager:   agdcache.EmptyManager{},
 		ASNPath:        asnPath,
 		CountryPath:    cityPath,

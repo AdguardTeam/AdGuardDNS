@@ -1,10 +1,9 @@
 package agdcache
 
 import (
+	"maps"
 	"slices"
 	"sync"
-
-	"golang.org/x/exp/maps"
 )
 
 // Manager is the cache manager interface.  All methods must be safe for
@@ -70,10 +69,7 @@ func (m *DefaultManager) IDs() (ids []string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	ids = maps.Keys(m.caches)
-	slices.Sort(ids)
-
-	return ids
+	return slices.Sorted(maps.Keys(m.caches))
 }
 
 // EmptyManager implements the [Manager] interface that does nothing.

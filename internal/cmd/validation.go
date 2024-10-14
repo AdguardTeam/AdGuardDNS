@@ -7,13 +7,11 @@ import (
 	"github.com/AdguardTeam/golibs/timeutil"
 )
 
-// Validation utilities
-
 // validatePositive returns an error if v is not a positive number.  prop is the
 // name of the property being checked, used for error messages.
 func validatePositive[T numberOrDuration](prop string, v T) (err error) {
 	if d, ok := any(v).(timeutil.Duration); ok && d.Duration <= 0 {
-		return newMustBePositiveError(prop, v)
+		return newNotPositiveError(prop, v)
 	}
 
 	return nil

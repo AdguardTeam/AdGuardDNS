@@ -210,20 +210,26 @@ var clonerTestCases = []clonerTestCase{{
 	wantFull:       assert.True,
 	handledByClone: false,
 }, {
-	msg: newOPTResp([]dns.EDNS0{
-		&dns.EDNS0_SUBNET{
-			Code:          dns.EDNS0SUBNET,
-			Family:        1,
-			SourceNetmask: 24,
-			SourceScope:   24,
-			Address:       net.IP{1, 2, 3, 0},
-		},
+	msg: newOPTResp(&dns.EDNS0_EDE{
+		InfoCode:  dns.ExtendedErrorCodeFiltered,
+		ExtraText: "",
+	}),
+	name:           "resp_a_ede",
+	wantFull:       assert.True,
+	handledByClone: true,
+}, {
+	msg: newOPTResp(&dns.EDNS0_SUBNET{
+		Code:          dns.EDNS0SUBNET,
+		Family:        1,
+		SourceNetmask: 24,
+		SourceScope:   24,
+		Address:       net.IP{1, 2, 3, 0},
 	}),
 	name:           "resp_a_ecs",
 	wantFull:       assert.True,
 	handledByClone: true,
 }, {
-	msg:            newOPTResp(nil),
+	msg:            newOPTResp(),
 	name:           "resp_a_ecs_nil",
 	wantFull:       assert.True,
 	handledByClone: false,
@@ -276,7 +282,7 @@ func newMXResp(mx string, pref uint16) (resp *dns.Msg) {
 
 // newOPTResp is a helper that returns a response of type OPT with the given
 // parameter values.
-func newOPTResp(opt []dns.EDNS0) (resp *dns.Msg) {
+func newOPTResp(opt ...dns.EDNS0) (resp *dns.Msg) {
 	ex := &dns.OPT{
 		Hdr: dns.RR_Header{
 			Name:   testFQDN,
@@ -345,29 +351,30 @@ func BenchmarkClone(b *testing.B) {
 		})
 	}
 
-	// Most recent results, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
+	// Most recent results:
 	//
-	//	goos: darwin
-	//	goarch: amd64
-	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg
-	//	cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
-	//	BenchmarkClone/req_a-12							8987066		123.7 ns/op		168 B/op	2 allocs/op
-	//	BenchmarkClone/resp_a-12						5619037		212.7 ns/op		256 B/op	5 allocs/op
-	//	BenchmarkClone/resp_a_many-12					4385636		273.2 ns/op		344 B/op	7 allocs/op
-	//	BenchmarkClone/resp_a_soa-12					4533913		263.1 ns/op		368 B/op	6 allocs/op
-	//	BenchmarkClone/req_aaaa-12						10196326	116.9 ns/op		168 B/op	2 allocs/op
-	//	BenchmarkClone/resp_aaaa-12						5666234		211.8 ns/op		264 B/op	5 allocs/op
-	//	BenchmarkClone/resp_cname_a-12					4713193		255.4 ns/op		320 B/op	6 allocs/op
-	//	BenchmarkClone/resp_mx-12						6539623		181.8 ns/op		248 B/op	4 allocs/op
-	//	BenchmarkClone/resp_ptr-12						6744601		179.8 ns/op		232 B/op	4 allocs/op
-	//	BenchmarkClone/resp_txt-12						5120538		230.8 ns/op		296 B/op	5 allocs/op
-	//	BenchmarkClone/resp_srv-12						6549402		181.5 ns/op		248 B/op	4 allocs/op
-	//	BenchmarkClone/resp_not_full-12					6529968		181.4 ns/op		248 B/op	4 allocs/op
-	//	BenchmarkClone/resp_https-12					1361680		880.8 ns/op		896 B/op	24 allocs/op
-	//	BenchmarkClone/resp_https_empty_hint-12			3548672		345.3 ns/op		424 B/op	8 allocs/op
-	//	BenchmarkClone/resp_https_empty_mandatory-12	4055365		291.6 ns/op		384 B/op	7 allocs/op
-	//	BenchmarkClone/resp_https_empty_values-12		4434608		269.8 ns/op		376 B/op	6 allocs/op
-	//	BenchmarkClone/resp_a_ecs-12					3741008		318.5 ns/op		384 B/op	8 allocs/op
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkClone/req_a-12						9118897		121.4 ns/op		168 B/op	2 allocs/op
+	// BenchmarkClone/resp_a-12						5334396		227.5 ns/op		256 B/op	5 allocs/op
+	// BenchmarkClone/resp_a_many-12				4033717		292.6 ns/op		344 B/op	7 allocs/op
+	// BenchmarkClone/resp_a_soa-12					4341570		277.6 ns/op		368 B/op	6 allocs/op
+	// BenchmarkClone/req_aaaa-12					10129573	120.7 ns/op		168 B/op	2 allocs/op
+	// BenchmarkClone/resp_aaaa-12					5004459		244.0 ns/op		264 B/op	5 allocs/op
+	// BenchmarkClone/resp_cname_a-12				4403502		286.2 ns/op		320 B/op	6 allocs/op
+	// BenchmarkClone/resp_mx-12					5897042		202.6 ns/op		248 B/op	4 allocs/op
+	// BenchmarkClone/resp_ptr-12					6380095		202.3 ns/op		232 B/op	4 allocs/op
+	// BenchmarkClone/resp_txt-12					4603141		252.0 ns/op		296 B/op	5 allocs/op
+	// BenchmarkClone/resp_srv-12					6082226		196.2 ns/op		248 B/op	4 allocs/op
+	// BenchmarkClone/resp_not_full-12				6113926		221.0 ns/op		248 B/op	4 allocs/op
+	// BenchmarkClone/resp_https-12					1231680		993.9 ns/op		896 B/op	24 allocs/op
+	// BenchmarkClone/resp_https_empty_hint-12		3256345		388.6 ns/op		424 B/op	8 allocs/op
+	// BenchmarkClone/resp_https_empty_mandatory-12	3727749		327.3 ns/op		384 B/op	7 allocs/op
+	// BenchmarkClone/resp_https_empty_values-12	4124431		291.7 ns/op		376 B/op	6 allocs/op
+	// BenchmarkClone/resp_a_ede-12					3487443		362.5 ns/op		376 B/op	8 allocs/op
+	// BenchmarkClone/resp_a_ecs-12					3461348		354.5 ns/op		384 B/op	8 allocs/op
 }
 
 func BenchmarkCloner_Clone(b *testing.B) {
@@ -396,31 +403,32 @@ func BenchmarkCloner_Clone(b *testing.B) {
 		})
 	}
 
-	// Most recent results, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
+	// Most recent results:
 	//
-	//	goos: darwin
-	//	goarch: amd64
-	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg
-	//	cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
-	//	BenchmarkCloner_Clone/req_a-12							28363105	39.40 ns/op		0 B/op		0 allocs/op
-	//	BenchmarkCloner_Clone/resp_a-12							17288836	72.96 ns/op		0 B/op		0 allocs/op
-	//	BenchmarkCloner_Clone/resp_a_many-12					11043524	105.9 ns/op		0 B/op		0 allocs/op
-	//	BenchmarkCloner_Clone/resp_a_soa-12						14058405	84.21 ns/op		0 B/op		0 allocs/op
-	//	BenchmarkCloner_Clone/req_aaaa-12						31732440	37.61 ns/op		0 B/op		0 allocs/op
-	//	BenchmarkCloner_Clone/resp_aaaa-12						19054647	65.48 ns/op		0 B/op		0 allocs/op
-	//	BenchmarkCloner_Clone/resp_cname_a-12					13343605	90.35 ns/op		0 B/op		0 allocs/op
-	//	BenchmarkCloner_Clone/resp_mx-12						19749904	59.09 ns/op		0 B/op		0 allocs/op
-	//	BenchmarkCloner_Clone/resp_ptr-12						20109849	60.00 ns/op		0 B/op		0 allocs/op
-	//	BenchmarkCloner_Clone/resp_txt-12						17270551	64.07 ns/op		0 B/op		0 allocs/op
-	//	BenchmarkCloner_Clone/resp_srv-12						18197905	66.67 ns/op		0 B/op		0 allocs/op
-	//	BenchmarkCloner_Clone/resp_not_full-12					12713991	95.55 ns/op		64 B/op		1 allocs/op
-	//	BenchmarkCloner_Clone/resp_https-12						3037629		395.9 ns/op		0 B/op		0 allocs/op
-	//	BenchmarkCloner_Clone/resp_https_empty_hint-12			10258635	119.3 ns/op		0 B/op		0 allocs/op
-	//	BenchmarkCloner_Clone/resp_https_empty_mandatory-12		14306239	82.14 ns/op		0 B/op		0 allocs/op
-	//	BenchmarkCloner_Clone/resp_https_empty_values-12		15568735	80.12 ns/op		0 B/op		0 allocs/op
-	//	BenchmarkCloner_Clone/resp_https_nil_hint-12			20536422	59.70 ns/op		0 B/op		0 allocs/op
-	//	BenchmarkCloner_Clone/resp_a_ecs-12						10978351	107.8 ns/op		0 B/op		0 allocs/op
-	//	BenchmarkCloner_Clone/resp_a_ecs_nil-12					13626586	93.56 ns/op		0 B/op		0 allocs/op
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkCloner_Clone/req_a-12						31715055	38.49 ns/op		0 B/op		0 allocs/op
+	// BenchmarkCloner_Clone/resp_a-12						18687192	63.54 ns/op		0 B/op		0 allocs/op
+	// BenchmarkCloner_Clone/resp_a_many-12					11271697	106.1 ns/op		0 B/op		0 allocs/op
+	// BenchmarkCloner_Clone/resp_a_soa-12					14223168	86.84 ns/op		0 B/op		0 allocs/op
+	// BenchmarkCloner_Clone/req_aaaa-12					34427011	36.71 ns/op		0 B/op		0 allocs/op
+	// BenchmarkCloner_Clone/resp_aaaa-12					17106201	70.00 ns/op		0 B/op		0 allocs/op
+	// BenchmarkCloner_Clone/resp_cname_a-12				13871018	90.77 ns/op		0 B/op		0 allocs/op
+	// BenchmarkCloner_Clone/resp_mx-12						19302285	60.72 ns/op		0 B/op		0 allocs/op
+	// BenchmarkCloner_Clone/resp_ptr-12					16765956	61.46 ns/op		0 B/op		0 allocs/op
+	// BenchmarkCloner_Clone/resp_txt-12					15391646	69.11 ns/op		0 B/op		0 allocs/op
+	// BenchmarkCloner_Clone/resp_srv-12					18169714	63.77 ns/op		0 B/op		0 allocs/op
+	// BenchmarkCloner_Clone/resp_not_full-12				11640886	96.60 ns/op		64 B/op		1 allocs/op
+	// BenchmarkCloner_Clone/resp_https-12					2804174		423.1 ns/op		0 B/op		0 allocs/op
+	// BenchmarkCloner_Clone/resp_https_empty_hint-12		9666168		123.2 ns/op		0 B/op		0 allocs/op
+	// BenchmarkCloner_Clone/resp_https_empty_mandatory-12	12752148	90.44 ns/op		0 B/op		0 allocs/op
+	// BenchmarkCloner_Clone/resp_https_empty_values-12		13501873	82.30 ns/op		0 B/op		0 allocs/op
+	// BenchmarkCloner_Clone/resp_https_nil_hint-12			19396582	67.07 ns/op		0 B/op		0 allocs/op
+	// BenchmarkCloner_Clone/resp_a_ede-12					10744064	114.9 ns/op		0 B/op		0 allocs/op
+	// BenchmarkCloner_Clone/resp_a_ecs-12					10467579	113.8 ns/op		0 B/op		0 allocs/op
+	// BenchmarkCloner_Clone/resp_a_ecs_nil-12				13105382	90.48 ns/op		0 B/op		0 allocs/op
 }
 
 func FuzzCloner_Clone(f *testing.F) {

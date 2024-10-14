@@ -10,28 +10,23 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
-	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
 
 // testProfID is the profile ID for tests.
 const testProfID agd.ProfileID = "prof1234"
 
 func TestFilters_Get(t *testing.T) {
-	f := custom.New(
-		&agdcache.LRUConfig{
+	f := custom.New(&custom.Config{
+		Logger:  slogutil.NewDiscardLogger(),
+		ErrColl: agdtest.NewErrorCollector(),
+		CacheConf: &agdcache.LRUConfig{
 			Size: 1,
 		},
-		&agdtest.ErrorCollector{
-			OnCollect: func(ctx context.Context, err error) { panic("not implemented") },
-		},
-		agdcache.EmptyManager{},
-	)
+		CacheManager: agdcache.EmptyManager{},
+	})
 
 	p := &agd.Profile{
 		ID:         testProfID,
@@ -56,15 +51,14 @@ func TestFilters_Get(t *testing.T) {
 var ruleListSink *rulelist.Immutable
 
 func BenchmarkFilters_Get(b *testing.B) {
-	f := custom.New(
-		&agdcache.LRUConfig{
+	f := custom.New(&custom.Config{
+		Logger:  slogutil.NewDiscardLogger(),
+		ErrColl: agdtest.NewErrorCollector(),
+		CacheConf: &agdcache.LRUConfig{
 			Size: 1,
 		},
-		&agdtest.ErrorCollector{
-			OnCollect: func(ctx context.Context, err error) { panic("not implemented") },
-		},
-		agdcache.EmptyManager{},
-	)
+		CacheManager: agdcache.EmptyManager{},
+	})
 
 	p := &agd.Profile{
 		ID:         testProfID,

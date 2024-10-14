@@ -14,15 +14,20 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/c2h5oh/datasize"
 )
 
 // toInternal converts the protobuf-encoded data into a profile structure and
 // its device structures.
+//
+// TODO(a.garipov):  Refactor into a method of [*ProfileStorage]?
 func (x *DNSProfile) toInternal(
 	ctx context.Context,
 	updTime time.Time,
 	bindSet netutil.SubnetSet,
 	errColl errcoll.Interface,
+	mtrc Metrics,
+	respSzEst datasize.ByteSize,
 ) (profile *agd.Profile, devices []*agd.Device, err error) {
 	if x == nil {
 		return nil, nil, fmt.Errorf("profile is nil")
@@ -38,7 +43,7 @@ func (x *DNSProfile) toInternal(
 		return nil, nil, fmt.Errorf("blocking mode: %w", err)
 	}
 
-	devices, deviceIds := devicesToInternal(ctx, x.Devices, bindSet, errColl)
+	devices, deviceIds := devicesToInternal(ctx, x.Devices, bindSet, errColl, mtrc)
 	listsEnabled, listIDs := x.RuleLists.toInternal(ctx, errColl)
 
 	profID, err := agd.NewProfileID(x.DnsId)
@@ -61,6 +66,7 @@ func (x *DNSProfile) toInternal(
 		CustomRules:         rulesToInternal(ctx, x.CustomRules, errColl),
 		FilteredResponseTTL: fltRespTTL,
 		FilteringEnabled:    x.FilteringEnabled,
+		Ratelimiter:         x.RateLimit.toInternal(ctx, errColl, respSzEst),
 		SafeBrowsing:        x.SafeBrowsing.toInternal(),
 		Access:              x.Access.toInternal(ctx, errColl),
 		RuleListsEnabled:    listsEnabled,
@@ -96,6 +102,24 @@ func (x *ParentalSettings) toInternal(
 		GeneralSafeSearch: x.GeneralSafeSearch,
 		YoutubeSafeSearch: x.YoutubeSafeSearch,
 	}, nil
+}
+
+// toInternal converts protobuf rate-limiting settings to an internal structure.
+// If x is nil, toInternal returns [agd.GlobalRatelimiter].
+func (x *RateLimitSettings) toInternal(
+	ctx context.Context,
+	errColl errcoll.Interface,
+	respSzEst datasize.ByteSize,
+) (r agd.Ratelimiter) {
+	if x == nil || !x.Enabled {
+		return agd.GlobalRatelimiter{}
+	}
+
+	return agd.NewDefaultRatelimiter(&agd.RatelimitConfig{
+		ClientSubnets: cidrRangeToInternal(ctx, errColl, x.ClientCidr),
+		RPS:           x.Rps,
+		Enabled:       x.Enabled,
+	}, respSzEst)
 }
 
 // toInternal converts protobuf safe-browsing settings to an internal structure.

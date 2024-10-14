@@ -6,39 +6,36 @@ import (
 	"github.com/miekg/dns"
 )
 
-/*
-We keep different helpers for working with DNS messages here.
-*/
-
 // typeToString converts query type to a human-readable string.
 func typeToString(req *dns.Msg) string {
 	var qType uint16
 	if len(req.Question) == 1 {
-		// Note that we can receive invalid request here
-		// so we should check if the question is okay.
+		// NOTE: req can be invalid here, so check if the question is okay.
 		qType = req.Question[0].Qtype
 	}
 
 	switch qType {
-	case dns.TypeAAAA,
+	case
 		dns.TypeA,
-		dns.TypeHTTPS,
+		dns.TypeAAAA,
 		dns.TypeCNAME,
 		dns.TypeDNSKEY,
 		dns.TypeDS,
+		dns.TypeHTTPS,
 		dns.TypeMX,
-		dns.TypeNSEC3,
-		dns.TypeNSEC,
 		dns.TypeNS,
+		dns.TypeNSEC,
+		dns.TypeNSEC3,
 		dns.TypePTR,
 		dns.TypeRRSIG,
 		dns.TypeSOA,
 		dns.TypeSRV,
+		dns.TypeSVCB,
 		dns.TypeTXT,
-		// Meta Qtypes
-		dns.TypeIXFR,
+		// Meta Qtypes:
+		dns.TypeANY,
 		dns.TypeAXFR,
-		dns.TypeANY:
+		dns.TypeIXFR:
 		return dns.Type(qType).String()
 	}
 

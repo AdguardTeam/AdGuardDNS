@@ -14,13 +14,14 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
+	"github.com/c2h5oh/datasize"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // toInternal converts the protobuf-encoded data into a cache structure.
-func toInternal(fc *FileCache) (c *internal.FileCache, err error) {
-	profiles, err := profilesToInternal(fc.Profiles)
+func toInternal(fc *FileCache, respSzEst datasize.ByteSize) (c *internal.FileCache, err error) {
+	profiles, err := profilesToInternal(fc.Profiles, respSzEst)
 	if err != nil {
 		return nil, fmt.Errorf("converting profiles: %w", err)
 	}
@@ -49,11 +50,14 @@ func toProtobuf(c *internal.FileCache) (pbFileCache *FileCache) {
 }
 
 // profilesToInternal converts protobuf profile structures into internal ones.
-func profilesToInternal(pbProfiles []*Profile) (profiles []*agd.Profile, err error) {
+func profilesToInternal(
+	pbProfiles []*Profile,
+	respSzEst datasize.ByteSize,
+) (profiles []*agd.Profile, err error) {
 	profiles = make([]*agd.Profile, 0, len(pbProfiles))
 	for i, pbProf := range pbProfiles {
 		var prof *agd.Profile
-		prof, err = pbProf.toInternal()
+		prof, err = pbProf.toInternal(respSzEst)
 		if err != nil {
 			return nil, fmt.Errorf("profile at index %d: %w", i, err)
 		}
@@ -65,7 +69,7 @@ func profilesToInternal(pbProfiles []*Profile) (profiles []*agd.Profile, err err
 }
 
 // toInternal converts a protobuf profile structure to an internal one.
-func (x *Profile) toInternal() (prof *agd.Profile, err error) {
+func (x *Profile) toInternal(respSzEst datasize.ByteSize) (prof *agd.Profile, err error) {
 	parental, err := x.Parental.toInternal()
 	if err != nil {
 		return nil, fmt.Errorf("parental: %w", err)
@@ -78,6 +82,7 @@ func (x *Profile) toInternal() (prof *agd.Profile, err error) {
 
 	return &agd.Profile{
 		Parental:     parental,
+		Ratelimiter:  x.RateLimit.toInternal(respSzEst),
 		BlockingMode: m,
 		ID:           agd.ProfileID(x.ProfileId),
 		UpdateTime:   x.UpdateTime.AsTime(),
@@ -143,13 +148,20 @@ func (x *ParentalProtectionSchedule) toInternal() (s *agd.ParentalProtectionSche
 	return &agd.ParentalProtectionSchedule{
 		// Consider the lengths to be prevalidated.
 		Week: &agd.WeeklySchedule{
-			time.Monday:    {Start: uint16(x.Mon.Start), End: uint16(x.Mon.End)},
-			time.Tuesday:   {Start: uint16(x.Tue.Start), End: uint16(x.Tue.End)},
+			// #nosec G115 -- The values put in these are always from uint16s.
+			time.Monday: {Start: uint16(x.Mon.Start), End: uint16(x.Mon.End)},
+			// #nosec G115 -- The values put in these are always from uint16s.
+			time.Tuesday: {Start: uint16(x.Tue.Start), End: uint16(x.Tue.End)},
+			// #nosec G115 -- The values put in these are always from uint16s.
 			time.Wednesday: {Start: uint16(x.Wed.Start), End: uint16(x.Wed.End)},
-			time.Thursday:  {Start: uint16(x.Thu.Start), End: uint16(x.Thu.End)},
-			time.Friday:    {Start: uint16(x.Fri.Start), End: uint16(x.Fri.End)},
-			time.Saturday:  {Start: uint16(x.Sat.Start), End: uint16(x.Sat.End)},
-			time.Sunday:    {Start: uint16(x.Sun.Start), End: uint16(x.Sun.End)},
+			// #nosec G115 -- The values put in these are always from uint16s.
+			time.Thursday: {Start: uint16(x.Thu.Start), End: uint16(x.Thu.End)},
+			// #nosec G115 -- The values put in these are always from uint16s.
+			time.Friday: {Start: uint16(x.Fri.Start), End: uint16(x.Fri.End)},
+			// #nosec G115 -- The values put in these are always from uint16s.
+			time.Saturday: {Start: uint16(x.Sat.Start), End: uint16(x.Sat.End)},
+			// #nosec G115 -- The values put in these are always from uint16s.
+			time.Sunday: {Start: uint16(x.Sun.Start), End: uint16(x.Sun.End)},
 		},
 		TimeZone: loc,
 	}, nil
@@ -275,6 +287,20 @@ func dohPasswordToInternal(
 	}
 }
 
+// toInternal converts a protobuf rate-limiting settings structure to an
+// internal one.
+func (x *RateLimitSettings) toInternal(respSzEst datasize.ByteSize) (r agd.Ratelimiter) {
+	if x == nil || !x.Enabled {
+		return agd.GlobalRatelimiter{}
+	}
+
+	return agd.NewDefaultRatelimiter(&agd.RatelimitConfig{
+		ClientSubnets: cidrRangeToInternal(x.ClientCidr),
+		RPS:           x.Rps,
+		Enabled:       x.Enabled,
+	}, respSzEst)
+}
+
 // toInternal converts a protobuf safe browsing settings structure to an
 // internal one.
 func (x *SafeBrowsingSettings) toInternal() (s *agd.SafeBrowsingSettings) {
@@ -358,6 +384,7 @@ func profilesToProtobuf(profiles []*agd.Profile) (pbProfiles []*Profile) {
 			BlockFirefoxCanary:  p.BlockFirefoxCanary,
 			IpLogEnabled:        p.IPLogEnabled,
 			AutoDevicesEnabled:  p.AutoDevicesEnabled,
+			RateLimit:           rateLimitToProtobuf(p.Ratelimiter.Config()),
 		})
 	}
 
@@ -381,20 +408,23 @@ func accessToProtobuf(c *access.ProfileConfig) (ac *AccessSettings) {
 	}
 
 	return &AccessSettings{
-		AllowlistCidr:        accessNetsToProtobuf(c.AllowedNets),
-		BlocklistCidr:        accessNetsToProtobuf(c.BlockedNets),
+		AllowlistCidr:        prefixesToProtobuf(c.AllowedNets),
+		BlocklistCidr:        prefixesToProtobuf(c.BlockedNets),
 		AllowlistAsn:         allowedASNs,
 		BlocklistAsn:         blockedASNs,
 		BlocklistDomainRules: c.BlocklistDomainRules,
 	}
 }
 
-// accessNetsToProtobuf converts slice of [netip.Prefix] to protobuf structure.
-func accessNetsToProtobuf(nets []netip.Prefix) (cidrs []*CidrRange) {
+// prefixesToProtobuf converts slice of [netip.Prefix] to protobuf structure.
+// nets must be valid.
+func prefixesToProtobuf(nets []netip.Prefix) (cidrs []*CidrRange) {
 	for _, n := range nets {
 		cidrs = append(cidrs, &CidrRange{
 			Address: n.Addr().AsSlice(),
-			Prefix:  uint32(n.Bits()),
+			// #nosec G115 -- Assume that the prefixes from profiledb are always
+			// valid.
+			Prefix: uint32(n.Bits()),
 		})
 	}
 
@@ -566,5 +596,18 @@ func safeBrowsingToProtobuf(s *agd.SafeBrowsingSettings) (sbSetts *SafeBrowsingS
 		Enabled:                     s.Enabled,
 		BlockDangerousDomains:       s.BlockDangerousDomains,
 		BlockNewlyRegisteredDomains: s.BlockNewlyRegisteredDomains,
+	}
+}
+
+// rateLimitToProtobuf converts rate limit settings to protobuf structure.
+func rateLimitToProtobuf(c *agd.RatelimitConfig) (ac *RateLimitSettings) {
+	if c == nil {
+		return nil
+	}
+
+	return &RateLimitSettings{
+		Enabled:    c.Enabled,
+		Rps:        c.RPS,
+		ClientCidr: prefixesToProtobuf(c.ClientSubnets),
 	}
 }

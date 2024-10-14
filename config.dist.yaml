@@ -166,6 +166,13 @@ geoip:
 # DNS checking configuration.
 check:
     # Domains to use for DNS checking.
+    kv:
+        # Defines the type of remote kay-value storage.  Allowed values are
+        # "consul" and "redis".
+        type: 'consul'
+        # For how long to keep the information about the client.
+        ttl: 30s
+    # Domains to use for DNS checking.
     domains:
       - dnscheck.adguard-dns.com
       - dnscheck.adguard.com
@@ -180,8 +187,6 @@ check:
     ipv6:
       - 1234::cdee
       - 1234::cdef
-    # For how long to keep the information about the client.
-    ttl: 30s
 
 # Web/HTTP(S) service configuration.  All non-root requests to the main service
 # not matching the static_content map are shown a 404 page.  In special
@@ -462,6 +467,7 @@ server_groups:
                 resolver_public: '9327C5E64783E19C339BD6B680A56DB85521CC6E4E0CA5DF5274E2D3CE026C6B'
                 es_version: 1
                 certificate_ttl: 8760h
+    profiles_enabled: true
 
 # Connectivity check configuration.
 connectivity_check:

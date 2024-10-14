@@ -3,10 +3,9 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
-
-// Cache Configuration
 
 // cacheConfig is the configuration of the DNS cacheConfig module
 //
@@ -44,21 +43,25 @@ const (
 	cacheTypeSimple = "simple"
 )
 
-// validate returns an error if the cache configuration is invalid.
+// type check
+var _ validator = (*cacheConfig)(nil)
+
+// validate implements the [validator] interface for *cacheConfig.
 func (c *cacheConfig) validate() (err error) {
 	switch {
 	case c == nil:
-		return errNilConfig
+		return errors.ErrNoValue
 	case c.Type != cacheTypeSimple && c.Type != cacheTypeECS:
 		return fmt.Errorf(
-			"bad cache type %q, supported: %q",
+			"type: %w: %q, supported: %q",
+			errors.ErrBadEnumValue,
 			c.Type,
 			[]string{cacheTypeSimple, cacheTypeECS},
 		)
 	case c.Size < 0:
-		return newMustBeNonNegativeError("size", c.Size)
+		return newNegativeError("size", c.Size)
 	case c.Type == cacheTypeECS && c.ECSSize < 0:
-		return newMustBeNonNegativeError("ecs_size", c.ECSSize)
+		return newNegativeError("ecs_size", c.ECSSize)
 	default:
 		// Go on.
 	}
@@ -71,13 +74,16 @@ func (c *cacheConfig) validate() (err error) {
 	return nil
 }
 
-// validate returns an error if the TTL override configuration is invalid.
+// type check
+var _ validator = (*ttlOverride)(nil)
+
+// validate implements the [validator] interface for *ttlOverride.
 func (c *ttlOverride) validate() (err error) {
 	switch {
 	case c == nil:
-		return errNilConfig
+		return errors.ErrNoValue
 	case c.Min.Duration <= 0:
-		return newMustBePositiveError("min", c.Min)
+		return newNotPositiveError("min", c.Min)
 	default:
 		return nil
 	}

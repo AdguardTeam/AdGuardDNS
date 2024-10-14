@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/url"
 	"strconv"
 	"time"
@@ -13,6 +14,8 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/c2h5oh/datasize"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -21,28 +24,49 @@ import (
 // profile storage.
 type ProfileStorageConfig struct {
 	// BindSet is the subnet set created from DNS servers listening addresses.
+	// It must not be nil.
 	BindSet netutil.SubnetSet
 
 	// ErrColl is the error collector that is used to collect critical and
-	// non-critical errors.
+	// non-critical errors.  It must not be nil.
 	ErrColl errcoll.Interface
 
+	// Logger is used as the base logger for the profile storage.  It must not
+	// be nil.
+	Logger *slog.Logger
+
+	// Metrics is used for the collection of the protobuf errors.
+	Metrics Metrics
+
 	// Endpoint is the backend API URL.  The scheme should be either "grpc" or
-	// "grpcs".
+	// "grpcs".  It must not be nil.
 	Endpoint *url.URL
 
-	// APIKey is the API key used for authentication, if any.
+	// APIKey is the API key used for authentication, if any.  If empty, no
+	// authentication is performed.
 	APIKey string
+
+	// ResponseSizeEstimate is the estimate of the size of one DNS response for
+	// the purposes of custom ratelimiting.  Responses over this estimate are
+	// counted as several responses.
+	ResponseSizeEstimate datasize.ByteSize
+
+	// MaxProfilesSize is the maximum response size for the profiles endpoint.
+	MaxProfilesSize datasize.ByteSize
 }
 
 // ProfileStorage is the implementation of the [profiledb.Storage] interface
 // that retrieves the profile and device information from the business logic
 // backend.  It is safe for concurrent use.
 type ProfileStorage struct {
-	bindSet netutil.SubnetSet
-	errColl errcoll.Interface
-	client  DNSServiceClient
-	apiKey  string
+	bindSet     netutil.SubnetSet
+	errColl     errcoll.Interface
+	client      DNSServiceClient
+	logger      *slog.Logger
+	metrics     Metrics
+	apiKey      string
+	respSzEst   datasize.ByteSize
+	maxProfSize datasize.ByteSize
 }
 
 // NewProfileStorage returns a new [ProfileStorage] that retrieves information
@@ -55,10 +79,14 @@ func NewProfileStorage(c *ProfileStorageConfig) (s *ProfileStorage, err error) {
 	}
 
 	return &ProfileStorage{
-		bindSet: c.BindSet,
-		errColl: c.ErrColl,
-		client:  client,
-		apiKey:  c.APIKey,
+		bindSet:     c.BindSet,
+		errColl:     c.ErrColl,
+		client:      client,
+		logger:      c.Logger,
+		metrics:     c.Metrics,
+		apiKey:      c.APIKey,
+		respSzEst:   c.ResponseSizeEstimate,
+		maxProfSize: c.MaxProfilesSize,
 	}, nil
 }
 
@@ -87,7 +115,7 @@ func (s *ProfileStorage) CreateAutoDevice(
 		DeviceType: DeviceType(req.DeviceType),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("calling backend: %w", fixGRPCError(err))
+		return nil, fmt.Errorf("calling backend: %w", fixGRPCError(ctx, s.metrics, err))
 	}
 
 	d, err := backendResp.Device.toInternal(s.bindSet)
@@ -106,9 +134,13 @@ func (s *ProfileStorage) Profiles(
 	req *profiledb.StorageProfilesRequest,
 ) (resp *profiledb.StorageProfilesResponse, err error) {
 	ctx = ctxWithAuthentication(ctx, s.apiKey)
-	stream, err := s.client.GetDNSProfiles(ctx, toProtobuf(req))
+
+	// #nosec G115 -- The value of limit comes from validated environment
+	// variables.
+	respSzOpt := grpc.MaxCallRecvMsgSize(int(s.maxProfSize.Bytes()))
+	stream, err := s.client.GetDNSProfiles(ctx, toProtobuf(req), respSzOpt)
 	if err != nil {
-		return nil, fmt.Errorf("loading profiles: %w", fixGRPCError(err))
+		return nil, fmt.Errorf("loading profiles: %w", fixGRPCError(ctx, s.metrics, err))
 	}
 	defer func() { err = errors.WithDeferred(err, stream.CloseSend()) }()
 
@@ -118,6 +150,7 @@ func (s *ProfileStorage) Profiles(
 	}
 
 	stats := &profilesCallStats{
+		logger:     s.logger,
 		isFullSync: req.SyncTime.IsZero(),
 	}
 
@@ -129,12 +162,23 @@ func (s *ProfileStorage) Profiles(
 				break
 			}
 
-			return nil, fmt.Errorf("receiving profile #%d: %w", n, fixGRPCError(profErr))
+			return nil, fmt.Errorf(
+				"receiving profile #%d: %w",
+				n,
+				fixGRPCError(ctx, s.metrics, profErr),
+			)
 		}
 		stats.endRecv()
 
 		stats.startDec()
-		prof, devices, profErr := profile.toInternal(ctx, time.Now(), s.bindSet, s.errColl)
+		prof, devices, profErr := profile.toInternal(
+			ctx,
+			time.Now(),
+			s.bindSet,
+			s.errColl,
+			s.metrics,
+			s.respSzEst,
+		)
 		if profErr != nil {
 			reportf(ctx, s.errColl, "loading profile: %w", profErr)
 
@@ -146,7 +190,7 @@ func (s *ProfileStorage) Profiles(
 		resp.Devices = append(resp.Devices, devices...)
 	}
 
-	stats.report()
+	stats.report(ctx, s.metrics)
 
 	trailer := stream.Trailer()
 	resp.SyncTime, err = syncTimeFromTrailer(trailer)

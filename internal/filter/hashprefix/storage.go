@@ -83,9 +83,7 @@ func (s *Storage) Hashes(prefs []Prefix) (hashes []string) {
 	for _, pref := range prefs {
 		hashSufs := hashSuffixes[pref]
 		for _, suf := range hashSufs {
-			// nolint:looppointer // Slicing is safe; used for encoding.
 			hex.Encode(buf[:], pref[:])
-			// nolint:looppointer // Slicing is safe; used for encoding.
 			hex.Encode(buf[PrefixEncLen:], suf[:])
 			_, _ = b.Write(buf[:])
 		}
@@ -113,7 +111,6 @@ func (s *Storage) Matches(host string) (ok bool) {
 
 	copy(buf[:], pref[:])
 	for _, suf := range hashSufs {
-		// nolint:looppointer // Slicing is safe; used for copying.
 		copy(buf[PrefixLen:], suf[:])
 		if buf == sum {
 			return true

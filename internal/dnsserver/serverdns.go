@@ -3,6 +3,8 @@ package dnsserver
 import (
 	"cmp"
 	"context"
+	"fmt"
+	"math"
 	"net"
 	"sync"
 	"time"
@@ -29,6 +31,9 @@ const (
 	// period should be of the order of seconds, but no particular value is
 	// specified"
 	DefaultTCPIdleTimeout = 30 * time.Second
+
+	// MaxTCPIdleTimeout is the maximum TCP idle timeout per RFC 7828.
+	MaxTCPIdleTimeout = math.MaxUint16 * 100 * time.Millisecond
 )
 
 // ConfigDNS is a struct that needs to be passed to NewServerDNS to
@@ -45,7 +50,8 @@ type ConfigDNS struct {
 	WriteTimeout time.Duration
 
 	// TCPIdleTimeout is the timeout for waiting between multiple queries.  If
-	// not set it defaults to [DefaultTCPIdleTimeout].
+	// not set it defaults to [DefaultTCPIdleTimeout].  It must not be greater
+	// than [MaxTCPIdleTimeout].
 	TCPIdleTimeout time.Duration
 
 	// MaxPipelineCount is the maximum number of simultaneously processing TCP
@@ -112,6 +118,16 @@ func newServerDNS(proto Protocol, conf ConfigDNS) (s *ServerDNS) {
 	conf.ReadTimeout = cmp.Or(conf.ReadTimeout, DefaultReadTimeout)
 	conf.WriteTimeout = cmp.Or(conf.WriteTimeout, DefaultWriteTimeout)
 	conf.TCPIdleTimeout = cmp.Or(conf.TCPIdleTimeout, DefaultTCPIdleTimeout)
+
+	// TODO(a.garipov):  Return an error instead.
+	if t := conf.TCPIdleTimeout; t < 0 || t > MaxTCPIdleTimeout {
+		panic(fmt.Errorf(
+			"newServerDNS: tcp idle timeout: %w: must be >= 0 and <= %s, got %s",
+			errors.ErrOutOfRange,
+			MaxTCPIdleTimeout,
+			t,
+		))
+	}
 
 	// Use dns.MinMsgSize since 99% of DNS queries fit this size, so this is a
 	// sensible default.

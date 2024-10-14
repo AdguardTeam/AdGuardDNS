@@ -13,7 +13,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/miekg/dns"
 )
 
@@ -120,12 +119,9 @@ func (f *Filter) FilterRequest(
 		return nil, nil
 	}
 
-	// Prepare common data for filters.
-	reqID := ri.ID
-	optlog.Debug2("filters: filtering req %s: %d rule lists", reqID, len(f.ruleLists))
-
-	// Firstly, check the profile's rule-list filtering, the custom rules, and
-	// the rules from blocked services settings.
+	// Prepare common data for filters.  Firstly, check the profile's rule-list
+	// filtering, the custom rules, and the rules from blocked services
+	// settings.
 	rlRes := f.filterReqWithRuleLists(ri, req)
 	switch flRes := rlRes.(type) {
 	case *internal.ResultAllowed:
@@ -146,10 +142,7 @@ func (f *Filter) FilterRequest(
 	}
 
 	for _, rf := range f.reqFilters {
-		id := rf.ID()
-		optlog.Debug2("filter %s: filtering req %s", id, reqID)
 		r, err = rf.FilterRequest(ctx, req, ri)
-		optlog.Debug3("filter %s: finished filtering req %s, errors: %v", id, reqID, err)
 		if err != nil {
 			return nil, err
 		} else if r != nil {
@@ -170,7 +163,7 @@ func (f *Filter) filterReqWithRuleLists(ri *agd.RequestInfo, req *dns.Msg) (r in
 	if f.custom != nil {
 		// Only use the device name for custom filters of profiles with devices.
 		var devName string
-		if d := ri.Device; d != nil {
+		if _, d := ri.DeviceData(); d != nil {
 			devName = string(d.Name)
 		}
 
@@ -258,7 +251,7 @@ func (f *Filter) filterRespWithRuleLists(
 
 	if f.custom != nil {
 		var devName string
-		if d := ri.Device; d != nil {
+		if _, d := ri.DeviceData(); d != nil {
 			devName = string(d.Name)
 		}
 

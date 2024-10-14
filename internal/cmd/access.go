@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
 )
 
@@ -13,10 +14,13 @@ type accessConfig struct {
 	BlockedClientSubnets []netutil.Prefix `yaml:"blocked_client_subnets"`
 }
 
-// validate returns an error if the access configuration is invalid.
-func (a *accessConfig) validate() (err error) {
-	if a == nil {
-		return errNilConfig
+// type check
+var _ validator = (*accessConfig)(nil)
+
+// validate implements the [validator] interface for *accessConfig.
+func (c *accessConfig) validate() (err error) {
+	if c == nil {
+		return errors.ErrNoValue
 	}
 
 	return nil

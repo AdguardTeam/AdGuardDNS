@@ -1,10 +1,17 @@
 package bindtodevice
 
-import "github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+import (
+	"log/slog"
+
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+)
 
 // ManagerConfig is the configuration structure for [NewManager].  All fields
 // must be set.
 type ManagerConfig struct {
+	// Logger is used to log the operation of the manager.
+	Logger *slog.Logger
+
 	// InterfaceStorage is used to get the information about the system's
 	// network interfaces.  Normally, this is [DefaultInterfaceStorage].
 	InterfaceStorage InterfaceStorage

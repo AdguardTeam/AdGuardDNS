@@ -15,8 +15,6 @@ import (
 	"github.com/miekg/dns"
 )
 
-// Discovery Of Designated Resolvers (DDR) configuration
-
 // ddrConfig is the configuration for a server group's DDR handler.
 type ddrConfig struct {
 	// DeviceRecords are used to respond to DDR queries from recognized devices.
@@ -32,8 +30,8 @@ type ddrConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
-// toInternal returns the DDR configuration.  messages must not be nil.  c is
-// assumed to be valid.
+// toInternal returns the DDR configuration.  messages must not be nil.  c must
+// be valid.
 func (c *ddrConfig) toInternal(msgs *dnsmsg.Constructor) (conf *agd.DDR) {
 	conf = &agd.DDR{
 		Enabled: c.Enabled,
@@ -73,44 +71,40 @@ func appendDDRSVCBTmpls(
 	r *ddrRecord,
 	target string,
 ) (result []*dns.SVCB) {
-	protoPorts := []struct {
-		proto agd.Protocol
-		port  uint16
-	}{{
-		proto: agd.ProtoDoH,
-		port:  r.HTTPSPort,
+	protoPorts := container.KeyValues[agd.Protocol, uint16]{{
+		Key:   agd.ProtoDoH,
+		Value: r.HTTPSPort,
 	}, {
-		proto: agd.ProtoDoT,
-		port:  r.TLSPort,
+		Key:   agd.ProtoDoT,
+		Value: r.TLSPort,
 	}, {
-		proto: agd.ProtoDoQ,
-		port:  r.QUICPort,
+		Key:   agd.ProtoDoQ,
+		Value: r.QUICPort,
 	}}
 
 	var prio uint16
-	for _, pp := range protoPorts {
-		if pp.port != 0 {
-			prio++
-
-			recs = append(recs, msgs.NewDDRTemplate(
-				pp.proto,
-				target,
-				r.DoHPath,
-				r.IPv4Hints,
-				r.IPv6Hints,
-				pp.port,
-				prio,
-			))
+	for _, kv := range protoPorts {
+		port := kv.Value
+		if port == 0 {
+			continue
 		}
+
+		prio++
+
+		rec := msgs.NewDDRTemplate(kv.Key, target, r.DoHPath, r.IPv4Hints, r.IPv6Hints, port, prio)
+		recs = append(recs, rec)
 	}
 
 	return recs
 }
 
-// validate returns an error if the DDR configuration is invalid.
+// type check
+var _ validator = (*ddrConfig)(nil)
+
+// validate implements the [validator] interface for *ddrConfig.
 func (c *ddrConfig) validate() (err error) {
 	if c == nil {
-		return errNilConfig
+		return errors.ErrNoValue
 	}
 
 	for wildcard, r := range c.DeviceRecords {
@@ -163,10 +157,13 @@ type ddrRecord struct {
 	TLSPort uint16 `yaml:"tls_port"`
 }
 
-// validate returns an error if the DDR record fields are invalid.
+// type check
+var _ validator = (*ddrRecord)(nil)
+
+// validate implements the [validator] interface for *ddrRecord.
 func (r *ddrRecord) validate() (err error) {
 	if r == nil {
-		return errNilConfig
+		return errors.ErrNoValue
 	}
 
 	// TODO(a.garipov): Consider validating that r.DoHPath is a valid RFC 6570
@@ -191,8 +188,8 @@ func (r *ddrRecord) validate() (err error) {
 	return r.validatePorts()
 }
 
-// validatePorts returns an error if the DDR record has invalid ports.  r is
-// assumed to be otherwise valid.
+// validatePorts returns an error if the DDR record has invalid ports.  r must
+// be otherwise valid.
 func (r *ddrRecord) validatePorts() (err error) {
 	switch {
 	case r.HTTPSPort != 0 && r.HTTPSPort == r.TLSPort:

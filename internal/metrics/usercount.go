@@ -1,7 +1,7 @@
 package metrics
 
 import (
-	"net/netip"
+	"fmt"
 	"sync"
 	"time"
 
@@ -9,26 +9,7 @@ import (
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/axiomhq/hyperloglog"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
-
-// dnsSvcUsersCount is a gauge with an approximate number of DNS users for the
-// last 1 hour.
-var dnsSvcUsersCount = promauto.NewGauge(prometheus.GaugeOpts{
-	Name:      "users_last_hour_count",
-	Namespace: namespace,
-	Subsystem: subsystemDNSSvc,
-	Help:      "The approximate number of DNS users for the last 1 hour.",
-})
-
-// dnsSvcUsersDailyCount is a gauge with an approximate number of DNS users for
-// the last 24 hours.
-var dnsSvcUsersDailyCount = promauto.NewGauge(prometheus.GaugeOpts{
-	Name:      "users_last_day_count",
-	Namespace: namespace,
-	Subsystem: subsystemDNSSvc,
-	Help:      "The approximate number of DNS users for the last 24 hours.",
-})
 
 const (
 	// minutesPerHour is the number of minutes in an hour.
@@ -38,9 +19,19 @@ const (
 	hoursPerDay = int(timeutil.Day / time.Hour)
 )
 
-// userCounter is used to save estimated counts of active users per hour and per
-// day.
-type userCounter struct {
+// UserCounter is used to save estimated counts of active users per hour and per
+// day by some data.
+//
+// TODO(a.garipov):  Improve and move to golibs.
+type UserCounter struct {
+	// lastHour is a gauge with an approximate number of DNS users for the
+	// last 1 hour.
+	lastHour prometheus.Gauge
+
+	// lastDay is a gauge with an approximate number of DNS users for
+	// the last 24 hours.
+	lastDay prometheus.Gauge
+
 	// currentMu protects currentMinute and currentMinuteCounter.
 	currentMu *sync.Mutex
 
@@ -63,9 +54,12 @@ type userCounter struct {
 	currentMinute int
 }
 
-// newUserCounter initializes and returns a *userCounter.
-func newUserCounter() (c *userCounter) {
-	return &userCounter{
+// NewUserCounter initializes and returns a properly initialized *UserCounter
+// that uses the given gauges to estimate the user count.
+func NewUserCounter(lastHour, lastDay prometheus.Gauge) (c *UserCounter) {
+	return &UserCounter{
+		lastHour:             lastHour,
+		lastDay:              lastDay,
 		currentMu:            &sync.Mutex{},
 		currentMinuteCounter: nil,
 		countersMu:           &sync.Mutex{},
@@ -77,21 +71,18 @@ func newUserCounter() (c *userCounter) {
 	}
 }
 
-// record updates the current minute-of-the-day counter as well as sets the
+// Record updates the current minute-of-the-day counter as well as sets the
 // values of the hourly and daily metric counters, if necessary.  now is the
-// time for which to record the IP address, typically the current time.
+// time for which to Record the IP address or other data, typically the current
+// time.
 //
-// If syncUpdate is true, record performs the metric counter updates
-// synchronously.  It's is currently only used in tests.
+// If syncUpdate is true, Record performs the metric counter updates
+// synchronously.  It is currently only used in tests.
 //
 // It currently assumes that it will be called at least once per day.
-func (c *userCounter) record(now time.Time, ip netip.Addr, syncUpdate bool) {
+func (c *UserCounter) Record(now time.Time, userData []byte, syncUpdate bool) {
 	hour, minute, _ := now.Clock()
 	minuteOfDay := hour*minutesPerHour + minute
-
-	// Assume that ip is the remote IP address, which has already been unmapped
-	// by [netutil.NetAddrToAddrPort].
-	b := ip.As16()
 
 	c.currentMu.Lock()
 	defer c.currentMu.Unlock()
@@ -114,13 +105,13 @@ func (c *userCounter) record(now time.Time, ip netip.Addr, syncUpdate bool) {
 		}
 	}
 
-	c.currentMinuteCounter.Insert(b[:])
+	c.currentMinuteCounter.Insert(userData)
 }
 
 // updateCounters adds prevCounter to counters and then merges them and updates
 // the metrics.  It also clears all the stale hourly counters from the previous
 // day.
-func (c *userCounter) updateCounters(
+func (c *UserCounter) updateCounters(
 	prevMinute int,
 	currentHour int,
 	prevMinuteCounter *hyperloglog.Sketch,
@@ -138,16 +129,16 @@ func (c *userCounter) updateCounters(
 	c.updateHours(currentHour, hourOfPrevMinute, prevMinuteCounter)
 
 	// Calculate the estimated numbers of hourly and daily users.
-	hourly, daily := c.estimate()
+	hourly, daily := c.Estimate()
 
-	dnsSvcUsersCount.Set(float64(hourly))
-	dnsSvcUsersDailyCount.Set(float64(daily))
+	c.lastHour.Set(float64(hourly))
+	c.lastDay.Set(float64(daily))
 }
 
 // updateHours adds the prevMinuteCounter to the hourly counter for prevHour
 // hour, and clears all the counters between curHour and prevHour, since those
 // may contain data for the previous day.
-func (c *userCounter) updateHours(curHour, prevHour int, prevMinuteCounter *hyperloglog.Sketch) {
+func (c *UserCounter) updateHours(curHour, prevHour int, prevMinuteCounter *hyperloglog.Sketch) {
 	for h := curHour; h != prevHour; h = decMod(h, hoursPerDay) {
 		c.dayHourCounters[h] = nil
 	}
@@ -159,10 +150,13 @@ func (c *userCounter) updateHours(curHour, prevHour int, prevMinuteCounter *hype
 	mustMerge(c.dayHourCounters[prevHour], prevMinuteCounter)
 }
 
-// estimate uses HyperLogLog counters to return the number of users for the last
-// hour and the last day.  It doesn't include the data for current minute.  It
-// must not be called concurrently with [userCounter.updateCounters].
-func (c *userCounter) estimate() (hourly, daily uint64) {
+// Estimate uses HyperLogLog counters to return the number of users for the last
+// hour and the last day.  It doesn't include the data for current minute.
+//
+// It must not be called concurrently with [UserCounter.updateCounters].
+//
+// TODO(a.garipov):  Unexport and use gauges instead?
+func (c *UserCounter) Estimate() (hourly, daily uint64) {
 	hourlyCounter, dailyCounter := newHyperLogLog(), newHyperLogLog()
 
 	for _, c := range c.hourMinuteCounters {
@@ -188,25 +182,14 @@ func mustMerge(a, b *hyperloglog.Sketch) {
 	}
 }
 
-// hyperloglogConfig is a serialized [hyperLogLog.Sketch] with precision 18 and
-// sparse mode enabled.
-var hyperloglogConfig = [20]byte{
-	// Version.
-	0: 0x1,
-	// Precision.
-	1: 18,
-	// Sparse.
-	3: 0x1,
-}
-
 // newHyperLogLog creates a new instance of hyperloglog.Sketch with precision 18
 // and sparse mode enabled.
 func newHyperLogLog() (sk *hyperloglog.Sketch) {
-	sk = &hyperloglog.Sketch{}
-	err := sk.UnmarshalBinary(hyperloglogConfig[:])
+	sk, err := hyperloglog.NewSketch(18, true)
 	if err != nil {
-		// Generally shouldn't happen.
-		panic(err)
+		// Should never happen, as NewSketch only returns an error when the
+		// precision is out of range.
+		panic(fmt.Errorf("metrics.UserCounter.Record: unexpected error: %w", err))
 	}
 
 	return sk
@@ -220,13 +203,4 @@ func decMod(n, m int) (res int) {
 	}
 
 	return n - 1
-}
-
-// defaultUserCounter is the main user statistics counter.
-var defaultUserCounter = newUserCounter()
-
-// DNSSvcUsersCountUpdate records a visit by ip and updates the values of the
-// [dnsSvcUsersCount] and [dnsSvcUsersDailyCount] gauges every second.
-func DNSSvcUsersCountUpdate(ip netip.Addr) {
-	defaultUserCounter.record(time.Now(), ip, false)
 }

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/golibs/testutil"
@@ -26,8 +27,22 @@ func newTXTExtra(ttl uint32, strs ...string) (extra []dns.RR) {
 	}}
 }
 
+// newConstructor returns a new dnsmsg.Constructor with [testFltRespTTL].
+func newConstructor(tb testing.TB) (c *dnsmsg.Constructor) {
+	msgs, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
+		Cloner:              dnsmsg.NewCloner(dnsmsg.EmptyClonerStat{}),
+		BlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		FilteredResponseTTL: agdtest.FilteredResponseTTL,
+	})
+	require.NoError(tb, err)
+
+	return msgs
+}
+
 func TestConstructor_NewBlockedRespMsg_nullIP(t *testing.T) {
-	mc := dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
+	t.Parallel()
+
+	msgs := newConstructor(t)
 
 	testCases := []struct {
 		name       string
@@ -49,64 +64,70 @@ func TestConstructor_NewBlockedRespMsg_nullIP(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			req := dnsservertest.NewReq(testFQDN, tc.qt, dns.ClassINET)
-			resp, err := mc.NewBlockedRespMsg(req)
-			require.NoError(t, err)
+
+			resp, respErr := msgs.NewBlockedRespMsg(req)
+			require.NoError(t, respErr)
 			require.NotNil(t, resp)
 
 			assert.Equal(t, dns.RcodeSuccess, resp.Rcode)
 
-			const wantTTL = testFltRespTTLSec
 			if tc.wantAnsNum == 0 {
 				assert.Empty(t, resp.Answer)
 
 				require.Len(t, resp.Ns, 1)
 
 				nsTTL := resp.Ns[0].Header().Ttl
-				assert.Equal(t, wantTTL, nsTTL)
+				assert.Equal(t, uint32(agdtest.FilteredResponseTTLSec), nsTTL)
 			} else {
 				require.Len(t, resp.Answer, 1)
 
 				ansTTL := resp.Answer[0].Header().Ttl
-				assert.Equal(t, wantTTL, ansTTL)
+				assert.Equal(t, uint32(agdtest.FilteredResponseTTLSec), ansTTL)
 			}
 		})
 	}
 }
 
 func TestConstructor_NewBlockedRespMsg_customIP(t *testing.T) {
+	t.Parallel()
+
+	cloner := agdtest.NewCloner()
+
 	testCases := []struct {
-		messages *dnsmsg.Constructor
-		name     string
-		wantA    bool
-		wantAAAA bool
+		blockingMode dnsmsg.BlockingMode
+		name         string
+		wantA        bool
+		wantAAAA     bool
 	}{{
-		messages: dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeCustomIP{
+		blockingMode: &dnsmsg.BlockingModeCustomIP{
 			IPv4: []netip.Addr{testIPv4},
 			IPv6: []netip.Addr{testIPv6},
-		}, testFltRespTTL),
+		},
 		name:     "both",
 		wantA:    true,
 		wantAAAA: true,
 	}, {
-		messages: dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeCustomIP{
+		blockingMode: &dnsmsg.BlockingModeCustomIP{
 			IPv4: []netip.Addr{testIPv4},
-		}, testFltRespTTL),
+		},
 		name:     "ipv4_only",
 		wantA:    true,
 		wantAAAA: false,
 	}, {
-		messages: dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeCustomIP{
+		blockingMode: &dnsmsg.BlockingModeCustomIP{
 			IPv6: []netip.Addr{testIPv6},
-		}, testFltRespTTL),
+		},
 		name:     "ipv6_only",
 		wantA:    false,
 		wantAAAA: true,
 	}, {
-		messages: dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeCustomIP{
+		blockingMode: &dnsmsg.BlockingModeCustomIP{
 			IPv4: []netip.Addr{},
 			IPv6: []netip.Addr{},
-		}, testFltRespTTL),
+		},
 		name:     "empty",
 		wantA:    false,
 		wantAAAA: false,
@@ -114,8 +135,17 @@ func TestConstructor_NewBlockedRespMsg_customIP(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			msgs, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
+				Cloner:              cloner,
+				BlockingMode:        tc.blockingMode,
+				FilteredResponseTTL: agdtest.FilteredResponseTTL,
+			})
+			require.NoError(t, err)
+
 			reqA := dnsservertest.NewReq(testFQDN, dns.TypeA, dns.ClassINET)
-			respA, err := tc.messages.NewBlockedRespMsg(reqA)
+			respA, err := msgs.NewBlockedRespMsg(reqA)
 			require.NoError(t, err)
 			require.NotNil(t, respA)
 
@@ -131,7 +161,7 @@ func TestConstructor_NewBlockedRespMsg_customIP(t *testing.T) {
 			}
 
 			reqAAAA := dnsservertest.NewReq(testFQDN, dns.TypeAAAA, dns.ClassINET)
-			respAAAA, err := tc.messages.NewBlockedRespMsg(reqAAAA)
+			respAAAA, err := msgs.NewBlockedRespMsg(reqAAAA)
 			require.NoError(t, err)
 			require.NotNil(t, respAAAA)
 
@@ -150,40 +180,56 @@ func TestConstructor_NewBlockedRespMsg_customIP(t *testing.T) {
 }
 
 func TestConstructor_NewBlockedRespMsg_noAnswer(t *testing.T) {
+	t.Parallel()
+
 	req := dnsservertest.NewReq(testFQDN, dns.TypeA, dns.ClassINET)
+	cloner := agdtest.NewCloner()
 
 	testCases := []struct {
-		messages *dnsmsg.Constructor
-		name     string
-		rcode    dnsmsg.RCode
+		blockingMode dnsmsg.BlockingMode
+		name         string
+		rcode        dnsmsg.RCode
 	}{{
-		messages: dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeNXDOMAIN{}, testFltRespTTL),
-		name:     "nxdomain",
-		rcode:    dns.RcodeNameError,
+		blockingMode: &dnsmsg.BlockingModeNXDOMAIN{},
+		name:         "nxdomain",
+		rcode:        dns.RcodeNameError,
 	}, {
-		messages: dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeREFUSED{}, testFltRespTTL),
-		name:     "refused",
-		rcode:    dns.RcodeRefused,
+		blockingMode: &dnsmsg.BlockingModeREFUSED{},
+		name:         "refused",
+		rcode:        dns.RcodeRefused,
 	}}
 
-	const wantTTL = testFltRespTTLSec
 	for _, tc := range testCases {
-		resp, err := tc.messages.NewBlockedRespMsg(req)
-		require.NoError(t, err)
-		require.NotNil(t, resp)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, tc.rcode, dnsmsg.RCode(resp.Rcode))
-		assert.Empty(t, resp.Answer)
+			msgs, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
+				Cloner:              cloner,
+				BlockingMode:        tc.blockingMode,
+				FilteredResponseTTL: agdtest.FilteredResponseTTL,
+			})
+			require.NoError(t, err)
 
-		require.Len(t, resp.Ns, 1)
+			resp, err := msgs.NewBlockedRespMsg(req)
+			require.NoError(t, err)
+			require.NotNil(t, resp)
 
-		nsTTL := resp.Ns[0].Header().Ttl
-		assert.Equal(t, wantTTL, nsTTL)
+			assert.Equal(t, tc.rcode, dnsmsg.RCode(resp.Rcode))
+			assert.Empty(t, resp.Answer)
+
+			require.Len(t, resp.Ns, 1)
+
+			nsTTL := resp.Ns[0].Header().Ttl
+			assert.Equal(t, uint32(agdtest.FilteredResponseTTLSec), nsTTL)
+		})
 	}
 }
 
 func TestConstructor_noAnswerMethods(t *testing.T) {
-	mc := dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
+	t.Parallel()
+
+	msgs := newConstructor(t)
+
 	req := dnsservertest.NewReq(testFQDN, dns.TypeA, dns.ClassINET)
 
 	testCases := []struct {
@@ -191,30 +237,31 @@ func TestConstructor_noAnswerMethods(t *testing.T) {
 		name   string
 		want   dnsmsg.RCode
 	}{{
-		method: mc.NewMsgFORMERR,
+		method: msgs.NewMsgFORMERR,
 		name:   "formerr",
 		want:   dns.RcodeFormatError,
 	}, {
-		method: mc.NewMsgNXDOMAIN,
+		method: msgs.NewMsgNXDOMAIN,
 		name:   "nxdomain",
 		want:   dns.RcodeNameError,
 	}, {
-		method: mc.NewMsgREFUSED,
+		method: msgs.NewMsgREFUSED,
 		name:   "refused",
 		want:   dns.RcodeRefused,
 	}, {
-		method: mc.NewMsgSERVFAIL,
+		method: msgs.NewMsgSERVFAIL,
 		name:   "servfail",
 		want:   dns.RcodeServerFailure,
 	}, {
-		method: mc.NewMsgNODATA,
+		method: msgs.NewMsgNODATA,
 		name:   "nodata",
 		want:   dns.RcodeSuccess,
 	}}
 
-	const wantTTL = testFltRespTTLSec
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			resp := tc.method(req)
 			require.NotNil(t, resp)
 			require.Len(t, resp.Ns, 1)
@@ -223,13 +270,16 @@ func TestConstructor_noAnswerMethods(t *testing.T) {
 			assert.Equal(t, tc.want, dnsmsg.RCode(resp.Rcode))
 
 			nsTTL := resp.Ns[0].Header().Ttl
-			assert.Equal(t, wantTTL, nsTTL)
+			assert.Equal(t, uint32(agdtest.FilteredResponseTTLSec), nsTTL)
 		})
 	}
 }
 
 func TestConstructor_NewTXTRespMsg(t *testing.T) {
-	mc := dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
+	t.Parallel()
+
+	msgs := newConstructor(t)
+
 	req := dnsservertest.NewReq(testFQDN, dns.TypeTXT, dns.ClassINET)
 	tooLong := strings.Repeat("1", dnsmsg.MaxTXTStringLen+1)
 
@@ -259,11 +309,12 @@ func TestConstructor_NewTXTRespMsg(t *testing.T) {
 		strs:       []string{tooLong},
 	}}
 
-	const wantTTL = testFltRespTTLSec
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, err := mc.NewTXTRespMsg(req, tc.strs...)
-			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)
+			t.Parallel()
+
+			resp, respErr := msgs.NewTXTRespMsg(req, tc.strs...)
+			testutil.AssertErrorMsg(t, tc.wantErrMsg, respErr)
 
 			if tc.wantErrMsg != "" {
 				return
@@ -277,7 +328,7 @@ func TestConstructor_NewTXTRespMsg(t *testing.T) {
 
 			ans := resp.Answer[0]
 			ansTTL := ans.Header().Ttl
-			assert.Equal(t, wantTTL, ansTTL)
+			assert.Equal(t, uint32(agdtest.FilteredResponseTTLSec), ansTTL)
 
 			txt := testutil.RequireTypeAssert[*dns.TXT](t, ans)
 			assert.Equal(t, tc.strs, txt.Txt)
@@ -286,7 +337,10 @@ func TestConstructor_NewTXTRespMsg(t *testing.T) {
 }
 
 func TestConstructor_AppendDebugExtra(t *testing.T) {
-	mc := dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
+	t.Parallel()
+
+	msgs := newConstructor(t)
+
 	shortText := "This is a short test text"
 	longText := strings.Repeat("a", 2*dnsmsg.MaxTXTStringLen)
 
@@ -300,14 +354,14 @@ func TestConstructor_AppendDebugExtra(t *testing.T) {
 		name:       "short_text",
 		text:       shortText,
 		qt:         dns.TypeTXT,
-		wantExtra:  newTXTExtra(testFltRespTTLSec, shortText),
+		wantExtra:  newTXTExtra(agdtest.FilteredResponseTTLSec, shortText),
 		wantErrMsg: "",
 	}, {
 		name: "long_text",
 		text: longText,
 		qt:   dns.TypeTXT,
 		wantExtra: newTXTExtra(
-			testFltRespTTLSec,
+			agdtest.FilteredResponseTTLSec,
 			longText[:dnsmsg.MaxTXTStringLen],
 			longText[dnsmsg.MaxTXTStringLen:],
 		),
@@ -322,7 +376,7 @@ func TestConstructor_AppendDebugExtra(t *testing.T) {
 		name:       "empty_text",
 		text:       "",
 		qt:         dns.TypeTXT,
-		wantExtra:  newTXTExtra(testFltRespTTLSec, ""),
+		wantExtra:  newTXTExtra(agdtest.FilteredResponseTTLSec, ""),
 		wantErrMsg: "",
 	}}
 
@@ -330,6 +384,8 @@ func TestConstructor_AppendDebugExtra(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			req := &dns.Msg{
 				MsgHdr: dns.MsgHdr{
 					Id: dns.Id(),
@@ -344,8 +400,8 @@ func TestConstructor_AppendDebugExtra(t *testing.T) {
 			resp := &dns.Msg{}
 			resp = resp.SetReply(req)
 
-			err := mc.AppendDebugExtra(req, resp, tc.text)
-			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)
+			appendErr := msgs.AppendDebugExtra(req, resp, tc.text)
+			testutil.AssertErrorMsg(t, tc.wantErrMsg, appendErr)
 
 			wantExtra := tc.wantExtra
 			if len(wantExtra) > 0 {

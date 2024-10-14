@@ -6,12 +6,8 @@ import (
 	"net/netip"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
 )
-
-// Connectivity check configuration
 
 // connCheckConfig is the connectivity check configuration.
 type connCheckConfig struct {
@@ -22,13 +18,16 @@ type connCheckConfig struct {
 	ProbeIPv6 netip.AddrPort `yaml:"probe_ipv6"`
 }
 
-// validate returns an error if the connectivityCheck configuration is invalid.
+// type check
+var _ validator = (*connCheckConfig)(nil)
+
+// validate implements the [validator] interface for *connCheckConfig.
 func (c *connCheckConfig) validate() (err error) {
 	switch {
 	case c == nil:
-		return errNilConfig
+		return errors.ErrNoValue
 	case c.ProbeIPv4 == netip.AddrPort{}:
-		return errors.Error("no ipv4")
+		return fmt.Errorf("probe_ipv4: %w", errors.ErrEmptyValue)
 	}
 
 	return nil
@@ -39,43 +38,39 @@ func (c *connCheckConfig) validate() (err error) {
 // server bind addresses looking up for IPv6 addresses.  If an IPv6 address is
 // found, then additionally to a general probe to IPv4 it will perform a check
 // to IPv6 probe address.
-func connectivityCheck(c *dnssvc.Config, connCheck *connCheckConfig) (err error) {
+func connectivityCheck(srvGrps []*agd.ServerGroup, connCheck *connCheckConfig) (err error) {
 	probeIPv4 := net.TCPAddrFromAddrPort(connCheck.ProbeIPv4)
 
 	// General check to IPv4 probe address.
-	conn, err := net.DialTCP("tcp4", nil, probeIPv4)
+	conn4, err := net.DialTCP("tcp4", nil, probeIPv4)
 	if err != nil {
 		return fmt.Errorf("connectivity check: ipv4: %w", err)
 	}
 
 	defer func() {
-		closeErr := conn.Close()
-		if closeErr != nil {
-			log.Fatalf("connectivity check: ipv4: %v", closeErr)
-		}
+		errClose := errors.Annotate(conn4.Close(), "connectivity check: closing ipv4: %w")
+		err = errors.WithDeferred(err, errClose)
 	}()
 
-	if !requireIPv6ConnCheck(c.ServerGroups) {
+	if !requireIPv6ConnCheck(srvGrps) {
 		return nil
 	}
 
 	if (connCheck.ProbeIPv6 == netip.AddrPort{}) {
-		log.Fatal("connectivity check: no ipv6 probe address in config")
+		return errors.Error("connectivity check: no ipv6 probe address in config")
 	}
 
 	probeIPv6 := net.TCPAddrFromAddrPort(connCheck.ProbeIPv6)
 
 	// Check to IPv6 probe address.
-	connV6, err := net.DialTCP("tcp6", nil, probeIPv6)
+	conn6, err := net.DialTCP("tcp6", nil, probeIPv6)
 	if err != nil {
 		return fmt.Errorf("connectivity check: ipv6: %w", err)
 	}
 
 	defer func() {
-		closeErr := connV6.Close()
-		if closeErr != nil {
-			log.Fatalf("connectivity check: ipv6: %v", closeErr)
-		}
+		errClose := errors.Annotate(conn6.Close(), "connectivity check: closing ipv6: %w")
+		err = errors.WithDeferred(err, errClose)
 	}()
 
 	return nil

@@ -39,6 +39,7 @@ message Profile {
   bool block_firefox_canary = 18;
   bool ip_log_enabled = 20;
   bool auto_devices_enabled = 22;
+  RateLimitSettings rate_limit = 23;
 }
 
 message ParentalProtectionSettings {
@@ -111,4 +112,10 @@ message AuthenticationSettings {
   oneof doh_password_hash {
     bytes password_hash_bcrypt = 2;
   }
+}
+
+message RateLimitSettings {
+  bool enabled = 1;
+  uint32 rps = 2;
+  repeated CidrRange client_cidr = 3;
 }

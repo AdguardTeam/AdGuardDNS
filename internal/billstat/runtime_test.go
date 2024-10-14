@@ -10,6 +10,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,11 +31,8 @@ const (
 func TestRuntimeRecorder_success(t *testing.T) {
 	var gotRecord *billstat.Record
 	c := &billstat.RuntimeRecorderConfig{
-		ErrColl: &agdtest.ErrorCollector{
-			OnCollect: func(_ context.Context, _ error) {
-				panic("not implemented")
-			},
-		},
+		Logger:  slogutil.NewDiscardLogger(),
+		ErrColl: agdtest.NewErrorCollector(),
 		Uploader: &agdtest.BillStatUploader{
 			OnUpload: func(_ context.Context, records billstat.Records) (err error) {
 				gotRecord = records[devID]
@@ -42,6 +40,7 @@ func TestRuntimeRecorder_success(t *testing.T) {
 				return nil
 			},
 		},
+		Metrics: billstat.EmptyMetrics{},
 	}
 
 	r := billstat.NewRuntimeRecorder(c)
@@ -96,6 +95,7 @@ func TestRuntimeRecorder_fail(t *testing.T) {
 
 	var gotCollErr error
 	c := &billstat.RuntimeRecorderConfig{
+		Logger: slogutil.NewDiscardLogger(),
 		ErrColl: &agdtest.ErrorCollector{
 			OnCollect: func(_ context.Context, err error) {
 				gotCollErr = err
@@ -104,6 +104,7 @@ func TestRuntimeRecorder_fail(t *testing.T) {
 		Uploader: &agdtest.BillStatUploader{
 			OnUpload: onUpload,
 		},
+		Metrics: billstat.EmptyMetrics{},
 	}
 
 	r := billstat.NewRuntimeRecorder(c)

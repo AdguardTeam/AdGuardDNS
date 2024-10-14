@@ -13,6 +13,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,7 +41,11 @@ func TestHTTP_Collect(t *testing.T) {
 
 		rw.WriteHeader(http.StatusOK)
 	}))
-	conf := &rulestat.HTTPConfig{URL: u}
+	conf := &rulestat.HTTPConfig{
+		ErrColl: agdtest.NewErrorCollector(),
+		Logger:  slogutil.NewDiscardLogger(),
+		URL:     u,
+	}
 
 	testCases := []struct {
 		name  string
@@ -85,9 +90,10 @@ func TestHTTP_Refresh_errors(t *testing.T) {
 			`unsupported protocol scheme "badscheme"`
 
 		h := rulestat.NewHTTP(&rulestat.HTTPConfig{
+			Logger: slogutil.NewDiscardLogger(),
 			ErrColl: &agdtest.ErrorCollector{
 				OnCollect: func(_ context.Context, err error) {
-					testutil.AssertErrorMsg(t, "rulestat_refresh: "+wantErrMsg, err)
+					testutil.AssertErrorMsg(t, "uploading rulestat: "+wantErrMsg, err)
 				},
 			},
 			URL: &url.URL{
@@ -105,6 +111,7 @@ func TestHTTP_Refresh_errors(t *testing.T) {
 			rw.WriteHeader(http.StatusInternalServerError)
 		}))
 		h := rulestat.NewHTTP(&rulestat.HTTPConfig{
+			Logger: slogutil.NewDiscardLogger(),
 			ErrColl: &agdtest.ErrorCollector{
 				OnCollect: func(_ context.Context, err error) {
 					require.NotNil(t, err)

@@ -31,9 +31,16 @@ func BenchmarkFilter_FilterReqWithRuleLists(b *testing.B) {
 		RuleLists: []*rulelist.Refreshable{blockingRL},
 	})
 
+	msgs, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
+		Cloner:              dnsmsg.NewCloner(dnsmsg.EmptyClonerStat{}),
+		BlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		FilteredResponseTTL: filtertest.Staleness,
+	})
+	require.NoError(b, err)
+
 	req := dnsservertest.NewReq(filtertest.ReqFQDN, dns.TypeA, dns.ClassINET)
 	ri := &agd.RequestInfo{
-		Messages: dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeNullIP{}, filtertest.Staleness),
+		Messages: msgs,
 		RemoteIP: filtertest.RemoteIP,
 		Host:     filtertest.ReqHost,
 		QType:    dns.TypeA,
@@ -47,11 +54,11 @@ func BenchmarkFilter_FilterReqWithRuleLists(b *testing.B) {
 		resultSink = f.filterReqWithRuleLists(ri, req)
 	}
 
-	// Most recent results, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
+	// Most recent results:
 	//
-	//	goos: linux
+	//	goos: darwin
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/composite
-	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkFilter_FilterWithRuleLists-16    	  464508	      2449 ns/op	     162 B/op	       6 allocs/op
+	//	cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	//	BenchmarkFilter_FilterReqWithRuleLists-12	1023186		1144 ns/op	186 B/op	7 allocs/op
 }

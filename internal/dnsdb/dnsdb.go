@@ -18,8 +18,6 @@ import (
 	"github.com/miekg/dns"
 )
 
-// Common Types, Functions, And Constants
-
 // Interface is the DNS query database interface.
 type Interface interface {
 	// Record saves anonymous data from the DNS query.
@@ -83,6 +81,7 @@ func (db *Default) Record(ctx context.Context, m *dns.Msg, ri *agd.RequestInfo) 
 		return
 	}
 
+	// #nosec G115 -- RCODE is currently defined to be 16 bit or less.
 	db.buffer.Load().add(ri.Host, m.Answer, q.Qtype, dnsmsg.RCode(m.Rcode))
 }
 

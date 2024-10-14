@@ -34,11 +34,7 @@ func TestMiddleware_setFilteredResponse(t *testing.T) {
 	rewrResp.Answer = append(rewrResp.Answer, dnsservertest.NewA(domain, fltRespTTL, rewrIP))
 
 	mw := &Middleware{
-		errColl: &agdtest.ErrorCollector{
-			OnCollect: func(_ context.Context, err error) {
-				panic(fmt.Errorf("unexpected error: %w", err))
-			},
-		},
+		errColl: agdtest.NewErrorCollector(),
 	}
 
 	testCases := []struct {
@@ -86,7 +82,7 @@ func TestMiddleware_setFilteredResponse(t *testing.T) {
 	}}
 
 	ri := &agd.RequestInfo{
-		Messages: agdtest.NewConstructor(),
+		Messages: agdtest.NewConstructor(t),
 	}
 
 	for _, tc := range testCases {

@@ -36,9 +36,9 @@ func testEntry() (e *querylog.Entry) {
 		DomainFQDN:      "example.com.",
 		Protocol:        agd.ProtoDNS,
 		ClientASN:       1234,
-		Elapsed:         5,
+		Elapsed:         5 * time.Millisecond,
 		RequestType:     dns.TypeA,
-		DNSSEC:          true,
 		ResponseCode:    dns.RcodeSuccess,
+		DNSSEC:          true,
 	}
 }

@@ -29,15 +29,12 @@ func (mw *Middleware) recordQueryInfo(
 	id, text, blocked := filteringData(fctx)
 	mw.ruleStat.Collect(ctx, id, text)
 
-	prof := ri.Profile
+	prof, dev := ri.DeviceData()
 	if prof == nil {
 		return
 	}
 
-	var devID agd.DeviceID
-	if d := ri.Device; d != nil {
-		devID = d.ID
-	}
+	devID := dev.ID
 
 	var reqCtry geoip.Country
 	var reqASN geoip.ASN
@@ -78,12 +75,12 @@ func (mw *Middleware) recordQueryInfo(
 		ClientCountry:   reqCtry,
 		ResponseCountry: mw.responseCountry(ctx, fctx, ri.Host, respIP, rcode),
 		DomainFQDN:      q.Name,
+		Elapsed:         time.Since(start),
 		ClientASN:       reqASN,
-		Elapsed:         uint16(time.Since(start).Milliseconds()),
 		RequestType:     ri.QType,
+		ResponseCode:    rcode,
 		Protocol:        ri.Proto,
 		DNSSEC:          respDNSSEC,
-		ResponseCode:    rcode,
 		RemoteIP:        clientIP,
 	}
 
@@ -115,6 +112,7 @@ func (mw *Middleware) responseCountry(
 	}
 
 	ctry = mw.country(ctx, host, respIP)
+	// TODO(a.garipov):  Use optslog.Trace2.
 	optlog.Debug2("mainmw: got ctry %q for resp ip %v", ctry, respIP)
 
 	return ctry
@@ -136,6 +134,7 @@ func (mw *Middleware) responseData(
 	}
 
 	dnssec = resp.AuthenticatedData
+	// #nosec G115 -- RCODE is currently defined to be 16 bit or less.
 	rcode = dnsmsg.RCode(resp.Rcode)
 
 	ip, err := ipFromAnswer(resp.Answer)

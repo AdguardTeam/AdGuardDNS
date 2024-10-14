@@ -3,6 +3,7 @@ package geoip
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/netip"
 	"os"
@@ -12,19 +13,24 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/oschwald/maxminddb-golang"
 )
 
 // Constants that define cache identifiers for the cache manager.
 const (
-	CacheIDIP   = "geoip_ip"
-	CacheIDHost = "geoip_host"
+	cachePrefix = "geoip/"
+
+	cacheIDIP   = cachePrefix + "ip"
+	cacheIDHost = cachePrefix + "host"
 )
 
 // FileConfig is the file-based GeoIP configuration structure.
 type FileConfig struct {
+	// Logger is used for logging the operation of the file-based GeoIP
+	// database.
+	Logger *slog.Logger
+
 	// CacheManager is the global cache manager.  CacheManager must not be nil.
 	CacheManager agdcache.Manager
 
@@ -54,6 +60,8 @@ type FileConfig struct {
 // File is a file implementation of [geoip.Interface].  It should be initially
 // refreshed before use.
 type File struct {
+	logger *slog.Logger
+
 	allTopASNs     *container.MapSet[ASN]
 	countryTopASNs map[Country]ASN
 
@@ -132,10 +140,12 @@ func NewFile(c *FileConfig) (f *File) {
 		Size: c.IPCacheSize,
 	})
 
-	c.CacheManager.Add(CacheIDHost, hostCache)
-	c.CacheManager.Add(CacheIDIP, ipCache)
+	c.CacheManager.Add(cacheIDHost, hostCache)
+	c.CacheManager.Add(cacheIDIP, ipCache)
 
 	return &File{
+		logger: c.Logger,
+
 		mu: &sync.RWMutex{},
 
 		ipCache:   ipCache,
@@ -183,7 +193,7 @@ var _ Interface = (*File)(nil)
 //
 //  2. During the server startup, File scans through the provided GeoIP database
 //     files searching for the fitting subnets for ASNs and countries.  See
-//     resetCountrySubnets and resetTopASNSubnets.
+//     [resetCountrySubnets] and [File.resetLocationSubnets].
 //
 //  3. If asn is found within the list of the most used ASNs, its subnet is
 //     returned.  If not, the top ASN for the provided country is chosen and its
@@ -361,15 +371,9 @@ func (f *File) setCaches(host string, ipCacheKey any, l *Location) {
 // Refresh implements the [agdservice.Refresher] interface for *File.  It
 // reopens the GeoIP database files.
 func (f *File) Refresh(ctx context.Context) (err error) {
-	// TODO(a.garipov): Use slog.
-	log.Info("geoip_refresh: started")
-	defer log.Info("geoip_refresh: finished")
+	f.logger.InfoContext(ctx, "refresh started")
+	defer f.logger.InfoContext(ctx, "refresh finished")
 
-	return f.refresh()
-}
-
-// refresh reopens the GeoIP database files and resets subnet mappings.
-func (f *File) refresh() (err error) {
 	asn, err := geoIPFromFile(f.asnPath)
 	if err != nil {
 		metrics.GeoIPUpdateStatus.WithLabelValues(f.asnPath).Set(0)
@@ -384,7 +388,7 @@ func (f *File) refresh() (err error) {
 		return fmt.Errorf("reading country geoip: %w", err)
 	}
 
-	err = f.resetSubnetMappings(asn, country)
+	err = f.resetSubnetMappings(ctx, asn, country)
 	if err != nil {
 		return fmt.Errorf("resetting geoip: %w", err)
 	}
@@ -406,7 +410,11 @@ func (f *File) refresh() (err error) {
 }
 
 // resetSubnetMappings refreshes mapping from GeoIP data.
-func (f *File) resetSubnetMappings(asn, country *maxminddb.Reader) (err error) {
+func (f *File) resetSubnetMappings(
+	ctx context.Context,
+	asn *maxminddb.Reader,
+	country *maxminddb.Reader,
+) (err error) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
@@ -416,7 +424,7 @@ func (f *File) resetSubnetMappings(asn, country *maxminddb.Reader) (err error) {
 		defer wg.Done()
 
 		var ipv4, ipv6 locationSubnets
-		ipv4, ipv6, locErr = f.resetLocationSubnets(asn, country)
+		ipv4, ipv6, locErr = f.resetLocationSubnets(ctx, asn, country)
 
 		if locErr != nil {
 			metrics.GeoIPUpdateStatus.WithLabelValues(f.countryPath).Set(0)
@@ -434,7 +442,7 @@ func (f *File) resetSubnetMappings(asn, country *maxminddb.Reader) (err error) {
 		defer wg.Done()
 
 		var ipv4, ipv6 countrySubnets
-		ipv4, ipv6, ctryErr = resetCountrySubnets(country)
+		ipv4, ipv6, ctryErr = resetCountrySubnets(ctx, f.logger, country)
 
 		if ctryErr != nil {
 			metrics.GeoIPUpdateStatus.WithLabelValues(f.countryPath).Set(0)

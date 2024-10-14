@@ -5,32 +5,66 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/urlfilter/rules"
 	"github.com/miekg/dns"
 )
 
-// DNS Message Constructor
+// ConstructorConfig is a configuration for the constructor of DNS messages.
+type ConstructorConfig struct {
+	// Cloner used to clone DNS messages.  It must not be nil.
+	Cloner *Cloner
 
-// Constructor creates DNS messages for blocked or modified responses.
+	// BlockingMode is the blocking mode to use in
+	// [Constructor.NewBlockedRespMsg].  It must not be nil.
+	BlockingMode BlockingMode
+
+	// FilteredResponseTTL is the time-to-live value used for responses created
+	// by this message constructor.  It must be non-negative.
+	FilteredResponseTTL time.Duration
+}
+
+// validate checks the configuration for errors.
+func (conf *ConstructorConfig) validate() (err error) {
+	var errs []error
+
+	if conf.Cloner == nil {
+		err = fmt.Errorf("cloner: %w", errors.ErrNoValue)
+		errs = append(errs, err)
+	}
+
+	if conf.BlockingMode == nil {
+		err = fmt.Errorf("blocking mode: %w", errors.ErrNoValue)
+		errs = append(errs, err)
+	}
+
+	if conf.FilteredResponseTTL < 0 {
+		err = fmt.Errorf("filtered response TTL: %w", errors.ErrNegative)
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// Constructor creates DNS messages for blocked or modified responses.  It must
+// be created using [NewConstructor].
 type Constructor struct {
 	cloner       *Cloner
 	blockingMode BlockingMode
 	fltRespTTL   time.Duration
 }
 
-// NewConstructor returns a properly initialized constructor with the given
-// options.  respTTL is the time-to-live value used for responses created by
-// this message constructor.  cloner may be nil.  bm is the blocking mode to use
-// in [Constructor.NewBlockedRespMsg]; it must not be nil.
-func NewConstructor(cloner *Cloner, bm BlockingMode, respTTL time.Duration) (c *Constructor) {
-	return &Constructor{
-		// TODO(a.garipov): Allowing a nil cloner is really an optimization
-		// to make ri.Messages allocate less.  Consider setting a constructor
-		// for a profile once and require a non-nil cloner.
-		cloner:       cloner,
-		blockingMode: bm,
-		fltRespTTL:   respTTL,
+// NewConstructor returns a properly initialized constructor using conf.
+func NewConstructor(conf *ConstructorConfig) (c *Constructor, err error) {
+	if err = conf.validate(); err != nil {
+		return nil, fmt.Errorf("configuration: %w", err)
 	}
+
+	return &Constructor{
+		cloner:       conf.Cloner,
+		blockingMode: conf.BlockingMode,
+		fltRespTTL:   conf.FilteredResponseTTL,
+	}, nil
 }
 
 // Cloner returns the constructor's Cloner.

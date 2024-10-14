@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/c2h5oh/datasize"
 	"github.com/miekg/dns"
 	cache "github.com/patrickmn/go-cache"
 )
@@ -28,17 +29,17 @@ type BackoffConfig struct {
 
 	// Count is how many requests a client makes above the RPS before it is
 	// counted as a backoff hit.
-	Count int
+	Count uint
 
 	// ResponseSizeEstimate is the estimate of the size of one DNS response for
 	// the purposes of rate limiting.  Responses over this estimate are counted
 	// as several responses.
-	ResponseSizeEstimate int
+	ResponseSizeEstimate datasize.ByteSize
 
 	// IPv4RPS is the maximum number of requests per second allowed from a
 	// single subnet for IPv4 addresses.  Any requests above this rate are
 	// counted as the client's backoff count.  RPS must be greater than zero.
-	IPv4RPS int
+	IPv4RPS uint
 
 	// IPv4SubnetKeyLen is the length of the subnet prefix used to calculate
 	// rate limiter bucket keys for IPv4 addresses.  Must be greater than zero.
@@ -47,7 +48,7 @@ type BackoffConfig struct {
 	// IPv6RPS is the maximum number of requests per second allowed from a
 	// single subnet for IPv6 addresses.  Any requests above this rate are
 	// counted as the client's backoff count.  RPS must be greater than zero.
-	IPv6RPS int
+	IPv6RPS uint
 
 	// IPv6SubnetKeyLen is the length of the subnet prefix used to calculate
 	// rate limiter bucket keys for IPv6 addresses.  Must be greater than zero.
@@ -69,14 +70,14 @@ type BackoffConfig struct {
 // TODO(ameshkov): Consider splitting rps and other properties by protocol
 // family.
 type Backoff struct {
-	rpsCounters      *cache.Cache
+	reqCounters      *cache.Cache
 	hitCounters      *cache.Cache
 	allowlist        Allowlist
-	count            int
-	respSzEst        int
-	ipv4rps          int
+	respSzEst        datasize.ByteSize
+	count            uint
+	ipv4rps          uint
 	ipv4SubnetKeyLen int
-	ipv6rps          int
+	ipv6rps          uint
 	ipv6SubnetKeyLen int
 	refuseANY        bool
 }
@@ -87,11 +88,11 @@ func NewBackoff(c *BackoffConfig) (l *Backoff) {
 	// purging the caches to free the map bucket space in the caches.
 	return &Backoff{
 		// TODO(ameshkov): Consider running the janitor more often.
-		rpsCounters:      cache.New(c.Period, c.Period),
+		reqCounters:      cache.New(c.Period, c.Period),
 		hitCounters:      cache.New(c.Duration, c.Duration),
 		allowlist:        c.Allowlist,
-		count:            c.Count,
 		respSzEst:        c.ResponseSizeEstimate,
+		count:            c.Count,
 		ipv4rps:          c.IPv4RPS,
 		ipv4SubnetKeyLen: c.IPv4SubnetKeyLen,
 		ipv6rps:          c.IPv6RPS,
@@ -156,7 +157,8 @@ func validateAddr(addr netip.Addr) (err error) {
 
 // CountResponses implements the Interface interface for *Backoff.
 func (l *Backoff) CountResponses(ctx context.Context, resp *dns.Msg, ip netip.Addr) {
-	estRespNum := resp.Len() / l.respSzEst
+	// #nosec G115 -- Assume that resp.Len is always non-negative.
+	estRespNum := datasize.ByteSize(resp.Len()) / l.respSzEst
 	for range estRespNum {
 		_, _, _ = l.IsRateLimited(ctx, resp, ip)
 	}
@@ -186,29 +188,29 @@ func (l *Backoff) subnetKey(ip netip.Addr) (key string) {
 func (l *Backoff) incBackoff(key string) {
 	counterVal, ok := l.hitCounters.Get(key)
 	if ok {
-		counterVal.(*atomic.Int64).Add(1)
+		counterVal.(*atomic.Uint64).Add(1)
 
 		return
 	}
 
-	counter := &atomic.Int64{}
+	counter := &atomic.Uint64{}
 	counter.Add(1)
 	l.hitCounters.SetDefault(key, counter)
 }
 
 // hasHitRateLimit checks value for a subnet with rps as a maximum number
 // requests per second.
-func (l *Backoff) hasHitRateLimit(subnetIPStr string, rps int) (ok bool) {
-	var r *rpsCounter
-	rVal, ok := l.rpsCounters.Get(subnetIPStr)
+func (l *Backoff) hasHitRateLimit(subnetIPStr string, rps uint) (ok bool) {
+	var r *RequestCounter
+	rVal, ok := l.reqCounters.Get(subnetIPStr)
 	if ok {
-		r = rVal.(*rpsCounter)
+		r = rVal.(*RequestCounter)
 	} else {
-		r = newRPSCounter(rps)
-		l.rpsCounters.SetDefault(subnetIPStr, r)
+		r = NewRequestCounter(rps, time.Second)
+		l.reqCounters.SetDefault(subnetIPStr, r)
 	}
 
-	above := r.add(time.Now())
+	above := r.Add(time.Now())
 	if above {
 		l.incBackoff(subnetIPStr)
 	}
@@ -223,5 +225,5 @@ func (l *Backoff) isBackoff(key string) (ok bool) {
 		return false
 	}
 
-	return counterVal.(*atomic.Int64).Load() >= int64(l.count)
+	return counterVal.(*atomic.Uint64).Load() >= uint64(l.count)
 }

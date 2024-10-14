@@ -10,8 +10,6 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 )
 
-// Common Context Helpers
-
 // ctxKey is the type for all common context keys.
 type ctxKey uint8
 
@@ -65,20 +63,15 @@ func RequestIDFromContext(ctx context.Context) (id RequestID, ok bool) {
 // RequestInfo contains information about the current request.  A RequestInfo
 // put into the context must not be modified.
 type RequestInfo struct {
-	// Device is the found device.  It is nil for anonymous requests.  If Device
-	// is present then Profile is also present.
-	Device *Device
-
-	// Profile is the found profile.  It is nil for anonymous requests.  If
-	// Profile is present then Device is also present.
-	Profile *Profile
+	// DeviceResult is the result of finding the device.
+	DeviceResult DeviceResult
 
 	// Location is the GeoIP location data about the remote IP address, if any.
 	Location *geoip.Location
 
 	// ECS contains the EDNS Client Subnet option information of the request, if
 	// any.
-	ECS *ECS
+	ECS *dnsmsg.ECS
 
 	// FilteringGroup is the server's default filtering group.
 	FilteringGroup *FilteringGroup
@@ -87,11 +80,11 @@ type RequestInfo struct {
 	// to this request.
 	Messages *dnsmsg.Constructor
 
+	// ServerGroup is the server group which handles this request.
+	ServerGroup *ServerGroup
+
 	// RemoteIP is the remote IP address of the client.
 	RemoteIP netip.Addr
-
-	// ServerGroup is the name of the server group which handles this request.
-	ServerGroup ServerGroupName
 
 	// Server is the name of the server which handles this request.
 	Server ServerName
@@ -114,19 +107,14 @@ type RequestInfo struct {
 	Proto Protocol
 }
 
-// ECS is the content of the EDNS Client Subnet option of a DNS message.
-//
-// See https://datatracker.ietf.org/doc/html/rfc7871#section-6.
-type ECS struct {
-	// Location is the GeoIP location data about the IP address from the
-	// request's ECS data, if any.
-	Location *geoip.Location
+// DeviceData returns the profile and device data if any.  Either both p and d
+// are nil or neither is nil.
+func (ri *RequestInfo) DeviceData() (p *Profile, d *Device) {
+	if r, ok := ri.DeviceResult.(*DeviceResultOK); ok {
+		return r.Profile, r.Device
+	}
 
-	// Subnet is the source subnet.
-	Subnet netip.Prefix
-
-	// Scope is the scope prefix.
-	Scope uint8
+	return nil, nil
 }
 
 // ContextWithRequestInfo returns a copy of the parent context with the request

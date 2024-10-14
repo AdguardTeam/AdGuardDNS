@@ -14,8 +14,6 @@ import (
 	"github.com/AdguardTeam/golibs/httphdr"
 )
 
-// Default DNS database HTTP Handler
-
 // type check
 var _ http.Handler = (*Default)(nil)
 

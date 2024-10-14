@@ -8,16 +8,13 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/golibs/testutil/fakenet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
 
 // testTimeout is the common timeout for tests.
 const testTimeout = 1 * time.Second
@@ -31,6 +28,7 @@ var testServerInfo = &dnsserver.ServerInfo{
 
 func TestLimiter(t *testing.T) {
 	l, err := connlimiter.New(&connlimiter.Config{
+		Logger: slogutil.NewDiscardLogger(),
 		Stop:   1,
 		Resume: 1,
 	})
@@ -114,6 +112,7 @@ func TestLimiter(t *testing.T) {
 
 func TestLimiter_badConf(t *testing.T) {
 	l, err := connlimiter.New(&connlimiter.Config{
+		Logger: slogutil.NewDiscardLogger(),
 		Stop:   1,
 		Resume: 2,
 	})

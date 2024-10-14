@@ -3,12 +3,13 @@
 package connlimiter
 
 import (
+	"context"
+	"log/slog"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -19,6 +20,8 @@ import (
 // See https://pkg.go.dev/golang.org/x/net/netutil#LimitListener.
 type limitListener struct {
 	net.Listener
+
+	logger *slog.Logger
 
 	// serverInfo is used for logging and metrics in both the listener itself
 	// and in its conns.  It's never nil.
@@ -50,7 +53,9 @@ func (l *limitListener) Accept() (conn net.Conn, err error) {
 
 	waitStart := time.Now()
 
-	isClosed := l.increment()
+	// TODO(a.garipov):  Find a way to use contexts with Accept.
+	ctx := context.Background()
+	isClosed := l.increment(ctx)
 	if isClosed {
 		return nil, net.ErrClosed
 	}
@@ -68,6 +73,7 @@ func (l *limitListener) Accept() (conn net.Conn, err error) {
 	return &limitConn{
 		Conn: conn,
 
+		logger:     l.logger,
 		decrement:  l.decrement,
 		start:      time.Now(),
 		serverInfo: l.serverInfo,
@@ -77,7 +83,7 @@ func (l *limitListener) Accept() (conn net.Conn, err error) {
 // increment waits until it can increase the number of active connections
 // in the counter.  If the listener is closed while waiting, increment exits and
 // returns true
-func (l *limitListener) increment() (isClosed bool) {
+func (l *limitListener) increment(ctx context.Context) (isClosed bool) {
 	l.counterCond.L.Lock()
 	defer l.counterCond.L.Unlock()
 
@@ -87,7 +93,7 @@ func (l *limitListener) increment() (isClosed bool) {
 	waited := false
 	for !l.counter.increment() && !l.isClosed {
 		if !waited {
-			optlog.Debug1("connlimiter: server %s: accept waiting", l.serverInfo.Name)
+			l.logger.DebugContext(ctx, "accept waiting")
 
 			waited = true
 		}
@@ -96,7 +102,7 @@ func (l *limitListener) increment() (isClosed bool) {
 	}
 
 	if waited {
-		optlog.Debug1("connlimiter: server %s: accept stopped waiting", l.serverInfo.Name)
+		l.logger.DebugContext(ctx, "accept stopped waiting")
 	}
 
 	return l.isClosed

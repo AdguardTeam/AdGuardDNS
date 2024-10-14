@@ -4,6 +4,7 @@ package profiledb
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"path/filepath"
 	"slices"
@@ -13,11 +14,13 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecachepb"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/osutil"
+	"github.com/AdguardTeam/golibs/timeutil"
+	"github.com/c2h5oh/datasize"
 )
 
 // Interface is the local database of user profiles and devices.
@@ -115,13 +118,20 @@ func (d *Disabled) ProfileByLinkedIP(
 	panic(fmt.Errorf(profilesDBUnexpectedCall, "ProfileByLinkedIP"))
 }
 
-// Config represents the profile database configuration.
+// Config represents the profile database configuration.  All fields must not be
+// empty.
 type Config struct {
+	// Logger is used for logging the operation of profile database.
+	Logger *slog.Logger
+
 	// Storage returns the data for this profile DB.
 	Storage Storage
 
 	// ErrColl is used to collect errors during refreshes.
 	ErrColl errcoll.Interface
+
+	// Metrics is used for the collection of the user profiles statistics.
+	Metrics Metrics
 
 	// CacheFilePath is the path to the profile cache file.  If cacheFilePath is
 	// the string "none", filesystem cache is disabled.
@@ -134,12 +144,19 @@ type Config struct {
 	// FullSyncRetryIvl is the interval between two retries of full
 	// synchronizations with the storage.
 	FullSyncRetryIvl time.Duration
+
+	// ResponseSizeEstimate is the estimate of the size of one DNS response for
+	// the purposes of custom ratelimiting.  Responses over this estimate are
+	// counted as several responses.
+	ResponseSizeEstimate datasize.ByteSize
 }
 
 // Default is the default in-memory implementation of the [Interface] interface
 // that can refresh itself from the provided storage.  It should be initially
 // refreshed before use.
 type Default struct {
+	logger *slog.Logger
+
 	// mapsMu protects the profiles, devices, deviceIDToProfileID,
 	// dedicatedIPToDeviceID, humanIDToDeviceID, and linkedIPToDeviceID maps.
 	mapsMu *sync.RWMutex
@@ -150,6 +167,9 @@ type Default struct {
 
 	// errColl is used to collect errors during refreshes.
 	errColl errcoll.Interface
+
+	// metrics is used for the collection of the user profiles statistics.
+	metrics Metrics
 
 	// cache is the filesystem-cache storage used by this profile database.
 	cache internal.FileCacheStorage
@@ -212,23 +232,27 @@ type humanIDKey struct {
 // New returns a new default in-memory profile database with a filesystem cache.
 // The initial refresh is performed immediately with the given timeout, beyond
 // which an empty profiledb is returned.  If cacheFilePath is the string "none",
-// filesystem cache is disabled.  db is never nil.
-func New(conf *Config) (db *Default, err error) {
+// filesystem cache is disabled.  db is not nil if the error is from getting the
+// file cache.
+func New(c *Config) (db *Default, err error) {
 	var cacheStorage internal.FileCacheStorage
-	if conf.CacheFilePath == "none" {
+	if c.CacheFilePath == "none" {
 		cacheStorage = internal.EmptyFileCacheStorage{}
-	} else if ext := filepath.Ext(conf.CacheFilePath); ext == ".pb" {
-		cacheStorage = filecachepb.New(conf.CacheFilePath)
+	} else if ext := filepath.Ext(c.CacheFilePath); ext == ".pb" {
+		logger := c.Logger.With("cache", "pb")
+		cacheStorage = filecachepb.New(logger, c.CacheFilePath, c.ResponseSizeEstimate)
 	} else {
-		return nil, fmt.Errorf("file %q is not protobuf", conf.CacheFilePath)
+		return nil, fmt.Errorf("file %q is not protobuf", c.CacheFilePath)
 	}
 
 	db = &Default{
+		logger:                c.Logger,
 		mapsMu:                &sync.RWMutex{},
 		refreshMu:             &sync.Mutex{},
-		errColl:               conf.ErrColl,
+		errColl:               c.ErrColl,
+		metrics:               c.Metrics,
 		cache:                 cacheStorage,
-		storage:               conf.Storage,
+		storage:               c.Storage,
 		syncTime:              time.Time{},
 		lastFullSync:          time.Time{},
 		lastFullSyncError:     time.Time{},
@@ -238,13 +262,16 @@ func New(conf *Config) (db *Default, err error) {
 		dedicatedIPToDeviceID: make(map[netip.Addr]agd.DeviceID),
 		humanIDToDeviceID:     make(map[humanIDKey]agd.DeviceID),
 		linkedIPToDeviceID:    make(map[netip.Addr]agd.DeviceID),
-		fullSyncIvl:           conf.FullSyncIvl,
-		fullSyncRetryIvl:      conf.FullSyncRetryIvl,
+		fullSyncIvl:           c.FullSyncIvl,
+		fullSyncRetryIvl:      c.FullSyncRetryIvl,
 	}
 
-	err = db.loadFileCache()
+	// TODO(a.garipov):  Separate the file cache read and use context from the
+	// arguments.
+	ctx := context.Background()
+	err = db.loadFileCache(ctx)
 	if err != nil {
-		log.Error("profiledb: fs cache: loading: %s", err)
+		db.logger.WarnContext(ctx, "error loading fs cache", slogutil.KeyError, err)
 	}
 
 	return db, nil
@@ -260,29 +287,28 @@ var _ agdservice.Refresher = (*Default)(nil)
 // TODO(a.garipov): Consider splitting the full refresh logic into a separate
 // method.
 func (db *Default) Refresh(ctx context.Context) (err error) {
-	// TODO(a.garipov):  Use slog.
-	log.Debug("profiledb_refresh: started")
-	defer log.Debug("profiledb_refresh: finished")
+	db.logger.DebugContext(ctx, "refresh started")
+	defer db.logger.DebugContext(ctx, "refresh finished")
 
-	sinceLastAttempt, isFullSync := db.needsFullSync()
+	sinceLastAttempt, isFullSync := db.needsFullSync(ctx)
 
-	var profNum, devNum int
+	var profNum, devNum uint
 	startTime := time.Now()
 	defer func() {
-		metrics.ProfilesSyncTime.SetToCurrentTime()
-		metrics.ProfilesNewCountGauge.Set(float64(profNum))
-		metrics.DevicesNewCountGauge.Set(float64(devNum))
-		metrics.SetStatusGauge(metrics.ProfilesSyncStatus, err)
+		dur := time.Since(startTime)
 
-		dur := time.Since(startTime).Seconds()
-		metrics.ProfilesSyncDuration.Observe(dur)
-		if isFullSync {
-			metrics.ProfilesFullSyncDuration.Set(dur)
+		isSuccess := err == nil
+		if !isSuccess {
+			errcoll.Collect(ctx, db.errColl, db.logger, "refreshing profiledb", err)
 		}
 
-		if err != nil {
-			errcoll.Collectf(ctx, db.errColl, "profiledb_refresh: %w", err)
-		}
+		db.metrics.HandleProfilesUpdate(ctx, &UpdateMetrics{
+			ProfilesNum: profNum,
+			DevicesNum:  devNum,
+			Duration:    dur,
+			IsSuccess:   isSuccess,
+			IsFullSync:  isFullSync,
+		})
 	}()
 
 	reqID := agd.NewRequestID()
@@ -294,8 +320,7 @@ func (db *Default) Refresh(ctx context.Context) (err error) {
 	defer db.refreshMu.Unlock()
 
 	defer func() {
-		metrics.ProfilesCountGauge.Set(float64(len(db.profiles)))
-		metrics.DevicesCountGauge.Set(float64(len(db.devices)))
+		db.metrics.SetProfilesAndDevicesNum(ctx, uint(len(db.profiles)), uint(len(db.devices)))
 	}()
 
 	resp, err := db.fetchProfiles(ctx, sinceLastAttempt, isFullSync)
@@ -306,18 +331,25 @@ func (db *Default) Refresh(ctx context.Context) (err error) {
 
 	profiles := resp.Profiles
 	devices := resp.Devices
-	db.setProfiles(profiles, devices, isFullSync)
+	profNum = uint(len(profiles))
+	devNum = uint(len(devices))
 
-	profNum = len(profiles)
-	devNum = len(devices)
-	log.Debug("profiledb: req %s: got %d profiles with %d devices", reqID, profNum, devNum)
+	db.logger.DebugContext(
+		ctx,
+		"storage request finished",
+		"req_id", reqID,
+		"prof_num", profNum,
+		"dev_num", devNum,
+	)
+
+	db.setProfiles(ctx, profiles, devices, isFullSync)
 
 	db.syncTime = resp.SyncTime
 	if isFullSync {
 		db.lastFullSync = time.Now()
 		db.lastFullSyncError = time.Time{}
 
-		err = db.cache.Store(&internal.FileCache{
+		err = db.cache.Store(ctx, &internal.FileCache{
 			SyncTime: resp.SyncTime,
 			Profiles: profiles,
 			Devices:  devices,
@@ -342,7 +374,9 @@ func (db *Default) fetchProfiles(
 ) (sr *StorageProfilesResponse, err error) {
 	syncTime := db.syncTime
 	if isFullSync {
-		log.Info("profiledb: full sync, %s since last attempt", sinceLastAttempt)
+		db.logger.InfoContext(ctx, "full sync", "since_last_attempt", timeutil.Duration{
+			Duration: sinceLastAttempt,
+		})
 
 		syncTime = time.Time{}
 	}
@@ -359,11 +393,7 @@ func (db *Default) fetchProfiles(
 	}
 
 	if errors.Is(err, context.DeadlineExceeded) {
-		metrics.IncrementCond(
-			isFullSync,
-			metrics.ProfilesSyncFullTimeouts,
-			metrics.ProfilesSyncPartTimeouts,
-		)
+		db.metrics.IncrementSyncTimeouts(ctx, isFullSync)
 	}
 
 	return nil, fmt.Errorf("updating profiles: %w", err)
@@ -372,14 +402,21 @@ func (db *Default) fetchProfiles(
 // needsFullSync determines if a full synchronization is necessary.  If the last
 // full synchronization was successful, it returns true if it's time for a new
 // one.  Otherwise, it returns true if it's time for a retry.
-func (db *Default) needsFullSync() (sinceFull time.Duration, isFull bool) {
+func (db *Default) needsFullSync(ctx context.Context) (sinceFull time.Duration, isFull bool) {
 	lastFull := db.lastFullSync
 	sinceFull = time.Since(lastFull)
 	if db.lastFullSyncError.IsZero() {
 		return sinceFull, sinceFull >= db.fullSyncIvl
 	}
 
-	log.Info("profiledb: warning: %s since last successful full sync at %s", sinceFull, lastFull)
+	db.logger.WarnContext(
+		ctx,
+		"previous sync finished with error",
+		"since_last_successful_sync", timeutil.Duration{
+			Duration: sinceFull,
+		},
+		"last_successful_sync_time", lastFull,
+	)
 
 	sinceLastError := time.Since(db.lastFullSyncError)
 
@@ -387,16 +424,16 @@ func (db *Default) needsFullSync() (sinceFull time.Duration, isFull bool) {
 }
 
 // loadFileCache loads the profiles data from the filesystem cache.
-func (db *Default) loadFileCache() (err error) {
-	const logPrefix = "profiledb: cache"
-
+func (db *Default) loadFileCache(ctx context.Context) (err error) {
 	start := time.Now()
-	log.Info("%s: initial loading", logPrefix)
 
-	c, err := db.cache.Load()
+	l := db.logger.With("cache", "load")
+	l.InfoContext(ctx, "initial loading")
+
+	c, err := db.cache.Load(ctx)
 	if err != nil {
 		if errors.Is(err, internal.CacheVersionError) {
-			log.Info("%s: %s", logPrefix, err)
+			l.WarnContext(ctx, "cache version error", slogutil.KeyError, err)
 
 			return nil
 		}
@@ -404,35 +441,42 @@ func (db *Default) loadFileCache() (err error) {
 		// Don't wrap the error, because it's informative enough as is.
 		return err
 	} else if c == nil {
-		log.Info("%s: no cache", logPrefix)
+		l.InfoContext(ctx, "no cache")
 
 		return nil
 	}
 
 	profNum, devNum := len(c.Profiles), len(c.Devices)
-	log.Info(
-		"%s: got version %d, %d profiles, %d devices in %s",
-		logPrefix,
-		c.Version,
-		profNum,
-		devNum,
-		time.Since(start),
+	l.InfoContext(
+		ctx,
+		"cache loaded",
+		"version", c.Version,
+		"prof_num", profNum,
+		"dev_num", devNum,
+		"elapsed", timeutil.Duration{
+			Duration: time.Since(start),
+		},
 	)
 
 	if profNum == 0 || devNum == 0 {
-		log.Info("%s: empty", logPrefix)
+		l.InfoContext(ctx, "cache is empty; not setting profiles")
 
 		return nil
 	}
 
-	db.setProfiles(c.Profiles, c.Devices, true)
+	db.setProfiles(ctx, c.Profiles, c.Devices, true)
 	db.syncTime, db.lastFullSync = c.SyncTime, c.SyncTime
 
 	return nil
 }
 
 // setProfiles adds or updates the data for all profiles and devices.
-func (db *Default) setProfiles(profiles []*agd.Profile, devices []*agd.Device, isFullSync bool) {
+func (db *Default) setProfiles(
+	ctx context.Context,
+	profiles []*agd.Profile,
+	devices []*agd.Device,
+	isFullSync bool,
+) {
 	db.mapsMu.Lock()
 	defer db.mapsMu.Unlock()
 
@@ -451,14 +495,23 @@ func (db *Default) setProfiles(profiles []*agd.Profile, devices []*agd.Device, i
 		for _, devID := range p.DeviceIDs {
 			db.deviceIDToProfileID[devID] = p.ID
 		}
+
+		if p.Deleted {
+			// The deleted profiles are included in profiles slice only if
+			// setProfiles is called when loading from the storage and it is not
+			// a full sync.  If setProfiles is called when loading from cache,
+			// the profiles slice does not include the deleted profiles, so we
+			// can update metric correctly.
+			db.metrics.IncrementDeleted(ctx)
+		}
 	}
 
-	db.setDevices(devices)
+	db.setDevices(ctx, devices)
 }
 
 // setDevices adds or updates the data for the given devices.  It assumes that
 // db.mapsMu is locked for writing.
-func (db *Default) setDevices(devices []*agd.Device) {
+func (db *Default) setDevices(ctx context.Context, devices []*agd.Device) {
 	for _, d := range devices {
 		devID := d.ID
 		db.devices[devID] = d
@@ -477,7 +530,7 @@ func (db *Default) setDevices(devices []*agd.Device) {
 
 		profID, ok := db.deviceIDToProfileID[devID]
 		if !ok {
-			log.Info("profiledb: warning: no prof id for dev %q", devID)
+			db.logger.WarnContext(ctx, "no profile id for device", "dev_id", devID)
 
 			continue
 		}
@@ -537,7 +590,7 @@ func (db *Default) CreateAutoDevice(
 		// when the same device is used both by a HumanID and a DeviceID, but we
 		// consider this situation to be relatively rare.
 
-		db.setDevices([]*agd.Device{d})
+		db.setDevices(ctx, []*agd.Device{d})
 	}()
 
 	return p, d, nil
@@ -567,7 +620,7 @@ func (db *Default) ProfileByDedicatedIP(
 		if errors.Is(err, ErrDeviceNotFound) {
 			// Probably, the device has been deleted.  Remove it from our
 			// profile DB in a goroutine, since that requires a write lock.
-			go db.removeDedicatedIP(ip)
+			go db.removeDedicatedIP(ctx, ip)
 		}
 
 		// Don't add the device ID to the error here, since it is already added
@@ -578,7 +631,7 @@ func (db *Default) ProfileByDedicatedIP(
 	if !slices.Contains(d.DedicatedIPs, ip) {
 		// Perhaps, the device has changed its dedicated IPs.  Remove it from
 		// our profile DB in a goroutine, since that requires a write lock.
-		go db.removeDedicatedIP(ip)
+		go db.removeDedicatedIP(ctx, ip)
 
 		return nil, nil, fmt.Errorf(
 			"%s: rechecking dedicated ips: %w",
@@ -604,7 +657,7 @@ func (db *Default) ProfileByDeviceID(
 // profileByDeviceID returns the profile and the device by the ID of the device,
 // if found.  It assumes that db.mapsMu is locked for reading.
 func (db *Default) profileByDeviceID(
-	_ context.Context,
+	ctx context.Context,
 	id agd.DeviceID,
 ) (p *agd.Profile, d *agd.Device, err error) {
 	// Do not use [errors.Annotate] here, because it allocates even when the
@@ -620,7 +673,7 @@ func (db *Default) profileByDeviceID(
 	if !ok {
 		// We have an older device record with a deleted profile.  Remove it
 		// from our profile DB in a goroutine, since that requires a write lock.
-		go db.removeDevice(id)
+		go db.removeDevice(ctx, id)
 
 		return nil, nil, ErrProfileNotFound
 	}
@@ -643,7 +696,7 @@ func (db *Default) profileByDeviceID(
 			//
 			// Do not do that for profiles with enabled autodevices, though.
 			// See the TODO in [Default.CreateAutoDevice].
-			go db.removeDevice(id)
+			go db.removeDevice(ctx, id)
 		}
 
 		return nil, nil, fmt.Errorf("rechecking devices: %w", ErrDeviceNotFound)
@@ -654,8 +707,8 @@ func (db *Default) profileByDeviceID(
 
 // removeDevice removes the device with the given ID from the database.  It is
 // intended to be used as a goroutine.
-func (db *Default) removeDevice(id agd.DeviceID) {
-	defer log.OnPanicAndExit("removeDevice", 1)
+func (db *Default) removeDevice(ctx context.Context, id agd.DeviceID) {
+	defer slogutil.RecoverAndExit(ctx, db.logger, osutil.ExitCodeFailure)
 
 	db.mapsMu.Lock()
 	defer db.mapsMu.Unlock()
@@ -665,8 +718,8 @@ func (db *Default) removeDevice(id agd.DeviceID) {
 
 // removeDedicatedIP removes the device link for the given dedicated IP address
 // from the profile database.  It is intended to be used as a goroutine.
-func (db *Default) removeDedicatedIP(ip netip.Addr) {
-	defer log.OnPanicAndExit("removeDedicatedIP", 1)
+func (db *Default) removeDedicatedIP(ctx context.Context, ip netip.Addr) {
+	defer slogutil.RecoverAndExit(ctx, db.logger, osutil.ExitCodeFailure)
 
 	db.mapsMu.Lock()
 	defer db.mapsMu.Unlock()
@@ -688,7 +741,7 @@ func (db *Default) ProfileByHumanID(
 	defer db.mapsMu.RUnlock()
 
 	// NOTE:  It's important to check the profile and return ErrProfileNotFound
-	// here to prevent the device setter from trying to create a device for a
+	// here to prevent the device finder from trying to create a device for a
 	// profile that doesn't exist.
 	p, ok := db.profiles[id]
 	if !ok {
@@ -710,7 +763,7 @@ func (db *Default) ProfileByHumanID(
 		if errors.Is(err, ErrDeviceNotFound) {
 			// Probably, the device has been deleted.  Remove it from our
 			// profile DB in a goroutine, since that requires a write lock.
-			go db.removeHumanID(k)
+			go db.removeHumanID(ctx, k)
 		}
 
 		// Don't add the device ID to the error here, since it is already added
@@ -722,7 +775,7 @@ func (db *Default) ProfileByHumanID(
 		// Perhaps, the device has changed its human ID, for example by being
 		// transformed into a normal device..  Remove it from our profile DB in
 		// a goroutine, since that requires a write lock.
-		go db.removeHumanID(k)
+		go db.removeHumanID(ctx, k)
 
 		return nil, nil, fmt.Errorf("%s: rechecking human id: %w", errPrefix, ErrDeviceNotFound)
 	}
@@ -732,8 +785,8 @@ func (db *Default) ProfileByHumanID(
 
 // removeHumanID removes the device link for the given key from the profile
 // database.  It is intended to be used as a goroutine.
-func (db *Default) removeHumanID(k humanIDKey) {
-	defer log.OnPanicAndExit("removeHumanID", 1)
+func (db *Default) removeHumanID(ctx context.Context, k humanIDKey) {
+	defer slogutil.RecoverAndExit(ctx, db.logger, osutil.ExitCodeFailure)
 
 	db.mapsMu.Lock()
 	defer db.mapsMu.Unlock()
@@ -765,7 +818,7 @@ func (db *Default) ProfileByLinkedIP(
 		if errors.Is(err, ErrDeviceNotFound) {
 			// Probably, the device has been deleted.  Remove it from our
 			// profile DB in a goroutine, since that requires a write lock.
-			go db.removeLinkedIP(ip)
+			go db.removeLinkedIP(ctx, ip)
 		}
 
 		// Don't add the device ID to the error here, since it is already added
@@ -782,7 +835,7 @@ func (db *Default) ProfileByLinkedIP(
 	} else if d.LinkedIP != ip {
 		// The linked IP has changed.  Remove it from our profile DB in a
 		// goroutine, since that requires a write lock.
-		go db.removeLinkedIP(ip)
+		go db.removeLinkedIP(ctx, ip)
 
 		return nil, nil, fmt.Errorf(
 			"%s: %q does not match: %w",
@@ -797,8 +850,8 @@ func (db *Default) ProfileByLinkedIP(
 
 // removeLinkedIP removes the device link for the given linked IP address from
 // the profile database.  It is intended to be used as a goroutine.
-func (db *Default) removeLinkedIP(ip netip.Addr) {
-	defer log.OnPanicAndExit("removeLinkedIP", 1)
+func (db *Default) removeLinkedIP(ctx context.Context, ip netip.Addr) {
+	defer slogutil.RecoverAndExit(ctx, db.logger, osutil.ExitCodeFailure)
 
 	db.mapsMu.Lock()
 	defer db.mapsMu.Unlock()

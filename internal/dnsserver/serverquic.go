@@ -367,8 +367,6 @@ func (s *ServerQUIC) serveQUICConn(ctx context.Context, conn quic.Connection) (e
 			return err
 		}
 
-		streamWg.Add(1)
-
 		ri := &RequestInfo{
 			StartTime:     time.Now(),
 			TLSServerName: conn.ConnectionState().TLS.ServerName,
@@ -376,6 +374,8 @@ func (s *ServerQUIC) serveQUICConn(ctx context.Context, conn quic.Connection) (e
 
 		reqCtx, reqCancel := s.requestContext()
 		reqCtx = ContextWithRequestInfo(reqCtx, ri)
+
+		streamWg.Add(1)
 
 		err = s.pool.Submit(func() {
 			defer reqCancel()
@@ -514,6 +514,7 @@ func (s *ServerQUIC) readQUICMsg(
 	// TODO(a.garipov): DRY logic with the TCP one.
 	m = &dns.Msg{}
 	packetLen := binary.BigEndian.Uint16(buf[:2])
+	// #nosec G115 -- n has already been checked against DNSHeaderSize.
 	wantLen := uint16(n - 2)
 	if packetLen == wantLen {
 		err = m.Unpack(buf[2:])

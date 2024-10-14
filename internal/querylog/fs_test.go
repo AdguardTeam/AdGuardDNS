@@ -9,6 +9,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,6 +20,7 @@ func TestFileSystem_Write(t *testing.T) {
 	require.NoError(t, err)
 
 	l := querylog.NewFileSystem(&querylog.FileSystemConfig{
+		Logger:   slogutil.NewDiscardLogger(),
 		Path:     f.Name(),
 		RandSeed: 0,
 	})
@@ -54,11 +56,11 @@ func TestFileSystem_Write(t *testing.T) {
   "a":1234,
   "e":5,
   "q":1,
+  "r":0,
   "rn":35121,
   "f":2,
   "s":1,
-  "p":8,
-  "r":0
+  "p":8
 }`) + "\n"
 
 	assert.Equal(t, want, string(b))
@@ -91,11 +93,11 @@ func TestFileSystem_Write(t *testing.T) {
   "a":1234,
   "e":5,
   "q":1,
+  "r":3,
   "rn":47387,
   "f":1,
   "s":1,
-  "p":8,
-  "r":3
+  "p":8
 }`) + "\n"
 
 		assert.Equal(t, want, string(b))
@@ -109,6 +111,7 @@ func BenchmarkFileSystem_Write_file(b *testing.B) {
 	require.NoError(b, err)
 
 	l := querylog.NewFileSystem(&querylog.FileSystemConfig{
+		Logger:   slogutil.NewDiscardLogger(),
 		Path:     f.Name(),
 		RandSeed: 0,
 	})
@@ -124,11 +127,11 @@ func BenchmarkFileSystem_Write_file(b *testing.B) {
 
 	require.NoError(b, errSink)
 
-	// Most recent result, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
+	// Most recent result, on a ThinkPad X13:
 	//
 	//	goos: linux
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/querylog
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkFileSystem_Write_file-16    	  152948	      7662 ns/op	     248 B/op	       5 allocs/op
+	//	BenchmarkFileSystem_Write_file-16    	  122740	     12386 ns/op	     248 B/op	       5 allocs/op
 }

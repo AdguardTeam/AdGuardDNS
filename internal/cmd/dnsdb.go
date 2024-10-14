@@ -3,6 +3,7 @@ package cmd
 import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+	"github.com/AdguardTeam/golibs/errors"
 )
 
 // dnsDBConfig is the configuration of the DNSDB module.
@@ -14,19 +15,25 @@ type dnsDBConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
-// validate returns an error if the configuration is invalid.
+// type check
+var _ validator = (*dnsDBConfig)(nil)
+
+// validate implements the [validator] interface for *dnsDBConfig.
 func (c *dnsDBConfig) validate() (err error) {
 	switch {
 	case c == nil:
-		return errNilConfig
+		return errors.ErrNoValue
+	case !c.Enabled:
+		return nil
 	case c.MaxSize <= 0:
-		return newMustBePositiveError("size", c.MaxSize)
+		return newNotPositiveError("size", c.MaxSize)
 	default:
 		return nil
 	}
 }
 
-// toInternal builds and returns an anonymous statistics collector.
+// toInternal builds and returns an anonymous statistics collector.  c must be
+// valid.
 func (c *dnsDBConfig) toInternal(errColl errcoll.Interface) (d dnsdb.Interface) {
 	if !c.Enabled {
 		return dnsdb.Empty{}

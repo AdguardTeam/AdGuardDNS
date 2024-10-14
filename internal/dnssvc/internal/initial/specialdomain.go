@@ -49,12 +49,23 @@ const (
 
 // reqInfoSpecialHandler returns a handler that can handle a special-domain
 // query based on the request info, as well as the handler's name for debugging.
-func (mw *Middleware) reqInfoSpecialHandler(ri *agd.RequestInfo) (f reqInfoHandlerFunc, name string) {
+func (mw *Middleware) reqInfoSpecialHandler(
+	ri *agd.RequestInfo,
+) (f reqInfoHandlerFunc, name string) {
 	if ri.QClass != dns.ClassINET {
 		return nil, ""
 	}
 
 	if mw.isDDRRequest(ri) {
+		if _, ok := ri.DeviceResult.(*agd.DeviceResultAuthenticationFailure); ok {
+			return mw.handleDDRNoData, "ddr_doh"
+		}
+
+		_, dev := ri.DeviceData()
+		if dev != nil && dev.Auth.Enabled && dev.Auth.DoHAuthOnly {
+			return mw.handleDDRNoData, "ddr_doh"
+		}
+
 		return mw.handleDDR, "ddr"
 	} else if netutil.IsSubdomain(ri.Host, ResolverARPADomain) {
 		// A badly formed resolver.arpa subdomain query.
@@ -96,16 +107,17 @@ func (mw *Middleware) isDDRRequest(ri *agd.RequestInfo) (ok bool) {
 		return true
 	}
 
-	return isDDRDomain(mw.srvGrp.DDR, ri.Device, host)
+	return isDDRDomain(ri, host)
 }
 
 // isDDRDomain returns true if host is a DDR domain.
-func isDDRDomain(ddr *agd.DDR, dev *agd.Device, host string) (ok bool) {
+func isDDRDomain(ri *agd.RequestInfo, host string) (ok bool) {
 	firstLabel, resolverDomain, cut := strings.Cut(host, ".")
 	if !cut || firstLabel != DDRLabel {
 		return false
 	}
 
+	ddr := ri.ServerGroup.DDR
 	if ddr.PublicTargets.Has(resolverDomain) {
 		// The client may simply send a DNS SVCB query using the known name of
 		// the resolver.  This query can be issued to the named Encrypted
@@ -115,8 +127,13 @@ func isDDRDomain(ddr *agd.DDR, dev *agd.Device, host string) (ok bool) {
 		return true
 	}
 
+	_, dev := ri.DeviceData()
+	if dev == nil {
+		return false
+	}
+
 	firstLabel, resolverDomain, cut = strings.Cut(resolverDomain, ".")
-	if cut && dev != nil && firstLabel == string(dev.ID) {
+	if cut && firstLabel == string(dev.ID) {
 		// A request for the device ID resolver domain.
 		return ddr.DeviceTargets.Has(resolverDomain)
 	}
@@ -132,26 +149,46 @@ func (mw *Middleware) handleDDR(
 	req *dns.Msg,
 	ri *agd.RequestInfo,
 ) (err error) {
+	defer func() { err = errors.Annotate(err, "writing ddr resp for %q: %w", ri.Host) }()
+
 	metrics.DNSSvcDDRRequestsTotal.Inc()
 
-	if mw.srvGrp.DDR.Enabled {
-		err = rw.WriteMsg(ctx, req, mw.newRespDDR(req, ri.Device))
-	} else {
-		err = rw.WriteMsg(ctx, req, ri.Messages.NewMsgNXDOMAIN(req))
+	if ri.ServerGroup.DDR.Enabled {
+		return rw.WriteMsg(ctx, req, mw.newRespDDR(req, ri))
 	}
 
-	return errors.Annotate(err, "writing ddr resp for %q: %w", ri.Host)
+	return rw.WriteMsg(ctx, req, ri.Messages.NewMsgNXDOMAIN(req))
+}
+
+// handleDDRNoData processes DDR (Discovery of Designated Resolvers) requests
+// for devices which need NODATA response and writes the response if needed.
+func (mw *Middleware) handleDDRNoData(
+	ctx context.Context,
+	rw dnsserver.ResponseWriter,
+	req *dns.Msg,
+	ri *agd.RequestInfo,
+) (err error) {
+	defer func() { err = errors.Annotate(err, "writing ddr resp for %q: %w", ri.Host) }()
+
+	metrics.DNSSvcDDRRequestsTotal.Inc()
+
+	if ri.ServerGroup.DDR.Enabled {
+		return rw.WriteMsg(ctx, req, ri.Messages.NewMsgNODATA(req))
+	}
+
+	return rw.WriteMsg(ctx, req, ri.Messages.NewMsgNXDOMAIN(req))
 }
 
 // newRespDDR returns a new Discovery of Designated Resolvers response copying
 // it from the prebuilt templates in srvGrp and modifying it in accordance with
 // the request data.  req must not be nil.
-func (mw *Middleware) newRespDDR(req *dns.Msg, dev *agd.Device) (resp *dns.Msg) {
-	resp = mw.messages.NewRespMsg(req)
+func (mw *Middleware) newRespDDR(req *dns.Msg, ri *agd.RequestInfo) (resp *dns.Msg) {
+	resp = ri.Messages.NewRespMsg(req)
 	name := req.Question[0].Name
-	ddr := mw.srvGrp.DDR
+	ddr := ri.ServerGroup.DDR
 
-	if dev != nil {
+	// TODO(a.garipov):  Optimize calls to ri.DeviceData.
+	if _, dev := ri.DeviceData(); dev != nil {
 		for _, rr := range ddr.DeviceRecordTemplates {
 			rr = dns.Copy(rr).(*dns.SVCB)
 			rr.Hdr.Name = name
@@ -199,7 +236,7 @@ func (mw *Middleware) specialDomainHandler(
 	}
 
 	host := ri.Host
-	prof := ri.Profile
+	prof, _ := ri.DeviceData()
 
 	switch host {
 	case
@@ -271,7 +308,7 @@ func (mw *Middleware) handleFirefoxCanary(
 ) (err error) {
 	metrics.DNSSvcFirefoxRequestsTotal.Inc()
 
-	resp := mw.messages.NewMsgREFUSED(req)
+	resp := ri.Messages.NewMsgREFUSED(req)
 	err = rw.WriteMsg(ctx, req, resp)
 
 	return errors.Annotate(err, "writing firefox canary resp: %w")

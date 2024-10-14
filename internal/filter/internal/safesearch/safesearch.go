@@ -33,10 +33,15 @@ type Config struct {
 
 // New returns a new safe-search filter.  c must not be nil.  The initial
 // refresh should be called explicitly if necessary.
-func New(c *Config, cache rulelist.ResultCache) (f *Filter) {
-	return &Filter{
-		flt: rulelist.NewRefreshable(c.Refreshable, cache),
+func New(c *Config, cache rulelist.ResultCache) (f *Filter, err error) {
+	f = &Filter{}
+
+	f.flt, err = rulelist.NewRefreshable(c.Refreshable, cache)
+	if err != nil {
+		return nil, fmt.Errorf("creating rulelist: %w", err)
 	}
+
+	return f, nil
 }
 
 // type check

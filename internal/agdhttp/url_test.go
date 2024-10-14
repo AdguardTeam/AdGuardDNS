@@ -63,7 +63,7 @@ func TestParseHTTPURL(t *testing.T) {
 
 func testURL() (u *url.URL) {
 	return &url.URL{
-		Scheme:   "http",
+		Scheme:   agdhttp.SchemeHTTP,
 		User:     url.UserPassword("user", "pass"),
 		Host:     "example.com",
 		Path:     "/a/b/c/",

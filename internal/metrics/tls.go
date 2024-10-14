@@ -80,11 +80,11 @@ var (
 func TLSMetricsAfterHandshake(
 	proto string,
 	srvName string,
-	wildcards []string,
+	devDomains []string,
 	srvCerts []tls.Certificate,
 ) (f func(tls.ConnectionState) error) {
 	return func(state tls.ConnectionState) error {
-		sLabel := serverNameToLabel(state.ServerName, srvName, wildcards, srvCerts)
+		sLabel := serverNameToLabel(state.ServerName, srvName, devDomains, srvCerts)
 
 		// Stick to using WithLabelValues instead of With in order to avoid
 		// extra allocations on prometheus.Labels.  The labels order is VERY
@@ -149,13 +149,12 @@ func tlsVersionToString(ver uint16) (tlsVersion string) {
 	return tlsVersion
 }
 
-// serverNameToLabel creates a metrics label from server name indication.
-// As it's necessary to keep labels set finite, all indications will be
-// grouped.
+// serverNameToLabel creates a metrics label from server name indication.  As
+// it's necessary to keep labels set finite, all indications will be grouped.
 func serverNameToLabel(
 	sni string,
 	srvName string,
-	wildcards []string,
+	devDomains []string,
 	srvCerts []tls.Certificate,
 ) (label string) {
 	if sni == "" {
@@ -163,7 +162,7 @@ func serverNameToLabel(
 		return fmt.Sprintf("%s: other", srvName)
 	}
 
-	if matched := matchServerNames(sni, wildcards, srvCerts); matched != "" {
+	if matched := matchServerNames(sni, devDomains, srvCerts); matched != "" {
 		return fmt.Sprintf("%s: %s", srvName, matched)
 	}
 
@@ -171,8 +170,8 @@ func serverNameToLabel(
 }
 
 // matchServerNames matches sni with known servers.
-func matchServerNames(sni string, wildcards []string, srvCerts []tls.Certificate) (match string) {
-	if matchedDomain := matchDeviceIDWildcards(sni, wildcards); matchedDomain != "" {
+func matchServerNames(sni string, devDomains []string, srvCerts []tls.Certificate) (match string) {
+	if matchedDomain := matchDeviceDomains(sni, devDomains); matchedDomain != "" {
 		return matchedDomain
 	}
 
@@ -183,13 +182,10 @@ func matchServerNames(sni string, wildcards []string, srvCerts []tls.Certificate
 	return ""
 }
 
-// matchDeviceIDWildcards matches sni to deviceID wildcards.
-func matchDeviceIDWildcards(sni string, wildcards []string) (matchedDomain string) {
+// matchDeviceDomains matches sni to device domains.
+func matchDeviceDomains(sni string, domains []string) (matchedDomain string) {
 	matchedDomain = ""
-	for _, wildcard := range wildcards {
-		// Assume that wildcards have been validated for this prefix in the
-		// configuration parsing.
-		domain := wildcard[len("*."):]
+	for _, domain := range domains {
 		if netutil.IsImmediateSubdomain(sni, domain) {
 			matchedDomain = domain
 

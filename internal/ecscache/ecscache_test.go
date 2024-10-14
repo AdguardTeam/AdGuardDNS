@@ -281,13 +281,13 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 	testCases := []struct {
 		req        *dns.Msg
 		respECS    dns.RR
-		wantECS    *agd.ECS
+		wantECS    *dnsmsg.ECS
 		ctrySubnet netip.Prefix
 		name       string
 	}{{
 		req:     aReq,
 		respECS: ecsExtra,
-		wantECS: &agd.ECS{
+		wantECS: &dnsmsg.ECS{
 			Location: &geoip.Location{
 				Country: ctry,
 			},
@@ -299,7 +299,7 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 	}, {
 		req:     aReq,
 		respECS: ecsExtra,
-		wantECS: &agd.ECS{
+		wantECS: &dnsmsg.ECS{
 			Location: &geoip.Location{
 				Country: ctry,
 			},
@@ -328,7 +328,7 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 			0,
 			0,
 		),
-		wantECS: &agd.ECS{
+		wantECS: &dnsmsg.ECS{
 			Location: &geoip.Location{
 				Country: geoip.CountryNone,
 			},
@@ -340,7 +340,7 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 	}, {
 		req:     fakeECSReq,
 		respECS: ecsExtra,
-		wantECS: &agd.ECS{
+		wantECS: &dnsmsg.ECS{
 			Location: &geoip.Location{
 				Country: ctry,
 			},
@@ -401,7 +401,7 @@ func TestMiddleware_Wrap_ecs(t *testing.T) {
 }
 
 // assertEDNSOpt is a helper function that checks ECS and EDNS0 options.
-func assertEDNSOpt(t *testing.T, ecs *agd.ECS, edns *dns.OPT) {
+func assertEDNSOpt(t *testing.T, ecs *dnsmsg.ECS, edns *dns.OPT) {
 	t.Helper()
 
 	if ecs == nil {
@@ -621,7 +621,7 @@ func (s sequence) run(t *testing.T, ctry geoip.Country, ctrySubnet netip.Prefix)
 			RemoteIP: remoteIP,
 		}
 		if subnet != (netip.Prefix{}) {
-			ri.ECS = &agd.ECS{Subnet: subnet, Scope: 0}
+			ri.ECS = &dnsmsg.ECS{Subnet: subnet, Scope: 0}
 		}
 
 		// Make sure each step succeeded.

@@ -24,6 +24,7 @@ var requestIDRand = rand.New(&rand.LockedSource{})
 
 // InitRequestID initializes the [RequestID] generator.
 func InitRequestID() {
+	// #nosec G115 -- The Unix epoch time is highly unlikely to be negative.
 	requestIDRand.Seed(uint64(time.Now().UnixNano()))
 }
 

@@ -10,6 +10,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
+	"github.com/c2h5oh/datasize"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 )
@@ -24,15 +25,17 @@ func TestRateLimiterMetricsListener_integration_cache(t *testing.T) {
 		Allowlist:            ratelimit.NewDynamicAllowlist([]netip.Prefix{}, []netip.Prefix{}),
 		Period:               time.Minute,
 		Duration:             time.Minute,
-		Count:                rps,
-		ResponseSizeEstimate: 1000,
-		IPv4RPS:              rps,
-		IPv6RPS:              rps,
+		Count:                uint(rps),
+		ResponseSizeEstimate: 1 * datasize.KB,
+		IPv4RPS:              uint(rps),
+		IPv6RPS:              uint(rps),
 		RefuseANY:            true,
 	})
-	rlMw, err := ratelimit.NewMiddleware(rl, nil)
+	rlMw, err := ratelimit.NewMiddleware(&ratelimit.MiddlewareConfig{
+		Metrics:   prometheus.NewRateLimitMetricsListener(testNamespace),
+		RateLimit: rl,
+	})
 	require.NoError(t, err)
-	rlMw.Metrics = prometheus.NewRateLimitMetricsListener()
 
 	handlerWithMiddleware := dnsserver.WithMiddlewares(
 		dnsservertest.DefaultHandler(),
@@ -64,7 +67,7 @@ func TestRateLimiterMetricsListener_integration_cache(t *testing.T) {
 }
 
 func BenchmarkRateLimitMetricsListener(b *testing.B) {
-	l := prometheus.NewRateLimitMetricsListener()
+	l := prometheus.NewRateLimitMetricsListener(testNamespace)
 
 	ctx := dnsserver.ContextWithServerInfo(context.Background(), testServerInfo)
 	req := dnsservertest.CreateMessage(testReqDomain, dns.TypeA)

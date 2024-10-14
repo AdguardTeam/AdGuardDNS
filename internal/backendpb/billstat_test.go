@@ -54,13 +54,13 @@ func TestBillStat_Upload(t *testing.T) {
 
 		OnGetDNSProfiles: func(
 			req *backendpb.DNSProfilesRequest,
-			srv backendpb.DNSService_GetDNSProfilesServer,
+			srv grpc.ServerStreamingServer[backendpb.DNSProfile],
 		) (err error) {
 			panic("not implemented")
 		},
 
 		OnSaveDevicesBillingStat: func(
-			srv backendpb.DNSService_SaveDevicesBillingStatServer,
+			srv grpc.ClientStreamingServer[backendpb.DeviceBillingStat, emptypb.Empty],
 		) (err error) {
 			pt := &testutil.PanicT{}
 
@@ -107,6 +107,7 @@ func TestBillStat_Upload(t *testing.T) {
 
 	b, err := backendpb.NewBillStat(&backendpb.BillStatConfig{
 		ErrColl: errColl,
+		Metrics: backendpb.EmptyMetrics{},
 		Endpoint: &url.URL{
 			Scheme: "grpc",
 			Host:   l.Addr().String(),

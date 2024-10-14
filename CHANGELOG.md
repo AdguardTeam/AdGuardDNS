@@ -7,6 +7,88 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 [kec]: https://keepachangelog.com/en/1.0.0/
 [sem]: https://semver.org/spec/v2.0.0.html
 
+## AGDNS-2468 / Build 869
+
+- The environment variable `PROFILES_MAX_RESP_SIZE` has been added. It sets the maximum size of the response from the profiles endpoint of the backend API. The default value is `8MB`.
+
+## AGDNS-2427 / Build 854
+
+- The environment variables `REDIS_ADDR`, `REDIS_KEY_PREFIX`, `REDIS_MAX_ACTIVE`, `REDIS_MAX_IDLE`, `REDIS_IDLE_TIMEOUT`, and `REDIS_PORT` have been added.
+
+- The property `ttl` within the `check` is replaced by the object `kv` containing the previous `ttl` and the new property `type`. So replace this:
+
+    ```yaml
+    check:
+        # …
+        ttl: 30s
+    ```
+
+    with this:
+
+    ```yaml
+    check:
+        kv:
+            type: 'consul'
+            ttl: 30s
+        # …
+    ```
+
+## AGDNS-2331 / Build 818
+
+- Profile's file cache version was incremented. The new field `RateLimit` has been added to profile's object.
+
+## AGDNS-2008 / Build 809
+
+- The environment variables `WEB_STATIC_DIR` and `WEB_STATIC_DIR_ENABLED` have been added. If `WEB_STATIC_DIR_ENABLED` is set to `1`, `WEB_STATIC_DIR` must point to a directory, from which static files are served. The `web.static_content` property in the configuration file is also ignored when `WEB_STATIC_DIR_ENABLED` is set to `1`.
+
+## AGDNS-2316 / Build 808
+
+- The environment variables `BLOCKED_SERVICE_ENABLED`, `GENERAL_SAFE_SEARCH_ENABLED`, and `YOUTUBE_SAFE_SEARCH_ENABLED` have been added. If they are set to `0`, their corresponding `*_URL` environment variables can be empty.
+
+## AGDNS-2312 / Build 807
+
+- The environment variables `BILLSTAT_URL` and `PROFILES_URL` no longer required if there are no server groups with profiles enabled.
+
+## AGDNS-2312 / Build 802
+
+- The environment variables `ADULT_BLOCKING_ENABLED`, `NEW_REG_DOMAINS_ENABLED`, and `SAFE_BROWSING_ENABLED` have been added. If they are set to `0`, their corresponding `*_URL` environment variables can be empty.
+
+## AGDNS-2302 / Build 801
+
+- The environment variable `METRICS_NAMESPACE` has been added.
+
+## AGDNS-2292 / Build 794
+
+- The environment variable `PROFILES_ENABLED` has been removed.
+
+- The objects within the `server_groups` array have a new property `profiles_enabled`. So replace this:
+
+    ```yaml
+    server_groups:
+      - name: 'default'
+        # …
+      - name: 'client'
+        # …
+    ```
+
+    with this:
+
+    ```yaml
+    server_groups:
+      - name: 'default'
+        # …
+        profiles_enabled: false
+      - name: 'client'
+        # …
+        profiles_enabled: true
+    ```
+
+## AGDNS-2289 / Build 793
+
+- The environment variable `FILTER_INDEX_URL` now accepts `file://` URIs to use local files as filtering-rule list indexes.
+
+- All other `*_URL` environment variables are now validated to be HTTP(s) or gRPC(S) more strictly.
+
 ## AGDNS-2254 / Build 779
 
 - The environment variables `BILLSTAT_API_KEY` and `PROFILES_API_KEY` have been added.
@@ -21,11 +103,11 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
 ## AGDNS-2022 / Build 746
 
-- The property `block_page_redirect` of objects within `server_groups` array has been removed.
+- The property `block_page_redirect` of objects within the `server_groups` array has been removed.
 
 ## AGDNS-1981 / Build 744
 
-- The objects within `server_groups` array had a change in their `block_page_redirect` configuration, it now supports arrays of IP addresses in `ipv4` and `ipv6` fields.
+- The objects within the `server_groups` array had a change in their `block_page_redirect` configuration, it now supports arrays of IP addresses in `ipv4` and `ipv6` fields.
 
 - Profile's file cache version was incremented. In case of `BlockingModeCustomIP` the `profile.blocking_mode` IPv4/IPv6 fields are now arrays of IP addresses.
 
@@ -83,7 +165,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
 ## AGDNS-1954 / Build 719
 
-- The objects within `server_groups` array have a new property `block_page_redirect`:
+- The objects within the `server_groups` array have a new property `block_page_redirect`:
 
     ```yaml
     block_page_redirect:
@@ -106,8 +188,8 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
         probability: 0.01
     ```
 
-     >  [!NOTE]
-     >  For `ipv4` and `ipv6` only one address is currently supported.
+    > [!NOTE]
+    > For `ipv4` and `ipv6` only one address is currently supported.
 
     For server groups that do not require a block-page redirect, set:
 
@@ -557,7 +639,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
     This means that DNSDB is disabled by default.
 
-- The default configuration file path has been changed from `config.yml` to <code>./config.y<strong>a</strong>ml</code> for consistency with other services.
+- The default configuration file path has been changed from `./config.yml` to `./config.yaml` for consistency with other services.
 
 ## AGDNS-916 / Build 456
 
@@ -1483,7 +1565,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
 ## AGDNS-246 / Build 83
 
-- The new environment variable `RULESTAT_URL` has been added. Its default value is <code></code>, which means that no statistics are gathered. Adjust the value, if necessary.
+- The new environment variable `RULESTAT_URL` has been added. Its default value is an empty string, which means that no statistics are gathered. Adjust the value, if necessary.
 
 ## AGDNS-245 / Build 74
 

@@ -9,18 +9,21 @@ import (
 	"math"
 	"net/netip"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 )
 
-// Common Constants, Types, And Utilities
-
-// RCode is a semantic alias for uint8 values when they are used as a DNS
+// RCode is a semantic alias for uint16 values when they are used as a DNS
 // response code RCODE.
-type RCode = uint8
+//
+// See https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6.
+type RCode = uint16
 
 // RRType is a semantic alias for uint16 values when they are used as a DNS
 // resource record (RR) type.
+//
+// See https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-4.
 type RRType = uint16
 
 // Class is a semantic alias for uint16 values when they are used as a DNS class
@@ -221,4 +224,19 @@ func appendIfNotNil[T any](clones, original []T) (res []T) {
 	}
 
 	return append(clones, original...)
+}
+
+// ECS is the content of the EDNS Client Subnet option of a DNS message.
+//
+// See https://datatracker.ietf.org/doc/html/rfc7871#section-6.
+type ECS struct {
+	// Location is the GeoIP location data about the IP address from the
+	// request's ECS data, if any.
+	Location *geoip.Location
+
+	// Subnet is the source subnet.
+	Subnet netip.Prefix
+
+	// Scope is the scope prefix.
+	Scope uint8
 }

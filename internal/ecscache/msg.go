@@ -4,15 +4,13 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 )
 
-// Message Utilities
-//
 // TODO(a.garipov): Consider adding some of these functions to dnsmsg.
 
 // rmHopToHopData removes hop-to-top data, such as DNSSEC RRs, from resp.
@@ -34,18 +32,49 @@ func rmHopToHopData(resp *dns.Msg, qt dnsmsg.RRType, reqDO bool) {
 func rmHopToHopRRs(rrs []dns.RR, reqDO bool, exc uint16) (filtered []dns.RR) {
 	filtered = rrs[:0:len(rrs)]
 	for _, rr := range rrs {
-		rrType := rr.Header().Rrtype
-		if rrType != dns.TypeOPT && (reqDO || !isDNSSEC(rr) || rrType == exc) {
+		if rr = filterRR(rr, exc, reqDO); rr != nil {
 			filtered = append(filtered, rr)
 		}
 	}
 
 	// Set the remaining items to nil to let the garbage collector do its job.
-	for i := len(filtered); i < len(rrs); i++ {
-		rrs[i] = nil
-	}
+	clear(rrs[len(filtered):])
 
 	return filtered
+}
+
+// filterRR returns a filtered rr.  If rr is an OPT RR, it removes all options
+// except EDNS Extended DNS Error (EDE).  If rr is a DNSSEC RR, it removes it
+// unless reqDo is true or it's the exception.
+//
+// TODO(e.burkov):  Reinspect conditions for filtering hop-to-hop data in
+// context of Extended DNS Error (EDE) option.
+func filterRR(rr dns.RR, except uint16, reqDo bool) (filtered dns.RR) {
+	rrType := rr.Header().Rrtype
+
+	if opt, ok := rr.(*dns.OPT); ok {
+		opt.Option = slices.DeleteFunc(opt.Option, isNotEDE)
+		if len(opt.Option) == 0 {
+			return nil
+		}
+
+		return rr
+	}
+
+	switch {
+	case
+		reqDo,
+		!isDNSSEC(rr),
+		rrType == except:
+		return rr
+	default:
+		return nil
+	}
+}
+
+// isNotEDE returns true if o is not an EDNS Extended DNS Error (EDE) option.
+func isNotEDE(o dns.EDNS0) (ok bool) {
+	return o.Option() != dns.EDNS0EDE
 }
 
 // isDNSSEC returns true if rr is a DNSSEC RR.  NSEC, NSEC3, DS, DNSKEY and
@@ -82,7 +111,7 @@ func setRespAD(resp *dns.Msg, reqAD, reqDO bool) {
 // family as ecsFam.
 func setECS(
 	msg *dns.Msg,
-	ecs *agd.ECS,
+	ecs *dnsmsg.ECS,
 	ecsFam netutil.AddrFamily,
 	isResp bool,
 ) (err error) {
@@ -91,6 +120,8 @@ func setECS(
 		return fmt.Errorf("checking subnet ip: %w", err)
 	}
 
+	// #nosec G115 -- [netip.Prefix.Bits] cannot return a value above 128, and
+	// it cannot be -1 here, because dnsmsg checks the subnet for validity.
 	prefixLen := uint8(ecs.Subnet.Bits())
 
 	var scope uint8

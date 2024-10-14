@@ -1,7 +1,6 @@
 package hashprefix_test
 
 import (
-	"context"
 	"net/http"
 	"net/netip"
 	"os"
@@ -16,6 +15,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -26,6 +26,8 @@ import (
 const testTimeout = 10 * time.Second
 
 func TestFilter_FilterRequest_host(t *testing.T) {
+	msgs := agdtest.NewConstructor(t)
+
 	testCases := []struct {
 		name       string
 		host       string
@@ -101,7 +103,7 @@ func TestFilter_FilterRequest_host(t *testing.T) {
 				dns.ClassINET,
 			)
 			ri := &agd.RequestInfo{
-				Messages: agdtest.NewConstructor(),
+				Messages: msgs,
 				Host:     tc.host,
 				QType:    tc.qType,
 			}
@@ -133,7 +135,7 @@ func TestFilter_FilterRequest_host(t *testing.T) {
 			dns.ClassINET,
 		)
 		ri := &agd.RequestInfo{
-			Messages: agdtest.NewConstructor(),
+			Messages: msgs,
 			Host:     testHost,
 			QType:    dns.TypeA,
 		}
@@ -163,7 +165,7 @@ func TestFilter_FilterRequest_host(t *testing.T) {
 			dns.ClassINET,
 		)
 		ri := &agd.RequestInfo{
-			Messages: agdtest.NewConstructor(),
+			Messages: msgs,
 			Host:     testOtherHost,
 			QType:    dns.TypeA,
 		}
@@ -184,7 +186,7 @@ func TestFilter_FilterRequest_host(t *testing.T) {
 
 		req := dnsservertest.NewReq(dns.Fqdn(testHost), dns.TypeHTTPS, dns.ClassINET)
 		ri := &agd.RequestInfo{
-			Messages: agdtest.NewConstructor(),
+			Messages: msgs,
 			Host:     testHost,
 			QType:    dns.TypeHTTPS,
 		}
@@ -203,7 +205,7 @@ func TestFilter_FilterRequest_host(t *testing.T) {
 
 		req := dnsservertest.NewReq(dns.Fqdn(testHost), dns.TypeHTTPS, dns.ClassINET)
 		ri := &agd.RequestInfo{
-			Messages: agdtest.NewConstructor(),
+			Messages: msgs,
 			Host:     testHost,
 			QType:    dns.TypeHTTPS,
 		}
@@ -267,15 +269,12 @@ func newFilter(tb testing.TB, replHost string) (f *hashprefix.Filter) {
 	require.NoError(tb, err)
 
 	f, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
-		Cloner:       agdtest.NewCloner(),
-		CacheManager: agdcache.EmptyManager{},
-		Hashes:       strg,
-		URL:          srvURL,
-		ErrColl: &agdtest.ErrorCollector{
-			OnCollect: func(_ context.Context, _ error) {
-				panic("not implemented")
-			},
-		},
+		Logger:          slogutil.NewDiscardLogger(),
+		Cloner:          agdtest.NewCloner(),
+		CacheManager:    agdcache.EmptyManager{},
+		Hashes:          strg,
+		URL:             srvURL,
+		ErrColl:         agdtest.NewErrorCollector(),
 		ID:              agd.FilterListIDAdultBlocking,
 		CachePath:       cachePath,
 		ReplacementHost: replHost,
@@ -300,15 +299,12 @@ func TestFilter_Refresh(t *testing.T) {
 	require.NoError(t, err)
 
 	f, err := hashprefix.NewFilter(&hashprefix.FilterConfig{
-		Cloner:       agdtest.NewCloner(),
-		CacheManager: agdcache.EmptyManager{},
-		Hashes:       strg,
-		URL:          srvURL,
-		ErrColl: &agdtest.ErrorCollector{
-			OnCollect: func(_ context.Context, _ error) {
-				panic("not implemented")
-			},
-		},
+		Logger:          slogutil.NewDiscardLogger(),
+		Cloner:          agdtest.NewCloner(),
+		CacheManager:    agdcache.EmptyManager{},
+		Hashes:          strg,
+		URL:             srvURL,
+		ErrColl:         agdtest.NewErrorCollector(),
 		ID:              agd.FilterListIDAdultBlocking,
 		CachePath:       cachePath,
 		ReplacementHost: testReplHost,
@@ -348,16 +344,15 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	strg, err := hashprefix.NewStorage("")
 	require.NoError(t, err)
 
+	cloner := agdtest.NewCloner()
+
 	fconf := &hashprefix.FilterConfig{
-		Cloner:       agdtest.NewCloner(),
-		CacheManager: agdcache.EmptyManager{},
-		Hashes:       strg,
-		URL:          srvURL,
-		ErrColl: &agdtest.ErrorCollector{
-			OnCollect: func(_ context.Context, _ error) {
-				panic("not implemented")
-			},
-		},
+		Logger:          slogutil.NewDiscardLogger(),
+		Cloner:          cloner,
+		CacheManager:    agdcache.EmptyManager{},
+		Hashes:          strg,
+		URL:             srvURL,
+		ErrColl:         agdtest.NewErrorCollector(),
 		ID:              agd.FilterListIDAdultBlocking,
 		CachePath:       cachePath,
 		ReplacementHost: testReplHost,
@@ -372,7 +367,12 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	ctx := testutil.ContextWithTimeout(t, testTimeout)
 	require.NoError(t, f.RefreshInitial(ctx))
 
-	messages := agdtest.NewConstructor()
+	msgs, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
+		Cloner:              cloner,
+		BlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		FilteredResponseTTL: agdtest.FilteredResponseTTL,
+	})
+	require.NoError(t, err)
 
 	// Test the following:
 	//
@@ -382,10 +382,10 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	//  4. Ensure the stale rules aren't used.
 
 	testHostReq := dnsservertest.NewReq(dns.Fqdn(testHost), dns.TypeA, dns.ClassINET)
-	testReqInfo := &agd.RequestInfo{Messages: messages, Host: testHost, QType: dns.TypeA}
+	testReqInfo := &agd.RequestInfo{Messages: msgs, Host: testHost, QType: dns.TypeA}
 
 	testOtherHostReq := dnsservertest.NewReq(dns.Fqdn(testOtherHost), dns.TypeA, dns.ClassINET)
-	testOtherReqInfo := &agd.RequestInfo{Messages: messages, Host: testOtherHost, QType: dns.TypeA}
+	testOtherReqInfo := &agd.RequestInfo{Messages: msgs, Host: testOtherHost, QType: dns.TypeA}
 
 	require.True(t, t.Run("hit_cached_host", func(t *testing.T) {
 		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)

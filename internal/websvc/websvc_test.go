@@ -45,10 +45,11 @@ func TestService_NonDoH(t *testing.T) {
 
 	notFoundContent := []byte("not found")
 	c := &websvc.Config{
-		DNSCheck:   mockHandler,
-		NonDoHBind: nonDoHBind,
-		Error404:   notFoundContent,
-		Timeout:    testTimeout,
+		StaticContent: http.NotFoundHandler(),
+		DNSCheck:      mockHandler,
+		NonDoHBind:    nonDoHBind,
+		Error404:      notFoundContent,
+		Timeout:       testTimeout,
 	}
 
 	startService(t, c)
@@ -120,6 +121,11 @@ func startService(t *testing.T, c *websvc.Config) {
 	require.NotNil(t, svc)
 
 	var err error
+	require.NotPanics(t, func() {
+		err = svc.Refresh(testutil.ContextWithTimeout(t, testTimeout))
+	})
+	require.NoError(t, err)
+
 	require.NotPanics(t, func() {
 		err = svc.Start(testutil.ContextWithTimeout(t, testTimeout))
 	})

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/container"
 )
 
@@ -19,7 +18,8 @@ type Matcher struct {
 }
 
 // NewMatcher returns a new hash-prefix matcher.  storages is a mapping of
-// domain-name suffixes to the storage containing hashes for this domain.
+// domain-name suffixes to the storage containing hashes for this domain.  If
+// storages is empty, m.MatchByPrefix always returns nil, false, and nil.
 func NewMatcher(storages map[string]*Storage) (m *Matcher) {
 	return &Matcher{
 		storages: storages,
@@ -53,8 +53,6 @@ func (m *Matcher) MatchByPrefix(
 	if !matched {
 		return nil, false, nil
 	}
-
-	optlog.Debug1("hashprefix matcher: got prefixes string %q", prefixesStr)
 
 	hashPrefixes, err := prefixesFromStr(prefixesStr)
 	if err != nil {

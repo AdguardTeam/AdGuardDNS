@@ -10,11 +10,12 @@
 *.test
 /bin/
 /filters/
-/test/
 /github-mirror/
+/test/
 AdGuardDNS
+agdns
 asn.mmdb
 config.yaml
 country.mmdb
-querylog.jsonl
 profilecache.json
+querylog.jsonl

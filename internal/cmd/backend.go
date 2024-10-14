@@ -3,23 +3,19 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"net/netip"
+	"log/slog"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
-	"github.com/AdguardTeam/golibs/service"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
-
-// Business Logic Backend Configuration
 
 // backendConfig is the backend module configuration.
 //
@@ -47,162 +43,48 @@ type backendConfig struct {
 	BillStatIvl timeutil.Duration `yaml:"bill_stat_interval"`
 }
 
-// validate returns an error if the backend configuration is invalid.
+// type check
+var _ validator = (*backendConfig)(nil)
+
+// validate implements the [validator] interface for *backendConfig.
 func (c *backendConfig) validate() (err error) {
 	switch {
 	case c == nil:
-		return errNilConfig
+		return errors.ErrNoValue
 	case c.Timeout.Duration < 0:
-		return newMustBeNonNegativeError("timeout", c.Timeout)
+		return newNegativeError("timeout", c.Timeout)
 	case c.RefreshIvl.Duration <= 0:
-		return newMustBePositiveError("refresh_interval", c.RefreshIvl)
+		return newNotPositiveError("refresh_interval", c.RefreshIvl)
 	case c.FullRefreshIvl.Duration <= 0:
-		return newMustBePositiveError("full_refresh_interval", c.FullRefreshIvl)
+		return newNotPositiveError("full_refresh_interval", c.FullRefreshIvl)
 	case c.FullRefreshRetryIvl.Duration <= 0:
-		return newMustBePositiveError("full_refresh_retry_interval", c.FullRefreshRetryIvl)
+		return newNotPositiveError("full_refresh_retry_interval", c.FullRefreshRetryIvl)
 	case c.BillStatIvl.Duration <= 0:
-		return newMustBePositiveError("bill_stat_interval", c.BillStatIvl)
+		return newNotPositiveError("bill_stat_interval", c.BillStatIvl)
 	default:
 		return nil
 	}
 }
 
-// setupBackend creates and returns a profile database and a billing-statistics
-// recorder as well as starts and registers their refreshers in the signal
-// handler.
-func setupBackend(
-	conf *backendConfig,
-	grps []*agd.ServerGroup,
-	envs *environments,
-	sigHdlr *service.SignalHandler,
-	errColl errcoll.Interface,
-) (profDB profiledb.Interface, rec billstat.Recorder, err error) {
-	if !envs.ProfilesEnabled {
-		return &profiledb.Disabled{}, billstat.EmptyRecorder{}, nil
-	}
-
-	rec, err = setupBillStat(conf, envs, sigHdlr, errColl)
-	if err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		return nil, nil, err
-	}
-
-	profDB, err = setupProfDB(conf, grps, envs, sigHdlr, errColl)
-	if err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		return nil, nil, err
-	}
-
-	return profDB, rec, nil
-}
-
-// setupBillStat creates and returns a billing-statistics recorder as well as
-// starts and registers its refresher in the signal handler.
-func setupBillStat(
-	conf *backendConfig,
-	envs *environments,
-	sigHdlr *service.SignalHandler,
-	errColl errcoll.Interface,
-) (rec *billstat.RuntimeRecorder, err error) {
-	billStatUploader, err := setupBillStatUploader(envs, errColl)
-	if err != nil {
-		return nil, fmt.Errorf("creating bill stat uploader: %w", err)
-	}
-
-	rec = billstat.NewRuntimeRecorder(&billstat.RuntimeRecorderConfig{
-		ErrColl:  errColl,
-		Uploader: billStatUploader,
-	})
-
-	refrIvl := conf.RefreshIvl.Duration
-	timeout := conf.Timeout.Duration
-
-	billStatRefr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
-		Context: func() (ctx context.Context, cancel context.CancelFunc) {
-			return context.WithTimeout(context.Background(), timeout)
-		},
-		Refresher:         rec,
-		Name:              "billstat",
-		Interval:          refrIvl,
-		RefreshOnShutdown: true,
-		RandomizeStart:    false,
-	})
-	err = billStatRefr.Start(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("starting bill stat recorder refresher: %w", err)
-	}
-
-	sigHdlr.Add(billStatRefr)
-
-	return rec, nil
-}
-
-// setupProfDB creates and returns a profile database as well as starts and
-// registers its refresher in the signal handler.
-func setupProfDB(
-	conf *backendConfig,
-	grps []*agd.ServerGroup,
-	envs *environments,
-	sigHdlr *service.SignalHandler,
-	errColl errcoll.Interface,
-) (profDB *profiledb.Default, err error) {
-	bindSet := collectBindSubnetSet(grps)
-	profStrg, err := setupProfStorage(envs, bindSet, errColl)
-	if err != nil {
-		return nil, fmt.Errorf("creating profile storage: %w", err)
-	}
-
-	timeout := conf.Timeout.Duration
-	profDB, err = profiledb.New(&profiledb.Config{
-		Storage:          profStrg,
-		ErrColl:          errColl,
-		FullSyncIvl:      conf.FullRefreshIvl.Duration,
-		FullSyncRetryIvl: conf.FullRefreshRetryIvl.Duration,
-		CacheFilePath:    envs.ProfilesCachePath,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("creating default profile database: %w", err)
-	}
-
-	err = initProfDB(profDB, timeout)
-	if err != nil {
-		return nil, fmt.Errorf("preparing default profile database: %w", err)
-	}
-
-	profDBRefr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
-		Context: func() (ctx context.Context, cancel context.CancelFunc) {
-			return context.WithTimeout(context.Background(), timeout)
-		},
-		Refresher:         profDB,
-		Name:              "profiledb",
-		Interval:          conf.RefreshIvl.Duration,
-		RefreshOnShutdown: false,
-		RandomizeStart:    true,
-	})
-	err = profDBRefr.Start(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("starting default profile database refresher: %w", err)
-	}
-
-	sigHdlr.Add(profDBRefr)
-
-	return profDB, nil
-}
-
 // initProfDB refreshes the profile database initially.  It logs an error if
 // it's a timeout, and returns it otherwise.
-func initProfDB(profDB *profiledb.Default, timeout time.Duration) (err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+func initProfDB(
+	ctx context.Context,
+	mainLogger *slog.Logger,
+	profDB *profiledb.Default,
+	timeout time.Duration,
+) (err error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	log.Info("main: initial profiledb refresh")
+	mainLogger.InfoContext(ctx, "initial profiledb refresh")
 
 	err = profDB.Refresh(ctx)
 	switch {
 	case err == nil:
-		log.Info("main: initial profiledb refresh succeeded")
+		mainLogger.InfoContext(ctx, "initial profiledb refresh succeeded")
 	case errors.Is(err, context.DeadlineExceeded):
-		log.Info("main: warning: initial profiledb refresh timeout: %s", err)
+		mainLogger.WarnContext(ctx, "initial profiledb refresh timeout", slogutil.KeyError, err)
 	default:
 		return fmt.Errorf("initial refresh: %w", err)
 	}
@@ -210,77 +92,22 @@ func initProfDB(profDB *profiledb.Default, timeout time.Duration) (err error) {
 	return nil
 }
 
-// collectBindSubnetSet returns a subnet set with IP addresses of servers in the
-// provided server groups grps.
-func collectBindSubnetSet(grps []*agd.ServerGroup) (s netutil.SubnetSet) {
-	var serverPrefixes []netip.Prefix
-	allSingleIP := true
-	for _, grp := range grps {
-		for _, srv := range grp.Servers {
-			for _, p := range srv.BindDataPrefixes() {
-				allSingleIP = allSingleIP && p.IsSingleIP()
-				serverPrefixes = append(serverPrefixes, p)
-			}
-		}
-	}
-
-	// In cases where an installation only has single-IP prefixes in bind
-	// interfaces, or no bind interfaces at all, only check the dedicated IPs in
-	// profiles for validity.
-	//
-	// TODO(a.garipov): Do not load profiles on such installations at all, as
-	// they don't really need them.  See AGDNS-1888.
-	if allSingleIP {
-		log.Info("warning: all bind ifaces are single-ip; only checking validity of dedicated ips")
-
-		return netutil.SubnetSetFunc(netip.Addr.IsValid)
-	}
-
-	return netutil.SliceSubnetSet(serverPrefixes)
-}
-
-// Backend API URL schemes.
-const (
-	schemeGRPC  = "grpc"
-	schemeGRPCS = "grpcs"
-)
-
-// setupBillStatUploader creates and returns a billstat uploader depending on
-// the provided API URL.
-func setupBillStatUploader(
-	envs *environments,
+// newBillStatUploader creates and returns a billstat uploader depending on the
+// provided API URL.
+func newBillStatUploader(
+	envs *environment,
 	errColl errcoll.Interface,
+	mtrc backendpb.Metrics,
 ) (s billstat.Uploader, err error) {
 	apiURL := netutil.CloneURL(&envs.BillStatURL.URL)
-	scheme := apiURL.Scheme
-	if scheme == schemeGRPC || scheme == schemeGRPCS {
-		return backendpb.NewBillStat(&backendpb.BillStatConfig{
-			ErrColl:  errColl,
-			Endpoint: apiURL,
-			APIKey:   envs.BillStatAPIKey,
-		})
+	if !agdhttp.CheckGRPCURLScheme(apiURL.Scheme) {
+		return nil, fmt.Errorf("invalid backend api url: %s", apiURL)
 	}
 
-	return nil, fmt.Errorf("invalid backend api url: %s", apiURL)
-}
-
-// setupProfStorage creates and returns a profile storage depending on the
-// provided API URL.
-func setupProfStorage(
-	envs *environments,
-	bindSet netutil.SubnetSet,
-	errColl errcoll.Interface,
-) (s profiledb.Storage, err error) {
-	apiURL := netutil.CloneURL(&envs.ProfilesURL.URL)
-	scheme := apiURL.Scheme
-	if scheme == schemeGRPC || scheme == schemeGRPCS {
-		return backendpb.NewProfileStorage(&backendpb.ProfileStorageConfig{
-			BindSet:  bindSet,
-			ErrColl:  errColl,
-			Endpoint: apiURL,
-			APIKey:   envs.ProfilesAPIKey,
-		})
-	}
-
-	return nil, fmt.Errorf("invalid backend api url: %s", apiURL)
+	return backendpb.NewBillStat(&backendpb.BillStatConfig{
+		ErrColl:  errColl,
+		Metrics:  mtrc,
+		Endpoint: apiURL,
+		APIKey:   envs.BillStatAPIKey,
+	})
 }

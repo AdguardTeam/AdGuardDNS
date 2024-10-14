@@ -9,6 +9,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -45,6 +46,7 @@ func TestHandler_Refresh(t *testing.T) {
 	upstream, _ := dnsservertest.RunDNSServer(t, handlerFunc)
 	fallback, _ := dnsservertest.RunDNSServer(t, defaultHandler)
 	handler := forward.NewHandler(&forward.HandlerConfig{
+		Logger: slogutil.NewDiscardLogger(),
 		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
 			Network: forward.NetworkAny,
 			Address: netip.MustParseAddrPort(upstream.LocalUDPAddr().String()),

@@ -14,6 +14,9 @@ func TestMain(m *testing.M) {
 	testutil.DiscardLogOutput(m)
 }
 
+// testNamespace is a test namespace for metrics.
+const testNamespace = "dns"
+
 // testReqDomain is the common request domain for tests.
 const testReqDomain = "request-domain.example"
 

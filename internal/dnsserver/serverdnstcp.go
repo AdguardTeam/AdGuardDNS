@@ -164,10 +164,6 @@ func (s *ServerDNS) acceptTCPMsg(
 		return err
 	}
 
-	// RFC 7766 recommends implementing query pipelining, i.e. process all
-	// incoming queries concurrently and write responses out of order.
-	wg.Add(1)
-
 	ri := &RequestInfo{
 		StartTime: time.Now(),
 	}
@@ -182,6 +178,10 @@ func (s *ServerDNS) acceptTCPMsg(
 	if err != nil {
 		return fmt.Errorf("waiting for sema: %w", err)
 	}
+
+	// RFC 7766 recommends implementing query pipelining, i.e. process all
+	// incoming queries concurrently and write responses out of order.
+	wg.Add(1)
 
 	return s.workerPool.Submit(func() {
 		defer reqCancel()
@@ -360,5 +360,7 @@ func (r *tcpResponseWriter) addTCPKeepAlive(req, resp *dns.Msg) {
 
 	// Should be specified in units of 100 milliseconds encoded in network byte
 	// order.
+	// #nosec G115 -- r.idleTimeout comes from [ConfigDNS.TCPIdleTimeout], which
+	// is validated in [newServerDNS].
 	keepAliveOpt.Timeout = uint16(r.idleTimeout.Milliseconds() / 100)
 }

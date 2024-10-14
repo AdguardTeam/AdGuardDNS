@@ -7,6 +7,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/c2h5oh/datasize"
 )
 
 func TestMain(m *testing.M) {
@@ -35,3 +36,6 @@ var TestUpdTime = time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 //
 // TODO(a.garipov):  Add to golibs/netutil.
 var TestBind = netip.MustParsePrefix("0.0.0.0/0")
+
+// TestRespSzEst is a response-size estimate for tests.
+const TestRespSzEst datasize.ByteSize = 1 * datasize.KB

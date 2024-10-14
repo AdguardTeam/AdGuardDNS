@@ -4,9 +4,11 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 
 ## Contents
 
+- [`ADULT_BLOCKING_ENABLED`](#ADULT_BLOCKING_ENABLED)
 - [`ADULT_BLOCKING_URL`](#ADULT_BLOCKING_URL)
 - [`BILLSTAT_API_KEY`](#BILLSTAT_API_KEY)
 - [`BILLSTAT_URL`](#BILLSTAT_URL)
+- [`BLOCKED_SERVICE_ENABLED`](#BLOCKED_SERVICE_ENABLED)
 - [`BLOCKED_SERVICE_INDEX_URL`](#BLOCKED_SERVICE_INDEX_URL)
 - [`CONFIG_PATH`](#CONFIG_PATH)
 - [`CONSUL_ALLOWLIST_URL`](#CONSUL_ALLOWLIST_URL)
@@ -14,33 +16,51 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`CONSUL_DNSCHECK_SESSION_URL`](#CONSUL_DNSCHECK_SESSION_URL)
 - [`FILTER_CACHE_PATH`](#FILTER_CACHE_PATH)
 - [`FILTER_INDEX_URL`](#FILTER_INDEX_URL)
+- [`GENERAL_SAFE_ENABLED`](#GENERAL_SAFE_SEARCH_ENABLED)
 - [`GENERAL_SAFE_SEARCH_URL`](#GENERAL_SAFE_SEARCH_URL)
 - [`GEOIP_ASN_PATH` and `GEOIP_COUNTRY_PATH`](#GEOIP_ASN_PATH)
 - [`LINKED_IP_TARGET_URL`](#LINKED_IP_TARGET_URL)
 - [`LISTEN_ADDR`](#LISTEN_ADDR)
 - [`LISTEN_PORT`](#LISTEN_PORT)
 - [`LOG_TIMESTAMP`](#LOG_TIMESTAMP)
+- [`METRICS_NAMESPACE`](#METRICS_NAMESPACE)
+- [`NEW_REG_DOMAINS_ENABLED`](#NEW_REG_DOMAINS_ENABLED)
 - [`NEW_REG_DOMAINS_URL`](#NEW_REG_DOMAINS_URL)
 - [`PROFILES_API_KEY`](#PROFILES_API_KEY)
 - [`PROFILES_CACHE_PATH`](#PROFILES_CACHE_PATH)
-- [`PROFILES_ENABLED`](#PROFILES_ENABLED)
 - [`PROFILES_URL`](#PROFILES_URL)
+- [`REDIS_ADDR`](#REDIS_ADDR)
+- [`REDIS_KEY_PREFIX`](#REDIS_KEY_PREFIX)
+- [`REDIS_MAX_ACTIVE`](#REDIS_MAX_ACTIVE)
+- [`REDIS_MAX_IDLE`](#REDIS_MAX_IDLE)
+- [`REDIS_IDLE_TIMEOUT`](#REDIS_IDLE_TIMEOUT)
+- [`REDIS_PORT`](#REDIS_PORT)
 - [`QUERYLOG_PATH`](#QUERYLOG_PATH)
 - [`RULESTAT_URL`](#RULESTAT_URL)
+- [`SAFE_BROWSING_ENABLED`](#SAFE_BROWSING_ENABLED)
 - [`SAFE_BROWSING_URL`](#SAFE_BROWSING_URL)
 - [`SENTRY_DSN`](#SENTRY_DSN)
 - [`SSL_KEY_LOG_FILE`](#SSL_KEY_LOG_FILE)
 - [`VERBOSE`](#VERBOSE)
+- [`WEB_STATIC_DIR_ENABLED`](#WEB_STATIC_DIR_ENABLED)
+- [`WEB_STATIC_DIR`](#WEB_STATIC_DIR)
+- [`YOUTUBE_SAFE_SEARCH_ENABLED`](#YOUTUBE_SAFE_SEARCH_ENABLED)
 - [`YOUTUBE_SAFE_SEARCH_URL`](#YOUTUBE_SAFE_SEARCH_URL)
 
 [conf]:     configuration.md
 [wiki-env]: https://en.wikipedia.org/wiki/Environment_variable
 
+## <a href="#ADULT_BLOCKING_ENABLED" id="ADULT_BLOCKING_ENABLED" name="ADULT_BLOCKING_ENABLED">`ADULT_BLOCKING_ENABLED`</a>
+
+When set to `1`, enable the adult-blocking hash-prefix filter. When set to `0`, disable it.
+
+**Default:** `1`.
+
 ## <a href="#ADULT_BLOCKING_URL" id="ADULT_BLOCKING_URL" name="ADULT_BLOCKING_URL">`ADULT_BLOCKING_URL`</a>
 
-The URL of source list of rules for adult blocking filter.
+The HTTP(S) URL of source list of rules for adult blocking filter.
 
-**Default:** No default value, the variable is **required.**
+**Default:** No default value, the variable is required if `ADULT_BLOCKING_ENABLED` is set to `1`.
 
 ## <a href="#BILLSTAT_API_KEY" id="BILLSTAT_API_KEY" name="BILLSTAT_API_KEY">`BILLSTAT_API_KEY`</a>
 
@@ -52,17 +72,24 @@ The API key to use when authenticating queries to the billing statistics API, if
 
 ## <a href="#BILLSTAT_URL" id="BILLSTAT_URL" name="BILLSTAT_URL">`BILLSTAT_URL`</a>
 
-The base backend URL for backend billing statistics uploader API. Supports GRPC (`grpc://` and`grpcs://`) URLs. See the [external HTTP API requirements section][ext-billstat].
+The base backend URL for backend billing statistics uploader API. Supports gRPC(S) (`grpc://` and`grpcs://`) URLs. See the [external HTTP API requirements section][ext-billstat].
 
-**Default:** No default value, the variable is **required.**
+**Default:** No default value, the variable is required if there is at least one [server group][conf-sg] with profiles enabled.
 
+[conf-sg]:      configuration.md#server_groups
 [ext-billstat]: externalhttp.md#backend-billstat
+
+## <a href="#BLOCKED_SERVICE_ENABLED" id="BLOCKED_SERVICE_ENABLED" name="BLOCKED_SERVICE_ENABLED">`BLOCKED_SERVICE_ENABLED`</a>
+
+When set to `1`, enable the blocked service filter. When set to `0`, disable it.
+
+**Default:** `1`.
 
 ## <a href="#BLOCKED_SERVICE_INDEX_URL" id="BLOCKED_SERVICE_INDEX_URL" name="BLOCKED_SERVICE_INDEX_URL">`BLOCKED_SERVICE_INDEX_URL`</a>
 
-The URL of the blocked service index file server. See the [external HTTP API requirements section][ext-blocked] on the expected format of the response.
+The HTTP(S) URL of the blocked service index file server. See the [external HTTP API requirements section][ext-blocked] on the expected format of the response.
 
-**Default:** No default value, the variable is **required.**
+**Default:** No default value, the variable is required if `BLOCKED_SERVICE_ENABLED` is set to `1`.
 
 [ext-blocked]: externalhttp.md#filters-blocked-services
 
@@ -74,7 +101,7 @@ The path to the configuration file.
 
 ## <a href="#CONSUL_ALLOWLIST_URL" id="CONSUL_ALLOWLIST_URL" name="CONSUL_ALLOWLIST_URL">`CONSUL_ALLOWLIST_URL`</a>
 
-The URL of the Consul instance serving the dynamic part of the rate-limit allowlist. See the [external HTTP API requirements section][ext-consul] on the expected format of the response.
+The HTTP(S) URL of the Consul instance serving the dynamic part of the rate-limit allowlist. See the [external HTTP API requirements section][ext-consul] on the expected format of the response.
 
 **Default:** No default value, the variable is **required.**
 
@@ -82,7 +109,7 @@ The URL of the Consul instance serving the dynamic part of the rate-limit allowl
 
 ## <a href="#CONSUL_DNSCHECK_KV_URL" id="CONSUL_DNSCHECK_KV_URL" name="CONSUL_DNSCHECK_KV_URL">`CONSUL_DNSCHECK_KV_URL`</a>
 
-The URL of the KV API of the Consul instance used as a key-value database for the DNS server checking. It must end with `/kv/<NAMESPACE>` where `<NAMESPACE>` is any non-empty namespace. If not specified, the [`CONSUL_DNSCHECK_SESSION_URL`](#CONSUL_DNSCHECK_SESSION_URL) is also omitted.
+The HTTP(S) URL of the KV API of the Consul instance used as a key-value database for the DNS server checking. It must end with `/kv/<NAMESPACE>` where `<NAMESPACE>` is any non-empty namespace. If not specified, the [`CONSUL_DNSCHECK_SESSION_URL`](#CONSUL_DNSCHECK_SESSION_URL) is also omitted.
 
 **Default:** **Unset.**
 
@@ -90,7 +117,7 @@ The URL of the KV API of the Consul instance used as a key-value database for th
 
 ## <a href="#CONSUL_DNSCHECK_SESSION_URL" id="CONSUL_DNSCHECK_SESSION_URL" name="CONSUL_DNSCHECK_SESSION_URL">`CONSUL_DNSCHECK_SESSION_URL`</a>
 
-The URL of the session API of the Consul instance used as a key-value database for the DNS server checking. If not specified, the [`CONSUL_DNSCHECK_KV_URL`](#CONSUL_DNSCHECK_KV_URL) is also omitted.
+The HTTP(S) URL of the session API of the Consul instance used as a key-value database for the DNS server checking. If not specified, the [`CONSUL_DNSCHECK_KV_URL`](#CONSUL_DNSCHECK_KV_URL) is also omitted.
 
 **Default:** **Unset.**
 
@@ -104,17 +131,23 @@ The path to the directory used to store the cached version of all filters and fi
 
 ## <a href="#FILTER_INDEX_URL" id="FILTER_INDEX_URL" name="FILTER_INDEX_URL">`FILTER_INDEX_URL`</a>
 
-The URL of the filtering rule index file server. See the [external HTTP API requirements section][ext-lists] on the expected format of the response.
+The HTTP(S) URL or a hostless file URI (e.g. `file:///tmp/filters.json`) of the filtering rule index file server. See the [external HTTP API requirements section][ext-lists] on the expected format of the response.
 
 **Default:** No default value, the variable is **required.**
 
 [ext-lists]: externalhttp.md#filters-lists
 
+## <a href="#GENERAL_SAFE_SEARCH_ENABLED" id="GENERAL_SAFE_SEARCH_ENABLED" name="GENERAL_SAFE_SEARCH_ENABLED">`GENERAL_SAFE_SEARCH_ENABLED`</a>
+
+When set to `1`, enable the general safe search filter. When set to `0`, disable it.
+
+**Default:** `1`.
+
 ## <a href="#GENERAL_SAFE_SEARCH_URL" id="GENERAL_SAFE_SEARCH_URL" name="GENERAL_SAFE_SEARCH_URL">`GENERAL_SAFE_SEARCH_URL`</a>
 
-The URL of the list of general safe search rewriting rules. See the [external HTTP API requirements section][ext-general] on the expected format of the response.
+The HTTP(S) URL of the list of general safe search rewriting rules. See the [external HTTP API requirements section][ext-general] on the expected format of the response.
 
-**Default:** No default value, the variable is **required.**
+**Default:** No default value, the variable is required if `GENERAL_SAFE_SEARCH_ENABLED` is set to `1`.
 
 [ext-general]: externalhttp.md#filters-safe-search
 
@@ -126,7 +159,7 @@ Paths to the files containing MaxMind GeoIP databases: for ASNs and for countrie
 
 ## <a href="#LINKED_IP_TARGET_URL" id="LINKED_IP_TARGET_URL" name="LINKED_IP_TARGET_URL">`LINKED_IP_TARGET_URL`</a>
 
-The target URL to which linked IP API requests are proxied. In case [linked IP and dynamic DNS][conf-web-linked_ip] web server is configured, the variable is required. See the [external HTTP API requirements section][ext-linked_ip].
+The target HTTP(S) URL to which linked IP API requests are proxied. In case [linked IP and dynamic DNS][conf-web-linked_ip] web server is configured, the variable is required. See the [external HTTP API requirements section][ext-linked_ip].
 
 **Default:** **Unset.**
 
@@ -153,11 +186,23 @@ If `1`, show timestamps in the plain text logs. If `0`, don't show the timestamp
 
 **Default:** `1`.
 
+## <a href="#METRICS_NAMESPACE" id="METRICS_NAMESPACE" name="METRICS_NAMESPACE">`METRICS_NAMESPACE`</a>
+
+The namespace to be used for Prometheus metrics. It must be a valid Prometheus metric label.
+
+**Default:** `dns`.
+
+## <a href="#NEW_REG_DOMAINS_ENABLED" id="NEW_REG_DOMAINS_ENABLED" name="NEW_REG_DOMAINS_ENABLED">`NEW_REG_DOMAINS_ENABLED`</a>
+
+When set to `1`, enable the newly-registered domains hash-prefix filter. When set to `0`, disable it.
+
+**Default:** `1`.
+
 ## <a href="#NEW_REG_DOMAINS_URL" id="NEW_REG_DOMAINS_URL" name="NEW_REG_DOMAINS_URL">`NEW_REG_DOMAINS_URL`</a>
 
-The URL of source list of rules for newly registered domains safe browsing filter.
+The HTTP(S) URL of source list of rules for newly registered domains safe browsing filter.
 
-**Default:** No default value, the variable is **required.**
+**Default:** No default value, the variable is required if `NEW_REG_DOMAINS_ENABLED` is set to `1`.
 
 ## <a href="#PROFILES_API_KEY" id="PROFILES_API_KEY" name="PROFILES_API_KEY">`PROFILES_API_KEY`</a>
 
@@ -189,19 +234,57 @@ The profile cache is read on start and is later updated on every [full refresh][
 
 [conf-backend-full_refresh_interval]: configuration.md#backend-full_refresh_interval
 
-## <a href="#PROFILES_ENABLED" id="PROFILES_ENABLED" name="PROFILES_ENABLED">`PROFILES_ENABLED`</a>
+## <a href="#PROFILES_MAX_RESP_SIZE" id="PROFILES_MAX_RESP_SIZE" name="PROFILES_MAX_RESP_SIZE">`PROFILES_MAX_RESP_SIZE`</a>
 
-If `0`, disables user profiles and devices recognition and billing.
+The maximum size of the response from the profiles API in a human-readable format.
 
-**Default:** `1`.
+**Default:** `8MB`.
 
 ## <a href="#PROFILES_URL" id="PROFILES_URL" name="PROFILES_URL">`PROFILES_URL`</a>
 
-The base backend URL for profiles API. Supports  GRPC (`grpc://` and`grpcs://`) URLs. See the [external API requirements section][ext-profiles].
+The base backend URL for profiles API. Supports gRPC(S) (`grpc://` and`grpcs://`) URLs. See the [external API requirements section][ext-profiles].
 
-**Default:** No default value, the variable is **required.**
+**Default:** No default value, the variable is required if there is at least one [server group][conf-sg] with profiles enabled.
 
 [ext-profiles]: externalhttp.md#backend-profiles
+
+## <a href="#REDIS_ADDR" id="REDIS_ADDR" name="REDIS_ADDR">`REDIS_ADDR`</a>
+
+Redis server address.  Can be an IP address or a hostname.
+
+**Default:** No default value, the variable if required if the [type][conf-check-kv-type] of remote KV storage for DNS server checking is `redis` in the configuration file.
+
+[conf-check-kv-type]: configuration.md#check-kv-type
+
+## <a href="#REDIS_KEY_PREFIX" id="REDIS_KEY_PREFIX" name="REDIS_KEY_PREFIX">`REDIS_KEY_PREFIX`</a>
+
+The prefix for Redis keys.
+
+**Default:** `agdns`.
+
+## <a href="#REDIS_MAX_ACTIVE" id="REDIS_MAX_ACTIVE" name="REDIS_MAX_ACTIVE">`REDIS_MAX_ACTIVE`</a>
+
+The maximum number of active Redis connections.
+
+**Default:** `10`.
+
+## <a href="#REDIS_MAX_IDLE" id="REDIS_MAX_IDLE" name="REDIS_MAX_IDLE">`REDIS_MAX_IDLE`</a>
+
+The maximum number of idle Redis connections.
+
+**Default:** `3`.
+
+## <a href="#REDIS_IDLE_TIMEOUT" id="REDIS_IDLE_TIMEOUT" name="REDIS_IDLE_TIMEOUT">`REDIS_IDLE_TIMEOUT`</a>
+
+How long until idle Redis connections are closed, as a human-readable duration.
+
+**Default:** `30s`.
+
+## <a href="#REDIS_PORT" id="REDIS_PORT" name="REDIS_PORT">`REDIS_PORT`</a>
+
+Redis server port.
+
+**Default:** `6379`.
 
 ## <a href="#QUERYLOG_PATH" id="QUERYLOG_PATH" name="QUERYLOG_PATH">`QUERYLOG_PATH`</a>
 
@@ -211,7 +294,7 @@ The path to the file into which the query log is going to be written.
 
 ## <a href="#RULESTAT_URL" id="RULESTAT_URL" name="RULESTAT_URL">`RULESTAT_URL`</a>
 
-The URL to send filtering rule list statistics to. If empty or unset, the collection of filtering rule statistics is disabled. See the [external HTTP API requirements section][ext-rulestat] on the expected format of the response.
+The HTTP(S) URL to send filtering rule list statistics to. If empty or unset, the collection of filtering rule statistics is disabled. See the [external HTTP API requirements section][ext-rulestat] on the expected format of the response.
 
 **Default:** **Unset.**
 
@@ -219,11 +302,17 @@ The URL to send filtering rule list statistics to. If empty or unset, the collec
 
 [ext-rulestat]: externalhttp.md#rulestat
 
+## <a href="#SAFE_BROWSING_ENABLED" id="SAFE_BROWSING_ENABLED" name="SAFE_BROWSING_ENABLED">`SAFE_BROWSING_ENABLED`</a>
+
+When set to `1`, enable the safe-browsing hash-prefix filter. When set to `0`, disable it.
+
+**Default:** `1`.
+
 ## <a href="#SAFE_BROWSING_URL" id="SAFE_BROWSING_URL" name="SAFE_BROWSING_URL">`SAFE_BROWSING_URL`</a>
 
-The URL of source list of rules for dangerous domains safe browsing filter.
+The HTTP(S) URL of source list of rules for dangerous domains safe browsing filter.
 
-**Default:** No default value, the variable is **required.**
+**Default:** No default value, the variable is required if `SAFE_BROWSING_ENABLED` is set to `1`.
 
 ## <a href="#SENTRY_DSN" id="SENTRY_DSN" name="SENTRY_DSN">`SENTRY_DSN`</a>
 
@@ -239,12 +328,36 @@ If set, TLS key logs are written to this file to allow other programs (i.e. Wire
 
 ## <a href="#VERBOSE" id="VERBOSE" name="VERBOSE">`VERBOSE`</a>
 
-When set to `1`, enable verbose logging. When set to `0`, disable it.
+- `2`: Enables trace logging.
+
+- `1`: Enables debug logging.
+
+- `0`: The default level of verbosity: only info logs are printed.
 
 **Default:** `0`.
 
+## <a href="#WEB_STATIC_DIR_ENABLED" id="WEB_STATIC_DIR_ENABLED" name="WEB_STATIC_DIR_ENABLED">`WEB_STATIC_DIR_ENABLED`</a>
+
+When set to `1`, use `WEB_STATIC_DIR` as the source of the static content.
+
+**Default:** `0`.
+
+## <a href="#WEB_STATIC_DIR" id="WEB_STATIC_DIR" name="WEB_STATIC_DIR">`WEB_STATIC_DIR`</a>
+
+The absolute path to the directory used to serve static content.  The directory must exist.
+
+The value of the `Content-Type` header is guessed from the files' contents.  Other headers cannot be modified.  If the content type of a file cannot be guessed, `text/plain` is used.
+
+**Default:** No default value, the variable is required if `WEB_STATIC_DIR_ENABLED` is set to `1`.
+
+## <a href="#YOUTUBE_SAFE_SEARCH_ENABLED" id="YOUTUBE_SAFE_SEARCH_ENABLED" name="YOUTUBE_SAFE_SEARCH_ENABLED">`YOUTUBE_SAFE_SEARCH_ENABLED`</a>
+
+When set to `1`, enable the youtube safe search filter. When set to `0`, disable it.
+
+**Default:** `1`.
+
 ## <a href="#YOUTUBE_SAFE_SEARCH_URL" id="YOUTUBE_SAFE_SEARCH_URL" name="YOUTUBE_SAFE_SEARCH_URL">`YOUTUBE_SAFE_SEARCH_URL`</a>
 
-The URL of the list of YouTube-specific safe search rewriting rules. See the [external HTTP API requirements section][ext-general] on the expected format of the response.
+The HTTP(S) URL of the list of YouTube-specific safe search rewriting rules. See the [external HTTP API requirements section][ext-general] on the expected format of the response.
 
-**Default:** No default value, the variable is **required.**
+**Default:** No default value, the variable is required if `YOUTUBE_SAFE_SEARCH_ENABLED` is set to `1`.

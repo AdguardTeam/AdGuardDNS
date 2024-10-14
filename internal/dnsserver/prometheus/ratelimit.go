@@ -5,67 +5,74 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
+	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// RateLimitMetricsListener implements the [ratelimit.MetricsListener] interface
+// RateLimitMetricsListener implements the [ratelimit.Metrics] interface
 // and increments prom counters.
 type RateLimitMetricsListener struct {
-	dropCounters        *initSyncMap[reqLabelMetricKey, prometheus.Counter]
-	allowlistedCounters *initSyncMap[reqLabelMetricKey, prometheus.Counter]
+	dropCounters        *syncutil.OnceConstructor[reqLabelMetricKey, prometheus.Counter]
+	allowlistedCounters *syncutil.OnceConstructor[reqLabelMetricKey, prometheus.Counter]
 }
 
 // NewRateLimitMetricsListener returns a new properly initialized
-// *RateLimitMetricsListener.
-func NewRateLimitMetricsListener() (l *RateLimitMetricsListener) {
+// *RateLimitMetricsListener.  As long as this function registers prometheus
+// counters it must be called only once.
+//
+// TODO(a.garipov): Do not use promauto.
+func NewRateLimitMetricsListener(namespace string) (l *RateLimitMetricsListener) {
+	var (
+		droppedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+			Name:      "dropped_total",
+			Namespace: namespace,
+			Subsystem: subsystemRateLimit,
+			Help:      "The total number of rate-limited DNS queries.",
+		}, []string{"name", "proto", "network", "addr", "type", "family"})
+
+		allowlistedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+			Name:      "allowlisted_total",
+			Namespace: namespace,
+			Subsystem: subsystemRateLimit,
+			Help:      "The total number of allowlisted DNS queries.",
+		}, []string{"name", "proto", "network", "addr", "type", "family"})
+	)
+
 	return &RateLimitMetricsListener{
-		dropCounters: newInitSyncMap(func(k reqLabelMetricKey) (c prometheus.Counter) {
-			return k.withLabelValues(droppedTotal)
-		}),
-		allowlistedCounters: newInitSyncMap(func(k reqLabelMetricKey) (c prometheus.Counter) {
-			return k.withLabelValues(allowlistedTotal)
-		}),
+		dropCounters: syncutil.NewOnceConstructor(
+			func(k reqLabelMetricKey) (c prometheus.Counter) {
+				return k.withLabelValues(droppedTotal)
+			},
+		),
+		allowlistedCounters: syncutil.NewOnceConstructor(
+			func(k reqLabelMetricKey) (c prometheus.Counter) {
+				return k.withLabelValues(allowlistedTotal)
+			},
+		),
 	}
 }
 
 // type check
-var _ ratelimit.MetricsListener = (*RateLimitMetricsListener)(nil)
+var _ ratelimit.Metrics = (*RateLimitMetricsListener)(nil)
 
-// OnRateLimited implements the ratelimit.MetricsListener interface for
+// OnRateLimited implements the [ratelimit.Metrics] interface for
 // *RateLimitMetricsListener.
 func (l *RateLimitMetricsListener) OnRateLimited(
 	ctx context.Context,
 	req *dns.Msg,
 	rw dnsserver.ResponseWriter,
 ) {
-	l.dropCounters.get(newReqLabelMetricKey(ctx, req, rw)).Inc()
+	l.dropCounters.Get(newReqLabelMetricKey(ctx, req, rw)).Inc()
 }
 
-// OnAllowlisted implements the ratelimit.MetricsListener interface for
+// OnAllowlisted implements the [ratelimit.Metrics] interface for
 // *RateLimitMetricsListener.
 func (l *RateLimitMetricsListener) OnAllowlisted(
 	ctx context.Context,
 	req *dns.Msg,
 	rw dnsserver.ResponseWriter,
 ) {
-	l.allowlistedCounters.get(newReqLabelMetricKey(ctx, req, rw)).Inc()
+	l.allowlistedCounters.Get(newReqLabelMetricKey(ctx, req, rw)).Inc()
 }
-
-// This block contains prometheus metrics declarations for ratelimit.Middleware
-var (
-	droppedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name:      "dropped_total",
-		Namespace: namespace,
-		Subsystem: subsystemRateLimit,
-		Help:      "The total number of rate-limited DNS queries.",
-	}, []string{"name", "proto", "network", "addr", "type", "family"})
-
-	allowlistedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name:      "allowlisted_total",
-		Namespace: namespace,
-		Subsystem: subsystemRateLimit,
-		Help:      "The total number of allowlisted DNS queries.",
-	}, []string{"name", "proto", "network", "addr", "type", "family"})
-)

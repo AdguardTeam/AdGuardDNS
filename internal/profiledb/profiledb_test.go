@@ -15,14 +15,11 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecachepb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/profiledbtest"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
 
 // Common IPs for tests
 var (
@@ -73,10 +70,14 @@ func newDefaultProfileDB(tb testing.TB, devices <-chan []*agd.Device) (db *profi
 	}
 
 	db, err := profiledb.New(&profiledb.Config{
-		Storage:          ps,
-		FullSyncIvl:      1 * time.Minute,
-		FullSyncRetryIvl: 1 * time.Minute,
-		CacheFilePath:    "none",
+		Logger:               slogutil.NewDiscardLogger(),
+		Storage:              ps,
+		ErrColl:              agdtest.NewErrorCollector(),
+		Metrics:              profiledb.EmptyMetrics{},
+		CacheFilePath:        "none",
+		FullSyncIvl:          1 * time.Minute,
+		FullSyncRetryIvl:     1 * time.Minute,
+		ResponseSizeEstimate: profiledbtest.RespSzEst,
 	})
 	require.NoError(tb, err)
 
@@ -420,8 +421,11 @@ func TestDefaultProfileDB_fileCache_success(t *testing.T) {
 	prof, dev := profiledbtest.NewProfile(t)
 
 	cacheFilePath := filepath.Join(t.TempDir(), "profiles.pb")
-	pbCache := filecachepb.New(cacheFilePath)
-	err := pbCache.Store(&internal.FileCache{
+	logger := slogutil.NewDiscardLogger()
+	pbCache := filecachepb.New(logger, cacheFilePath, profiledbtest.RespSzEst)
+
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	err := pbCache.Store(ctx, &internal.FileCache{
 		SyncTime: wantSyncTime,
 		Profiles: []*agd.Profile{prof},
 		Devices:  []*agd.Device{dev},
@@ -430,15 +434,19 @@ func TestDefaultProfileDB_fileCache_success(t *testing.T) {
 	require.NoError(t, err)
 
 	db, err := profiledb.New(&profiledb.Config{
-		Storage:          ps,
-		FullSyncIvl:      1 * time.Minute,
-		FullSyncRetryIvl: 1 * time.Minute,
-		CacheFilePath:    cacheFilePath,
+		Logger:               logger,
+		Storage:              ps,
+		ErrColl:              agdtest.NewErrorCollector(),
+		Metrics:              profiledb.EmptyMetrics{},
+		CacheFilePath:        cacheFilePath,
+		FullSyncIvl:          1 * time.Minute,
+		FullSyncRetryIvl:     1 * time.Minute,
+		ResponseSizeEstimate: profiledbtest.RespSzEst,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, db)
 
-	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	ctx = testutil.ContextWithTimeout(t, testTimeout)
 	require.NoError(t, db.Refresh(ctx))
 
 	assert.Equal(t, wantSyncTime, gotSyncTime)
@@ -471,22 +479,29 @@ func TestDefaultProfileDB_fileCache_badVersion(t *testing.T) {
 	}
 
 	cacheFilePath := filepath.Join(t.TempDir(), "profiles.pb")
-	pbCache := filecachepb.New(cacheFilePath)
-	err := pbCache.Store(&internal.FileCache{
+	logger := slogutil.NewDiscardLogger()
+	pbCache := filecachepb.New(logger, cacheFilePath, profiledbtest.RespSzEst)
+
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	err := pbCache.Store(ctx, &internal.FileCache{
 		Version: 10000,
 	})
 	require.NoError(t, err)
 
 	db, err := profiledb.New(&profiledb.Config{
-		Storage:          ps,
-		FullSyncIvl:      1 * time.Minute,
-		FullSyncRetryIvl: 1 * time.Minute,
-		CacheFilePath:    cacheFilePath,
+		Logger:               logger,
+		Storage:              ps,
+		ErrColl:              agdtest.NewErrorCollector(),
+		Metrics:              profiledb.EmptyMetrics{},
+		CacheFilePath:        cacheFilePath,
+		FullSyncIvl:          1 * time.Minute,
+		FullSyncRetryIvl:     1 * time.Minute,
+		ResponseSizeEstimate: profiledbtest.RespSzEst,
 	})
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
 
-	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	ctx = testutil.ContextWithTimeout(t, testTimeout)
 	require.NoError(t, db.Refresh(ctx))
 
 	assert.True(t, storageCalled)
@@ -527,10 +542,14 @@ func TestDefaultProfileDB_CreateAutoDevice(t *testing.T) {
 	}
 
 	db, err := profiledb.New(&profiledb.Config{
-		Storage:          ps,
-		FullSyncIvl:      1 * time.Minute,
-		FullSyncRetryIvl: 1 * time.Minute,
-		CacheFilePath:    "none",
+		Logger:               slogutil.NewDiscardLogger(),
+		Storage:              ps,
+		ErrColl:              agdtest.NewErrorCollector(),
+		Metrics:              profiledb.EmptyMetrics{},
+		CacheFilePath:        "none",
+		FullSyncIvl:          1 * time.Minute,
+		FullSyncRetryIvl:     1 * time.Minute,
+		ResponseSizeEstimate: profiledbtest.RespSzEst,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, db)

@@ -70,7 +70,7 @@ const Timeout = 1 * time.Second
 
 // FilterMaxSize is the maximum size of the downloadable rule-list for filtering
 // tests.
-const FilterMaxSize = 640 * uint64(datasize.KB)
+const FilterMaxSize = 640 * datasize.KB
 
 // AssertEqualResult is a test helper that compares two results taking
 // [internal.ResultModifiedRequest] and its difference in IDs into account.
@@ -109,9 +109,9 @@ func assertEqualRequests(tb testing.TB, want, got *dns.Msg) (ok bool) {
 }
 
 // PrepareRefreshable launches an HTTP server serving the given text and code,
-// as well as creates a cache file.  If code is zero, the server isn't started.
-// If reqCh not nil, a signal is sent every time the server is called.  The
-// server uses [ServerName] as the value of the Server header.
+// as well as creates a cache file.  If reqCh not nil, a signal is sent every
+// time the server is called.  The server uses [ServerName] as the value of the
+// Server header.
 func PrepareRefreshable(
 	tb testing.TB,
 	reqCh chan<- struct{},
@@ -120,26 +120,23 @@ func PrepareRefreshable(
 ) (cachePath string, srvURL *url.URL) {
 	tb.Helper()
 
-	if code != 0 {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			pt := testutil.PanicT{}
-			if reqCh != nil {
-				testutil.RequireSend(pt, reqCh, struct{}{}, Timeout)
-			}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		pt := testutil.PanicT{}
+		if reqCh != nil {
+			testutil.RequireSend(pt, reqCh, struct{}{}, Timeout)
+		}
 
-			w.Header().Set(httphdr.Server, ServerName)
+		w.Header().Set(httphdr.Server, ServerName)
 
-			w.WriteHeader(code)
+		w.WriteHeader(code)
 
-			_, writeErr := io.WriteString(w, text)
-			require.NoError(pt, writeErr)
-		}))
-		tb.Cleanup(srv.Close)
+		_, writeErr := io.WriteString(w, text)
+		require.NoError(pt, writeErr)
+	}))
+	tb.Cleanup(srv.Close)
 
-		var err error
-		srvURL, err = agdhttp.ParseHTTPURL(srv.URL)
-		require.NoError(tb, err)
-	}
+	srvURL, err := agdhttp.ParseHTTPURL(srv.URL)
+	require.NoError(tb, err)
 
 	cacheDir := tb.TempDir()
 	cacheFile, err := os.CreateTemp(cacheDir, filepath.Base(tb.Name()))

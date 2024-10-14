@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"path"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
@@ -38,7 +40,7 @@ import (
 //   - GeoIP database always returning [agd.CountryAD], [agd.ContinentEU], and
 //     ASN of 42.
 //   - A server with [testSrvName] under group with [testSrvGrpName], matching
-//     the DeviceID with [dnssvctest.DeviceIDWildcard].
+//     the DeviceID with [dnssvctest.DomainForDevices].
 //
 // Each stub also uses the corresponding channels to send the data it receives
 // from the service.  The channels must not be nil.  Each sending to a channel
@@ -70,6 +72,7 @@ func newTestService(
 
 	prof := &agd.Profile{
 		Access:              access.EmptyProfile{},
+		BlockingMode:        &dnsmsg.BlockingModeNullIP{},
 		ID:                  dnssvctest.ProfileID,
 		DeviceIDs:           []agd.DeviceID{dnssvctest.DeviceID},
 		RuleListIDs:         []agd.FilterListID{dnssvctest.FilterListID1},
@@ -218,8 +221,9 @@ func newTestService(
 	testFltGrpID := agd.FilteringGroupID("1234")
 
 	c := &dnssvc.Config{
+		BaseLogger:    slogutil.NewDiscardLogger(),
 		AccessManager: accessManager,
-		Messages:      agdtest.NewConstructor(),
+		Messages:      agdtest.NewConstructor(t),
 		BillStat: &agdtest.BillStatRecorder{
 			OnRecord: func(
 				_ context.Context,
@@ -231,18 +235,20 @@ func newTestService(
 			) {
 			},
 		},
-		ProfileDB:     db,
-		DNSCheck:      dnsCk,
-		NonDNS:        http.NotFoundHandler(),
-		DNSDB:         dnsDB,
-		ErrColl:       errColl,
-		FilterStorage: fltStrg,
-		GeoIP:         geoIP,
-		QueryLog:      ql,
-		RuleStat:      ruleStat,
-		NewListener:   newTestListenerFunc(tl),
-		Handler:       dnsservertest.DefaultHandler(),
-		RateLimit:     rl,
+		ProfileDB:            db,
+		PrometheusRegisterer: agdtest.NewTestPrometheusRegisterer(),
+		DNSCheck:             dnsCk,
+		NonDNS:               http.NotFoundHandler(),
+		DNSDB:                dnsDB,
+		ErrColl:              errColl,
+		FilterStorage:        fltStrg,
+		GeoIP:                geoIP,
+		QueryLog:             ql,
+		RuleStat:             ruleStat,
+		NewListener:          newTestListenerFunc(tl),
+		Handler:              dnsservertest.DefaultHandler(),
+		RateLimit:            rl,
+		MetricsNamespace:     path.Base(t.Name()),
 		FilteringGroups: map[agd.FilteringGroupID]*agd.FilteringGroup{
 			testFltGrpID: {
 				ID:               testFltGrpID,
@@ -255,13 +261,13 @@ func newTestService(
 				Enabled: true,
 			},
 			TLS: &agd.TLS{
-				DeviceIDWildcards: []string{dnssvctest.DeviceIDWildcard},
+				DeviceDomains: []string{dnssvctest.DomainForDevices},
 			},
-			Name:           testSrvGrpName,
-			FilteringGroup: testFltGrpID,
-			Servers:        []*agd.Server{srv},
+			Name:            testSrvGrpName,
+			FilteringGroup:  testFltGrpID,
+			Servers:         []*agd.Server{srv},
+			ProfilesEnabled: true,
 		}},
-		ProfileDBEnabled: true,
 	}
 
 	svc, err := dnssvc.New(c)

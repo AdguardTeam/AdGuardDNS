@@ -2,9 +2,7 @@ package filter_test
 
 import (
 	"context"
-	"io"
-	"os"
-	"path/filepath"
+	"net/http"
 	"testing"
 	"time"
 
@@ -16,6 +14,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
@@ -31,9 +30,7 @@ const testTimeout = 10 * time.Second
 
 func TestStorage_FilterFromContext(t *testing.T) {
 	c := prepareConf(t)
-	c.ErrColl = &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
-	}
+	c.ErrColl = agdtest.NewErrorCollector()
 
 	s := filter.NewDefaultStorage(c)
 
@@ -67,7 +64,7 @@ func TestStorage_FilterFromContext(t *testing.T) {
 		}
 
 		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
-		ri := newReqInfo(g, p, blockedHost, clientIP, dns.TypeA)
+		ri := newReqInfo(t, g, p, blockedHost, clientIP, dns.TypeA)
 		ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 		f := s.FilterFromContext(ctx, ri)
@@ -92,7 +89,7 @@ func TestStorage_FilterFromContext(t *testing.T) {
 		}
 
 		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
-		ri := newReqInfo(g, p, customHost, clientIP, dns.TypeA)
+		ri := newReqInfo(t, g, p, customHost, clientIP, dns.TypeA)
 		ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 		f := s.FilterFromContext(ctx, ri)
@@ -117,7 +114,7 @@ func TestStorage_FilterFromContext(t *testing.T) {
 		}
 
 		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
-		ri := newReqInfo(g, &agd.Profile{}, customHost, clientIP, dns.TypeA)
+		ri := newReqInfo(t, g, &agd.Profile{}, customHost, clientIP, dns.TypeA)
 		ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 		f := s.FilterFromContext(ctx, ri)
@@ -131,34 +128,27 @@ func TestStorage_FilterFromContext(t *testing.T) {
 }
 
 func TestStorage_FilterFromContext_customAllow(t *testing.T) {
-	errColl := &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
-	}
-
-	// Initialize the hashes file and use it with the storage.
-	tmpFile, err := os.CreateTemp(t.TempDir(), "")
-	require.NoError(t, err)
-	testutil.CleanupAndRequireSuccess(t, func() (err error) { return os.Remove(tmpFile.Name()) })
-
-	_, err = io.WriteString(tmpFile, safeBrowsingHost+"\n")
-	require.NoError(t, err)
-
+	errColl := agdtest.NewErrorCollector()
+	cachePath, srvURL := filtertest.PrepareRefreshable(t, nil, safeBrowsingHost+"\n", http.StatusOK)
 	hashes, err := hashprefix.NewStorage(safeBrowsingHost)
 	require.NoError(t, err)
 
 	c := prepareConf(t)
 
 	safeBrowsing, err := hashprefix.NewFilter(&hashprefix.FilterConfig{
+		Logger:          slogutil.NewDiscardLogger(),
 		Cloner:          agdtest.NewCloner(),
 		CacheManager:    agdcache.EmptyManager{},
 		Hashes:          hashes,
+		URL:             srvURL,
 		ErrColl:         errColl,
 		ID:              agd.FilterListIDSafeBrowsing,
-		CachePath:       tmpFile.Name(),
+		CachePath:       cachePath,
 		ReplacementHost: safeBrowsingReplHost,
 		Staleness:       filtertest.Staleness,
 		CacheTTL:        filtertest.CacheTTL,
 		CacheSize:       100,
+		MaxSize:         filtertest.FilterMaxSize,
 	})
 	require.NoError(t, err)
 
@@ -202,7 +192,7 @@ func TestStorage_FilterFromContext_customAllow(t *testing.T) {
 	}
 
 	ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
-	ri := newReqInfo(g, p, safeBrowsingSubHost, clientIP, dns.TypeA)
+	ri := newReqInfo(t, g, p, safeBrowsingSubHost, clientIP, dns.TypeA)
 	ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 	f := s.FilterFromContext(ctx, ri)
@@ -222,18 +212,8 @@ func TestStorage_FilterFromContext_schedule(t *testing.T) {
 	// parental protection from 11:00:00 until 12:59:59.
 	nowTime := time.Date(2021, 1, 1, 12, 0, 0, 0, time.UTC)
 
-	errColl := &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
-	}
-
-	// Initialize the hashes file and use it with the storage.
-	tmpFile, err := os.CreateTemp(t.TempDir(), "")
-	require.NoError(t, err)
-	testutil.CleanupAndRequireSuccess(t, func() (err error) { return os.Remove(tmpFile.Name()) })
-
-	_, err = io.WriteString(tmpFile, safeBrowsingHost+"\n")
-	require.NoError(t, err)
-
+	errColl := agdtest.NewErrorCollector()
+	cachePath, srvURL := filtertest.PrepareRefreshable(t, nil, safeBrowsingHost+"\n", http.StatusOK)
 	hashes, err := hashprefix.NewStorage(safeBrowsingHost)
 	require.NoError(t, err)
 
@@ -241,16 +221,19 @@ func TestStorage_FilterFromContext_schedule(t *testing.T) {
 
 	// Use AdultBlocking, because SafeBrowsing is NOT affected by the schedule.
 	adultBlocking, err := hashprefix.NewFilter(&hashprefix.FilterConfig{
+		Logger:          slogutil.NewDiscardLogger(),
 		Cloner:          agdtest.NewCloner(),
 		CacheManager:    agdcache.EmptyManager{},
 		Hashes:          hashes,
+		URL:             srvURL,
 		ErrColl:         errColl,
 		ID:              agd.FilterListIDAdultBlocking,
-		CachePath:       tmpFile.Name(),
+		CachePath:       cachePath,
 		ReplacementHost: filtertest.SafeBrowsingReplIPv4Str,
 		Staleness:       filtertest.Staleness,
 		CacheTTL:        filtertest.CacheTTL,
 		CacheSize:       100,
+		MaxSize:         filtertest.FilterMaxSize,
 	})
 	require.NoError(t, err)
 
@@ -311,7 +294,7 @@ func TestStorage_FilterFromContext_schedule(t *testing.T) {
 	}
 
 	ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
-	ri := newReqInfo(g, p, safeBrowsingSubHost, clientIP, dns.TypeA)
+	ri := newReqInfo(t, g, p, safeBrowsingSubHost, clientIP, dns.TypeA)
 	ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 	// The adult blocking filter should not be triggered, since we're within the
@@ -347,10 +330,7 @@ func TestStorage_FilterFromContext_schedule(t *testing.T) {
 
 func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 	c := prepareConf(t)
-
-	c.ErrColl = &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
-	}
+	c.ErrColl = agdtest.NewErrorCollector()
 
 	s := filter.NewDefaultStorage(c)
 
@@ -373,7 +353,7 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 		}
 
 		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
-		ri := newReqInfo(g, nil, blockedHost, clientIP, dns.TypeA)
+		ri := newReqInfo(t, g, nil, blockedHost, clientIP, dns.TypeA)
 		ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 		f := s.FilterFromContext(ctx, ri)
@@ -398,7 +378,7 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 		}
 
 		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
-		ri := newReqInfo(g, nil, allowedHost, clientIP, dns.TypeA)
+		ri := newReqInfo(t, g, nil, allowedHost, clientIP, dns.TypeA)
 		ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 		f := s.FilterFromContext(ctx, ri)
@@ -423,7 +403,7 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 		}
 
 		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
-		ri := newReqInfo(g, nil, blockedClientHost, clientIP, dns.TypeA)
+		ri := newReqInfo(t, g, nil, blockedClientHost, clientIP, dns.TypeA)
 		ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 		f := s.FilterFromContext(ctx, ri)
@@ -448,7 +428,7 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 		}
 
 		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
-		ri := newReqInfo(g, nil, allowedClientHost, clientIP, dns.TypeA)
+		ri := newReqInfo(t, g, nil, allowedClientHost, clientIP, dns.TypeA)
 		ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 		f := s.FilterFromContext(ctx, ri)
@@ -473,7 +453,7 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 		}
 
 		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
-		ri := newReqInfo(g, nil, otherNetHost, clientIP, dns.TypeA)
+		ri := newReqInfo(t, g, nil, otherNetHost, clientIP, dns.TypeA)
 		ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 		f := s.FilterFromContext(ctx, ri)
@@ -488,9 +468,7 @@ func TestStorage_FilterFromContext_ruleList_request(t *testing.T) {
 
 func TestStorage_FilterFromContext_customDevice(t *testing.T) {
 	c := prepareConf(t)
-	c.ErrColl = &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
-	}
+	c.ErrColl = agdtest.NewErrorCollector()
 
 	s := filter.NewDefaultStorage(c)
 
@@ -517,7 +495,7 @@ func TestStorage_FilterFromContext_customDevice(t *testing.T) {
 		}
 
 		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
-		ri := newReqInfo(g, p, blockedDeviceHost, deviceIP, dns.TypeA)
+		ri := newReqInfo(t, g, p, blockedDeviceHost, deviceIP, dns.TypeA)
 		ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 		f := s.FilterFromContext(ctx, ri)
@@ -542,7 +520,7 @@ func TestStorage_FilterFromContext_customDevice(t *testing.T) {
 		}
 
 		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
-		ri := newReqInfo(g, p, allowedDeviceHost, deviceIP, dns.TypeA)
+		ri := newReqInfo(t, g, p, allowedDeviceHost, deviceIP, dns.TypeA)
 		ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 		f := s.FilterFromContext(ctx, ri)
@@ -560,10 +538,7 @@ func TestStorage_FilterFromContext_customDevice(t *testing.T) {
 
 func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 	c := prepareConf(t)
-
-	c.ErrColl = &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
-	}
+	c.ErrColl = agdtest.NewErrorCollector()
 
 	s := filter.NewDefaultStorage(c)
 
@@ -577,7 +552,7 @@ func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 	}
 
 	ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
-	ri := newReqInfo(g, nil, otherNetHost, clientIP, dns.TypeA)
+	ri := newReqInfo(t, g, nil, otherNetHost, clientIP, dns.TypeA)
 	ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 	f := s.FilterFromContext(ctx, ri)
@@ -738,25 +713,19 @@ func TestStorage_FilterFromContext_ruleList_response(t *testing.T) {
 }
 
 func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
-	cacheDir := t.TempDir()
-	cachePath := filepath.Join(cacheDir, string(agd.FilterListIDSafeBrowsing))
-	err := os.WriteFile(cachePath, []byte(safeBrowsingHost+"\n"), 0o644)
-	require.NoError(t, err)
-
+	cachePath, srvURL := filtertest.PrepareRefreshable(t, nil, safeBrowsingHost+"\n", http.StatusOK)
 	hashes, err := hashprefix.NewStorage("")
 	require.NoError(t, err)
 
-	errColl := &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, err error) {
-			panic("not implemented")
-		},
-	}
+	errColl := agdtest.NewErrorCollector()
 
 	ctx := testutil.ContextWithTimeout(t, testTimeout)
 	safeBrowsing, err := hashprefix.NewFilter(&hashprefix.FilterConfig{
+		Logger:          slogutil.NewDiscardLogger(),
 		Cloner:          agdtest.NewCloner(),
 		CacheManager:    agdcache.EmptyManager{},
 		Hashes:          hashes,
+		URL:             srvURL,
 		ErrColl:         errColl,
 		ID:              agd.FilterListIDSafeBrowsing,
 		CachePath:       cachePath,
@@ -764,6 +733,7 @@ func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
 		Staleness:       filtertest.Staleness,
 		CacheTTL:        filtertest.CacheTTL,
 		CacheSize:       100,
+		MaxSize:         filtertest.FilterMaxSize,
 	})
 	require.NoError(t, err)
 	require.NoError(t, safeBrowsing.RefreshInitial(ctx))
@@ -795,7 +765,7 @@ func TestStorage_FilterFromContext_safeBrowsing(t *testing.T) {
 	}
 
 	ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
-	ri := newReqInfo(g, nil, safeBrowsingSubHost, clientIP, dns.TypeA)
+	ri := newReqInfo(t, g, nil, safeBrowsingSubHost, clientIP, dns.TypeA)
 	ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 	f := s.FilterFromContext(ctx, ri)
@@ -866,7 +836,7 @@ func TestStorage_FilterFromContext_safeSearch(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
-			ri := newReqInfo(g, nil, tc.host, clientIP, tc.rrtype)
+			ri := newReqInfo(t, g, nil, tc.host, clientIP, tc.rrtype)
 			ctx = agd.ContextWithRequestInfo(ctx, ri)
 
 			f := s.FilterFromContext(ctx, ri)
@@ -908,10 +878,7 @@ var (
 
 func BenchmarkStorage_DefaultStorage_Initialize(b *testing.B) {
 	c := prepareConf(b)
-
-	c.ErrColl = &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, err error) { panic("not implemented") },
-	}
+	c.ErrColl = agdtest.NewErrorCollector()
 
 	s := filter.NewDefaultStorage(c)
 	ctx := context.Background()

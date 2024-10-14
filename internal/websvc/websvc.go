@@ -10,7 +10,9 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/service"
@@ -19,13 +21,13 @@ import (
 // Config is the AdGuard DNS web service configuration structure.
 type Config struct {
 	// AdultBlocking is the optional adult-blocking block-page web server.
-	AdultBlocking *BlockPageServer
+	AdultBlocking *BlockPageServerConfig
 
 	// GeneralBlocking is the optional general block-page web server.
-	GeneralBlocking *BlockPageServer
+	GeneralBlocking *BlockPageServerConfig
 
 	// SafeBrowsing is the optional safe-browsing block-page web server.
-	SafeBrowsing *BlockPageServer
+	SafeBrowsing *BlockPageServerConfig
 
 	// LinkedIP is the optional linked IP web server.
 	LinkedIP *LinkedIPServer
@@ -35,8 +37,8 @@ type Config struct {
 	RootRedirectURL *url.URL
 
 	// StaticContent is the content that is served statically at the given
-	// paths.
-	StaticContent StaticContent
+	// paths.  It must not be nil; use [http.NotFoundHandler] if not needed.
+	StaticContent http.Handler
 
 	// DNSCheck is the HTTP handler for DNS checks.
 	DNSCheck http.Handler
@@ -69,16 +71,6 @@ type LinkedIPServer struct {
 	Bind []*BindData
 }
 
-// BlockPageServer is the safe browsing or adult blocking block page server
-// configuration.
-type BlockPageServer struct {
-	// Content is the content of the HTML block page.
-	Content []byte
-
-	// Bind are the addresses on which to serve the block page.
-	Bind []*BindData
-}
-
 // BindData is data for binding one HTTP server to an address.
 type BindData struct {
 	// TLS is the optional TLS configuration.
@@ -93,12 +85,16 @@ type BindData struct {
 type Service struct {
 	rootRedirectURL string
 
-	staticContent StaticContent
+	staticContent http.Handler
 
 	dnsCheck http.Handler
 
 	error404 []byte
 	error500 []byte
+
+	adultBlockingBPS   *blockPageServer
+	generalBlockingBPS *blockPageServer
+	safeBrowsingBPS    *blockPageServer
 
 	linkedIP        []*http.Server
 	adultBlocking   []*http.Server
@@ -108,11 +104,16 @@ type Service struct {
 }
 
 // New returns a new properly initialized *Service.  If c is nil, svc is a nil
-// *Service that only serves a simple plain-text 404 page.
+// *Service that only serves a simple plain-text 404 page.  The service must be
+// refreshed with [Service.Refresh] before use.
 func New(c *Config) (svc *Service) {
 	if c == nil {
 		return nil
 	}
+
+	adultBlockingBPS := newBlockPageServer(c.AdultBlocking, adultBlockingName)
+	generalBlockingBPS := newBlockPageServer(c.GeneralBlocking, generalBlockingName)
+	safeBrowsingBPS := newBlockPageServer(c.SafeBrowsing, safeBrowsingName)
 
 	svc = &Service{
 		staticContent: c.StaticContent,
@@ -122,9 +123,13 @@ func New(c *Config) (svc *Service) {
 		error404: c.Error404,
 		error500: c.Error500,
 
-		adultBlocking:   blockPageServers(c.AdultBlocking, adultBlockingName, c.Timeout),
-		generalBlocking: blockPageServers(c.GeneralBlocking, generalBlockingName, c.Timeout),
-		safeBrowsing:    blockPageServers(c.SafeBrowsing, safeBrowsingName, c.Timeout),
+		adultBlockingBPS:   adultBlockingBPS,
+		generalBlockingBPS: generalBlockingBPS,
+		safeBrowsingBPS:    safeBrowsingBPS,
+
+		adultBlocking:   blockPageServers(adultBlockingBPS, c.Timeout),
+		generalBlocking: blockPageServers(generalBlockingBPS, c.Timeout),
+		safeBrowsing:    blockPageServers(safeBrowsingBPS, c.Timeout),
 	}
 
 	if c.RootRedirectURL != nil {
@@ -248,28 +253,25 @@ func (svc *Service) Shutdown(ctx context.Context) (err error) {
 		return nil
 	}
 
-	serverGroups := []struct {
-		name string
-		srvs []*http.Server
-	}{{
-		name: "linked ip",
-		srvs: svc.linkedIP,
+	serverGroups := container.KeyValues[string, []*http.Server]{{
+		Key:   "linked ip",
+		Value: svc.linkedIP,
 	}, {
-		name: adultBlockingName,
-		srvs: svc.adultBlocking,
+		Key:   adultBlockingName,
+		Value: svc.adultBlocking,
 	}, {
-		name: generalBlockingName,
-		srvs: svc.generalBlocking,
+		Key:   generalBlockingName,
+		Value: svc.generalBlocking,
 	}, {
-		name: safeBrowsingName,
-		srvs: svc.safeBrowsing,
+		Key:   safeBrowsingName,
+		Value: svc.safeBrowsing,
 	}, {
-		name: "non-doh",
-		srvs: svc.nonDoH,
+		Key:   "non-doh",
+		Value: svc.nonDoH,
 	}}
 
 	for _, g := range serverGroups {
-		err = shutdownServers(ctx, g.srvs, g.name)
+		err = shutdownServers(ctx, g.Value, g.Key)
 		if err != nil {
 			// Don't wrap the error, because it's informative enough as is.
 			return err
@@ -292,4 +294,34 @@ func shutdownServers(ctx context.Context, srvs []*http.Server, name string) (err
 	}
 
 	return nil
+}
+
+// type check
+var _ agdservice.Refresher = (*Service)(nil)
+
+// Refresh implements the [agdservice.Refresher] interface for *Service.  svc
+// may be nil.
+func (svc *Service) Refresh(ctx context.Context) (err error) {
+	if svc == nil {
+		return nil
+	}
+
+	log.Info("websvc: refresh started")
+	defer log.Info("websvc: refresh finished")
+
+	servers := []*blockPageServer{
+		svc.adultBlockingBPS,
+		svc.generalBlockingBPS,
+		svc.safeBrowsingBPS,
+	}
+
+	var errs []error
+	for _, srv := range servers {
+		err = srv.Refresh(ctx)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("refreshing %s block page server: %w", srv.name, err))
+		}
+	}
+
+	return errors.Join(errs...)
 }

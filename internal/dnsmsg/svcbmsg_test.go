@@ -5,7 +5,7 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/urlfilter/rules"
 	"github.com/miekg/dns"
@@ -17,7 +17,8 @@ import (
 func TestConstructor_NewAnswerHTTPS_andSVCB(t *testing.T) {
 	// Preconditions.
 
-	mc := dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
+	msgs := agdtest.NewConstructor(t)
+
 	req := &dns.Msg{
 		Question: []dns.Question{{
 			Name: "abcd",
@@ -52,7 +53,7 @@ func TestConstructor_NewAnswerHTTPS_andSVCB(t *testing.T) {
 			Hdr: dns.RR_Header{
 				Name:   req.Question[0].Name,
 				Rrtype: dns.TypeSVCB,
-				Ttl:    testFltRespTTLSec,
+				Ttl:    agdtest.FilteredResponseTTLSec,
 				Class:  dns.ClassINET,
 			},
 			Priority: prio,
@@ -139,12 +140,12 @@ func TestConstructor_NewAnswerHTTPS_andSVCB(t *testing.T) {
 			want := &dns.HTTPS{SVCB: *tc.want}
 			want.Hdr.Rrtype = dns.TypeHTTPS
 
-			got := mc.NewAnswerHTTPS(req, tc.svcb)
+			got := msgs.NewAnswerHTTPS(req, tc.svcb)
 			assert.Equal(t, want, got)
 		})
 
 		t.Run(tc.name+"_svcb", func(t *testing.T) {
-			got := mc.NewAnswerSVCB(req, tc.svcb)
+			got := msgs.NewAnswerSVCB(req, tc.svcb)
 			assert.Equal(t, tc.want, got)
 		})
 	}
@@ -159,7 +160,7 @@ func TestConstructor_NewDDR(t *testing.T) {
 		dohPath           = "/dns-query"
 	)
 
-	mc := dnsmsg.NewConstructor(nil, &dnsmsg.BlockingModeNullIP{}, testFltRespTTL)
+	msgs := agdtest.NewConstructor(t)
 
 	testCases := []struct {
 		name     string
@@ -230,12 +231,12 @@ func TestConstructor_NewDDR(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			svcb := mc.NewDDRTemplate(tc.proto, target, dohPath, tc.ipv4s, tc.ipv6s, port, prio)
+			svcb := msgs.NewDDRTemplate(tc.proto, target, dohPath, tc.ipv4s, tc.ipv6s, port, prio)
 			require.NotNil(t, svcb)
 
 			assert.Equal(t, targetFQDN, svcb.Target)
 			assert.Equal(t, prio, svcb.Priority)
-			assert.Equal(t, testFltRespTTLSec, svcb.Hdr.Ttl)
+			assert.Equal(t, uint32(agdtest.FilteredResponseTTLSec), svcb.Hdr.Ttl)
 			assert.ElementsMatch(t, tc.wantVals, svcb.Value)
 		})
 	}
@@ -246,7 +247,7 @@ func TestConstructor_NewDDR(t *testing.T) {
 	} {
 		t.Run(unsupProto.String(), func(t *testing.T) {
 			assert.Panics(t, func() {
-				_ = mc.NewDDRTemplate(unsupProto, target, "", nil, nil, port, prio)
+				_ = msgs.NewDDRTemplate(unsupProto, target, "", nil, nil, port, prio)
 			})
 		})
 	}

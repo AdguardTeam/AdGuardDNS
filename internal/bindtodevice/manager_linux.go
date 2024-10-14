@@ -5,8 +5,11 @@ package bindtodevice
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"maps"
 	"net"
 	"net/netip"
+	"slices"
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
@@ -14,8 +17,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
-	"github.com/AdguardTeam/golibs/mapsutil"
 	"github.com/AdguardTeam/golibs/service"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/miekg/dns"
@@ -23,6 +24,7 @@ import (
 
 // Manager creates individual listeners and dispatches connections to them.
 type Manager struct {
+	logger         *slog.Logger
 	interfaces     InterfaceStorage
 	closeOnce      *sync.Once
 	ifaceListeners map[ID]*interfaceListener
@@ -34,6 +36,7 @@ type Manager struct {
 // NewManager returns a new manager of interface listeners.
 func NewManager(c *ManagerConfig) (m *Manager) {
 	return &Manager{
+		logger:         c.Logger,
 		interfaces:     c.InterfaceStorage,
 		closeOnce:      &sync.Once{},
 		ifaceListeners: map[ID]*interfaceListener{},
@@ -62,7 +65,8 @@ func (m *Manager) Add(id ID, ifaceName string, port uint16, ctrlConf *ControlCon
 		return fmt.Errorf("looking up interface %q: %w", ifaceName, err)
 	}
 
-	validateDup := func(lsnrID ID, lsnr *interfaceListener) (lsnrErr error) {
+	for _, lsnrID := range slices.Sorted(maps.Keys(m.ifaceListeners)) {
+		lsnr := m.ifaceListeners[lsnrID]
 		lsnrIfaceName, lsnrPort := lsnr.ifaceName, lsnr.port
 		if lsnrID == id {
 			return fmt.Errorf(
@@ -81,14 +85,6 @@ func (m *Manager) Add(id ID, ifaceName string, port uint16, ctrlConf *ControlCon
 				lsnrID,
 			)
 		}
-
-		return nil
-	}
-
-	err = mapsutil.SortedRangeError(m.ifaceListeners, validateDup)
-	if err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		return err
 	}
 
 	if ctrlConf == nil {
@@ -110,6 +106,7 @@ func (m *Manager) newInterfaceListener(
 	port uint16,
 ) (l *interfaceListener) {
 	return &interfaceListener{
+		logger:             m.logger.With("iface", ifaceName, "port", port),
 		conns:              &connIndex{},
 		listenConf:         newListenConfig(ifaceName, ctrlConf),
 		bodyPool:           syncutil.NewSlicePool[byte](bodySize),
@@ -228,7 +225,7 @@ var _ service.Interface = (*Manager)(nil)
 // TODO(a.garipov): Consider an interface solution instead of the nil exception.
 //
 // TODO(a.garipov): Use the context for cancelation.
-func (m *Manager) Start(_ context.Context) (err error) {
+func (m *Manager) Start(ctx context.Context) (err error) {
 	if m == nil {
 		return nil
 	}
@@ -236,11 +233,11 @@ func (m *Manager) Start(_ context.Context) (err error) {
 	numListen := 2 * len(m.ifaceListeners)
 	errCh := make(chan error, numListen)
 
-	log.Info("bindtodevice: starting %d listeners", numListen)
+	m.logger.InfoContext(ctx, "starting listeners", "num", numListen)
 
 	for _, lsnr := range m.ifaceListeners {
-		go lsnr.listenTCP(errCh)
-		go lsnr.listenUDP(errCh)
+		go lsnr.listenTCP(ctx, errCh)
+		go lsnr.listenUDP(ctx, errCh)
 	}
 
 	errs := make([]error, numListen)
@@ -253,7 +250,7 @@ func (m *Manager) Start(_ context.Context) (err error) {
 		return fmt.Errorf("starting bindtodevice manager: %w", err)
 	}
 
-	log.Info("bindtodevice: started all %d listeners", numListen)
+	m.logger.InfoContext(ctx, "started all listeners", "num", numListen)
 
 	return nil
 }

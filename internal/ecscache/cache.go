@@ -13,8 +13,6 @@ import (
 	"github.com/miekg/dns"
 )
 
-// Cache Utilities
-
 // cacheRequest contains data necessary to get a value from the cache.  It is
 // used to optimize goroutine stack usage.
 type cacheRequest struct {
@@ -184,6 +182,8 @@ func fromCacheItem(
 	// expired, update TTL to 0.
 	newTTL := dnsmsg.FindLowestTTL(item.msg)
 	if timeLeft := time.Duration(newTTL)*time.Second - time.Since(item.when); timeLeft > 0 {
+		// #nosec G115 -- timeLeft is greater than zero and roundDiv is unlikely
+		// to result in something above [math.MaxUint32].
 		newTTL = uint32(roundDiv(timeLeft, time.Second))
 	} else {
 		newTTL = 0

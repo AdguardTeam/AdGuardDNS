@@ -1,41 +1,44 @@
 package filecachepb
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/c2h5oh/datasize"
 	renameio "github.com/google/renameio/v2"
 	"google.golang.org/protobuf/proto"
 )
 
 // Storage is the file-cache storage that encodes data using protobuf.
 type Storage struct {
-	path string
+	logger    *slog.Logger
+	path      string
+	respSzEst datasize.ByteSize
 }
 
 // New returns a new protobuf-encoded file-cache storage.
-func New(cachePath string) (s *Storage) {
+func New(logger *slog.Logger, cachePath string, respSzEst datasize.ByteSize) (s *Storage) {
 	return &Storage{
-		path: cachePath,
+		logger:    logger,
+		path:      cachePath,
+		respSzEst: respSzEst,
 	}
 }
-
-// logPrefix is the logging prefix for the protobuf-encoded file-cache.
-const logPrefix = "profiledb protobuf cache"
 
 var _ internal.FileCacheStorage = (*Storage)(nil)
 
 // Load implements the [internal.FileCacheStorage] interface for *Storage.
-func (s *Storage) Load() (c *internal.FileCache, err error) {
-	log.Info("%s: loading", logPrefix)
+func (s *Storage) Load(ctx context.Context) (c *internal.FileCache, err error) {
+	s.logger.InfoContext(ctx, "loading")
 
 	b, err := os.ReadFile(s.path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			log.Info("%s: file not present", logPrefix)
+			s.logger.WarnContext(ctx, "file not found")
 
 			return nil, nil
 		}
@@ -60,14 +63,15 @@ func (s *Storage) Load() (c *internal.FileCache, err error) {
 		)
 	}
 
-	return toInternal(fc)
+	return toInternal(fc, s.respSzEst)
 }
 
 // Store implements the [internal.FileCacheStorage] interface for *Storage.
-func (s *Storage) Store(c *internal.FileCache) (err error) {
+func (s *Storage) Store(ctx context.Context, c *internal.FileCache) (err error) {
 	profNum := len(c.Profiles)
-	log.Info("%s: saving %d profiles to %q", logPrefix, profNum, s.path)
-	defer log.Info("%s: saved %d profiles to %q", logPrefix, profNum, s.path)
+
+	s.logger.InfoContext(ctx, "saving profiles", "path", s.path, "num", profNum)
+	defer s.logger.InfoContext(ctx, "saved profiles", "path", s.path, "num", profNum)
 
 	fc := toProtobuf(c)
 	b, err := proto.Marshal(fc)

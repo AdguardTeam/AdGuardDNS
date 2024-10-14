@@ -9,7 +9,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdpasswd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdprotobuf"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/netutil"
 )
 
@@ -20,6 +19,7 @@ func devicesToInternal(
 	ds []*DeviceSettings,
 	bindSet netutil.SubnetSet,
 	errColl errcoll.Interface,
+	mtrc Metrics,
 ) (out []*agd.Device, ids []agd.DeviceID) {
 	l := len(ds)
 	if l == 0 {
@@ -36,7 +36,10 @@ func devicesToInternal(
 			}
 
 			reportf(ctx, errColl, "bad device settings for device with id %q: %w", id, err)
-			metrics.DevicesInvalidTotal.Inc()
+
+			// TODO(s.chzhen):  Add a return result structure and move the
+			// metrics collection to the layer above.
+			mtrc.IncrementInvalidDevicesCount(ctx)
 
 			continue
 		}

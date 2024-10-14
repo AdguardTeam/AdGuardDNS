@@ -86,7 +86,7 @@ func (s *mockDNSServiceServer) CreateDeviceByHumanId(
 // *mockDNSServiceServer
 func (s *mockDNSServiceServer) GetDNSProfiles(
 	req *backendpb.DNSProfilesRequest,
-	srv backendpb.DNSService_GetDNSProfilesServer,
+	srv grpc.ServerStreamingServer[backendpb.DNSProfile],
 ) (err error) {
 	ctx := srv.Context()
 	md, _ := metadata.FromIncomingContext(ctx)
@@ -115,7 +115,7 @@ func (s *mockDNSServiceServer) GetDNSProfiles(
 // SaveDevicesBillingStat implements the [backendpb.DNSServiceServer] interface
 // for *mockDNSServiceServer
 func (s *mockDNSServiceServer) SaveDevicesBillingStat(
-	srv backendpb.DNSService_SaveDevicesBillingStatServer,
+	srv grpc.ClientStreamingServer[backendpb.DeviceBillingStat, emptypb.Empty],
 ) (err error) {
 	ctx := srv.Context()
 	md, _ := metadata.FromIncomingContext(ctx)
@@ -198,6 +198,7 @@ func newDNSProfile() (dp *backendpb.DNSProfile) {
 			AllowlistAsn:         []uint32{1},
 			BlocklistAsn:         []uint32{2},
 			BlocklistDomainRules: []string{"block.test"},
+			Enabled:              true,
 		},
 		RuleLists: &backendpb.RuleListsSettings{
 			Enabled: true,
@@ -212,6 +213,14 @@ func newDNSProfile() (dp *backendpb.DNSProfile) {
 			BlockingModeCustomIp: &backendpb.BlockingModeCustomIP{
 				Ipv4: []byte{1, 2, 3, 4},
 			},
+		},
+		RateLimit: &backendpb.RateLimitSettings{
+			ClientCidr: []*backendpb.CidrRange{{
+				Address: netip.MustParseAddr("3.3.3.0").AsSlice(),
+				Prefix:  24,
+			}},
+			Rps:     100,
+			Enabled: true,
 		},
 	}
 }

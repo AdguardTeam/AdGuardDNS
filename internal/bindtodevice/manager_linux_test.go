@@ -3,13 +3,13 @@
 package bindtodevice_test
 
 import (
-	"context"
 	"net"
 	"net/netip"
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
@@ -48,17 +48,14 @@ func (iface *fakeInterface) Subnets() (subnets []netip.Prefix, err error) {
 }
 
 func TestManager_Add(t *testing.T) {
-	errColl := &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, _ error) { panic("not implemented") },
-	}
-
 	m := bindtodevice.NewManager(&bindtodevice.ManagerConfig{
+		Logger: slogutil.NewDiscardLogger(),
 		InterfaceStorage: &fakeInterfaceStorage{
 			OnInterfaceByName: func(_ string) (iface bindtodevice.NetInterface, err error) {
 				return nil, nil
 			},
 		},
-		ErrColl:           errColl,
+		ErrColl:           agdtest.NewErrorCollector(),
 		ChannelBufferSize: 1,
 	})
 	require.NotNil(t, m)
@@ -87,10 +84,6 @@ func TestManager_Add(t *testing.T) {
 }
 
 func TestManager_ListenConfig(t *testing.T) {
-	errColl := &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, _ error) { panic("not implemented") },
-	}
-
 	subnet := testSubnetIPv4
 	ifaceWithSubnet := &fakeInterface{
 		OnSubnets: func() (subnets []netip.Prefix, err error) {
@@ -99,12 +92,13 @@ func TestManager_ListenConfig(t *testing.T) {
 	}
 
 	m := bindtodevice.NewManager(&bindtodevice.ManagerConfig{
+		Logger: slogutil.NewDiscardLogger(),
 		InterfaceStorage: &fakeInterfaceStorage{
 			OnInterfaceByName: func(_ string) (iface bindtodevice.NetInterface, err error) {
 				return ifaceWithSubnet, nil
 			},
 		},
-		ErrColl:           errColl,
+		ErrColl:           agdtest.NewErrorCollector(),
 		ChannelBufferSize: 1,
 	})
 	require.NotNil(t, m)
@@ -147,12 +141,13 @@ func TestManager_ListenConfig(t *testing.T) {
 		}
 
 		noSubnetMgr := bindtodevice.NewManager(&bindtodevice.ManagerConfig{
+			Logger: slogutil.NewDiscardLogger(),
 			InterfaceStorage: &fakeInterfaceStorage{
 				OnInterfaceByName: func(_ string) (iface bindtodevice.NetInterface, err error) {
 					return ifaceWithoutSubnet, nil
 				},
 			},
-			ErrColl:           errColl,
+			ErrColl:           agdtest.NewErrorCollector(),
 			ChannelBufferSize: 1,
 		})
 		require.NotNil(t, noSubnetMgr)
@@ -175,12 +170,13 @@ func TestManager_ListenConfig(t *testing.T) {
 		}
 
 		narrowSubnetMgr := bindtodevice.NewManager(&bindtodevice.ManagerConfig{
+			Logger: slogutil.NewDiscardLogger(),
 			InterfaceStorage: &fakeInterfaceStorage{
 				OnInterfaceByName: func(_ string) (iface bindtodevice.NetInterface, err error) {
 					return ifaceWithNarrowerSubnet, nil
 				},
 			},
-			ErrColl:           errColl,
+			ErrColl:           agdtest.NewErrorCollector(),
 			ChannelBufferSize: 1,
 		})
 		require.NotNil(t, narrowSubnetMgr)
@@ -206,13 +202,10 @@ func TestManager(t *testing.T) {
 
 	ifaceName := iface.Name
 
-	errColl := &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, _ error) { panic("not implemented") },
-	}
-
 	m := bindtodevice.NewManager(&bindtodevice.ManagerConfig{
+		Logger:            slogutil.NewDiscardLogger(),
 		InterfaceStorage:  bindtodevice.DefaultInterfaceStorage{},
-		ErrColl:           errColl,
+		ErrColl:           agdtest.NewErrorCollector(),
 		ChannelBufferSize: 1,
 	})
 	require.NotNil(t, m)

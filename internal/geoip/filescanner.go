@@ -1,10 +1,11 @@
 package geoip
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"net/netip"
 
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/oschwald/maxminddb-golang"
 )
@@ -76,8 +77,12 @@ func dist(a, b int) (d int) {
 // country with its subdivision, the subnet of a desired length is chosen (see
 // desiredIPv4SubnetLength and desiredIPv6SubnetLength).
 //
-// TODO(a.garipov): Consider merging with resetCountrySubnets.
-func (f *File) resetLocationSubnets(asn, country *maxminddb.Reader) (ipv4, ipv6 locationSubnets, err error) {
+// TODO(a.garipov): Consider merging with [resetCountrySubnets].
+func (f *File) resetLocationSubnets(
+	ctx context.Context,
+	asn *maxminddb.Reader,
+	country *maxminddb.Reader,
+) (ipv4, ipv6 locationSubnets, err error) {
 	ipv4, ipv6 = locationSubnets{}, locationSubnets{}
 
 	nets := asn.Networks(maxminddb.SkipAliasedNetworks)
@@ -109,8 +114,8 @@ func (f *File) resetLocationSubnets(asn, country *maxminddb.Reader) (ipv4, ipv6 
 	applyLocationSubnetHacks(ipv4, netutil.AddrFamilyIPv4)
 	applyLocationSubnetHacks(ipv6, netutil.AddrFamilyIPv6)
 
-	log.Debug("geoip: got ipv4 location subnets %v", ipv4)
-	log.Debug("geoip: got ipv6 location subnets %v", ipv6)
+	f.logger.DebugContext(ctx, "got ipv4 location subnets", "subnets", ipv4)
+	f.logger.DebugContext(ctx, "got ipv6 location subnets", "subnets", ipv6)
 
 	return ipv4, ipv6, nil
 }
@@ -123,8 +128,12 @@ func (f *File) resetLocationSubnets(asn, country *maxminddb.Reader) (ipv4, ipv6 
 // subnet is replaced with one of the desired length with the newly-significant
 // bits set to zero.
 //
-// TODO(a.garipov): Consider merging with resetTopASNSubnets.
-func resetCountrySubnets(r *maxminddb.Reader) (ipv4, ipv6 countrySubnets, err error) {
+// TODO(a.garipov): Consider merging with [File.resetLocationSubnets].
+func resetCountrySubnets(
+	ctx context.Context,
+	logger *slog.Logger,
+	r *maxminddb.Reader,
+) (ipv4, ipv6 countrySubnets, err error) {
 	ipv4, ipv6 = countrySubnets{}, countrySubnets{}
 
 	nets := r.Networks(maxminddb.SkipAliasedNetworks)
@@ -154,8 +163,8 @@ func resetCountrySubnets(r *maxminddb.Reader) (ipv4, ipv6 countrySubnets, err er
 	applyCountrySubnetHacks(ipv4, netutil.AddrFamilyIPv4)
 	applyCountrySubnetHacks(ipv6, netutil.AddrFamilyIPv6)
 
-	log.Debug("geoip: got ipv4 country subnets %v", ipv4)
-	log.Debug("geoip: got ipv6 country subnets %v", ipv6)
+	logger.DebugContext(ctx, "got ipv4 country subnets", "subnets", ipv4)
+	logger.DebugContext(ctx, "got ipv6 country subnets", "subnets", ipv6)
 
 	return ipv4, ipv6, nil
 }

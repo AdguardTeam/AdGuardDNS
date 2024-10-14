@@ -15,15 +15,12 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
 
 // testSafeIPStr is the string representation of the IP address of the safe
 // version of [testEngineWithIP].
@@ -49,9 +46,10 @@ func TestFilter(t *testing.T) {
 	reqCh := make(chan struct{}, 1)
 	cachePath, srvURL := filtertest.PrepareRefreshable(t, reqCh, testFilterRules, http.StatusOK)
 
-	f := safesearch.New(
+	f, newErr := safesearch.New(
 		&safesearch.Config{
 			Refreshable: &internal.RefreshableConfig{
+				Logger:    slogutil.NewDiscardLogger(),
 				ID:        agd.FilterListIDGeneralSafeSearch,
 				URL:       srvURL,
 				CachePath: cachePath,
@@ -63,6 +61,7 @@ func TestFilter(t *testing.T) {
 		},
 		rulelist.NewResultCache(100, true),
 	)
+	require.NoError(t, newErr)
 
 	refrErr := f.Refresh(testutil.ContextWithTimeout(t, filtertest.Timeout), true)
 	require.NoError(t, refrErr)
@@ -172,7 +171,7 @@ func newReq(tb testing.TB, host string, qt dnsmsg.RRType) (req *dns.Msg, ri *agd
 
 	req = dnsservertest.NewReq(host, qt, dns.ClassINET)
 	ri = &agd.RequestInfo{
-		Messages: agdtest.NewConstructor(),
+		Messages: agdtest.NewConstructor(tb),
 		Host:     host,
 		QType:    qt,
 		QClass:   dns.ClassINET,

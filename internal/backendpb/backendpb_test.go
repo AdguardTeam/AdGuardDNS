@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
+	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 // testTimeout is the common timeout for tests.
@@ -25,11 +27,11 @@ type testDNSServiceServer struct {
 
 	OnGetDNSProfiles func(
 		req *backendpb.DNSProfilesRequest,
-		srv backendpb.DNSService_GetDNSProfilesServer,
+		srv grpc.ServerStreamingServer[backendpb.DNSProfile],
 	) (err error)
 
 	OnSaveDevicesBillingStat func(
-		srv backendpb.DNSService_SaveDevicesBillingStatServer,
+		srv grpc.ClientStreamingServer[backendpb.DeviceBillingStat, emptypb.Empty],
 	) (err error)
 }
 
@@ -51,7 +53,7 @@ func (s *testDNSServiceServer) CreateDeviceByHumanId(
 // *testDNSServiceServer
 func (s *testDNSServiceServer) GetDNSProfiles(
 	req *backendpb.DNSProfilesRequest,
-	srv backendpb.DNSService_GetDNSProfilesServer,
+	srv grpc.ServerStreamingServer[backendpb.DNSProfile],
 ) (err error) {
 	return s.OnGetDNSProfiles(req, srv)
 }
@@ -59,7 +61,7 @@ func (s *testDNSServiceServer) GetDNSProfiles(
 // SaveDevicesBillingStat implements the [backendpb.DNSServiceServer] interface
 // for *testDNSServiceServer
 func (s *testDNSServiceServer) SaveDevicesBillingStat(
-	srv backendpb.DNSService_SaveDevicesBillingStatServer,
+	srv grpc.ClientStreamingServer[backendpb.DeviceBillingStat, emptypb.Empty],
 ) (err error) {
 	return s.OnSaveDevicesBillingStat(srv)
 }

@@ -18,7 +18,7 @@ import (
 // check if prom metrics were incremented.
 func TestCacheMetricsListener_integration_cache(t *testing.T) {
 	cacheMiddleware := cache.NewMiddleware(&cache.MiddlewareConfig{
-		MetricsListener: &prometheus.CacheMetricsListener{},
+		MetricsListener: prometheus.NewCacheMetricsListener(testNamespace),
 		Size:            100,
 	})
 

@@ -3,8 +3,10 @@ package hashprefix
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -15,9 +17,8 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/c2h5oh/datasize"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/net/publicsuffix"
@@ -25,6 +26,9 @@ import (
 
 // FilterConfig is the hash-prefix filter configuration structure.
 type FilterConfig struct {
+	// Logger is used for logging the operation of the filter.
+	Logger *slog.Logger
+
 	// Cloner is used to clone messages taken from filtering-result cache.
 	Cloner *dnsmsg.Cloner
 
@@ -68,8 +72,8 @@ type FilterConfig struct {
 	// CacheSize is the size of the filter's result cache.
 	CacheSize int
 
-	// MaxSize is the maximum size in bytes of the downloadable rule-list.
-	MaxSize uint64
+	// MaxSize is the maximum size of the downloadable rule-list.
+	MaxSize datasize.ByteSize
 }
 
 // cacheItem represents an item that we will store in the cache.
@@ -85,18 +89,18 @@ type cacheItem struct {
 // itemFromCache retrieves a cache item for the given key.  host is used to
 // detect key collisions.  If there is a key collision, it returns nil and
 // false.
-func itemFromCache(
-	cache agdcache.Interface[internal.CacheKey, *cacheItem],
+func (f *Filter) itemFromCache(
+	ctx context.Context,
 	key internal.CacheKey,
 	host string,
 ) (item *cacheItem, ok bool) {
-	item, ok = cache.Get(key)
+	item, ok = f.resCache.Get(key)
 	if !ok {
 		return nil, false
 	}
 
 	if item.host != host {
-		optlog.Error2("hashprefix: collision: bad cache item %v for host %q", item, host)
+		f.logger.WarnContext(ctx, "collision: bad cache item", "item", item, "host", host)
 
 		return nil, false
 	}
@@ -107,6 +111,7 @@ func itemFromCache(
 // Filter is a filter that matches hosts by their hashes based on a hash-prefix
 // table.  It should be initially refreshed with [Filter.RefreshInitial].
 type Filter struct {
+	logger   *slog.Logger
 	cloner   *dnsmsg.Cloner
 	hashes   *Storage
 	refr     *internal.Refreshable
@@ -116,6 +121,12 @@ type Filter struct {
 	repIP    netip.Addr
 	repFQDN  string
 }
+
+// IDPrefix is a common prefix for cache IDs, logging, and refreshes of
+// hashprefix filters.
+//
+// TODO(a.garipov):  Consider better names.
+const IDPrefix = "filters/hashprefix"
 
 // NewFilter returns a new hash-prefix filter.  It also adds the caches with IDs
 // [FilterListIDAdultBlocking], [FilterListIDSafeBrowsing], and
@@ -127,9 +138,10 @@ func NewFilter(c *FilterConfig) (f *Filter, err error) {
 		Size: c.CacheSize,
 	})
 
-	c.CacheManager.Add(string(id), resCache)
+	c.CacheManager.Add(path.Join(IDPrefix, string(id)), resCache)
 
 	f = &Filter{
+		logger:   c.Logger,
 		cloner:   c.Cloner,
 		hashes:   c.Hashes,
 		resCache: resCache,
@@ -150,7 +162,8 @@ func NewFilter(c *FilterConfig) (f *Filter, err error) {
 		f.repIP = ip
 	}
 
-	f.refr = internal.NewRefreshable(&internal.RefreshableConfig{
+	f.refr, err = internal.NewRefreshable(&internal.RefreshableConfig{
+		Logger:    f.logger,
 		URL:       c.URL,
 		ID:        id,
 		CachePath: c.CachePath,
@@ -158,6 +171,9 @@ func NewFilter(c *FilterConfig) (f *Filter, err error) {
 		Timeout:   c.RefreshTimeout,
 		MaxSize:   c.MaxSize,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("creating refreshable: %w", err)
+	}
 
 	return f, nil
 }
@@ -174,7 +190,7 @@ func (f *Filter) FilterRequest(
 ) (r internal.Result, err error) {
 	host, qt, cl := ri.Host, ri.QType, ri.QClass
 	cacheKey := internal.NewCacheKey(host, qt, cl, false)
-	item, ok := itemFromCache(f.resCache, cacheKey, host)
+	item, ok := f.itemFromCache(ctx, cacheKey, host)
 	f.updateCacheLookupsMetrics(ok)
 	if ok {
 		return f.clonedResult(req, item.res), nil
@@ -371,13 +387,12 @@ var _ agdservice.Refresher = (*Filter)(nil)
 
 // Refresh implements the [agdservice.Refresher] interface for *Filter.
 func (f *Filter) Refresh(ctx context.Context) (err error) {
-	// TODO(a.garipov):  Use slog.
-	log.Info("hashprefix_filter_refresh: %s: started", f.id)
-	defer log.Info("hashprefix_filter_refresh: %s: finished", f.id)
+	f.logger.InfoContext(ctx, "refresh started")
+	defer f.logger.InfoContext(ctx, "refresh finished")
 
 	err = f.refresh(ctx, false)
 	if err != nil {
-		errcoll.Collectf(ctx, f.errColl, "hashprefix_filter_refresh: %w", err)
+		errcoll.Collect(ctx, f.errColl, f.logger, fmt.Sprintf("refreshing %q", f.id), err)
 	}
 
 	return err
@@ -386,8 +401,8 @@ func (f *Filter) Refresh(ctx context.Context) (err error) {
 // RefreshInitial loads the content of the filter, using cached files if any,
 // regardless of their staleness.
 func (f *Filter) RefreshInitial(ctx context.Context) (err error) {
-	log.Info("hashprefix filter: initial refresh started")
-	defer log.Info("hashprefix filter: initial refresh finished")
+	f.logger.InfoContext(ctx, "initial refresh started")
+	defer f.logger.InfoContext(ctx, "initial refresh finished")
 
 	err = f.refresh(ctx, true)
 	if err != nil {
@@ -419,7 +434,7 @@ func (f *Filter) refresh(ctx context.Context, acceptStale bool) (err error) {
 	metrics.FilterUpdatedTime.WithLabelValues(fltIDStr).SetToCurrentTime()
 	metrics.FilterRulesTotal.WithLabelValues(fltIDStr).Set(float64(n))
 
-	log.Info("filter %s: reset %d hosts", f.id, n)
+	f.logger.InfoContext(ctx, "reset hosts", "num", n)
 
 	return nil
 }

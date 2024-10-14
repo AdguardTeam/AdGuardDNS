@@ -3,8 +3,6 @@ package websvc
 import (
 	"maps"
 	"net/http"
-
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 )
 
 // StaticContent serves static content with the given content type.  Elements
@@ -20,26 +18,25 @@ type StaticFile struct {
 	Content []byte
 }
 
-// serveHTTP serves the static content, if any.  If the mapping doesn't include
-// the path from the request, served is false.
-func (sc StaticContent) serveHTTP(w http.ResponseWriter, r *http.Request) (served bool) {
+// type check
+var _ http.Handler = StaticContent(nil)
+
+// ServeHTTP implements the [http.Handler] interface for StaticContent.
+func (sc StaticContent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p := r.URL.Path
 	f, ok := sc[p]
 	if !ok {
-		return false
+		http.NotFound(w, r)
+
+		return
 	}
 
 	respHdr := w.Header()
 	maps.Copy(respHdr, f.Headers)
 
 	w.WriteHeader(http.StatusOK)
-
 	_, err := w.Write(f.Content)
 	if err != nil {
 		logErrorByType(err, "websvc: static content: writing %s: %s", p, err)
 	}
-
-	metrics.WebSvcStaticContentRequestsTotal.Inc()
-
-	return true
 }

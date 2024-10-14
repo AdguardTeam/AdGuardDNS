@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -16,61 +17,84 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/netutil/urlutil"
 )
 
-// AllowlistRefresher is a refresh wrapper that updates the allowlist.  It
+// AllowlistUpdater is a wrapper that updates the allowlist on refresh.  It
 // should be initially refreshed before use.
-type AllowlistRefresher struct {
+type AllowlistUpdater struct {
+	logger    *slog.Logger
 	allowlist *ratelimit.DynamicAllowlist
 	http      *agdhttp.Client
 	url       *url.URL
 	errColl   errcoll.Interface
 }
 
-// NewAllowlistRefresher returns a properly initialized *AllowlistRefresher.
-func NewAllowlistRefresher(
-	allowlist *ratelimit.DynamicAllowlist,
-	consulURL *url.URL,
-	errColl errcoll.Interface,
-) (l *AllowlistRefresher) {
-	return &AllowlistRefresher{
-		allowlist: allowlist,
+// AllowlistUpdaterConfig is the configuration structure for the allowlist
+// updater.  All fields must not be nil.
+type AllowlistUpdaterConfig struct {
+	// Logger is used for logging the operation of the allowlist updater.
+	Logger *slog.Logger
+
+	// Allowlist is the allowlist to update.
+	Allowlist *ratelimit.DynamicAllowlist
+
+	// ConsulURL is the URL from which to update Allowlist.
+	ConsulURL *url.URL
+
+	// ErrColl is used to collect errors during refreshes.
+	ErrColl errcoll.Interface
+
+	// Timeout is the timeout for Consul queries.
+	Timeout time.Duration
+}
+
+// NewAllowlistUpdater returns a properly initialized *AllowlistUpdater.  c must
+// not be nil.
+func NewAllowlistUpdater(c *AllowlistUpdaterConfig) (upd *AllowlistUpdater) {
+	return &AllowlistUpdater{
+		logger:    c.Logger,
+		allowlist: c.Allowlist,
 		http: agdhttp.NewClient(&agdhttp.ClientConfig{
-			// TODO(a.garipov): Consider making configurable.
-			Timeout: 15 * time.Second,
+			Timeout: c.Timeout,
 		}),
-		url:     consulURL,
-		errColl: errColl,
+		url:     c.ConsulURL,
+		errColl: c.ErrColl,
 	}
 }
 
 // type check
-var _ agdservice.Refresher = (*AllowlistRefresher)(nil)
+var _ agdservice.Refresher = (*AllowlistUpdater)(nil)
 
 // Refresh implements the [agdservice.Refresher] interface for
-// *AllowlistRefresher.
-func (l *AllowlistRefresher) Refresh(ctx context.Context) (err error) {
-	// TODO(a.garipov):  Use slog.
-	log.Info("allowlist_refresh: started")
-	defer log.Info("allowlist_refresh: finished")
+// *AllowlistUpdater.
+func (upd *AllowlistUpdater) Refresh(ctx context.Context) (err error) {
+	upd.logger.InfoContext(ctx, "refresh started")
+	defer upd.logger.InfoContext(ctx, "refresh finished")
 
 	defer func() {
 		metrics.ConsulAllowlistUpdateTime.SetToCurrentTime()
 		metrics.SetStatusGauge(metrics.ConsulAllowlistUpdateStatus, err)
 	}()
 
-	consulNets, err := l.loadConsul(ctx)
+	consulNets, err := upd.loadConsul(ctx)
 	if err != nil {
-		errcoll.Collectf(ctx, l.errColl, "allowlist_refresh: %w", err)
+		errcoll.Collect(ctx, upd.errColl, upd.logger, "loading consul allowlist", err)
 
 		// Don't wrap the error, because it's informative enough as is.
 		return err
 	}
 
-	log.Info("allowlist: loaded %d records from %s", len(consulNets), l.url)
+	upd.logger.InfoContext(
+		ctx,
+		"refresh successful",
+		"num_records", len(consulNets),
+		"url", &urlutil.URL{
+			URL: *upd.url,
+		},
+	)
 
-	l.allowlist.Update(consulNets)
+	upd.allowlist.Update(consulNets)
 	metrics.ConsulAllowlistSize.Set(float64(len(consulNets)))
 
 	return nil
@@ -82,10 +106,10 @@ type consulRecord struct {
 }
 
 // loadConsul fetches, decodes, and returns the list of IP networks from consul.
-func (l *AllowlistRefresher) loadConsul(ctx context.Context) (nets []netip.Prefix, err error) {
-	defer func() { err = errors.Annotate(err, "loading allowlist nets from %s: %w", l.url) }()
+func (upd *AllowlistUpdater) loadConsul(ctx context.Context) (nets []netip.Prefix, err error) {
+	defer func() { err = errors.Annotate(err, "loading allowlist nets from %s: %w", upd.url) }()
 
-	httpResp, err := l.http.Get(ctx, l.url)
+	httpResp, err := upd.http.Get(ctx, upd.url)
 	if err != nil {
 		return nil, fmt.Errorf("requesting: %w", err)
 	}

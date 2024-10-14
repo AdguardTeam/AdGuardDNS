@@ -37,14 +37,14 @@ func TestUpstreamPlain_Exchange(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			_, addr := dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
-			u := forward.NewUpstreamPlain(&forward.UpstreamPlainConfig{
+			ups := forward.NewUpstreamPlain(&forward.UpstreamPlainConfig{
 				Network: tc.network,
 				Address: netip.MustParseAddrPort(addr),
 			})
-			defer log.OnCloserError(u, log.DEBUG)
+			testutil.CleanupAndRequireSuccess(t, ups.Close)
 
 			req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
-			res, nw, err := u.Exchange(testutil.ContextWithTimeout(t, testTimeout), req)
+			res, nw, err := ups.Exchange(testutil.ContextWithTimeout(t, testTimeout), req)
 			require.NoError(t, err)
 			require.NotNil(t, res)
 			dnsservertest.RequireResponse(t, req, res, 1, dns.RcodeSuccess, false)

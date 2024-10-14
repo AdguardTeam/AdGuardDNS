@@ -35,6 +35,8 @@ func (svc *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// TODO(a.garipov):  Refactor the 404 and 500 handling and use
+	// [httputil.CodeRecorderResponseWriter] instead.
 	rec := httptest.NewRecorder()
 	svc.serveHTTP(rec, r)
 
@@ -43,6 +45,36 @@ func (svc *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_, err := w.Write(body)
 	if err != nil {
 		logErrorByType(err, "websvc: handler: %s: %s", action, err)
+	}
+}
+
+// serveHTTP processes the HTTP request.
+func (svc *Service) serveHTTP(rec *httptest.ResponseRecorder, r *http.Request) {
+	switch r.URL.Path {
+	case "/dnscheck/test":
+		svc.dnsCheck.ServeHTTP(rec, r)
+
+		metrics.WebSvcDNSCheckTestRequestsTotal.Inc()
+	case "/robots.txt":
+		serveRobotsDisallow(rec.Header(), rec, "handler")
+	case "/":
+		if svc.rootRedirectURL == "" {
+			http.NotFound(rec, r)
+		} else {
+			http.Redirect(rec, r, svc.rootRedirectURL, http.StatusFound)
+
+			metrics.WebSvcRootRedirectRequestsTotal.Inc()
+		}
+	default:
+		svc.staticContent.ServeHTTP(rec, r)
+		if rec.Code != http.StatusNotFound {
+			metrics.WebSvcStaticContentRequestsTotal.Inc()
+		}
+
+		// Assume that most unknown content types are actually plain-text files.
+		if h := rec.Header(); h.Get(httphdr.ContentType) == agdhttp.HdrValApplicationOctetStream {
+			h.Set(httphdr.ContentType, agdhttp.HdrValTextPlain)
+		}
 	}
 }
 
@@ -82,32 +114,6 @@ func (svc *Service) processRec(
 	}
 
 	return action, body
-}
-
-// serveHTTP processes the HTTP request.
-func (svc *Service) serveHTTP(w http.ResponseWriter, r *http.Request) {
-	if svc.staticContent.serveHTTP(w, r) {
-		return
-	}
-
-	switch r.URL.Path {
-	case "/dnscheck/test":
-		svc.dnsCheck.ServeHTTP(w, r)
-
-		metrics.WebSvcDNSCheckTestRequestsTotal.Inc()
-	case "/robots.txt":
-		serveRobotsDisallow(w.Header(), w, "handler")
-	case "/":
-		if svc.rootRedirectURL == "" {
-			http.NotFound(w, r)
-		} else {
-			http.Redirect(w, r, svc.rootRedirectURL, http.StatusFound)
-
-			metrics.WebSvcRootRedirectRequestsTotal.Inc()
-		}
-	default:
-		http.NotFound(w, r)
-	}
 }
 
 // serveRobotsDisallow writes predefined disallow-all response.

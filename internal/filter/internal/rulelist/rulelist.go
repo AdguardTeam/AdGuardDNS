@@ -11,7 +11,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/AdguardTeam/urlfilter/filterlist"
 	"github.com/miekg/dns"
@@ -89,8 +88,7 @@ func itemFromCache(
 	}
 
 	if item.host != host {
-		optlog.Error2("rulelist: collision: bad cache item %v for host %q", item, host)
-
+		// Cache collision.
 		return nil, false
 	}
 

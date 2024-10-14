@@ -2,23 +2,25 @@ package cmd
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 
-	"github.com/AdguardTeam/golibs/mapsutil"
 	"github.com/prometheus/common/model"
 )
-
-// Additional prometheus information configuration
 
 // additionalInfo is a extra info configuration.
 type additionalInfo map[string]string
 
-// validateAdditionalInfo return an error is the section is invalid.
-func (c additionalInfo) validate() (err error) {
-	return mapsutil.SortedRangeError(c, func(k, _ string) (keyErr error) {
-		if model.LabelName(k).IsValid() {
-			return nil
-		}
+// type check
+var _ validator = additionalInfo(nil)
 
-		return fmt.Errorf("prometheus labels must match %s, got %q", model.LabelNameRE, k)
-	})
+// validate implements the [validator] interface for additionalInfo.
+func (c additionalInfo) validate() (err error) {
+	for _, k := range slices.Sorted(maps.Keys(c)) {
+		if !model.LabelName(k).IsValid() {
+			return fmt.Errorf("prometheus labels must match %s, got %q", model.LabelNameRE, k)
+		}
+	}
+
+	return nil
 }

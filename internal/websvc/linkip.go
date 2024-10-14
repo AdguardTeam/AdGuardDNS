@@ -118,6 +118,7 @@ func (prx *linkedIPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		// Remove all proxy headers before sending the request to proxy.
 		hdr := r.Header
+		hdr.Del(httphdr.CFConnectingIP)
 		hdr.Del(httphdr.Forwarded)
 		hdr.Del(httphdr.TrueClientIP)
 		hdr.Del(httphdr.XRealIP)
@@ -135,7 +136,7 @@ func (prx *linkedIPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		hdr.Set(httphdr.CFConnectingIP, ip)
+		hdr.Set(httphdr.XConnectingIP, ip)
 
 		// Set the request ID.
 		reqID := agd.NewRequestID()

@@ -10,6 +10,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
@@ -136,7 +137,7 @@ func TestPreUpstreamMwHandler_ServeDNS_withECSCache(t *testing.T) {
 		Location: &geoip.Location{
 			Country: ctry,
 		},
-		ECS: &agd.ECS{
+		ECS: &dnsmsg.ECS{
 			Location: &geoip.Location{
 				Country: ctry,
 			},

@@ -9,14 +9,9 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/profiledbtest"
-	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
-
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
 
 // Sinks for benchmarks
 var (
@@ -79,7 +74,7 @@ func BenchmarkCache(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for range b.N {
-			gotCache, errSink = toInternal(fileCacheSink)
+			gotCache, errSink = toInternal(fileCacheSink, profiledbtest.RespSzEst)
 		}
 
 		require.NoError(b, errSink)
@@ -109,13 +104,12 @@ func BenchmarkCache(b *testing.B) {
 	})
 
 	// Most recent result, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
-	//
 	//	goos: linux
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecachepb
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkCache/to_protobuf-16             674397              1657 ns/op            1240 B/op       22 allocs/op
-	//	BenchmarkCache/from_protobuf-16            83577             14285 ns/op            7400 B/op       29 allocs/op
-	//	BenchmarkCache/encode-16                  563797              1984 ns/op             208 B/op        1 allocs/op
-	//	BenchmarkCache/decode-16                  273951              5143 ns/op            1288 B/op       31 allocs/op
+	//	BenchmarkCache/to_protobuf-16         	  280604	      4696 ns/op	    2232 B/op	      45 allocs/op
+	//	BenchmarkCache/from_protobuf-16       	   48144	     26794 ns/op	    8832 B/op	      45 allocs/op
+	//	BenchmarkCache/encode-16              	  258315	      4802 ns/op	     288 B/op	       1 allocs/op
+	//	BenchmarkCache/decode-16              	  112821	     11422 ns/op	    2064 B/op	      50 allocs/op
 }

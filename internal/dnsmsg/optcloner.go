@@ -17,6 +17,7 @@ type optCloner struct {
 	// Options.
 
 	cookie *syncutil.Pool[dns.EDNS0_COOKIE]
+	ede    *syncutil.Pool[dns.EDNS0_EDE]
 	subnet *syncutil.Pool[dns.EDNS0_SUBNET]
 }
 
@@ -30,11 +31,14 @@ func newOPTCloner() (c *optCloner) {
 		cookie: syncutil.NewPool(func() (v *dns.EDNS0_COOKIE) {
 			return &dns.EDNS0_COOKIE{}
 		}),
+		ede: syncutil.NewPool(func() (v *dns.EDNS0_EDE) {
+			return &dns.EDNS0_EDE{}
+		}),
 		subnet: syncutil.NewPool(func() (v *dns.EDNS0_SUBNET) {
 			return &dns.EDNS0_SUBNET{
 				// Use the IPv6 length to increase the effectiveness of the
 				// pool.
-				Address: make(net.IP, 16),
+				Address: make(net.IP, net.IPv6len),
 			}
 		}),
 	}
@@ -64,6 +68,12 @@ func (c *optCloner) clone(rr *dns.OPT) (clone *dns.OPT, full bool) {
 		case *dns.EDNS0_COOKIE:
 			opt := c.cookie.Get()
 			*opt = *orig
+
+			optClone = opt
+		case *dns.EDNS0_EDE:
+			opt := c.ede.Get()
+			opt.InfoCode = orig.InfoCode
+			opt.ExtraText = orig.ExtraText
 
 			optClone = opt
 		case *dns.EDNS0_SUBNET:
@@ -99,6 +109,8 @@ func (c *optCloner) put(rr *dns.OPT) {
 			c.cookie.Put(opt)
 		case *dns.EDNS0_SUBNET:
 			c.subnet.Put(opt)
+		case *dns.EDNS0_EDE:
+			c.ede.Put(opt)
 		default:
 			// Go on.
 		}

@@ -3,12 +3,16 @@ package websvc
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/log"
@@ -26,21 +30,89 @@ const (
 	safeBrowsingName    blockPageName = "safe browsing"
 )
 
-// blockPageServers is a helper function that converts a *BlockPageServer into
-// HTTP servers.
-func blockPageServers(
-	srv *BlockPageServer,
-	name string,
-	timeout time.Duration,
-) (srvs []*http.Server) {
+// BlockPageServerConfig is the blocking page server configuration.
+type BlockPageServerConfig struct {
+	// ContentFilePath is the path to HTML block page content file.
+	ContentFilePath string
+
+	// Bind are the addresses on which to serve the block page.
+	Bind []*BindData
+}
+
+// blockPageServer serves the blocking page contents.
+type blockPageServer struct {
+	// mu protects content and gzipContent.
+	mu *sync.RWMutex
+
+	// content is the content of the HTML block page.
+	content []byte
+
+	// gzipContent is the gzipped content of HTML block page.
+	gzipContent []byte
+
+	// contentFilePath is the path to HTML block page content file.
+	contentFilePath string
+
+	// name is the server identification used for logging and metrics.
+	name blockPageName
+
+	// bind are the addresses on which to serve the block page.
+	bind []*BindData
+}
+
+// newBlockPageServer initializes a new instance of blockPageServer.  The server
+// must be refreshed with [blockPageServer.Refresh] before use.
+func newBlockPageServer(conf *BlockPageServerConfig, srvName blockPageName) (srv *blockPageServer) {
+	if conf == nil {
+		return nil
+	}
+
+	return &blockPageServer{
+		mu:              &sync.RWMutex{},
+		contentFilePath: conf.ContentFilePath,
+		name:            srvName,
+		bind:            conf.Bind,
+	}
+}
+
+// type check
+var _ agdservice.Refresher = (*blockPageServer)(nil)
+
+// Refresh implements the [agdservice.Refresher] interface for *blockPageServer.
+// srv may be nil.
+func (srv *blockPageServer) Refresh(_ context.Context) (err error) {
 	if srv == nil {
 		return nil
 	}
 
-	h := blockPageHandler(name, srv.Content)
-	for _, b := range srv.Bind {
+	// TODO(d.kolyshev): Compare with current srv content before updating.
+	content, err := os.ReadFile(srv.contentFilePath)
+	if err != nil {
+		return fmt.Errorf("block page server %q: reading block page file: %w", srv.name, err)
+	}
+
+	gzipContent := mustGzip(srv.name, content)
+
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+
+	srv.content = content
+	srv.gzipContent = gzipContent
+
+	return nil
+}
+
+// blockPageServers is a helper function that converts a *blockPageServer into
+// HTTP servers.
+func blockPageServers(srv *blockPageServer, timeout time.Duration) (srvs []*http.Server) {
+	if srv == nil {
+		return nil
+	}
+
+	h := srv.blockPageHandler()
+	for _, b := range srv.bind {
 		addr := b.Address.String()
-		errLog := log.StdLog(fmt.Sprintf("websvc: %s: %s", name, addr), log.DEBUG)
+		errLog := log.StdLog(fmt.Sprintf("websvc: %s: %s", srv.name, addr), log.DEBUG)
 		srvs = append(srvs, &http.Server{
 			Addr:              addr,
 			Handler:           h,
@@ -58,9 +130,7 @@ func blockPageServers(
 
 // blockPageHandler returns an HTTP handler serving the block page content.
 // name is used for logging and metrics and must be one of blockPageName values.
-func blockPageHandler(name blockPageName, blockPage []byte) (h http.Handler) {
-	gzipped := mustGzip(name, blockPage)
-
+func (srv *blockPageServer) blockPageHandler() (h http.Handler) {
 	f := func(w http.ResponseWriter, r *http.Request) {
 		// Set the Server header here, so that all responses carry it.
 		respHdr := w.Header()
@@ -71,11 +141,14 @@ func blockPageHandler(name blockPageName, blockPage []byte) (h http.Handler) {
 			// Don't serve the HTML page to the favicon requests.
 			http.NotFound(w, r)
 		case "/robots.txt":
-			// Don't serve the HTML page to the robots.txt requests.  Serve
-			// the predefined response instead.
-			serveRobotsDisallow(respHdr, w, name)
+			// Don't serve the HTML page to the robots.txt requests.  Serve the
+			// predefined response instead.
+			serveRobotsDisallow(respHdr, w, srv.name)
 		default:
-			serveBlockPage(w, r, name, blockPage, gzipped)
+			srv.mu.RLock()
+			defer srv.mu.RUnlock()
+
+			serveBlockPage(w, r, srv.name, srv.content, srv.gzipContent)
 		}
 	}
 

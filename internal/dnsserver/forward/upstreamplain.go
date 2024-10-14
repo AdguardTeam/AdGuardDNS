@@ -389,6 +389,8 @@ func (u *UpstreamPlain) packReq(network Network, buf []byte, req *dns.Msg) (n in
 			return 0, dns.ErrBuf
 		}
 
+		// #nosec G115 -- reqLen has already been checked against
+		// dns.MaxMsgSize, which equals math.MaxUint16.
 		binary.BigEndian.PutUint16(buf, uint16(reqLen))
 		_, err = req.PackBuffer(buf[2:])
 

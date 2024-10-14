@@ -1,8 +1,10 @@
 package cmd
 
-import "fmt"
+import (
+	"fmt"
 
-// Query log configuration
+	"github.com/AdguardTeam/golibs/errors"
+)
 
 // queryLogConfig is the query log configuration.
 type queryLogConfig struct {
@@ -10,13 +12,16 @@ type queryLogConfig struct {
 	File *queryLogFileConfig `yaml:"file"`
 }
 
-// validate returns an error if the query log configuration is invalid.
+// type check
+var _ validator = (*queryLogConfig)(nil)
+
+// validate implements the [validator] interface for *queryLogConfig.
 func (c *queryLogConfig) validate() (err error) {
 	switch {
 	case c == nil:
-		return errNilConfig
+		return errors.ErrNoValue
 	case c.File == nil:
-		return fmt.Errorf("file: %w", errNilConfig)
+		return fmt.Errorf("file: %w", errors.ErrNoValue)
 	default:
 		return nil
 	}

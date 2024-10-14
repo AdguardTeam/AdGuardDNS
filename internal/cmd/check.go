@@ -3,21 +3,31 @@ package cmd
 import (
 	"fmt"
 	"net/netip"
-	"net/url"
 	"strings"
+	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
+	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv"
+	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv/consulkv"
+	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv/rediskv"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/timeutil"
+	"github.com/c2h5oh/datasize"
+	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/time/rate"
 )
-
-// DNS server check configuration
 
 // checkConfig is the DNS server checking configuration.
 type checkConfig struct {
+	// RemoteKV is remote key-value store configuration for DNS server checking.
+	RemoteKV *remoteKVConfig `yaml:"kv"`
+
 	// Domains are the domain names used for DNS server checking.
 	Domains []string `yaml:"domains"`
 
@@ -34,22 +44,21 @@ type checkConfig struct {
 	// IPv6 is the list of IPv6 addresses to respond with for AAAA queries to
 	// subdomains of Domain.
 	IPv6 []netip.Addr `yaml:"ipv6"`
-
-	// TTL defines, for how long to keep the information about a single client.
-	TTL timeutil.Duration `yaml:"ttl"`
 }
 
 // toInternal converts c to the DNS server check configuration for the DNS
-// server.  c is assumed to be valid.
+// server.  c must be valid.
 func (c *checkConfig) toInternal(
-	envs *environments,
+	envs *environment,
 	messages *dnsmsg.Constructor,
 	errColl errcoll.Interface,
-) (conf *dnscheck.ConsulConfig) {
-	var kvURL, sessURL *url.URL
-	if envs.ConsulDNSCheckKVURL != nil && envs.ConsulDNSCheckSessionURL != nil {
-		kvURL = netutil.CloneURL(&envs.ConsulDNSCheckKVURL.URL)
-		sessURL = netutil.CloneURL(&envs.ConsulDNSCheckSessionURL.URL)
+	namespace string,
+	reg prometheus.Registerer,
+) (conf *dnscheck.RemoteKVConfig, err error) {
+	kv, err := newDNSCheckKV(c, envs, namespace, reg)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return nil, err
 	}
 
 	domains := make([]string, len(c.Domains))
@@ -57,46 +66,107 @@ func (c *checkConfig) toInternal(
 		domains[i] = strings.ToLower(d)
 	}
 
-	return &dnscheck.ConsulConfig{
-		Messages:         messages,
-		ConsulKVURL:      kvURL,
-		ConsulSessionURL: sessURL,
-		ErrColl:          errColl,
-		Domains:          domains,
-		NodeLocation:     c.NodeLocation,
-		NodeName:         c.NodeName,
-		IPv4:             c.IPv4,
-		IPv6:             c.IPv6,
-		TTL:              c.TTL.Duration,
-	}
+	return &dnscheck.RemoteKVConfig{
+		Messages:     messages,
+		RemoteKV:     kv,
+		ErrColl:      errColl,
+		Domains:      domains,
+		NodeLocation: c.NodeLocation,
+		NodeName:     c.NodeName,
+		IPv4:         c.IPv4,
+		IPv6:         c.IPv6,
+	}, nil
 }
 
-// validate returns an error if the DNS server checking configuration is
-// invalid.
-func (c *checkConfig) validate() (err error) {
-	if c == nil {
-		return errNilConfig
+// maxRespSize is the maximum size of response from Consul key-value storage.
+const maxRespSize = 1 * datasize.MB
+
+// keyNamespaceCheck is the namespace added to the keys of DNS check.  See
+// [remotekv.KeyNamespace].
+const keyNamespaceCheck = "check"
+
+// newDNSCheckKV returns a new properly initialized remote key-value storage.
+func newDNSCheckKV(
+	conf *checkConfig,
+	envs *environment,
+	namespace string,
+	reg prometheus.Registerer,
+) (kv remotekv.Interface, err error) {
+	if conf.RemoteKV.Type == kvModeRedis {
+		var redisKVMtrc rediskv.Metrics
+		redisKVMtrc, err = metrics.NewRedisKV(namespace, reg)
+		if err != nil {
+			return nil, fmt.Errorf("registering redis kv metrics: %w", err)
+		}
+
+		kv := rediskv.NewRedisKV(&rediskv.RedisKVConfig{
+			Metrics: redisKVMtrc,
+			Addr: &netutil.HostPort{
+				Host: envs.RedisAddr,
+				Port: envs.RedisPort,
+			},
+			MaxActive:   envs.RedisMaxActive,
+			MaxIdle:     envs.RedisMaxIdle,
+			IdleTimeout: envs.RedisIdleTimeout.Duration,
+			TTL:         conf.RemoteKV.TTL.Duration,
+		})
+
+		return remotekv.NewKeyNamespace(&remotekv.KeyNamespaceConfig{
+			KV:     kv,
+			Prefix: fmt.Sprintf("%s:%s:", envs.RedisKeyPrefix, keyNamespaceCheck),
+		}), nil
 	}
 
-	notEmptyParams := []struct {
-		name  string
-		value string
-	}{{
-		name:  "node_location",
-		value: c.NodeLocation,
+	consulKVURL := envs.ConsulDNSCheckKVURL
+	consulSessionURL := envs.ConsulDNSCheckSessionURL
+	if consulKVURL != nil && consulSessionURL != nil {
+		kv, err = consulkv.NewKV(&consulkv.Config{
+			URL:        &consulKVURL.URL,
+			SessionURL: &consulSessionURL.URL,
+			Client: agdhttp.NewClient(&agdhttp.ClientConfig{
+				// TODO(ameshkov): Consider making configurable.
+				Timeout: 15 * time.Second,
+			}),
+			// TODO(ameshkov): Consider making configurable.
+			Limiter:     rate.NewLimiter(rate.Limit(200)/60, 1),
+			TTL:         conf.RemoteKV.TTL.Duration,
+			MaxRespSize: maxRespSize,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("initializing consul dnscheck: %w", err)
+		}
+	} else {
+		kv = remotekv.Empty{}
+	}
+
+	return kv, nil
+}
+
+// type check
+var _ validator = (*checkConfig)(nil)
+
+// validate implements the [validator] interface for *checkConfig.
+func (c *checkConfig) validate() (err error) {
+	if c == nil {
+		return errors.ErrNoValue
+	}
+
+	notEmptyParams := container.KeyValues[string, string]{{
+		Key:   "node_location",
+		Value: c.NodeLocation,
 	}, {
-		name:  "node_name",
-		value: c.NodeName,
+		Key:   "node_name",
+		Value: c.NodeName,
 	}}
 
-	for _, param := range notEmptyParams {
-		if param.value == "" {
-			return fmt.Errorf("no %s", param.name)
+	for _, kv := range notEmptyParams {
+		if kv.Value == "" {
+			return fmt.Errorf("%s: %w", kv.Key, errors.ErrEmptyValue)
 		}
 	}
 
 	if len(c.Domains) == 0 {
-		return errors.Error("no domains")
+		return fmt.Errorf("domains: %w", errors.ErrEmptyValue)
 	}
 
 	err = validateNonNilIPs(c.IPv4, netutil.AddrFamilyIPv4)
@@ -111,8 +181,9 @@ func (c *checkConfig) validate() (err error) {
 		return err
 	}
 
-	if c.TTL.Duration <= 0 {
-		return newMustBePositiveError("ttl", c.TTL)
+	err = c.RemoteKV.validate()
+	if err != nil {
+		return fmt.Errorf("kv: %w", err)
 	}
 
 	return nil
@@ -143,6 +214,63 @@ func validateNonNilIPs(ips []netip.Addr, fam netutil.AddrFamily) (err error) {
 		if !checkProto(ip) {
 			return fmt.Errorf("%s: address %q at index %d: incorrect protocol", fam, ip, i)
 		}
+	}
+
+	return nil
+}
+
+// DNSCheck key-value database modes.
+const (
+	kvModeConsul = "consul"
+	kvModeRedis  = "redis"
+)
+
+// remoteKVConfig is remote key-value store configuration for DNS server
+// checking.
+type remoteKVConfig struct {
+	// Type defines the type of remote key-value store.  Allowed values are
+	// [kvModeConsul] and [kvModeRedis].
+	Type string `yaml:"type"`
+
+	// TTL defines, for how long to keep the information about a single client.
+	TTL timeutil.Duration `yaml:"ttl"`
+}
+
+// type check
+var _ validator = (*remoteKVConfig)(nil)
+
+// validate implements the [validator] interface for *remoteKVConfig.
+func (c *remoteKVConfig) validate() (err error) {
+	if c == nil {
+		return errors.ErrNoValue
+	}
+
+	ttl := c.TTL
+
+	switch c.Type {
+	case kvModeConsul:
+		if ttl.Duration < consulkv.MinTTL || ttl.Duration > consulkv.MaxTTL {
+			return fmt.Errorf(
+				"ttl: %w: must be between %s and %s; got %s",
+				errors.ErrOutOfRange,
+				consulkv.MinTTL,
+				consulkv.MaxTTL,
+				ttl,
+			)
+		}
+	case kvModeRedis:
+		if ttl.Duration < rediskv.MinTTL {
+			return fmt.Errorf(
+				"ttl: %w: must be greater than or equal to %s got %s",
+				errors.ErrOutOfRange,
+				rediskv.MinTTL,
+				ttl,
+			)
+		}
+	case "":
+		return fmt.Errorf("type: %w", errors.ErrEmptyValue)
+	default:
+		return fmt.Errorf("type: %q: %w", c.Type, errors.ErrBadEnumValue)
 	}
 
 	return nil

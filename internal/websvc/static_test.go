@@ -11,7 +11,7 @@ import (
 )
 
 func TestService_ServeHTTP_static(t *testing.T) {
-	staticContent := map[string]*websvc.StaticFile{
+	staticContent := websvc.StaticContent{
 		"/favicon.ico": {
 			Content: []byte{},
 			Headers: http.Header{

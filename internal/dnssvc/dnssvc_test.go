@@ -10,11 +10,13 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -25,11 +27,8 @@ func TestMain(m *testing.M) {
 	testutil.DiscardLogOutput(m)
 }
 
-const (
-
-	// testSrvGrpName is the [agd.ServerGroupName] for tests.
-	testSrvGrpName agd.ServerGroupName = "test_group"
-)
+// testSrvGrpName is the [agd.ServerGroupName] for tests.
+const testSrvGrpName agd.ServerGroupName = "test_group"
 
 // type check
 var _ agdservice.Refresher = (*forward.Handler)(nil)
@@ -161,8 +160,11 @@ func TestService_Start(t *testing.T) {
 	})
 
 	c := &dnssvc.Config{
-		NewListener: newTestListenerFunc(tl),
-		Handler:     dnsservertest.DefaultHandler(),
+		BaseLogger:           slogutil.NewDiscardLogger(),
+		NewListener:          newTestListenerFunc(tl),
+		PrometheusRegisterer: agdtest.NewTestPrometheusRegisterer(),
+		Handler:              dnsservertest.DefaultHandler(),
+		MetricsNamespace:     "test_start",
 		ServerGroups: []*agd.ServerGroup{{
 			Name:    "test_group",
 			Servers: []*agd.Server{srv},
@@ -205,7 +207,10 @@ func TestNew(t *testing.T) {
 	}
 
 	c := &dnssvc.Config{
-		Handler: dnsservertest.DefaultHandler(),
+		BaseLogger:           slogutil.NewDiscardLogger(),
+		Handler:              dnsservertest.DefaultHandler(),
+		PrometheusRegisterer: agdtest.NewTestPrometheusRegisterer(),
+		MetricsNamespace:     "test_new",
 		ServerGroups: []*agd.ServerGroup{{
 			Name:    "test_group",
 			Servers: srvs,

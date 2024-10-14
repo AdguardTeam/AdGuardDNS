@@ -3,20 +3,22 @@ package forward
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/miekg/dns"
 )
 
-// refresh is an internal method used in Refresh.  It allows to enforce the
-// metrics report regardless of the upstream status change.
+// refresh is an internal method used in [Handler.Refresh].  It allows to
+// enforce the metrics report regardless of the upstream status change.
 func (h *Handler) refresh(ctx context.Context, mustReport bool) (err error) {
 	if len(h.fallbacks) == 0 {
-		log.Debug("forward: healthcheck: no fallbacks specified")
+		// TODO(a.garipov):  Find a way to add "healthcheck" to the prefix.
+		h.logger.DebugContext(ctx, "healthcheck: no fallbacks")
 
 		return nil
 	}
@@ -105,9 +107,12 @@ func (h *Handler) healthcheckUpstream(
 	lastFailed := upsStatus.lastFailedHealthcheck
 	ups := upsStatus.upstream
 
+	// TODO(a.garipov):  Augment our JSON log handler to use fmt.Stringer
+	// automatically?
+	upsLogger := h.logger.With("addr", ups.String())
 	if time.Since(lastFailed) < h.hcBackoff {
 		// Make sure that this main upstream is not in the backoff mode.
-		log.Debug("forward: healthcheck: upstream %s: in backoff", ups)
+		upsLogger.DebugContext(ctx, "healthcheck: upstream in backoff")
 
 		return true, nil
 	}
@@ -119,14 +124,21 @@ func (h *Handler) healthcheckUpstream(
 		upsStatus.lastFailedHealthcheck = time.Time{}
 	}
 
-	h.reportChange(ups, err, lastFailed.IsZero(), mustReport)
+	h.reportChange(ctx, upsLogger, ups, err, lastFailed.IsZero(), mustReport)
 
 	return false, errors.Annotate(err, "%s: upstream is down: %w", ups)
 }
 
 // reportChange updates the metrics if the status of upstream has changed or an
 // update is required.  It also writes to the log if the status has changed.
-func (h *Handler) reportChange(ups Upstream, err error, wasUp, mustReport bool) {
+func (h *Handler) reportChange(
+	ctx context.Context,
+	upsLogger *slog.Logger,
+	ups Upstream,
+	err error,
+	wasUp bool,
+	mustReport bool,
+) {
 	isUp := err == nil
 	if wasUp != isUp || mustReport {
 		h.metrics.OnUpstreamStatusChanged(ups, true, isUp)
@@ -137,9 +149,9 @@ func (h *Handler) reportChange(ups Upstream, err error, wasUp, mustReport bool) 
 	}
 
 	if wasUp {
-		log.Error("forward: healthcheck: upstream %s: went down: %s", ups, err)
+		upsLogger.ErrorContext(ctx, "healthcheck: upstream went down", slogutil.KeyError, err)
 	} else {
-		log.Info("forward: healthcheck: upstream %s: got up", ups)
+		upsLogger.InfoContext(ctx, "healthcheck: upstream got up")
 	}
 }
 

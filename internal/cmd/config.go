@@ -1,25 +1,19 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"gopkg.in/yaml.v2"
 )
 
-// On-Disk Configuration File Entities
-//
-// These entities should only be used to parse and validate the on-disk
-// configuration.  The order of the fields should generally not be altered.
+// configuration represents the on-disk configuration of AdGuard DNS.  The order
+// of the fields should generally not be altered.
 //
 // TODO(a.garipov): Consider collecting all validation errors instead of
 // quitting after the first one.
-
-// configuration represents the on-disk configuration of AdGuard DNS.
 type configuration struct {
 	// RateLimit is the rate limiting configuration.
 	RateLimit *rateLimitConfig `yaml:"ratelimit"`
@@ -88,107 +82,103 @@ type configuration struct {
 	ServerGroups serverGroups `yaml:"server_groups"`
 }
 
-// errNilConfig signals that config is empty
-const errNilConfig errors.Error = "nil config"
+// type check
+var _ validator = (*configuration)(nil)
 
-// buildQueryLog build an appropriate query log implementation from the
-// configuration and environment data.  c is assumed to be valid.
-func (c *configuration) buildQueryLog(envs *environments) (l querylog.Interface) {
-	fileNeeded := c.QueryLog.File.Enabled
-	if !fileNeeded {
-		return querylog.Empty{}
-	}
-
-	return querylog.NewFileSystem(&querylog.FileSystemConfig{
-		Path:     envs.QueryLogPath,
-		RandSeed: uint64(time.Now().UnixNano()),
-	})
-}
-
-// validate returns an error if the configuration is invalid.
+// validate implements the [validator] interface for *configuration.
 func (c *configuration) validate() (err error) {
 	if c == nil {
-		return errNilConfig
+		return errors.ErrNoValue
 	}
 
 	// Keep this in the same order as the fields in the config.
-	validators := []struct {
-		validate func() (err error)
-		name     string
-	}{{
-		validate: c.RateLimit.validate,
-		name:     "ratelimit",
+	validators := container.KeyValues[string, validator]{{
+		Key:   "ratelimit",
+		Value: c.RateLimit,
 	}, {
-		validate: c.Upstream.validate,
-		name:     "upstream",
+		Key:   "upstream",
+		Value: c.Upstream,
 	}, {
-		validate: c.Cache.validate,
-		name:     "cache",
+		Key:   "cache",
+		Value: c.Cache,
 	}, {
-		validate: c.DNSDB.validate,
-		name:     "dnsdb",
+		Key:   "dnsdb",
+		Value: c.DNSDB,
 	}, {
-		validate: c.DNS.validate,
-		name:     "dns",
+		Key:   "dns",
+		Value: c.DNS,
 	}, {
-		validate: c.Backend.validate,
-		name:     "backend",
+		Key:   "backend",
+		Value: c.Backend,
 	}, {
-		validate: c.QueryLog.validate,
-		name:     "query_log",
+		Key:   "query_log",
+		Value: c.QueryLog,
 	}, {
-		validate: c.GeoIP.validate,
-		name:     "geoip",
+		Key:   "geoip",
+		Value: c.GeoIP,
 	}, {
-		validate: c.Check.validate,
-		name:     "check",
+		Key:   "check",
+		Value: c.Check,
 	}, {
-		validate: c.Web.validate,
-		name:     "web",
+		Key:   "web",
+		Value: c.Web,
 	}, {
-		validate: c.SafeBrowsing.validate,
-		name:     "safe_browsing",
+		Key:   "safe_browsing",
+		Value: c.SafeBrowsing,
 	}, {
-		validate: c.AdultBlocking.validate,
-		name:     "adult_blocking",
+		Key:   "adult_blocking",
+		Value: c.AdultBlocking,
 	}, {
-		validate: c.Filters.validate,
-		name:     "filters",
+		Key:   "filters",
+		Value: c.Filters,
 	}, {
-		validate: c.FilteringGroups.validate,
-		name:     "filtering groups",
+		Key:   "filtering_groups",
+		Value: c.FilteringGroups,
 	}, {
-		validate: c.ServerGroups.validate,
-		name:     "server_groups",
+		Key:   "server_groups",
+		Value: c.ServerGroups,
 	}, {
-		validate: c.ConnectivityCheck.validate,
-		name:     "connectivity_check",
+		Key:   "connectivity_check",
+		Value: c.ConnectivityCheck,
 	}, {
-		validate: c.InterfaceListeners.validate,
-		name:     "interface_listeners",
+		Key:   "interface_listeners",
+		Value: c.InterfaceListeners,
 	}, {
-		validate: c.Network.validate,
-		name:     "network",
+		Key:   "network",
+		Value: c.Network,
 	}, {
-		validate: c.Access.validate,
-		name:     "access",
+		Key:   "access",
+		Value: c.Access,
 	}, {
-		validate: c.AdditionalMetricsInfo.validate,
-		name:     "additional_metrics_info",
+		Key:   "additional_metrics_info",
+		Value: c.AdditionalMetricsInfo,
 	}}
 
-	for _, v := range validators {
-		err = v.validate()
+	// TODO(a.garipov):  Use errors.Join everywhere.
+	for _, kv := range validators {
+		err = kv.Value.validate()
 		if err != nil {
-			return fmt.Errorf("%s: %w", v.name, err)
+			return fmt.Errorf("%s: %w", kv.Key, err)
 		}
 	}
 
 	return nil
 }
 
-// readConfig reads the configuration.
-func readConfig(confPath string) (c *configuration, err error) {
+// isProfilesEnabled returns true if there is at least one server group with
+// profiles enabled.  conf must be valid.
+func (c *configuration) isProfilesEnabled() (ok bool) {
+	for _, s := range c.ServerGroups {
+		if s.ProfilesEnabled {
+			return true
+		}
+	}
+
+	return false
+}
+
+// parseConfig reads the configuration.
+func parseConfig(confPath string) (c *configuration, err error) {
 	// #nosec G304 -- Trust the path to the configuration file that is given
 	// from the environment.
 	yamlFile, err := os.ReadFile(confPath)
@@ -203,14 +193,4 @@ func readConfig(confPath string) (c *configuration, err error) {
 	}
 
 	return c, nil
-}
-
-// defaultTimeout is the timeout used for some operations where another timeout
-// hasn't been defined yet.
-const defaultTimeout = 30 * time.Second
-
-// ctxWithDefaultTimeout is a helper function that returns a context with
-// timeout set to defaultTimeout.
-func ctxWithDefaultTimeout() (ctx context.Context, cancel context.CancelFunc) {
-	return context.WithTimeout(context.Background(), defaultTimeout)
 }

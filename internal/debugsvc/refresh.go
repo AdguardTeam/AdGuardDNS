@@ -5,15 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
+	"path"
 	"slices"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
-	"golang.org/x/exp/maps"
 )
 
 // RefresherID is a type alias for strings that represent IDs of refreshers.
@@ -32,7 +34,8 @@ type refreshHandler struct {
 
 // refreshRequest describes the request to the POST /debug/api/refresh HTTP API.
 type refreshRequest struct {
-	IDs []RefresherID `json:"ids"`
+	// Patterns is the slice of path patterns to match the refreshers IDs.
+	Patterns []string `json:"ids"`
 }
 
 // refreshResponse describes the response to the POST /debug/api/refresh HTTP
@@ -58,11 +61,7 @@ func (h *refreshHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := &refreshResponse{
-		Results: map[RefresherID]string{},
-	}
-
-	reqIDs, err := h.idsFromReq(req.IDs)
+	reqIDs, err := h.idsFromReq(req.Patterns)
 	if err != nil {
 		l.ErrorContext(ctx, "validating request", slogutil.KeyError, err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -70,41 +69,38 @@ func (h *refreshHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	resp := &refreshResponse{
+		Results: make(map[RefresherID]string, len(reqIDs)),
+	}
+
 	for _, id := range reqIDs {
 		resp.Results[id] = h.refresh(ctx, l, id)
 	}
 
-	w.Header().Set(httphdr.ContentType, "application/json")
+	w.Header().Set(httphdr.ContentType, agdhttp.HdrValApplicationJSON)
 	err = json.NewEncoder(w).Encode(resp)
 	if err != nil {
 		l.ErrorContext(ctx, "writing response", slogutil.KeyError, err)
 	}
 }
 
-// idsFromReq validates the form of the request and returns the IDs of
-// refreshers to refresh.
-func (h *refreshHandler) idsFromReq(reqIDs []RefresherID) (ids []RefresherID, err error) {
-	l := len(reqIDs)
-	switch l {
-	case 0:
-		return nil, errors.Error("no ids")
-	case 1:
-		if reqIDs[0] != "*" {
-			return reqIDs, nil
-		}
-
-		allIDs := maps.Keys(h.refrs)
-		slices.Sort(allIDs)
-
-		return allIDs, nil
-	default:
-		starIdx := slices.Index(reqIDs, "*")
-		if starIdx == -1 {
-			return reqIDs, nil
-		}
-
-		return nil, errors.Error(`"*" cannot be used with other ids`)
+// idsFromReq validates given patterns from the request and returns the IDs of
+// matching refreshers to refresh.
+//
+// TODO(e.burkov): Validate patterns.
+func (h *refreshHandler) idsFromReq(patterns []string) (ids []RefresherID, err error) {
+	ok, err := isWildcard(patterns)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return nil, err
 	}
+
+	refrIDs := slices.Collect(maps.Keys(h.refrs))
+	if ok {
+		return refrIDs, nil
+	}
+
+	return matchPatterns(refrIDs, patterns), nil
 }
 
 // refresh performs a single refresh and returns the result as a string.
@@ -125,4 +121,39 @@ func (h *refreshHandler) refresh(ctx context.Context, l *slog.Logger, id Refresh
 	l.InfoContext(ctx, "refresh finished", "id", id, "duration", time.Since(start))
 
 	return "ok"
+}
+
+// isWildcard returns true if the list of patterns contains a single wildcard
+// pattern.  It also returns an error if the list is empty or contains a
+// wildcard pattern mixed with the others.
+func isWildcard(patterns []string) (ok bool, err error) {
+	switch len(patterns) {
+	case 0:
+		return false, errors.Error("no ids")
+	case 1:
+		if patterns[0] == "*" {
+			return true, nil
+		} else {
+			return false, nil
+		}
+	default:
+		if slices.Contains(patterns, "*") {
+			return false, errors.Error(`"*" cannot be used with other ids`)
+		} else {
+			return false, nil
+		}
+	}
+}
+
+// matchPatterns matches ids against patterns and returns the resulting matches.
+func matchPatterns(ids, patterns []string) (matches []string) {
+	for _, pattern := range patterns {
+		for _, id := range ids {
+			if match, _ := path.Match(pattern, id); match {
+				matches = append(matches, id)
+			}
+		}
+	}
+
+	return matches
 }

@@ -63,11 +63,6 @@ const (
 	// in e.g. HTTP path.
 	DomainForDevices = "d.dns.example"
 
-	// DeviceIDWildcard is the common wildcard domain for retrieving [agd.DeviceID]
-	// in tests.  Use [strings.ReplaceAll] to replace the "*" symbol with the actual
-	// [agd.DeviceID] or use [DeviceIDSrvName].
-	DeviceIDWildcard = "*." + DomainForDevices
-
 	// DeviceIDSrvName is the common client server-name with a device ID for
 	// tests.
 	DeviceIDSrvName = DeviceIDStr + "." + DomainForDevices

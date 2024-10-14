@@ -2,6 +2,7 @@ package agdtest
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/netip"
 	"time"
@@ -20,9 +21,11 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
+	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // Interface Mocks
@@ -50,6 +53,31 @@ func (a *AccessManager) IsBlockedHost(host string, qt uint16) (blocked bool) {
 // IsBlockedIP implements the [access.Interface] interface for *AccessManager.
 func (a *AccessManager) IsBlockedIP(ip netip.Addr) (blocked bool) {
 	return a.OnIsBlockedIP(ip)
+}
+
+// Package agd
+
+// type check
+var _ agd.DeviceFinder = (*DeviceFinder)(nil)
+
+// DeviceFinder is an [agd.DeviceFinder] for tests.
+type DeviceFinder struct {
+	OnFind func(
+		ctx context.Context,
+		req *dns.Msg,
+		raddr netip.AddrPort,
+		laddr netip.AddrPort,
+	) (r agd.DeviceResult)
+}
+
+// Find implements the [agd.DeviceFinder] interface for *DeviceFinder.
+func (f *DeviceFinder) Find(
+	ctx context.Context,
+	req *dns.Msg,
+	raddr netip.AddrPort,
+	laddr netip.AddrPort,
+) (r agd.DeviceResult) {
+	return f.OnFind(ctx, req, raddr, laddr)
 }
 
 // Package agdpasswd
@@ -174,6 +202,15 @@ type ErrorCollector struct {
 // Collect implements the [errcoll.Interface] interface for *ErrorCollector.
 func (c *ErrorCollector) Collect(ctx context.Context, err error) {
 	c.OnCollect(ctx, err)
+}
+
+// NewErrorCollector returns a new [ErrorCollector] all methods of which panic.
+func NewErrorCollector() (c *ErrorCollector) {
+	return &ErrorCollector{
+		OnCollect: func(_ context.Context, err error) {
+			panic(fmt.Errorf("unexpected call to ErrorCollector.Collect(%v)", err))
+		},
+	}
 }
 
 // Package filter
@@ -470,7 +507,7 @@ type RateLimit struct {
 		ctx context.Context,
 		req *dns.Msg,
 		ip netip.Addr,
-	) (drop, allowlisted bool, err error)
+	) (shouldDrop, isAllowlisted bool, err error)
 	OnCountResponses func(ctx context.Context, resp *dns.Msg, ip netip.Addr)
 }
 
@@ -479,7 +516,7 @@ func (l *RateLimit) IsRateLimited(
 	ctx context.Context,
 	req *dns.Msg,
 	ip netip.Addr,
-) (drop, allowlisted bool, err error) {
+) (shouldDrop, isAllowlisted bool, err error) {
 	return l.OnIsRateLimited(ctx, req, ip)
 }
 
@@ -487,4 +524,64 @@ func (l *RateLimit) IsRateLimited(
 // *RateLimit.
 func (l *RateLimit) CountResponses(ctx context.Context, req *dns.Msg, ip netip.Addr) {
 	l.OnCountResponses(ctx, req, ip)
+}
+
+// RemoteKV is an [remotekv.Interface] implementation for tests.
+type RemoteKV struct {
+	OnGet func(ctx context.Context, key string) (val []byte, ok bool, err error)
+	OnSet func(ctx context.Context, key string, val []byte) (err error)
+}
+
+// type check
+var _ remotekv.Interface = (*RemoteKV)(nil)
+
+// Get implements the [remotekv.Interface] interface for *RemoteKV.
+func (kv *RemoteKV) Get(ctx context.Context, key string) (val []byte, ok bool, err error) {
+	return kv.OnGet(ctx, key)
+}
+
+// Set implements the [remotekv.Interface] interface for *RemoteKV.
+func (kv *RemoteKV) Set(ctx context.Context, key string, val []byte) (err error) {
+	return kv.OnSet(ctx, key, val)
+}
+
+// Module prometheus
+
+// PrometheusRegisterer is a [prometheus.Registerer] implementation for tests.
+type PrometheusRegisterer struct {
+	OnRegister     func(prometheus.Collector) (err error)
+	OnMustRegister func(...prometheus.Collector)
+	OnUnregister   func(prometheus.Collector) (ok bool)
+}
+
+// type check
+var _ prometheus.Registerer = (*PrometheusRegisterer)(nil)
+
+// Register implements the [prometheus.Registerer] interface for
+// *PrometheusRegisterer.
+func (r *PrometheusRegisterer) Register(c prometheus.Collector) (err error) {
+	return r.OnRegister(c)
+}
+
+// MustRegister implements the [prometheus.Registerer] interface for
+// *PrometheusRegisterer.
+func (r *PrometheusRegisterer) MustRegister(collectors ...prometheus.Collector) {
+	r.OnMustRegister(collectors...)
+}
+
+// Unregister implements the [prometheus.Registerer] interface for
+// *PrometheusRegisterer.
+func (r *PrometheusRegisterer) Unregister(c prometheus.Collector) (ok bool) {
+	return r.OnUnregister(c)
+}
+
+// NewTestPrometheusRegisterer returns a [prometheus.Registerer] implementation
+// that does nothing and returns nil from [prometheus.Registerer.Register] and
+// true from [prometheus.Registerer.Unregister].
+func NewTestPrometheusRegisterer() (r *PrometheusRegisterer) {
+	return &PrometheusRegisterer{
+		OnRegister:     func(_ prometheus.Collector) (err error) { return nil },
+		OnMustRegister: func(_ ...prometheus.Collector) {},
+		OnUnregister:   func(_ prometheus.Collector) (ok bool) { return true },
+	}
 }

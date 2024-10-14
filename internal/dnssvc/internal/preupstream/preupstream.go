@@ -19,6 +19,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/ecscache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/miekg/dns"
@@ -150,7 +151,7 @@ func (mw *Middleware) wrapCacheMw(next dnsserver.Handler) (wrapped dnsserver.Han
 		})
 	} else {
 		cacheMw = cache.NewMiddleware(&cache.MiddlewareConfig{
-			MetricsListener: &prometheus.CacheMetricsListener{},
+			MetricsListener: prometheus.NewCacheMetricsListener(metrics.Namespace()),
 			Size:            mw.cacheSize,
 			MinTTL:          mw.cacheMinTTL,
 			UseTTLOverride:  mw.useCacheTTLOverride,

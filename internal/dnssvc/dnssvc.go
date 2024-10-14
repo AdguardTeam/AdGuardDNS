@@ -7,6 +7,7 @@ package dnssvc
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -14,33 +15,41 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
+	"github.com/AdguardTeam/AdGuardDNS/internal/cmd/plugin"
 	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
+	dnssrvprom "github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/accessmw"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/devicesetter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/devicefinder"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/initial"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/mainmw"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/preservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/preupstream"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/ratelimitmw"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/service"
 	"github.com/miekg/dns"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // Config is the configuration of the AdGuard DNS service.
 type Config struct {
+	// BaseLogger is used to create loggers with custom prefixes for middlewares
+	// and the service itself.
+	BaseLogger *slog.Logger
+
 	// Messages is the message constructor used to create blocked and other
 	// messages for this DNS service.
 	Messages *dnsmsg.Constructor
@@ -48,9 +57,6 @@ type Config struct {
 	// Cloner is used to clone messages more efficiently by disposing of parts
 	// of DNS responses for later reuse.
 	Cloner *dnsmsg.Cloner
-
-	// CacheManager is the global cache manager.  CacheManager must not be nil.
-	CacheManager agdcache.Manager
 
 	// ControlConf is the configuration of socket options.
 	ControlConf *netext.ControlConfig
@@ -63,6 +69,9 @@ type Config struct {
 	// identifiers.
 	HumanIDParser *agd.HumanIDParser
 
+	// PluginRegistry is used to override configuration parameters.
+	PluginRegistry *plugin.Registry
+
 	// AccessManager is used to block requests.
 	AccessManager access.Interface
 
@@ -72,9 +81,15 @@ type Config struct {
 	// BillStat is used to collect billing statistics.
 	BillStat billstat.Recorder
 
+	// CacheManager is the global cache manager.  CacheManager must not be nil.
+	CacheManager agdcache.Manager
+
 	// ProfileDB is the AdGuard DNS profile database used to fetch data about
 	// profiles, devices, and so on.
 	ProfileDB profiledb.Interface
+
+	// PrometheusRegisterer is used to register Prometheus metrics.
+	PrometheusRegisterer prometheus.Registerer
 
 	// DNSCheck is used by clients to check if they use AdGuard DNS.
 	DNSCheck dnscheck.Interface
@@ -120,6 +135,10 @@ type Config struct {
 	// RateLimit is used for allow or decline requests.
 	RateLimit ratelimit.Interface
 
+	// MetricsNamespace is a namespace for Prometheus metrics.  It must be a
+	// valid Prometheus metric label.
+	MetricsNamespace string
+
 	// FilteringGroups are the DNS filtering groups.  Each element must be
 	// non-nil.
 	FilteringGroups map[agd.FilteringGroupID]*agd.FilteringGroup
@@ -152,11 +171,17 @@ type Config struct {
 	// UseECSCache shows if the EDNS Client Subnet (ECS) aware cache should be
 	// used.
 	UseECSCache bool
-
-	// ProfileDBEnabled is true, if user devices and profiles recognition is
-	// enabled.
-	ProfileDBEnabled bool
 }
+
+type (
+	// MainMiddlewareMetrics is a re-export of the internal filtering-middleware
+	// metrics interface.
+	MainMiddlewareMetrics = mainmw.Metrics
+
+	// RatelimitMiddlewareMetrics is a re-export of the metrics interface of the
+	// internal access and ratelimiting middleware.
+	RatelimitMiddlewareMetrics = ratelimitmw.Metrics
+)
 
 // New returns a new DNS service.
 func New(c *Config) (svc *Service, err error) {
@@ -187,10 +212,27 @@ func New(c *Config) (svc *Service, err error) {
 	})
 	handler = preUps.Wrap(handler)
 
+	errCollListener := &errCollMetricsListener{
+		errColl:      c.ErrColl,
+		baseListener: dnssrvprom.NewServerMetricsListener(c.MetricsNamespace),
+	}
+
 	// Configure the service itself.
 	groups := make([]*serverGroup, len(c.ServerGroups))
 	svc = &Service{
 		groups: groups,
+	}
+
+	mainMwMtrc, err := newMainMiddlewareMetrics(c)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return nil, err
+	}
+
+	rlMwMtrc, err := metrics.NewDefaultRatelimitMiddleware(c.MetricsNamespace, c.PrometheusRegisterer)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return nil, err
 	}
 
 	for i, srvGrp := range c.ServerGroups {
@@ -207,6 +249,7 @@ func New(c *Config) (svc *Service, err error) {
 				Checker:     c.DNSCheck,
 			}),
 			mainmw.New(&mainmw.Config{
+				Metrics:       mainMwMtrc,
 				Messages:      c.Messages,
 				Cloner:        c.Cloner,
 				BillStat:      c.BillStat,
@@ -219,7 +262,7 @@ func New(c *Config) (svc *Service, err error) {
 		)
 
 		var servers []*server
-		servers, err = newServers(c, srvGrp, dnsHdlr, newListener)
+		servers, err = newServers(c, srvGrp, dnsHdlr, rlMwMtrc, errCollListener, newListener)
 		if err != nil {
 			return nil, fmt.Errorf("group %q: %w", srvGrp.Name, err)
 		}
@@ -231,6 +274,22 @@ func New(c *Config) (svc *Service, err error) {
 	}
 
 	return svc, nil
+}
+
+// newMainMiddlewareMetrics returns a filtering-middleware metrics
+// implementation from the config.
+func newMainMiddlewareMetrics(c *Config) (mainMwMtrc MainMiddlewareMetrics, err error) {
+	mainMwMtrc = c.PluginRegistry.MainMiddlewareMetrics()
+	if mainMwMtrc != nil {
+		return mainMwMtrc, nil
+	}
+
+	mainMwMtrc, err = metrics.NewDefaultMainMiddleware(c.MetricsNamespace, c.PrometheusRegisterer)
+	if err != nil {
+		return nil, fmt.Errorf("mainmw metrics: %w", err)
+	}
+
+	return mainMwMtrc, nil
 }
 
 // server is a group of listeners.
@@ -475,10 +534,14 @@ func (c *contextConstructor) New() (ctx context.Context, cancel context.CancelFu
 }
 
 // newServers creates a slice of servers.
+//
+// TODO(a.garipov):  Refactor this into a builder pattern.
 func newServers(
 	c *Config,
 	srvGrp *agd.ServerGroup,
 	handler dnsserver.Handler,
+	rlMwMtrc ratelimitmw.Metrics,
+	errCollListener *errCollMetricsListener,
 	newListener NewListenerFunc,
 ) (servers []*server, err error) {
 	servers = make([]*server, len(srvGrp.Servers))
@@ -496,30 +559,28 @@ func newServers(
 		// validate fg.
 		fg := c.FilteringGroups[srvGrp.FilteringGroup]
 
-		// Only apply rate-limiting logic to plain DNS.
-		rlProtos := []agd.Protocol{agd.ProtoDNS}
-
-		var rlm *ratelimit.Middleware
-		srvName := s.Name
-		rlm, err = ratelimit.NewMiddleware(c.RateLimit, rlProtos)
-		if err != nil {
-			return nil, fmt.Errorf("server %q: ratelimit: %w", srvName, err)
-		}
-
-		rlm.Metrics = prometheus.NewRateLimitMetricsListener()
-
-		amw := accessmw.New(&accessmw.Config{
-			AccessManager: c.AccessManager,
-		})
-
-		imw := initial.New(&initial.Config{
+		df := newDeviceFinder(c, srvGrp, s)
+		rlm := ratelimitmw.New(&ratelimitmw.Config{
+			Logger:         c.BaseLogger.With(slogutil.KeyPrefix, "ratelimitmw"),
 			Messages:       c.Messages,
 			FilteringGroup: fg,
 			ServerGroup:    srvGrp,
 			Server:         s,
-			DeviceSetter:   newDeviceSetter(c, srvGrp, s),
-			GeoIP:          c.GeoIP,
+			AccessManager:  c.AccessManager,
+			DeviceFinder:   df,
 			ErrColl:        c.ErrColl,
+			GeoIP:          c.GeoIP,
+			Metrics:        rlMwMtrc,
+			Limiter:        c.RateLimit,
+			// Only apply rate-limiting logic to plain DNS.
+			Protocols: []agd.Protocol{agd.ProtoDNS},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("ratelimit: %w", err)
+		}
+
+		imw := initial.New(&initial.Config{
+			Logger: c.BaseLogger.With(slogutil.KeyPrefix, "initmw"),
 		})
 
 		h := dnsserver.WithMiddlewares(
@@ -529,12 +590,13 @@ func newServers(
 			// to make sure that the application logic isn't touched if the
 			// request is ratelimited or blocked by access settings.
 			rlm,
-			amw,
 			imw,
 		)
 
+		srvName := s.Name
+
 		var listeners []*listener
-		listeners, err = newListeners(c, s, h, newListener)
+		listeners, err = newListeners(c, s, h, errCollListener, newListener)
 		if err != nil {
 			return nil, fmt.Errorf("server %q: %w", srvName, err)
 		}
@@ -549,18 +611,19 @@ func newServers(
 	return servers, nil
 }
 
-// newDeviceSetter returns a new [devicesetter.Interface] for a server based on
-// the configuration.
-func newDeviceSetter(c *Config, g *agd.ServerGroup, s *agd.Server) (ds devicesetter.Interface) {
-	if !c.ProfileDBEnabled {
-		return devicesetter.Empty{}
+// newDeviceFinder returns a new [agd.DeviceFinder] for a server based on the
+// configuration.
+func newDeviceFinder(c *Config, g *agd.ServerGroup, s *agd.Server) (df agd.DeviceFinder) {
+	if !g.ProfilesEnabled {
+		return agd.EmptyDeviceFinder{}
 	}
 
-	return devicesetter.NewDefault(&devicesetter.Config{
-		ProfileDB:         c.ProfileDB,
-		HumanIDParser:     c.HumanIDParser,
-		Server:            s,
-		DeviceIDWildcards: g.TLS.DeviceIDWildcards,
+	return devicefinder.NewDefault(&devicefinder.Config{
+		Logger:        c.BaseLogger.With(slogutil.KeyPrefix, "devicefinder"),
+		ProfileDB:     c.ProfileDB,
+		HumanIDParser: c.HumanIDParser,
+		Server:        s,
+		DeviceDomains: g.TLS.DeviceDomains,
 	})
 }
 
@@ -569,6 +632,7 @@ func newListeners(
 	c *Config,
 	srv *agd.Server,
 	handler dnsserver.Handler,
+	errCollListener *errCollMetricsListener,
 	newListener NewListenerFunc,
 ) (listeners []*listener, err error) {
 	bindData := srv.BindData()
@@ -585,12 +649,9 @@ func newListeners(
 
 		name := listenerName(srv.Name, addr, proto)
 		baseConf := dnsserver.ConfigBase{
-			Network: dnsserver.NetworkAny,
-			Handler: handler,
-			Metrics: &errCollMetricsListener{
-				errColl:      c.ErrColl,
-				baseListener: prometheus.NewServerMetricsListener(),
-			},
+			Network:        dnsserver.NetworkAny,
+			Handler:        handler,
+			Metrics:        errCollListener,
 			Disposer:       c.Cloner,
 			RequestContext: newContextConstructor(c.HandleTimeout),
 			ListenConfig: newListenConfig(

@@ -2,6 +2,7 @@ package connlimiter
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"sync"
 
@@ -11,6 +12,9 @@ import (
 
 // Config is the configuration structure for the stream-connection limiter.
 type Config struct {
+	// Logger is used to log the operation of the limiter.  It must not be nil.
+	Logger *slog.Logger
+
 	// Stop is the point at which the limiter stops accepting new connections.
 	// Once the number of active connections reaches this limit, new connections
 	// wait for the number to decrease to or below Resume.
@@ -27,6 +31,8 @@ type Config struct {
 
 // Limiter is the stream-connection limiter.
 type Limiter struct {
+	logger *slog.Logger
+
 	// counterCond is the shared condition variable that protects counter.
 	counterCond *sync.Cond
 
@@ -41,6 +47,7 @@ func New(c *Config) (l *Limiter, err error) {
 	}
 
 	return &Limiter{
+		logger:      c.Logger,
 		counterCond: sync.NewCond(&sync.Mutex{}),
 		counter: &counter{
 			current:     0,
@@ -59,6 +66,8 @@ func (l *Limiter) Limit(lsnr net.Listener, srvInfo *dnsserver.ServerInfo) (limit
 
 	return &limitListener{
 		Listener: lsnr,
+
+		logger: l.logger.With("name", name),
 
 		counterCond: l.counterCond,
 		counter:     l.counter,

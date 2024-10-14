@@ -62,6 +62,7 @@ func DeviceTypeFromDNS(s string) (dt DeviceType, err error) {
 
 	for i, dtStr := range deviceTypeStrings[1:] {
 		if strings.EqualFold(s, dtStr) {
+			// #nosec G115 -- i is below math.MaxUint8.
 			return DeviceType(i + 1), nil
 		}
 	}

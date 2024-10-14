@@ -9,15 +9,12 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
 
 // testReqHost is the request host for tests.
 const testReqHost = "blocked.example"
@@ -90,8 +87,9 @@ func TestRefreshable_ID(t *testing.T) {
 
 func TestRefreshable_Refresh(t *testing.T) {
 	cachePath, srvURL := filtertest.PrepareRefreshable(t, nil, testBlockRule, http.StatusOK)
-	rl := rulelist.NewRefreshable(
+	rl, err := rulelist.NewRefreshable(
 		&internal.RefreshableConfig{
+			Logger:    slogutil.NewDiscardLogger(),
 			URL:       srvURL,
 			ID:        testFltListID,
 			CachePath: cachePath,
@@ -100,9 +98,10 @@ func TestRefreshable_Refresh(t *testing.T) {
 		},
 		rulelist.NewResultCache(100, true),
 	)
+	require.NoError(t, err)
 
 	ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
-	err := rl.Refresh(ctx, false)
+	err = rl.Refresh(ctx, false)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, rl.RulesCount())

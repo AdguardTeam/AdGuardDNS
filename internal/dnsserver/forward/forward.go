@@ -25,16 +25,17 @@ That's it, you now have a working DNS forwarder.
 package forward
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/miekg/dns"
 	"golang.org/x/exp/rand"
 )
@@ -43,6 +44,9 @@ import (
 // queries to the specified upstreams.  It also implements [io.Closer], allowing
 // resource reuse.
 type Handler struct {
+	// logger is used for logging the operation of the forwarding handler.
+	logger *slog.Logger
+
 	// metrics is a listener for the handler events.
 	metrics MetricsListener
 
@@ -91,6 +95,10 @@ const ErrNoResponse = errors.Error("no response")
 
 // HandlerConfig is the configuration structure for [NewHandler].
 type HandlerConfig struct {
+	// Logger is used for logging the operation of the forwarding handler.  If
+	// Logger is nil, [slog.Default] is used.
+	Logger *slog.Logger
+
 	// MetricsListener is the optional listener for the handler events.  Set it
 	// if you want to keep track of what the handler does and record performance
 	// metrics.  If not set, EmptyMetricsListener is used.
@@ -129,12 +137,14 @@ type HandlerConfig struct {
 // handler only support plain DNS upstreams.  c must not be nil.
 func NewHandler(c *HandlerConfig) (h *Handler) {
 	h = &Handler{
+		logger:            cmp.Or(c.Logger, slog.Default()),
 		rand:              rand.New(&rand.LockedSource{}),
 		activeUpstreamsMu: &sync.RWMutex{},
 		hcDomainTmpl:      c.HealthcheckDomainTmpl,
 		hcBackoff:         c.HealthcheckBackoffDuration,
 	}
 
+	// #nosec G115 -- The Unix epoch time is highly unlikely to be negative.
 	h.rand.Seed(uint64(time.Now().UnixNano()))
 
 	if l := c.MetricsListener; l != nil {
@@ -266,9 +276,8 @@ func (h *Handler) exchange(
 // upstreams is detected to be up again, requests are redirected back to the
 // main upstreams.
 func (h *Handler) Refresh(ctx context.Context) (err error) {
-	// TODO(a.garipov):  Use slog.
-	log.Debug("upstream_healthcheck_refresh: started")
-	defer log.Debug("upstream_healthcheck_refresh: finished")
+	h.logger.DebugContext(ctx, "healthcheck refresh started")
+	defer h.logger.DebugContext(ctx, "healthcheck refresh finished")
 
 	return h.refresh(ctx, false)
 }

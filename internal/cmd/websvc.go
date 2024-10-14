@@ -3,12 +3,15 @@ package cmd
 import (
 	"encoding/base64"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/netip"
 	"net/textproto"
 	"os"
 	"path"
+	"slices"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/errors"
@@ -17,8 +20,6 @@ import (
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
-
-// Web Service Configuration
 
 // webConfig contains configuration for the AdGuard DNS web service.
 type webConfig struct {
@@ -58,11 +59,11 @@ type webConfig struct {
 	Timeout timeutil.Duration `yaml:"timeout"`
 }
 
-// toInternal converts c to the AdGuardDNS web service configuration.  c is
-// assumed to be valid.
+// toInternal converts c to the AdGuardDNS web service configuration.  c must be
+// valid.
 func (c *webConfig) toInternal(
-	envs *environments,
-	dnsCk http.Handler,
+	envs *environment,
+	dnsCk dnscheck.Interface,
 	errColl errcoll.Interface,
 ) (conf *websvc.Config, err error) {
 	if c == nil {
@@ -70,9 +71,12 @@ func (c *webConfig) toInternal(
 	}
 
 	conf = &websvc.Config{
-		DNSCheck: dnsCk,
-		ErrColl:  errColl,
-		Timeout:  c.Timeout.Duration,
+		ErrColl: errColl,
+		Timeout: c.Timeout.Duration,
+	}
+
+	if dnsCkHdlr, ok := dnsCk.(http.Handler); ok {
+		conf.DNSCheck = dnsCkHdlr
 	}
 
 	if c.RootRedirectURL != nil {
@@ -84,24 +88,29 @@ func (c *webConfig) toInternal(
 		return nil, fmt.Errorf("converting linked_ip: %w", err)
 	}
 
-	conf.AdultBlocking, err = c.AdultBlocking.toInternal()
-	if err != nil {
-		return nil, fmt.Errorf("converting adult_blocking: %w", err)
-	}
+	blockPages := []struct {
+		webConfPtr **websvc.BlockPageServerConfig
+		conf       *blockPageServer
+		name       string
+	}{{
+		webConfPtr: &conf.AdultBlocking,
+		conf:       c.AdultBlocking,
+		name:       "adult_blocking",
+	}, {
+		webConfPtr: &conf.GeneralBlocking,
+		conf:       c.GeneralBlocking,
+		name:       "general_blocking",
+	}, {
+		webConfPtr: &conf.SafeBrowsing,
+		conf:       c.SafeBrowsing,
+		name:       "safe_browsing",
+	}}
 
-	conf.GeneralBlocking, err = c.GeneralBlocking.toInternal()
-	if err != nil {
-		return nil, fmt.Errorf("converting general_blocking: %w", err)
-	}
-
-	conf.SafeBrowsing, err = c.SafeBrowsing.toInternal()
-	if err != nil {
-		return nil, fmt.Errorf("converting safe_browsing: %w", err)
-	}
-
-	conf.StaticContent, err = c.StaticContent.toInternal()
-	if err != nil {
-		return nil, fmt.Errorf("converting static_content: %w", err)
+	for _, bp := range blockPages {
+		*bp.webConfPtr, err = bp.conf.toInternal()
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", bp.name, err)
+		}
 	}
 
 	conf.Error404, conf.Error500, err = c.readErrorPages()
@@ -113,6 +122,12 @@ func (c *webConfig) toInternal(
 	conf.NonDoHBind, err = c.NonDoHBind.toInternal()
 	if err != nil {
 		return nil, fmt.Errorf("converting non_doh_bind: %w", err)
+	}
+
+	err = c.setStaticContent(envs, conf)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return nil, err
 	}
 
 	return conf, nil
@@ -138,13 +153,32 @@ func (c *webConfig) readErrorPages() (error404, error500 []byte, err error) {
 	return error404, error500, nil
 }
 
-// validate returns an error if the web service configuration is invalid.
+// setStaticContent sets the static-content handler in conf using envs.
+func (c *webConfig) setStaticContent(envs *environment, conf *websvc.Config) (err error) {
+	if envs.WebStaticDirEnabled {
+		conf.StaticContent = http.FileServer(http.Dir(envs.WebStaticDir))
+
+		return nil
+	}
+
+	conf.StaticContent, err = c.StaticContent.toInternal()
+	if err != nil {
+		return fmt.Errorf("converting static_content: %w", err)
+	}
+
+	return nil
+}
+
+// type check
+var _ validator = (*webConfig)(nil)
+
+// validate implements the [validator] interface for *webConfig.
 func (c *webConfig) validate() (err error) {
 	switch {
 	case c == nil:
 		return nil
 	case c.Timeout.Duration <= 0:
-		return newMustBePositiveError("timeout", c.Timeout)
+		return newNotPositiveError("timeout", c.Timeout)
 	default:
 		// Go on.
 	}
@@ -189,8 +223,7 @@ type linkedIPServer struct {
 	Bind bindData `yaml:"bind"`
 }
 
-// toInternal converts s to a linkedIP server configuration.  s is assumed to be
-// valid.
+// toInternal converts s to a linkedIP server configuration.  s must be valid.
 func (s *linkedIPServer) toInternal(
 	targetURL *urlutil.URL,
 ) (srv *websvc.LinkedIPServer, err error) {
@@ -213,13 +246,16 @@ func (s *linkedIPServer) toInternal(
 	return srv, nil
 }
 
-// validate returns an error if the linked IP server configuration is invalid.
+// type check
+var _ validator = (*linkedIPServer)(nil)
+
+// validate implements the [validator] interface for *linkedIPServer.
 func (s *linkedIPServer) validate() (err error) {
 	switch {
 	case s == nil:
 		return nil
 	case len(s.Bind) == 0:
-		return errors.Error("no bind")
+		return fmt.Errorf("bind: %w", errors.ErrEmptyValue)
 	default:
 		// Go on.
 	}
@@ -235,7 +271,7 @@ func (s *linkedIPServer) validate() (err error) {
 // blockPageServer is the safe browsing or adult blocking block page web servers
 // configuration.
 type blockPageServer struct {
-	// BlockPage is the content of the HTML block page.
+	// BlockPage is the path to file with HTML block page content.
 	BlockPage string `yaml:"block_page"`
 
 	// Bind are the bind addresses and optional TLS configuration for the block
@@ -243,37 +279,36 @@ type blockPageServer struct {
 	Bind bindData `yaml:"bind"`
 }
 
-// toInternal converts s to a block page server configuration.  s is assumed to
-// be valid.
-func (s *blockPageServer) toInternal() (srv *websvc.BlockPageServer, err error) {
+// toInternal converts s to a block page server configuration.  s must be valid.
+func (s *blockPageServer) toInternal() (conf *websvc.BlockPageServerConfig, err error) {
 	if s == nil {
 		return nil, nil
 	}
 
-	srv = &websvc.BlockPageServer{}
-
-	srv.Content, err = os.ReadFile(s.BlockPage)
-	if err != nil {
-		return nil, fmt.Errorf("reading block_page file: %w", err)
+	conf = &websvc.BlockPageServerConfig{
+		ContentFilePath: s.BlockPage,
 	}
 
-	srv.Bind, err = s.Bind.toInternal()
+	conf.Bind, err = s.Bind.toInternal()
 	if err != nil {
 		return nil, fmt.Errorf("converting bind: %w", err)
 	}
 
-	return srv, nil
+	return conf, nil
 }
 
-// validate returns an error if the block page server configuration is invalid.
+// type check
+var _ validator = (*blockPageServer)(nil)
+
+// validate implements the [validator] interface for *blockPageServer.
 func (s *blockPageServer) validate() (err error) {
 	switch {
 	case s == nil:
 		return nil
 	case s.BlockPage == "":
-		return errors.Error("no block_page")
+		return fmt.Errorf("block_page: %w", errors.ErrEmptyValue)
 	case len(s.Bind) == 0:
-		return errors.Error("no bind")
+		return fmt.Errorf("bind: %w", errors.ErrEmptyValue)
 	default:
 		// Go on.
 	}
@@ -289,8 +324,8 @@ func (s *blockPageServer) validate() (err error) {
 // bindData are the data for binding HTTP servers to addresses.
 type bindData []*bindItem
 
-// toInternal converts bd to bind data for the AdGuard DNS web service.  bd is
-// assumed to be valid.
+// toInternal converts bd to bind data for the AdGuard DNS web service.  bd must
+// be valid.
 func (bd bindData) toInternal() (data []*websvc.BindData, err error) {
 	data = make([]*websvc.BindData, len(bd))
 
@@ -304,7 +339,10 @@ func (bd bindData) toInternal() (data []*websvc.BindData, err error) {
 	return data, nil
 }
 
-// validate returns an error if the bind data are invalid.
+// type check
+var _ validator = bindData(nil)
+
+// validate implements the [validator] interface for bindData.
 func (bd bindData) validate() (err error) {
 	if len(bd) == 0 {
 		return nil
@@ -329,8 +367,8 @@ type bindItem struct {
 	Certificates tlsConfigCerts `yaml:"certificates"`
 }
 
-// toInternal converts i to bind data for the AdGuard DNS web service.  i is
-// assumed to be valid.
+// toInternal converts i to bind data for the AdGuard DNS web service.  i must
+// be valid.
 func (i *bindItem) toInternal() (data *websvc.BindData, err error) {
 	tlsConf, err := i.Certificates.toInternal()
 	if err != nil {
@@ -343,13 +381,16 @@ func (i *bindItem) toInternal() (data *websvc.BindData, err error) {
 	}, nil
 }
 
-// validate returns an error if the bind data are invalid.
+// type check
+var _ validator = (*bindItem)(nil)
+
+// validate implements the [validator] interface for *bindItem.
 func (i *bindItem) validate() (err error) {
 	switch {
 	case i == nil:
-		return errors.Error("no bind data")
+		return errors.ErrNoValue
 	case i.Address == netip.AddrPort{}:
-		return errors.Error("no address")
+		return fmt.Errorf("address: %w", errors.ErrEmptyValue)
 	default:
 		// Go on.
 	}
@@ -367,7 +408,7 @@ func (i *bindItem) validate() (err error) {
 type staticContent map[string]*staticFile
 
 // toInternal converts sc to a static content mapping for the AdGuard DNS web
-// service.  sc is assumed to be valid.
+// service.  sc must be valid.
 func (sc staticContent) toInternal() (fs websvc.StaticContent, err error) {
 	if len(sc) == 0 {
 		return nil, nil
@@ -384,20 +425,21 @@ func (sc staticContent) toInternal() (fs websvc.StaticContent, err error) {
 	return fs, nil
 }
 
-// validate returns an error if the static content mapping is invalid.
+// type check
+var _ validator = staticContent(nil)
+
+// validate implements the [validator] interface for staticContent.
 func (sc staticContent) validate() (err error) {
 	if len(sc) == 0 {
 		return nil
 	}
 
-	// TODO(a.garipov): Sort the keys to make the order of validations
-	// predictable.
-	for p, f := range sc {
+	for _, p := range slices.Sorted(maps.Keys(sc)) {
 		if !path.IsAbs(p) {
 			return fmt.Errorf("path %q: not absolute", p)
 		}
 
-		err = f.validate()
+		err = sc[p].validate()
 		if err != nil {
 			return fmt.Errorf("path %q: %w", p, err)
 		}
@@ -415,8 +457,8 @@ type staticFile struct {
 	Content string `yaml:"content"`
 }
 
-// toInternal converts f to a static file for the AdGuard DNS web service.  f is
-// assumed to be valid.
+// toInternal converts f to a static file for the AdGuard DNS web service.  f
+// must be valid.
 func (f *staticFile) toInternal() (file *websvc.StaticFile, err error) {
 	file = &websvc.StaticFile{
 		Headers: http.Header{},
@@ -441,10 +483,13 @@ func (f *staticFile) toInternal() (file *websvc.StaticFile, err error) {
 	return file, nil
 }
 
-// validate returns an error if the static content file is invalid.
+// type check
+var _ validator = (*staticFile)(nil)
+
+// validate implements the [validator] interface for *staticFile.
 func (f *staticFile) validate() (err error) {
 	if f == nil {
-		return errors.Error("no file")
+		return errors.ErrNoValue
 	}
 
 	return nil

@@ -13,12 +13,15 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/c2h5oh/datasize"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func TestProfileStorage_CreateAutoDevice(t *testing.T) {
@@ -48,21 +51,15 @@ func TestProfileStorage_CreateAutoDevice(t *testing.T) {
 
 		OnGetDNSProfiles: func(
 			req *backendpb.DNSProfilesRequest,
-			srv backendpb.DNSService_GetDNSProfilesServer,
+			srv grpc.ServerStreamingServer[backendpb.DNSProfile],
 		) (err error) {
 			panic("not implemented")
 		},
 
 		OnSaveDevicesBillingStat: func(
-			srv backendpb.DNSService_SaveDevicesBillingStatServer,
+			srv grpc.ClientStreamingServer[backendpb.DeviceBillingStat, emptypb.Empty],
 		) (err error) {
 			panic("not implemented")
-		},
-	}
-
-	errColl := &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, err error) {
-			panic(err)
 		},
 	}
 
@@ -71,7 +68,9 @@ func TestProfileStorage_CreateAutoDevice(t *testing.T) {
 
 	s, err := backendpb.NewProfileStorage(&backendpb.ProfileStorageConfig{
 		BindSet: backendpb.TestBind,
-		ErrColl: errColl,
+		ErrColl: agdtest.NewErrorCollector(),
+		Logger:  slogutil.NewDiscardLogger(),
+		Metrics: backendpb.EmptyMetrics{},
 		Endpoint: &url.URL{
 			Scheme: "grpc",
 			Host:   l.Addr().String(),
@@ -139,7 +138,7 @@ func BenchmarkProfileStorage_Profiles(b *testing.B) {
 
 		OnGetDNSProfiles: func(
 			req *backendpb.DNSProfilesRequest,
-			srv backendpb.DNSService_GetDNSProfilesServer,
+			srv grpc.ServerStreamingServer[backendpb.DNSProfile],
 		) (err error) {
 			sendErr := srv.Send(srvProf)
 			srv.SetTrailer(trailerMD)
@@ -148,15 +147,9 @@ func BenchmarkProfileStorage_Profiles(b *testing.B) {
 		},
 
 		OnSaveDevicesBillingStat: func(
-			srv backendpb.DNSService_SaveDevicesBillingStatServer,
+			srv grpc.ClientStreamingServer[backendpb.DeviceBillingStat, emptypb.Empty],
 		) (err error) {
 			panic("not implemented")
-		},
-	}
-
-	errColl := &agdtest.ErrorCollector{
-		OnCollect: func(_ context.Context, err error) {
-			panic(err)
 		},
 	}
 
@@ -165,11 +158,14 @@ func BenchmarkProfileStorage_Profiles(b *testing.B) {
 
 	s, err := backendpb.NewProfileStorage(&backendpb.ProfileStorageConfig{
 		BindSet: netip.MustParsePrefix("0.0.0.0/0"),
-		ErrColl: errColl,
+		ErrColl: agdtest.NewErrorCollector(),
+		Logger:  slogutil.NewDiscardLogger(),
+		Metrics: backendpb.EmptyMetrics{},
 		Endpoint: &url.URL{
 			Scheme: "grpc",
 			Host:   l.Addr().String(),
 		},
+		MaxProfilesSize: 1 * datasize.MB,
 	})
 	require.NoError(b, err)
 
@@ -199,11 +195,8 @@ func BenchmarkProfileStorage_Profiles(b *testing.B) {
 	require.NoError(b, errSink)
 	require.NotNil(b, respSink)
 
-	// Most recent result, on a ThinkPad X13:
-	//	goos: linux
-	//	goarch: amd64
-	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/backendpb
-	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkProfileStorage_Profiles
-	//	BenchmarkProfileStorage_Profiles-16    	    4128	    291646 ns/op	   18578 B/op	     341 allocs/op
+	// goos: darwin
+	// goarch: arm64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/backendpb
+	// BenchmarkProfileStorage_Profiles-8         11599            104725 ns/op           18281 B/op        328 allocs/op
 }

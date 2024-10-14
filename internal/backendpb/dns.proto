@@ -71,6 +71,7 @@ message DNSProfile {
   bool ip_log_enabled = 17;
   AccessSettings access = 18;
   bool auto_devices_enabled = 19;
+  RateLimitSettings rate_limit = 20;
 }
 
 message SafeBrowsingSettings {
@@ -204,4 +205,10 @@ message BadRequestError {
 
 message AuthenticationFailedError {
   string message = 1;
+}
+
+message RateLimitSettings {
+  bool enabled = 1;
+  uint32 rps = 2;
+  repeated CidrRange client_cidr = 3;
 }

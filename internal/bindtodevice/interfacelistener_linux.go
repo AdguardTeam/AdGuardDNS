@@ -5,14 +5,15 @@ package bindtodevice
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
+	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/prometheus/client_golang/prometheus"
@@ -20,6 +21,7 @@ import (
 
 // interfaceListener contains information about a single interface listener.
 type interfaceListener struct {
+	logger             *slog.Logger
 	conns              *connIndex
 	listenConf         *net.ListenConfig
 	bodyPool           *syncutil.Pool[[]byte]
@@ -36,10 +38,10 @@ type interfaceListener struct {
 // listenTCP runs the TCP listening loop.  It is intended to be used as a
 // goroutine.  errCh receives nil if the listening has started successfully or
 // the listening error if not.
-func (l *interfaceListener) listenTCP(errCh chan<- error) {
-	defer log.OnPanic("interfaceListener.listenTCP")
+func (l *interfaceListener) listenTCP(ctx context.Context, errCh chan<- error) {
+	logger := l.logger.With("network", "tcp")
+	defer slogutil.RecoverAndLog(ctx, logger)
 
-	ctx := context.Background()
 	addrStr := netutil.JoinHostPort("0.0.0.0", l.port)
 	tcpListener, err := l.listenConf.Listen(ctx, "tcp", addrStr)
 
@@ -48,14 +50,12 @@ func (l *interfaceListener) listenTCP(errCh chan<- error) {
 		return
 	}
 
-	logPrefix := fmt.Sprintf("bindtodevice: listener %s:%d: tcp", l.ifaceName, l.port)
-
-	log.Info("%s: starting", logPrefix)
+	logger.InfoContext(ctx, "starting")
 
 	for {
 		select {
 		case <-l.done:
-			log.Info("%s: done", logPrefix)
+			logger.InfoContext(ctx, "done")
 
 			return
 		default:
@@ -65,23 +65,23 @@ func (l *interfaceListener) listenTCP(errCh chan<- error) {
 		var conn net.Conn
 		conn, err = tcpListener.Accept()
 		if err != nil {
-			errcoll.Collectf(ctx, l.errColl, "%s: accepting: %w", logPrefix, err)
+			errcoll.Collect(ctx, l.errColl, logger, "accepting", err)
 
 			continue
 		}
 
-		l.processConn(conn, logPrefix)
+		l.processConn(ctx, logger, conn)
 	}
 }
 
 // processConn processes a single connection.  If the connection doesn't have a
 // connected channel-listener, it is closed.
-func (l *interfaceListener) processConn(conn net.Conn, logPrefix string) {
+func (l *interfaceListener) processConn(ctx context.Context, logger *slog.Logger, conn net.Conn) {
 	laddr := netutil.NetAddrToAddrPort(conn.LocalAddr())
 	raddr := conn.RemoteAddr()
 	if lsnr := l.conns.listener(laddr.Addr()); lsnr != nil {
 		if !lsnr.send(conn) {
-			optlog.Debug3("%s: from raddr %s: channel for laddr %s is closed", logPrefix, raddr, laddr)
+			optslog.Debug2(ctx, logger, "channel is closed", "raddr", raddr, "laddr", laddr)
 		}
 
 		return
@@ -89,21 +89,21 @@ func (l *interfaceListener) processConn(conn net.Conn, logPrefix string) {
 
 	metrics.BindToDeviceUnknownTCPRequestsTotal.Inc()
 
-	optlog.Debug3("%s: from raddr %s: no stream channel for laddr %s", logPrefix, raddr, laddr)
+	optslog.Debug2(ctx, logger, "no stream channel", "raddr", raddr, "laddr", laddr)
 
 	err := conn.Close()
 	if err != nil {
-		optlog.Debug3("%s: from raddr %s: closing: %s", logPrefix, raddr, err)
+		optslog.Debug2(ctx, logger, "closing", "raddr", raddr, slogutil.KeyError, err)
 	}
 }
 
 // listenUDP runs the UDP listening loop.  It is intended to be used as a
 // goroutine.  errCh receives nil if the listening has started successfully or
 // the listening error if not.
-func (l *interfaceListener) listenUDP(errCh chan<- error) {
-	defer log.OnPanic("interfaceListener.listenUDP")
+func (l *interfaceListener) listenUDP(ctx context.Context, errCh chan<- error) {
+	logger := l.logger.With("network", "udp")
+	defer slogutil.RecoverAndLog(ctx, logger)
 
-	ctx := context.Background()
 	addrStr := netutil.JoinHostPort("0.0.0.0", l.port)
 	packetConn, err := l.listenConf.ListenPacket(ctx, "udp", addrStr)
 	if err != nil {
@@ -116,31 +116,33 @@ func (l *interfaceListener) listenUDP(errCh chan<- error) {
 
 	errCh <- nil
 
-	go l.writeUDPResponses(udpConn)
+	go l.writeUDPResponses(ctx, logger, udpConn)
 
-	logPrefix := fmt.Sprintf("bindtodevice: listener %s:%d: udp", l.ifaceName, l.port)
-
-	log.Info("%s: starting", logPrefix)
+	logger.InfoContext(ctx, "starting")
 
 	for {
 		select {
 		case <-l.done:
-			log.Info("%s: done", logPrefix)
+			logger.InfoContext(ctx, "done")
 
 			return
 		default:
 			// Go on.
 		}
 
-		err = l.readUDP(udpConn, logPrefix)
+		err = l.readUDP(ctx, logger, udpConn)
 		if err != nil {
-			errcoll.Collectf(ctx, l.errColl, "%s: reading session: %w", logPrefix, err)
+			errcoll.Collect(ctx, l.errColl, logger, "reading session", err)
 		}
 	}
 }
 
 // readUDP reads a UDP session from c and sends it to the appropriate channel.
-func (l *interfaceListener) readUDP(c *net.UDPConn, logPrefix string) (err error) {
+func (l *interfaceListener) readUDP(
+	ctx context.Context,
+	logger *slog.Logger,
+	c *net.UDPConn,
+) (err error) {
 	bodyPtr := l.bodyPool.Get()
 	body := *bodyPtr
 
@@ -171,18 +173,13 @@ func (l *interfaceListener) readUDP(c *net.UDPConn, logPrefix string) (err error
 	if chanPacketConn == nil {
 		metrics.BindToDeviceUnknownUDPRequestsTotal.Inc()
 
-		optlog.Debug3(
-			"%s: from raddr %s: no packet channel for laddr %s",
-			logPrefix,
-			sess.raddr,
-			laddr,
-		)
+		optslog.Debug2(ctx, logger, "no packet channel", "raddr", sess.raddr, "laddr", laddr)
 
 		return nil
 	}
 
 	if !chanPacketConn.send(sess) {
-		optlog.Debug2("%s: channel for laddr %s is closed", logPrefix, laddr)
+		optslog.Debug1(ctx, logger, "channel is closed", "laddr", laddr)
 	}
 
 	return nil
@@ -190,13 +187,17 @@ func (l *interfaceListener) readUDP(c *net.UDPConn, logPrefix string) (err error
 
 // writeUDPResponses runs the UDP write loop.  It is intended to be used as a
 // goroutine.
-func (l *interfaceListener) writeUDPResponses(c *net.UDPConn) {
-	defer log.OnPanic("interfaceListener.writeUDP")
+func (l *interfaceListener) writeUDPResponses(
+	ctx context.Context,
+	logger *slog.Logger,
+	c *net.UDPConn,
+) {
+	defer slogutil.RecoverAndLog(ctx, logger)
 
 	for {
 		select {
 		case <-l.done:
-			optlog.Debug2("bindtodevice: listener %s:%d: udp write: done", l.ifaceName, l.port)
+			logger.DebugContext(ctx, "udp write done")
 
 			return
 		case req := <-l.writeRequests:

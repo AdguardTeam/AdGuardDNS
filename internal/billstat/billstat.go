@@ -9,8 +9,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 )
 
-// Common Constants, Types, And Utilities
-
 // Recorder is the billing statistics recorder interface.
 type Recorder interface {
 	Record(
@@ -60,6 +58,7 @@ type Record struct {
 	// Queries is the total number of Queries the device has performed since the
 	// most recent sync.  This value is an int32 to be in sync with the business
 	// logic backend which uses this type.  Change it if it is changed there.
+	// Queries must not be negative.
 	Queries int32
 
 	// Proto is the DNS protocol of the most recent query from the device.

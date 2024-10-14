@@ -2,16 +2,19 @@ package debugsvc_test
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/debugsvc"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/netutil/httputil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,20 +36,40 @@ func TestService_Start(t *testing.T) {
 		require.NoError(pt, err)
 	})
 
-	refreshed := false
-	c := &debugsvc.Config{
-		Logger:       slogutil.NewDiscardLogger(),
-		DNSDBAddr:    addr,
-		DNSDBHandler: h,
-		Refreshers: debugsvc.Refreshers{
-			"test": &agdtest.Refresher{
-				OnRefresh: func(_ context.Context) (err error) {
-					refreshed = true
+	var refreshed []string
+	refreshers := debugsvc.Refreshers{
+		"test": &agdtest.Refresher{
+			OnRefresh: func(_ context.Context) (err error) {
+				refreshed = append(refreshed, "test")
 
-					return nil
-				},
+				return nil
 			},
 		},
+		"parent/first": &agdtest.Refresher{
+			OnRefresh: func(_ context.Context) (err error) {
+				refreshed = append(refreshed, "parent/first")
+
+				return nil
+			},
+		},
+		"parent/second": &agdtest.Refresher{
+			OnRefresh: func(_ context.Context) (err error) {
+				refreshed = append(refreshed, "parent/second")
+
+				return nil
+			},
+		},
+	}
+
+	cacheManager := agdcache.NewDefaultManager()
+	cacheManager.Add("test", agdcache.Empty[any, any]{})
+
+	c := &debugsvc.Config{
+		Logger:         slogutil.NewDiscardLogger(),
+		DNSDBAddr:      addr,
+		DNSDBHandler:   h,
+		Manager:        cacheManager,
+		Refreshers:     refreshers,
 		APIAddr:        addr,
 		PprofAddr:      addr,
 		PrometheusAddr: addr,
@@ -64,26 +87,35 @@ func TestService_Start(t *testing.T) {
 		return svc.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
 	})
 
-	client := http.Client{
-		Timeout: 2 * time.Second,
+	client := agdhttp.NewClient(&agdhttp.ClientConfig{
+		Timeout: testTimeout,
+	})
+
+	srvURL := &url.URL{
+		Scheme: agdhttp.SchemeHTTP,
+		Host:   addr,
 	}
 
-	var resp *http.Response
-	var body []byte
+	// Use a context without a timeout, since it is used with agdhttp.Client,
+	// which already has a timeout.
+	ctx := context.Background()
 
 	// First check health-check service URL.  As the service could not be ready
 	// yet, check for it in periodically.
-	require.Eventually(t, func() bool {
-		resp, err = client.Get(fmt.Sprintf("http://%s/health-check", addr))
-		return err == nil
-	}, 1*time.Second, 100*time.Millisecond)
+	var resp *http.Response
+	healthCheckURL := srvURL.JoinPath(debugsvc.PathPatternHealthCheck)
+	require.Eventually(t, func() (ok bool) {
+		resp, err = client.Get(ctx, healthCheckURL)
 
-	body = readRespBody(t, resp)
-	assert.Equal(t, []byte("OK\n"), body)
+		return err == nil
+	}, testTimeout, testTimeout/10)
+
+	body := readRespBody(t, resp)
+	assert.Equal(t, "OK\n", body)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// Check pprof service URL.
-	resp, err = client.Get(fmt.Sprintf("http://%s/debug/pprof/", addr))
+	resp, err = client.Get(ctx, srvURL.JoinPath(httputil.PprofBasePath))
 	require.NoError(t, err)
 
 	body = readRespBody(t, resp)
@@ -91,7 +123,7 @@ func TestService_Start(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// Check prometheus service URL.
-	resp, err = client.Get(fmt.Sprintf("http://%s/metrics", addr))
+	resp, err = client.Get(ctx, srvURL.JoinPath(debugsvc.PathPatternMetrics))
 	require.NoError(t, err)
 
 	body = readRespBody(t, resp)
@@ -99,25 +131,64 @@ func TestService_Start(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// Check refresh API.
+
 	reqBody := strings.NewReader(`{"ids":["test"]}`)
-	urlStr := fmt.Sprintf("http://%s/debug/api/refresh", addr)
-	resp, err = client.Post(urlStr, "application/json", reqBody)
+	refreshURL := srvURL.JoinPath(debugsvc.PathPatternDebugAPIRefresh)
+	resp, err = client.Post(ctx, refreshURL, agdhttp.HdrValApplicationJSON, reqBody)
 	require.NoError(t, err)
 
-	assert.True(t, refreshed)
+	assert.Len(t, refreshed, 1)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	body = readRespBody(t, resp)
-	assert.Equal(t, []byte(`{"results":{"test":"ok"}}`+"\n"), body)
-}
+	respBody := readRespBody(t, resp)
+	assert.JSONEq(t, `{"results":{"test":"ok"}}`, respBody)
 
-// readRespBody is a helper function that reads and returns
-// body from response.
-func readRespBody(t testing.TB, resp *http.Response) (body []byte) {
-	t.Helper()
+	refreshed = []string{}
 
-	body, err := io.ReadAll(resp.Body)
+	reqBody = strings.NewReader(`{"ids":["parent/*"]}`)
+	resp, err = client.Post(ctx, refreshURL, agdhttp.HdrValApplicationJSON, reqBody)
 	require.NoError(t, err)
 
-	return body
+	assert.Len(t, refreshed, 2)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	respBody = readRespBody(t, resp)
+	assert.JSONEq(t, `{"results":{"parent/first":"ok","parent/second":"ok"}}`, respBody)
+
+	refreshed = []string{}
+
+	reqBody = strings.NewReader(`{"ids":["test","*"]}`)
+	resp, err = client.Post(ctx, refreshURL, agdhttp.HdrValApplicationJSON, reqBody)
+	require.NoError(t, err)
+
+	assert.Len(t, refreshed, 0)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	respBody = readRespBody(t, resp)
+	assert.Equal(t, `"*" cannot be used with other ids`+"\n", respBody)
+
+	// Check cache purge API.
+
+	const (
+		clearReq  = `{"ids":["test"]}`
+		clearResp = `{"results":{"test":"ok"}}`
+	)
+
+	reqBody = strings.NewReader(clearReq)
+	cacheURL := srvURL.JoinPath(debugsvc.PathPatternDebugAPICache)
+	resp, err = client.Post(ctx, cacheURL, agdhttp.HdrValApplicationJSON, reqBody)
+	require.NoError(t, err)
+
+	respBody = readRespBody(t, resp)
+	assert.JSONEq(t, clearResp, respBody)
+}
+
+// readRespBody is a helper function that reads and returns body from response.
+func readRespBody(t testing.TB, resp *http.Response) (body string) {
+	t.Helper()
+
+	buf, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	return string(buf)
 }

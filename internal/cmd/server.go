@@ -12,7 +12,7 @@ import (
 )
 
 // toInternal returns the configuration of DNS servers for a single server
-// group.  srvs and other parts of the configuration are assumed to be valid.
+// group.  srvs and other parts of the configuration must be valid.
 func (srvs servers) toInternal(
 	tlsConfig *agd.TLS,
 	btdMgr *bindtodevice.Manager,
@@ -46,6 +46,8 @@ func (srvs servers) toInternal(
 		case agd.ProtoDNS:
 			dnsSrv.TCPConf = tcpConf
 			dnsSrv.UDPConf = &agd.UDPConfig{
+				// #nosec G115 -- The value has already been validated in
+				// [dnsConfig.validate].
 				MaxRespSize: uint16(dnsConf.MaxUDPResponseSize.Bytes()),
 			}
 		case agd.ProtoDNSCrypt:
@@ -70,7 +72,7 @@ func (srvs servers) toInternal(
 			tlsConf.VerifyConnection = metrics.TLSMetricsAfterHandshake(
 				string(srv.Protocol),
 				srv.Name,
-				tlsConfig.DeviceIDWildcards,
+				tlsConfig.DeviceDomains,
 				tlsConf.Certificates,
 			)
 
@@ -156,7 +158,10 @@ func (p serverProto) toInternal() (sp agd.Protocol) {
 	}
 }
 
-// validate returns an error if the configuration is invalid.
+// type check
+var _ validator = serverProto("")
+
+// validate implements the [validator] interface for serverProto.
 func (p serverProto) validate() (err error) {
 	switch p {
 	case srvProtoDNS,
@@ -166,7 +171,7 @@ func (p serverProto) validate() (err error) {
 		srvProtoTLS:
 		return nil
 	default:
-		return fmt.Errorf("bad protocol: %q", p)
+		return fmt.Errorf("protocol: %w: %q", errors.ErrBadEnumValue, p)
 	}
 }
 
@@ -237,13 +242,16 @@ func (s *server) bindData(
 	return bindData, nil
 }
 
-// validate returns an error if the configuration is invalid.
+// type check
+var _ validator = (*server)(nil)
+
+// validate implements the [validator] interface for *server.
 func (s *server) validate() (err error) {
 	switch {
 	case s == nil:
-		return errNilConfig
+		return errors.ErrNoValue
 	case s.Name == "":
-		return errors.Error("no name")
+		return fmt.Errorf("name: %w", errors.ErrEmptyValue)
 	}
 
 	err = s.validateBindData()
@@ -309,16 +317,18 @@ type serverBindInterface struct {
 	Subnets []netip.Prefix  `yaml:"subnets"`
 }
 
-// validate returns an error if the network interface binding configuration is
-// invalid.
+// type check
+var _ validator = (*serverBindInterface)(nil)
+
+// validate implements the [validator] interface for *serverBindInterface.
 func (c *serverBindInterface) validate() (err error) {
 	switch {
 	case c == nil:
-		return errNilConfig
+		return errors.ErrNoValue
 	case c.ID == "":
-		return errors.Error("no id")
+		return fmt.Errorf("id: %w", errors.ErrEmptyValue)
 	case len(c.Subnets) == 0:
-		return errors.Error("no subnets")
+		return fmt.Errorf("subnets: %w", errors.ErrEmptyValue)
 	default:
 		// Go on.
 	}

@@ -1,15 +1,16 @@
 package backendpb
 
 import (
+	"context"
+	"log/slog"
 	"time"
-
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
-	"github.com/AdguardTeam/golibs/log"
 )
 
 // profilesCallStats is a stateful structure that collects and reports
 // statistics about a [ProfileStorage.Profiles] call.
 type profilesCallStats struct {
+	logger *slog.Logger
+
 	recvStart time.Time
 	decStart  time.Time
 
@@ -53,14 +54,14 @@ func (s *profilesCallStats) endDec() {
 }
 
 // report writes the statistics to the log and the metrics.
-func (s *profilesCallStats) report() {
-	logFunc := log.Debug
+func (s *profilesCallStats) report(ctx context.Context, mtrc Metrics) {
+	lvl := slog.LevelDebug
 	if s.isFullSync {
-		logFunc = log.Info
+		lvl = slog.LevelInfo
 	}
 
 	if s.numRecv == 0 {
-		logFunc("backendpb: no recv")
+		s.logger.Log(ctx, lvl, "no recv")
 
 		return
 	}
@@ -69,14 +70,8 @@ func (s *profilesCallStats) report() {
 	avgRecv := s.totalRecv / n
 	avgDec := s.totalDec / n
 
-	logFunc(
-		"backendpb: total recv: %s; agv recv: %s; init recv: %s",
-		s.totalRecv,
-		avgRecv,
-		s.initRecv,
-	)
-	logFunc("backendpb: total dec: %s; agv dec: %s", s.totalDec, avgDec)
+	s.logger.Log(ctx, lvl, "recv stats", "total", s.totalRecv, "avg", avgRecv, "init", s.initRecv)
+	s.logger.Log(ctx, lvl, "decode stats", "total", s.totalDec, "avg", avgDec)
 
-	metrics.GRPCAvgProfileRecvDuration.Observe(avgRecv.Seconds())
-	metrics.GRPCAvgProfileDecDuration.Observe(avgDec.Seconds())
+	mtrc.UpdateStats(ctx, avgRecv, avgDec)
 }

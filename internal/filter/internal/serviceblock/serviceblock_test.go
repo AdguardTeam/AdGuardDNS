@@ -11,14 +11,11 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/serviceblock"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
 
 // Common blocked service IDs for tests.
 const (
@@ -53,25 +50,20 @@ func TestFilter(t *testing.T) {
 	reqCh := make(chan struct{}, 1)
 	cachePath, srvURL := filtertest.PrepareRefreshable(t, reqCh, testData, http.StatusOK)
 
-	errColl := &agdtest.ErrorCollector{
-		OnCollect: func(ctx context.Context, err error) {
-			panic("not implemented")
-		},
-	}
-
-	refr := internal.NewRefreshable(&internal.RefreshableConfig{
+	f, err := serviceblock.New(&internal.RefreshableConfig{
+		Logger:    slogutil.NewDiscardLogger(),
 		URL:       srvURL,
 		ID:        agd.FilterListIDBlockedService,
 		CachePath: cachePath,
 		Staleness: filtertest.Staleness,
 		Timeout:   filtertest.Timeout,
 		MaxSize:   filtertest.FilterMaxSize,
-	})
+	}, agdtest.NewErrorCollector())
 
-	f := serviceblock.New(refr, errColl)
+	require.NoError(t, err)
 
 	ctx := context.Background()
-	err := f.Refresh(ctx, agdcache.EmptyManager{}, 0, false, false)
+	err = f.Refresh(ctx, agdcache.EmptyManager{}, 0, false, false)
 	require.NoError(t, err)
 
 	testutil.RequireReceive(t, reqCh, filtertest.Timeout)

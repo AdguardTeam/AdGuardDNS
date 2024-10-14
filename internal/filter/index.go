@@ -3,6 +3,8 @@ package filter
 import (
 	"cmp"
 	"context"
+	"fmt"
+	"log/slog"
 	"net/url"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -35,6 +37,7 @@ type filterIndexFilterData struct {
 // toInternal converts the filters from the index to []*filterIndexFilterData.
 func (r *filterIndexResp) toInternal(
 	ctx context.Context,
+	logger *slog.Logger,
 	errColl errcoll.Interface,
 ) (fls []*filterIndexFilterData) {
 	fls = make([]*filterIndexFilterData, 0, len(r.Filters))
@@ -43,7 +46,8 @@ func (r *filterIndexResp) toInternal(
 		rfID := cmp.Or(rf.Key, rfFltID)
 		id, err := agd.NewFilterListID(rfID)
 		if err != nil {
-			errcoll.Collectf(ctx, errColl, "%s: validating id/key %q: %w", strgLogPrefix, rfID, err)
+			err = fmt.Errorf("validating id/key: %w", err)
+			errcoll.Collect(ctx, errColl, logger, "index response", err)
 
 			continue
 		}
@@ -51,14 +55,8 @@ func (r *filterIndexResp) toInternal(
 		var u *url.URL
 		u, err = agdhttp.ParseHTTPURL(rf.DownloadURL)
 		if err != nil {
-			errcoll.Collectf(
-				ctx,
-				errColl,
-				"%s: validating url %q: %w",
-				strgLogPrefix,
-				rf.DownloadURL,
-				err,
-			)
+			err = fmt.Errorf("validating url: %w", err)
+			errcoll.Collect(ctx, errColl, logger, "index response", err)
 
 			continue
 		}

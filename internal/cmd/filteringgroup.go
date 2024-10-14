@@ -9,8 +9,6 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 )
 
-// Filtering Groups Configuration
-
 // filteringGroup represents a set of filtering settings.
 type filteringGroup struct {
 	// RuleLists are the filtering rule lists settings for this filtering group.
@@ -81,17 +79,20 @@ type fltGrpSafeBrowsing struct {
 	BlockNewlyRegisteredDomains bool `yaml:"block_newly_registered_domains"`
 }
 
-// validate returns an error if the filtering group is invalid.
+// type check
+var _ validator = (*filteringGroup)(nil)
+
+// validate implements the [validator] interface for *filteringGroup.
 func (g *filteringGroup) validate() (err error) {
 	switch {
 	case g == nil:
-		return errNilConfig
+		return errors.ErrNoValue
 	case g.RuleLists == nil:
-		return errors.Error("no rule_lists")
+		return fmt.Errorf("rule_lists: %w", errors.ErrNoValue)
 	case g.ID == "":
-		return errors.Error("no id")
+		return fmt.Errorf("id: %w", errors.ErrEmptyValue)
 	case g.Parental == nil:
-		return errors.Error("no parental")
+		return fmt.Errorf("parental: %w", errors.ErrNoValue)
 	}
 
 	fltIDs := container.NewMapSet[string]()
@@ -116,7 +117,7 @@ func (g *filteringGroup) validate() (err error) {
 type filteringGroups []*filteringGroup
 
 // toInternal converts groups to the filtering groups for the DNS server.
-// groups are assumed to be valid.
+// groups must be valid.
 func (groups filteringGroups) toInternal(
 	s filter.Storage,
 ) (fltGrps map[agd.FilteringGroupID]*agd.FilteringGroup, err error) {
@@ -125,7 +126,7 @@ func (groups filteringGroups) toInternal(
 		filterIDs := make([]agd.FilterListID, len(g.RuleLists.IDs))
 		for i, fltID := range g.RuleLists.IDs {
 			// Assume that these have already been validated in
-			// filteringGroup.validate.
+			// [filteringGroup.validate].
 			id := agd.FilterListID(fltID)
 			if !s.HasListID(id) {
 				return nil, fmt.Errorf("filter list id %q is not in the index", id)
@@ -154,10 +155,13 @@ func (groups filteringGroups) toInternal(
 	return fltGrps, nil
 }
 
-// validate returns an error if these filtering groups are invalid.
+// type check
+var _ validator = filteringGroups(nil)
+
+// validate implements the [validator] interface for filteringGroups.
 func (groups filteringGroups) validate() (err error) {
 	if len(groups) == 0 {
-		return errors.Error("no filtering_groups")
+		return fmt.Errorf("filtering_groups: %w", errors.ErrEmptyValue)
 	}
 
 	ids := container.NewMapSet[string]()

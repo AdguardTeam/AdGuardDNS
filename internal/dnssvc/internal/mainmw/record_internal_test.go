@@ -184,10 +184,12 @@ func TestMiddleware_recordQueryInfo_respCtry(t *testing.T) {
 			}
 
 			ri := &agd.RequestInfo{
-				Profile: &agd.Profile{
-					QueryLogEnabled: true,
+				DeviceResult: &agd.DeviceResultOK{
+					Device: &agd.Device{},
+					Profile: &agd.Profile{
+						QueryLogEnabled: true,
+					},
 				},
-				Device: &agd.Device{},
 				QType:  tc.req.Question[0].Qtype,
 				QClass: class,
 			}

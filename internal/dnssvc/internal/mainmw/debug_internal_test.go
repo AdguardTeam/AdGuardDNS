@@ -2,11 +2,11 @@ package mainmw
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
@@ -40,14 +40,18 @@ func newTXTExtra(strs [][2]string) (extra []dns.RR) {
 
 // TODO(a.garipov): Rewrite into cases in external tests.
 func TestMiddleware_writeDebugResponse(t *testing.T) {
+	cloner := agdtest.NewCloner()
+	msgs, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
+		Cloner:              cloner,
+		BlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		FilteredResponseTTL: agdtest.FilteredResponseTTL,
+	})
+	require.NoError(t, err)
+
 	mw := &Middleware{
-		messages: agdtest.NewConstructor(),
-		cloner:   agdtest.NewCloner(),
-		errColl: &agdtest.ErrorCollector{
-			OnCollect: func(_ context.Context, err error) {
-				panic(fmt.Errorf("unexpected error: %w", err))
-			},
-		},
+		messages: msgs,
+		cloner:   cloner,
+		errColl:  agdtest.NewErrorCollector(),
 	}
 
 	// TODO(a.garipov): Consider moving to dnssvctest and DRY'ing with
@@ -62,7 +66,7 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 	serverIPStr := dnssvctest.ServerAddr.String()
 
 	defaultReqInfo := &agd.RequestInfo{
-		Messages: agdtest.NewConstructor(),
+		Messages: msgs,
 	}
 
 	testCases := []struct {
@@ -163,8 +167,11 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 		name:   "device",
 		domain: dnssvctest.DomainFQDN,
 		reqInfo: &agd.RequestInfo{
-			Messages: agdtest.NewConstructor(),
-			Device:   &agd.Device{ID: dnssvctest.DeviceID},
+			DeviceResult: &agd.DeviceResultOK{
+				Device:  &agd.Device{ID: dnssvctest.DeviceID},
+				Profile: &agd.Profile{ID: dnssvctest.ProfileID},
+			},
+			Messages: agdtest.NewConstructor(t),
 		},
 		reqRes:  nil,
 		respRes: nil,
@@ -172,20 +179,6 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 			{"client-ip.adguard-dns.com.", clientIPStr},
 			{"server-ip.adguard-dns.com.", serverIPStr},
 			{"device-id.adguard-dns.com.", dnssvctest.DeviceIDStr},
-			{"resp.res-type.adguard-dns.com.", "normal"},
-		}),
-	}, {
-		name:   "profile",
-		domain: dnssvctest.DomainFQDN,
-		reqInfo: &agd.RequestInfo{
-			Messages: agdtest.NewConstructor(),
-			Profile:  &agd.Profile{ID: dnssvctest.ProfileID},
-		},
-		reqRes:  nil,
-		respRes: nil,
-		wantExtra: newTXTExtra([][2]string{
-			{"client-ip.adguard-dns.com.", clientIPStr},
-			{"server-ip.adguard-dns.com.", serverIPStr},
 			{"profile-id.adguard-dns.com.", dnssvctest.ProfileIDStr},
 			{"resp.res-type.adguard-dns.com.", "normal"},
 		}),
@@ -193,7 +186,7 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 		name:   "location",
 		domain: dnssvctest.DomainFQDN,
 		reqInfo: &agd.RequestInfo{
-			Messages: agdtest.NewConstructor(),
+			Messages: agdtest.NewConstructor(t),
 			Location: &geoip.Location{Country: geoip.CountryAD},
 		},
 		reqRes:  nil,
@@ -209,7 +202,7 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 		name:   "location_subdivision",
 		domain: dnssvctest.DomainFQDN,
 		reqInfo: &agd.RequestInfo{
-			Messages: agdtest.NewConstructor(),
+			Messages: agdtest.NewConstructor(t),
 			Location: &geoip.Location{Country: geoip.CountryAD, TopSubdivision: "CA"},
 		},
 		reqRes:  nil,
@@ -242,8 +235,8 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 
 			mw.setFilteredResponse(ctx, fctx, tc.reqInfo)
 
-			err := mw.writeDebugResponse(ctx, fctx, rw)
-			require.NoError(t, err)
+			writeErr := mw.writeDebugResponse(ctx, fctx, rw)
+			require.NoError(t, writeErr)
 
 			msg := rw.Msg()
 			require.NotNil(t, msg)

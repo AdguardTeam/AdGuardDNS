@@ -23,8 +23,9 @@ import (
 
 // Constants that define cache identifiers for the cache manager.
 const (
-	CacheIDWithECS = "ecscache_with_ecs"
-	CacheIDNoECS   = "ecscache_no_ecs"
+	cachePrefix    = "dns/"
+	cacheIDWithECS = cachePrefix + "ecscache_with_ecs"
+	cacheIDNoECS   = cachePrefix + "ecscache_no_ecs"
 )
 
 // Middleware is a dnsserver.Middleware with ECS-aware caching.
@@ -89,8 +90,8 @@ func NewMiddleware(c *MiddlewareConfig) (m *Middleware) {
 		Size: c.ECSSize,
 	})
 
-	c.CacheManager.Add(CacheIDNoECS, cache)
-	c.CacheManager.Add(CacheIDWithECS, ecsCache)
+	c.CacheManager.Add(cacheIDNoECS, cache)
+	c.CacheManager.Add(cacheIDWithECS, ecsCache)
 
 	return &Middleware{
 		cloner:   c.Cloner,
@@ -123,7 +124,7 @@ func writeCachedResponse(
 	rw dnsserver.ResponseWriter,
 	req *dns.Msg,
 	resp *dns.Msg,
-	ecs *agd.ECS,
+	ecs *dnsmsg.ECS,
 	ecsFam netutil.AddrFamily,
 	respIsECSDependent bool,
 ) (err error) {
@@ -166,19 +167,17 @@ func writeCachedResponse(
 func ecsFamFromReq(ri *agd.RequestInfo) (ecsFam netutil.AddrFamily) {
 	// Assume that families other than IPv4 and IPv6 have been filtered out
 	// by dnsmsg.ECSFromMsg.
-	var is4 func() (ok bool)
 
+	// Set the address family parameter to the one of the client's address
+	// as per RFC 7871.
+	//
+	// See https://datatracker.ietf.org/doc/html/rfc7871#section-7.1.1.
+	addr := ri.RemoteIP
 	if ecs := ri.ECS; ecs != nil {
-		is4 = ecs.Subnet.Addr().Is4
-	} else {
-		// Set the address family parameter to the one of the client's address
-		// as per RFC 7871.
-		//
-		// See https://datatracker.ietf.org/doc/html/rfc7871#section-7.1.1.
-		is4 = ri.RemoteIP.Is4
+		addr = ecs.Subnet.Addr()
 	}
 
-	if is4() {
+	if addr.Is4() {
 		return netutil.AddrFamilyIPv4
 	}
 
@@ -225,6 +224,7 @@ func (mw *Middleware) writeUpstreamResponse(
 		return fmt.Errorf("getting ecs from resp: %w", err)
 	}
 
+	// TODO(a.garipov):  Use optslog.Trace2.
 	optlog.Debug2("ecscache: upstream: %s/%d", subnet, scope)
 
 	reqDO := cr.reqDO
@@ -340,7 +340,7 @@ func (mh *mwHandler) ServeDNS(
 	// the metrics, and return.  See also [writeUpstreamResponse].
 	ecsReq := mw.cloner.Clone(req)
 
-	err = setECS(ecsReq, &agd.ECS{
+	err = setECS(ecsReq, &dnsmsg.ECS{
 		Subnet: cr.subnet,
 		Scope:  0,
 	}, ecsFam, false)

@@ -15,8 +15,7 @@ import (
 type serverGroups []*serverGroup
 
 // toInternal returns the configuration for all server groups in the DNS
-// service.  srvGrps and other parts of the configuration are assumed to be
-// valid.
+// service.  srvGrps and other parts of the configuration must be valid.
 func (srvGrps serverGroups) toInternal(
 	messages *dnsmsg.Constructor,
 	btdMgr *bindtodevice.Manager,
@@ -39,10 +38,11 @@ func (srvGrps serverGroups) toInternal(
 		}
 
 		svcSrvGrps[i] = &agd.ServerGroup{
-			DDR:            g.DDR.toInternal(messages),
-			TLS:            tlsConf,
-			Name:           agd.ServerGroupName(g.Name),
-			FilteringGroup: fltGrpID,
+			DDR:             g.DDR.toInternal(messages),
+			TLS:             tlsConf,
+			Name:            agd.ServerGroupName(g.Name),
+			FilteringGroup:  fltGrpID,
+			ProfilesEnabled: g.ProfilesEnabled,
 		}
 
 		svcSrvGrps[i].Servers, err = g.Servers.toInternal(tlsConf, btdMgr, ratelimitConf, dnsConf)
@@ -54,10 +54,13 @@ func (srvGrps serverGroups) toInternal(
 	return svcSrvGrps, nil
 }
 
-// validate returns an error if these server groups are invalid.
+// type check
+var _ validator = serverGroups(nil)
+
+// validate implements the [validator] interface for serverGroups.
 func (srvGrps serverGroups) validate() (err error) {
 	if len(srvGrps) == 0 {
-		return errors.Error("no server groups")
+		return errors.ErrEmptyValue
 	}
 
 	names := container.NewMapSet[string]()
@@ -98,17 +101,24 @@ type serverGroup struct {
 
 	// Servers are the settings for servers.
 	Servers servers `yaml:"servers"`
+
+	// ProfilesEnabled, if true, enables recognition of user devices and
+	// profiles for this server group.
+	ProfilesEnabled bool `yaml:"profiles_enabled"`
 }
 
-// validate returns an error if the configuration is invalid.
+// type check
+var _ validator = (*serverGroup)(nil)
+
+// validate implements the [validator] interface for *serverGroup.
 func (g *serverGroup) validate() (err error) {
 	switch {
 	case g == nil:
-		return errNilConfig
+		return errors.ErrNoValue
 	case g.Name == "":
-		return errors.Error("no name")
+		return fmt.Errorf("name: %w", errors.ErrEmptyValue)
 	case g.FilteringGroup == "":
-		return errors.Error("no filtering_group")
+		return fmt.Errorf("filtering_group: %w", errors.ErrEmptyValue)
 	}
 
 	err = g.DDR.validate()

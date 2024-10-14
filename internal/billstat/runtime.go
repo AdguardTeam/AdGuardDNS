@@ -2,6 +2,7 @@ package billstat
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -9,36 +10,42 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
-	"github.com/AdguardTeam/golibs/log"
 )
-
-// Runtime Billing Statistics Recorder
 
 // RuntimeRecorderConfig is the configuration structure for a runtime billing
 // statistics recorder.  All fields must be non-empty.
 type RuntimeRecorderConfig struct {
+	// Logger is used for logging the operation of the recorder.
+	Logger *slog.Logger
+
 	// ErrColl is used to collect errors during refreshes.
 	ErrColl errcoll.Interface
 
 	// Uploader is used to upload the billing statistics records to.
 	Uploader Uploader
+
+	// Metrics is used for the collection of the billing statistics.
+	Metrics Metrics
 }
 
 // NewRuntimeRecorder creates a new runtime billing statistics database.  c must
 // be non-nil.
 func NewRuntimeRecorder(c *RuntimeRecorderConfig) (r *RuntimeRecorder) {
 	return &RuntimeRecorder{
+		logger:   c.Logger,
 		mu:       &sync.Mutex{},
 		records:  Records{},
 		uploader: c.Uploader,
 		errColl:  c.ErrColl,
+		metrics:  c.Metrics,
 	}
 }
 
 // RuntimeRecorder is the runtime billing statistics recorder.  The records kept
 // here are not persistent.
 type RuntimeRecorder struct {
+	logger *slog.Logger
+
 	// mu protects records and syncTime.
 	mu *sync.Mutex
 
@@ -51,6 +58,9 @@ type RuntimeRecorder struct {
 
 	// errColl is used to collect errors during refreshes.
 	errColl errcoll.Interface
+
+	// metrics is used for the collection of the billing statistics.
+	metrics Metrics
 }
 
 // type check
@@ -65,10 +75,6 @@ func (r *RuntimeRecorder) Record(
 	start time.Time,
 	proto agd.Protocol,
 ) {
-	// TODO(a.garipov): Use slog.
-	log.Debug("billstat_refresh: started")
-	defer log.Debug("billstat_refresh: finished")
-
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -82,7 +88,7 @@ func (r *RuntimeRecorder) Record(
 			Proto:   proto,
 		}
 
-		metrics.BillStatBufSize.Add(1)
+		r.metrics.BufferSizeSet(ctx, float64(len(r.records)))
 	} else {
 		rec.Time = start
 		rec.Country = ctry
@@ -98,26 +104,27 @@ var _ agdservice.Refresher = (*RuntimeRecorder)(nil)
 // Refresh implements the [agdserivce.Refresher] interface for *RuntimeRecorder.
 // It uploads the currently available data and resets it.
 func (r *RuntimeRecorder) Refresh(ctx context.Context) (err error) {
-	records := r.resetRecords()
+	r.logger.DebugContext(ctx, "refresh started")
+	defer r.logger.DebugContext(ctx, "refresh finished")
+
+	records := r.resetRecords(ctx)
 
 	startTime := time.Now()
 	defer func() {
 		dur := time.Since(startTime).Seconds()
-		metrics.BillStatUploadDuration.Observe(dur)
 
-		if err != nil {
-			r.remergeRecords(records)
-			log.Info("billstat_refresh: failed, records remerged")
-		} else {
-			metrics.BillStatUploadTimestamp.SetToCurrentTime()
+		isSuccess := err == nil
+		if !isSuccess {
+			r.remergeRecords(ctx, records)
+			r.logger.WarnContext(ctx, "refresh failed, records remerged")
 		}
 
-		metrics.SetStatusGauge(metrics.BillStatUploadStatus, err)
+		r.metrics.HandleUploadDuration(ctx, dur, isSuccess)
 	}()
 
 	err = r.uploader.Upload(ctx, records)
 	if err != nil {
-		errcoll.Collectf(ctx, r.errColl, "billstat_refresh: %w", err)
+		errcoll.Collect(ctx, r.errColl, r.logger, "uploading billstat", err)
 	}
 
 	return err
@@ -125,20 +132,20 @@ func (r *RuntimeRecorder) Refresh(ctx context.Context) (err error) {
 
 // resetRecords returns the current data and resets the records map to an empty
 // map.
-func (r *RuntimeRecorder) resetRecords() (records Records) {
+func (r *RuntimeRecorder) resetRecords(ctx context.Context) (records Records) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	records, r.records = r.records, Records{}
 
-	metrics.BillStatBufSize.Set(0)
+	r.metrics.BufferSizeSet(ctx, 0)
 
 	return records
 }
 
 // remergeRecords merges records back into the database, unless there is already
 // a newer record, in which case it merges the results.
-func (r *RuntimeRecorder) remergeRecords(records Records) {
+func (r *RuntimeRecorder) remergeRecords(ctx context.Context, records Records) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -150,5 +157,5 @@ func (r *RuntimeRecorder) remergeRecords(records Records) {
 		}
 	}
 
-	metrics.BillStatBufSize.Set(float64(len(r.records)))
+	r.metrics.BufferSizeSet(ctx, float64(len(r.records)))
 }

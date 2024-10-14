@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sync"
@@ -16,7 +17,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
 )
 
@@ -32,6 +32,7 @@ const statFilterListLegacyID agd.FilterListID = "15"
 //
 // TODO(a.garipov): Add tests.
 type HTTP struct {
+	logger  *slog.Logger
 	url     *url.URL
 	http    *agdhttp.Client
 	errColl errcoll.Interface
@@ -46,8 +47,11 @@ type HTTP struct {
 type statsSet = map[agd.FilterListID]map[agd.FilterRuleText]uint64
 
 // HTTPConfig is the configuration structure for the filtering rule statistics
-// collector that uploads the statistics to a URL.  All fields are required.
+// collector that uploads the statistics to a URL.  All fields must not be nil.
 type HTTPConfig struct {
+	// Logger is used for logging the operation of the statistics collector.
+	Logger *slog.Logger
+
 	// ErrColl is used to collect errors during refreshes.
 	ErrColl errcoll.Interface
 
@@ -58,7 +62,8 @@ type HTTPConfig struct {
 // NewHTTP returns a new statistics collector with HTTP upload.
 func NewHTTP(c *HTTPConfig) (s *HTTP) {
 	return &HTTP{
-		url: netutil.CloneURL(c.URL),
+		logger: c.Logger,
+		url:    netutil.CloneURL(c.URL),
 		http: agdhttp.NewClient(&agdhttp.ClientConfig{
 			// TODO(ameshkov): Consider making configurable.
 			Timeout: 30 * time.Second,
@@ -106,13 +111,12 @@ var _ agdservice.Refresher = (*HTTP)(nil)
 // uploads the collected statistics to s.u and starts collecting a new set of
 // statistics.
 func (s *HTTP) Refresh(ctx context.Context) (err error) {
-	// TODO(a.garipov):  Use slog.
-	log.Info("rulestat_refresh: started")
-	defer log.Info("rulestat_refresh: finished")
+	s.logger.InfoContext(ctx, "refresh started")
+	defer s.logger.InfoContext(ctx, "refresh finished")
 
 	err = s.refresh(ctx)
 	if err != nil {
-		errcoll.Collectf(ctx, s.errColl, "rulestat_refresh: %w", err)
+		errcoll.Collect(ctx, s.errColl, s.logger, "uploading rulestat", err)
 		metrics.SetStatusGauge(metrics.RuleStatUploadStatus, err)
 
 		return err

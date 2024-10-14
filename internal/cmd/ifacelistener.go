@@ -1,13 +1,16 @@
 package cmd
 
 import (
+	"fmt"
+	"log/slog"
+	"maps"
+	"slices"
+
 	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/mapsutil"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 )
-
-// Network interface listener configuration
 
 // interfaceListenersConfig contains the optional configuration for the network
 // interface listeners and their common parameters.
@@ -20,8 +23,10 @@ type interfaceListenersConfig struct {
 	ChannelBufferSize int `yaml:"channel_buffer_size"`
 }
 
-// toInternal converts c to a bindtodevice.Manager.  c is assumed to be valid.
+// toInternal converts c to a possibly-nil bindtodevice.Manager.  c must be
+// valid.
 func (c *interfaceListenersConfig) toInternal(
+	logger *slog.Logger,
 	errColl errcoll.Interface,
 	ctrlConf *bindtodevice.ControlConfig,
 ) (m *bindtodevice.Manager, err error) {
@@ -30,26 +35,27 @@ func (c *interfaceListenersConfig) toInternal(
 	}
 
 	m = bindtodevice.NewManager(&bindtodevice.ManagerConfig{
+		Logger:            logger.With(slogutil.KeyPrefix, "bindtodevice"),
 		InterfaceStorage:  bindtodevice.DefaultInterfaceStorage{},
 		ErrColl:           errColl,
 		ChannelBufferSize: c.ChannelBufferSize,
 	})
 
-	err = mapsutil.SortedRangeError(
-		c.List,
-		func(id bindtodevice.ID, l *interfaceListener) (addErr error) {
-			return errors.Annotate(m.Add(id, l.Interface, l.Port, ctrlConf), "adding listener %q: %w", id)
-		},
-	)
-	if err != nil {
-		return nil, err
+	for _, id := range slices.Sorted(maps.Keys(c.List)) {
+		l := c.List[id]
+		err = m.Add(id, l.Interface, l.Port, ctrlConf)
+		if err != nil {
+			return nil, fmt.Errorf("adding listener %q: %w", id, err)
+		}
 	}
 
 	return m, nil
 }
 
-// validate returns an error if the network interface listeners configuration is
-// invalid.
+// type check
+var _ validator = (*interfaceListenersConfig)(nil)
+
+// validate implements the [validator] interface for *interfaceListenersConfig.
 func (c *interfaceListenersConfig) validate() (err error) {
 	switch {
 	case c == nil:
@@ -59,19 +65,19 @@ func (c *interfaceListenersConfig) validate() (err error) {
 		// values.
 		return nil
 	case c.ChannelBufferSize <= 0:
-		return newMustBePositiveError("channel_buffer_size", c.ChannelBufferSize)
+		return newNotPositiveError("channel_buffer_size", c.ChannelBufferSize)
 	case len(c.List) == 0:
-		return errors.Error("no list")
+		return fmt.Errorf("list: %w", errors.ErrEmptyValue)
 	default:
 		// Go on.
 	}
 
-	err = mapsutil.SortedRangeError(
-		c.List,
-		func(id bindtodevice.ID, l *interfaceListener) (lsnrErr error) {
-			return errors.Annotate(l.validate(), "interface %q: %w", id)
-		},
-	)
+	for _, id := range slices.Sorted(maps.Keys(c.List)) {
+		err = c.List[id].validate()
+		if err != nil {
+			return fmt.Errorf("interface %q: %w", id, err)
+		}
+	}
 
 	return err
 }
@@ -86,15 +92,18 @@ type interfaceListener struct {
 	Port uint16 `yaml:"port"`
 }
 
-// validate returns an error if the interface listener configuration is invalid.
+// type check
+var _ validator = (*interfaceListener)(nil)
+
+// validate implements the [validator] interface for *interfaceListener.
 func (l *interfaceListener) validate() (err error) {
 	switch {
 	case l == nil:
-		return errNilConfig
+		return errors.ErrNoValue
 	case l.Port == 0:
-		return errors.Error("port must not be zero")
+		return fmt.Errorf("port: %w", errors.ErrEmptyValue)
 	case l.Interface == "":
-		return errors.Error("no interface")
+		return fmt.Errorf("interface: %w", errors.ErrEmptyValue)
 	default:
 		return nil
 	}

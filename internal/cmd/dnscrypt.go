@@ -10,8 +10,6 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-// DNSCrypt Configuration
-
 // dnsCryptConfig are the DNSCrypt server settings.
 type dnsCryptConfig struct {
 	// Inline is the inline configuration.  Must be empty if ConfigPath is not
@@ -23,8 +21,8 @@ type dnsCryptConfig struct {
 	ConfigPath string `yaml:"config_path"`
 }
 
-// toInternal converts c to the DNSCrypt configuration for a DNS server.  c is
-// assumed to be valid.
+// toInternal converts c to the DNSCrypt configuration for a DNS server.  c must
+// be valid.
 func (c *dnsCryptConfig) toInternal() (conf *agd.DNSCryptConfig, err error) {
 	if c == nil {
 		return nil, nil

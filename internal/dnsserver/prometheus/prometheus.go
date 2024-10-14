@@ -6,7 +6,7 @@ metrics.
 For instance, if you want to use it with dnsserver.Server, using it is as simple
 as this:
 
-	conf.Metrics = &prometheus.ServerMetricsListener{}
+	conf.Metrics = prometheus.NewServerMetricsListener("dns")
 	srv := dnsserver.NewServerDNS(conf)
 
 Once it's done, you can use standard methods of exposing prometheus metrics
@@ -54,11 +54,12 @@ ratelimit.MetricsListener metrics:
 
   - "dns_ratelimit_dropped_total" is the total number of rate-limited DNS
     queries.
+
+TODO(a.garipov):  Update the docs.
 */
 package prometheus
 
 const (
-	namespace          = "dns"
 	subsystemServer    = "server"
 	subsystemForward   = "forward"
 	subsystemCache     = "cache"

@@ -2,6 +2,7 @@
 package ratelimit
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/netip"
@@ -12,24 +13,24 @@ import (
 	"github.com/miekg/dns"
 )
 
-// Rate Limiting Types
-
 // Interface represents a rate limiter that allows or denies queries for the IP
 // address.  All methods must be safe for concurrent use.
 type Interface interface {
-	IsRateLimited(ctx context.Context, req *dns.Msg, ip netip.Addr) (drop, allowlisted bool, err error)
+	IsRateLimited(
+		ctx context.Context,
+		req *dns.Msg,
+		ip netip.Addr,
+	) (shouldDrop, isAllowlisted bool, err error)
 	CountResponses(ctx context.Context, resp *dns.Msg, ip netip.Addr)
 }
 
 // Middleware applies rate limiting to DNS queries.
 type Middleware struct {
-	// Metrics is a listener for the middleware events.  Set it if you want to
+	// metrics is a listener for the middleware events.  Set it if you want to
 	// keep track of what the middleware does and record performance metrics.
-	//
-	// TODO(ameshkov): consider moving ALL MetricsListeners to constructors
-	Metrics MetricsListener
+	metrics Metrics
 
-	// rateLimit is defines whether the query should be dropped or not.  The
+	// rateLimit defines whether the query should be dropped or not.  The
 	// default implementation of it is [*Backoff].
 	rateLimit Interface
 
@@ -41,13 +42,30 @@ type Middleware struct {
 // type check
 var _ dnsserver.Middleware = (*Middleware)(nil)
 
-// NewMiddleware returns a properly initialized [*Middleware].  protos is a list
-// of [dnsserver.Protocol] the rate limit will be used for.
-func NewMiddleware(rl Interface, protos []dnsserver.Protocol) (m *Middleware, err error) {
+// MiddlewareConfig is the configuration structure for the rate-limiting
+// middleware.
+type MiddlewareConfig struct {
+	// Metrics is a listener for the middleware events.  Set it if you want to
+	// keep track of what the middleware does and record performance metrics.
+	// If nil, [EmptyMetrics] is used.
+	Metrics Metrics
+
+	// RateLimit defines whether the query should be dropped or not.  It must
+	// not be nil.
+	RateLimit Interface
+
+	// Protocols is a slice of protocols this middleware applies rate-limiting
+	// logic to.  If empty, it applies to all protocols.
+	Protocols []dnsserver.Protocol
+}
+
+// NewMiddleware returns a properly initialized [*Middleware].  c must not be
+// nil.
+func NewMiddleware(c *MiddlewareConfig) (m *Middleware, err error) {
 	return &Middleware{
-		Metrics:   &EmptyMetricsListener{},
-		protos:    protos,
-		rateLimit: rl,
+		metrics:   cmp.Or[Metrics](c.Metrics, EmptyMetrics{}),
+		protos:    c.Protocols,
+		rateLimit: c.RateLimit,
 	}, nil
 }
 
@@ -98,23 +116,23 @@ func (mh *mwHandler) ServeDNS(
 	addrPort := netutil.NetAddrToAddrPort(raddr)
 	if addrPort.Port() == 0 {
 		// Probably spoofing.  Return immediately.
-		mw.Metrics.OnRateLimited(ctx, req, rw)
+		mw.metrics.OnRateLimited(ctx, req, rw)
 
 		return nil
 	}
 
 	ip := addrPort.Addr()
-	drop, allowlisted, err := mw.rateLimit.IsRateLimited(ctx, req, ip)
+	shouldDrop, isAllowlisted, err := mw.rateLimit.IsRateLimited(ctx, req, ip)
 	if err != nil {
 		return fmt.Errorf("ratelimit mw: %w", err)
-	} else if drop {
-		mw.Metrics.OnRateLimited(ctx, req, rw)
+	} else if shouldDrop {
+		mw.metrics.OnRateLimited(ctx, req, rw)
 
 		return nil
-	} else if allowlisted {
+	} else if isAllowlisted {
 		// If the request is allowlisted, we can pass it through to the
 		// next handler immediately.
-		mw.Metrics.OnAllowlisted(ctx, req, rw)
+		mw.metrics.OnAllowlisted(ctx, req, rw)
 
 		return next.ServeDNS(ctx, rw, req)
 	}

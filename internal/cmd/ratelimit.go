@@ -2,24 +2,18 @@ package cmd
 
 import (
 	"cmp"
-	"context"
 	"fmt"
-	"net/url"
+	"log/slog"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
-	"github.com/AdguardTeam/AdGuardDNS/internal/consul"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
-	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
-	"github.com/AdguardTeam/golibs/service"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 )
-
-// Rate Limiter Configuration
 
 // rateLimitConfig is the configuration of the instance's rate limiting.
 type rateLimitConfig struct {
@@ -42,14 +36,14 @@ type rateLimitConfig struct {
 	// TCP is the configuration of TCP pipeline limiting.
 	TCP *ratelimitTCPConfig `yaml:"tcp"`
 
-	// ResponseSizeEstimate is the size of the estimate of the size of one DNS
-	// response for the purposes of rate limiting.  Responses over this estimate
-	// are counted as several responses.
+	// ResponseSizeEstimate is the estimate of the size of one DNS response for
+	// the purposes of rate limiting.  Responses over this estimate are counted
+	// as several responses.
 	ResponseSizeEstimate datasize.ByteSize `yaml:"response_size_estimate"`
 
 	// BackoffCount helps with repeated offenders.  It defines, how many times
 	// a client hits the rate limit before being held in the back off.
-	BackoffCount int `yaml:"backoff_count"`
+	BackoffCount uint `yaml:"backoff_count"`
 
 	// BackoffDuration is how much a client that has hit the rate limit too
 	// often stays in the back off.
@@ -76,17 +70,20 @@ type allowListConfig struct {
 // addresses.
 type rateLimitOptions struct {
 	// RPS is the maximum number of requests per second.
-	RPS int `yaml:"rps"`
+	RPS uint `yaml:"rps"`
 
 	// SubnetKeyLen is the length of the subnet prefix used to calculate
 	// rate limiter bucket keys.
 	SubnetKeyLen int `yaml:"subnet_key_len"`
 }
 
-// validate returns an error if rate limit options are invalid.
+// type check
+var _ validator = (*rateLimitOptions)(nil)
+
+// validate implements the [validator] interface for *rateLimitOptions.
 func (o *rateLimitOptions) validate() (err error) {
 	if o == nil {
-		return errNilConfig
+		return errors.ErrNoValue
 	}
 
 	return cmp.Or(
@@ -96,11 +93,11 @@ func (o *rateLimitOptions) validate() (err error) {
 }
 
 // toInternal converts c to the rate limiting configuration for the DNS server.
-// c is assumed to be valid.
+// c must be valid.
 func (c *rateLimitConfig) toInternal(al ratelimit.Allowlist) (conf *ratelimit.BackoffConfig) {
 	return &ratelimit.BackoffConfig{
 		Allowlist:            al,
-		ResponseSizeEstimate: int(c.ResponseSizeEstimate.Bytes()),
+		ResponseSizeEstimate: c.ResponseSizeEstimate,
 		Duration:             c.BackoffDuration.Duration,
 		Period:               c.BackoffPeriod.Duration,
 		IPv4RPS:              c.IPv4.RPS,
@@ -112,13 +109,16 @@ func (c *rateLimitConfig) toInternal(al ratelimit.Allowlist) (conf *ratelimit.Ba
 	}
 }
 
-// validate returns an error if the safe rate limiting configuration is invalid.
+// type check
+var _ validator = (*rateLimitConfig)(nil)
+
+// validate implements the [validator] interface for *rateLimitConfig.
 func (c *rateLimitConfig) validate() (err error) {
 	switch {
 	case c == nil:
-		return errNilConfig
+		return errors.ErrNoValue
 	case c.Allowlist == nil:
-		return fmt.Errorf("allowlist: %w", errNilConfig)
+		return fmt.Errorf("allowlist: %w", errors.ErrNoValue)
 	}
 
 	return cmp.Or(
@@ -133,43 +133,6 @@ func (c *rateLimitConfig) validate() (err error) {
 		validatePositive("response_size_estimate", c.ResponseSizeEstimate),
 		validatePositive("allowlist.refresh_interval", c.Allowlist.RefreshIvl),
 	)
-}
-
-// setupRateLimiter creates and returns a backoff rate limiter as well as starts
-// and registers its refresher in the signal handler.
-func setupRateLimiter(
-	ctx context.Context,
-	conf *rateLimitConfig,
-	consulAllowlist *url.URL,
-	sigHdlr *service.SignalHandler,
-	errColl errcoll.Interface,
-) (rateLimiter *ratelimit.Backoff, connLimiter *connlimiter.Limiter, err error) {
-	allowSubnets := netutil.UnembedPrefixes(conf.Allowlist.List)
-	allowlist := ratelimit.NewDynamicAllowlist(allowSubnets, nil)
-	refresher := consul.NewAllowlistRefresher(allowlist, consulAllowlist, errColl)
-
-	err = refresher.Refresh(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("allowlist: initial refresh: %w", err)
-	}
-
-	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
-		Context:           ctxWithDefaultTimeout,
-		Refresher:         refresher,
-		Name:              "allowlist",
-		Interval:          conf.Allowlist.RefreshIvl.Duration,
-		RefreshOnShutdown: false,
-		RandomizeStart:    false,
-	})
-
-	err = refr.Start(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("starting allowlist refresher: %w", err)
-	}
-
-	sigHdlr.Add(refr)
-
-	return ratelimit.NewBackoff(conf.toInternal(allowlist)), conf.ConnectionLimit.toInternal(), nil
 }
 
 // connLimitConfig is the configuration structure for the stream-connection
@@ -192,14 +155,14 @@ type connLimitConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
-// toInternal converts c to the connection limiter to use.  c is assumed to be
-// valid.
-func (c *connLimitConfig) toInternal() (l *connlimiter.Limiter) {
+// toInternal converts c to the connection limiter to use.  c must be valid.
+func (c *connLimitConfig) toInternal(logger *slog.Logger) (l *connlimiter.Limiter) {
 	if !c.Enabled {
 		return nil
 	}
 
 	l, err := connlimiter.New(&connlimiter.Config{
+		Logger: logger.With(slogutil.KeyPrefix, "connlimiter"),
 		Stop:   c.Stop,
 		Resume: c.Resume,
 	})
@@ -213,15 +176,18 @@ func (c *connLimitConfig) toInternal() (l *connlimiter.Limiter) {
 	return l
 }
 
-// validate returns an error if the connection limit configuration is invalid.
+// type check
+var _ validator = (*connLimitConfig)(nil)
+
+// validate implements the [validator] interface for *connLimitConfig.
 func (c *connLimitConfig) validate() (err error) {
 	switch {
 	case c == nil:
-		return errNilConfig
+		return errors.ErrNoValue
 	case !c.Enabled:
 		return nil
 	case c.Stop == 0:
-		return newMustBePositiveError("stop", c.Stop)
+		return newNotPositiveError("stop", c.Stop)
 	case c.Resume > c.Stop:
 		return errors.Error("resume: must be less than or equal to stop")
 	default:
@@ -239,10 +205,13 @@ type ratelimitTCPConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
-// validate returns an error if the config is invalid.
+// type check
+var _ validator = (*ratelimitTCPConfig)(nil)
+
+// validate implements the [validator] interface for *ratelimitTCPConfig.
 func (c *ratelimitTCPConfig) validate() (err error) {
 	if c == nil {
-		return errNilConfig
+		return errors.ErrNoValue
 	}
 
 	return validatePositive("max_pipeline_count", c.MaxPipelineCount)
@@ -258,10 +227,13 @@ type ratelimitQUICConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
-// validate returns an error if the config is invalid.
+// type check
+var _ validator = (*ratelimitQUICConfig)(nil)
+
+// validate implements the [validator] interface for *ratelimitQUICConfig.
 func (c *ratelimitQUICConfig) validate() (err error) {
 	if c == nil {
-		return errNilConfig
+		return errors.ErrNoValue
 	}
 
 	return validatePositive("max_streams_per_peer", c.MaxStreamsPerPeer)

@@ -1,22 +1,28 @@
-// Package metrics contains definitions of most of the prometheus metrics
-// that we use in AdGuard DNS.
+// Package metrics contains definitions of most of the prometheus metrics that
+// we use in AdGuard DNS.
 //
 // NOTE:  Prefer to not import any packages from the current module here,
 // because a lot of packages import metrics, and so import cycles may happen.
 //
-// TODO(ameshkov): consider not using promauto.
+// TODO(a.garipov):  Do not use promauto.
 package metrics
 
 import (
+	"cmp"
+	"os"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// constants with the namespace and the subsystem names that we use in our
-// prometheus metrics.
-const (
-	namespace = "dns"
+// namespace is the configurable namespace that we use in our prometheus
+// metrics.
+//
+// TODO(a.garipov):  Refactor to not require any global state.
+var namespace = cmp.Or(os.Getenv("METRICS_NAMESPACE"), "dns")
 
+// Constants with the subsystem names that we use in our prometheus metrics.
+const (
 	subsystemAccess       = "access"
 	subsystemApplication  = "app"
 	subsystemBackend      = "backend"
@@ -38,6 +44,12 @@ const (
 	subsystemWebSvc       = "websvc"
 )
 
+// Constants that should be kept in sync with ones in package prometheus in
+// module dnsserver.
+const (
+	subsystemRateLimit = "ratelimit"
+)
+
 const (
 	// dontStoreLabel is a label that signals that the metric should not be
 	// stored in the long-term storage.
@@ -50,17 +62,19 @@ const (
 
 // SetUpGauge signals that the server has been started.  Use a function here to
 // avoid circular dependencies.
-func SetUpGauge(version, buildtime, branch, revision, goversion string) {
+func SetUpGauge(version, commitTime, branch, revision, goversion string) {
 	upGauge := promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name:      "up",
 			Namespace: namespace,
 			Subsystem: subsystemApplication,
 			Help: `A metric with a constant '1' value labeled by ` +
-				`version and goversion from which the program was built.`,
+				`version and goversion from which the program was built. ` +
+				`NOTE: buildtime is actually the time of the commit.`,
 			ConstLabels: prometheus.Labels{
-				"version":   version,
-				"buildtime": buildtime,
+				"version": version,
+				// TODO(a.garipov):  Consider renaming the metric.
+				"buildtime": commitTime,
 				"branch":    branch,
 				"revision":  revision,
 				"goversion": goversion,
@@ -119,4 +133,9 @@ func SetAdditionalInfo(info map[string]string) {
 	)
 
 	gauge.Set(1)
+}
+
+// Namespace returns the namespace that we use in our prometheus metrics.
+func Namespace() (ns string) {
+	return namespace
 }

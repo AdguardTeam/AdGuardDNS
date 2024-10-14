@@ -92,15 +92,16 @@ func (mw *Middleware) appendDebugExtraFromContext(
 	resp *dns.Msg,
 ) (err error) {
 	ri := agd.MustRequestInfoFromContext(ctx)
-	err = mw.appendDebugExtraFromDevice(ri.Device, debugReq, resp)
+	prof, dev := ri.DeviceData()
+	err = mw.appendDebugExtraFromDevice(dev, debugReq, resp)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return err
 	}
 
-	if p := ri.Profile; p != nil {
+	if prof != nil {
 		setQuestionName(debugReq, "", hdrNameProfileID)
-		err = mw.messages.AppendDebugExtra(debugReq, resp, string(p.ID))
+		err = mw.messages.AppendDebugExtra(debugReq, resp, string(prof.ID))
 		if err != nil {
 			return fmt.Errorf("adding %s extra: %w", hdrNameProfileID, err)
 		}

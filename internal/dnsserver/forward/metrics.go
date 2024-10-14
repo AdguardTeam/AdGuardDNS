@@ -31,7 +31,7 @@ type MetricsListener interface {
 	// OnUpstreamStatusChanged is called when an upstream status is changed
 	// after a healthcheck probe.  True means the upstream is up, and false
 	// means the upstream is backed off.
-	OnUpstreamStatusChanged(ups Upstream, isMain, status bool)
+	OnUpstreamStatusChanged(ups Upstream, isMain, isUp bool)
 }
 
 // EmptyMetricsListener implements MetricsListener with empty functions.

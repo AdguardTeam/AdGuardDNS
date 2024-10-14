@@ -1,7 +1,6 @@
 package websvc
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -29,16 +28,16 @@ func TestLinkedIPProxy_ServeHTTP(t *testing.T) {
 
 		hdr := r.Header
 
-		require.NotEmpty(pt, hdr.Get(httphdr.XRequestID))
 		require.Equal(pt, agdhttp.UserAgent(), hdr.Get(httphdr.UserAgent))
-		require.NotEmpty(pt, hdr.Get(httphdr.CFConnectingIP))
+		require.NotEmpty(pt, hdr.Get(httphdr.XConnectingIP))
+		require.NotEmpty(pt, hdr.Get(httphdr.XRequestID))
 
+		require.Empty(pt, hdr.Get(httphdr.CFConnectingIP))
 		require.Empty(pt, hdr.Get(httphdr.Forwarded))
+		require.Empty(pt, hdr.Get(httphdr.TrueClientIP))
+		require.Empty(pt, hdr.Get(httphdr.XForwardedFor))
 		require.Empty(pt, hdr.Get(httphdr.XForwardedHost))
 		require.Empty(pt, hdr.Get(httphdr.XForwardedProto))
-		require.Empty(pt, hdr.Get(httphdr.XForwardedFor))
-
-		require.Empty(pt, hdr.Get(httphdr.TrueClientIP))
 		require.Empty(pt, hdr.Get(httphdr.XRealIP))
 
 		require.Equal(pt, apiURL.Host, r.Host)
@@ -52,14 +51,7 @@ func TestLinkedIPProxy_ServeHTTP(t *testing.T) {
 	apiURL, err := url.Parse(srv.URL)
 	require.NoError(t, err)
 
-	h := linkedIPHandler(
-		apiURL,
-		&agdtest.ErrorCollector{
-			OnCollect: func(_ context.Context, err error) { panic(err) },
-		},
-		"test",
-		2*time.Second,
-	)
+	h := linkedIPHandler(apiURL, agdtest.NewErrorCollector(), "test", 2*time.Second)
 
 	testCases := []struct {
 		name                    string
@@ -121,12 +113,12 @@ func TestLinkedIPProxy_ServeHTTP(t *testing.T) {
 			}).String(), strings.NewReader(""))
 
 			// Set some test headers.
+			r.Header.Set(httphdr.CFConnectingIP, "1.1.1.1")
 			r.Header.Set(httphdr.Forwarded, "1.1.1.1")
+			r.Header.Set(httphdr.TrueClientIP, "1.1.1.1")
+			r.Header.Set(httphdr.XForwardedFor, "1.1.1.1")
 			r.Header.Set(httphdr.XForwardedHost, "forward.example.org")
 			r.Header.Set(httphdr.XForwardedProto, "https")
-			r.Header.Set(httphdr.XForwardedFor, "1.1.1.1")
-
-			r.Header.Set(httphdr.TrueClientIP, "1.1.1.1")
 			r.Header.Set(httphdr.XRealIP, "1.1.1.1")
 
 			rw := httptest.NewRecorder()

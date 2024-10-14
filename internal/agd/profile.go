@@ -29,6 +29,13 @@ type Profile struct {
 	// [internal/profiledb/internal.FileCacheVersion].
 	Parental *ParentalProtectionSettings
 
+	// Ratelimiter is the custom ratelimiter for this profile.  It must not be
+	// nil.
+	//
+	// NOTE: Do not change fields of this structure without incrementing
+	// [internal/profiledb/internal.FileCacheVersion].
+	Ratelimiter Ratelimiter
+
 	// SafeBrowsing are the safe browsing settings for this profile.  They are
 	// ignored if FilteringEnabled is set to false.
 	//
@@ -36,19 +43,20 @@ type Profile struct {
 	// [internal/profiledb/internal.FileCacheVersion].
 	SafeBrowsing *SafeBrowsingSettings
 
-	// Access is the access manager for this profile.  Access is never nil.
+	// Access is the access manager for this profile.  It must not be nil.
 	//
 	// NOTE: Do not change fields of this structure without incrementing
 	// [internal/profiledb/internal.FileCacheVersion].
 	Access access.Profile
 
-	// BlockingMode defines the way blocked responses are constructed.
+	// BlockingMode defines the way blocked responses are constructed.  It must
+	// not be nil.
 	//
 	// NOTE: Do not change fields of this structure without incrementing
 	// [internal/profiledb/internal.FileCacheVersion].
 	BlockingMode dnsmsg.BlockingMode
 
-	// ID is the unique ID of this profile.
+	// ID is the unique ID of this profile.  It must not be empty.
 	//
 	// NOTE: Do not change fields of this structure without incrementing
 	// [internal/profiledb/internal.FileCacheVersion].

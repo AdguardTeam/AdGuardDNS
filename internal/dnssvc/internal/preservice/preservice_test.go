@@ -50,6 +50,8 @@ func TestPreServiceMwHandler_ServeDNS(t *testing.T) {
 
 	const ttl = 60
 
+	cloner := agdtest.NewCloner()
+
 	testCases := []struct {
 		name         string
 		req          *dns.Msg
@@ -147,20 +149,22 @@ func TestPreServiceMwHandler_ServeDNS(t *testing.T) {
 					return tc.hashes, len(tc.hashes) > 0, nil
 				},
 			}
+			msgs, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
+				Cloner:              cloner,
+				BlockingMode:        &dnsmsg.BlockingModeNullIP{},
+				FilteredResponseTTL: ttl * time.Second,
+			})
+			require.NoError(t, err)
 
 			mw := preservice.New(&preservice.Config{
-				Messages: dnsmsg.NewConstructor(
-					nil,
-					&dnsmsg.BlockingModeNullIP{},
-					ttl*time.Second,
-				),
+				Messages:    msgs,
 				HashMatcher: hashMatcher,
 				Checker:     dnsCk,
 			})
 			handler := dnsservertest.DefaultHandler()
 			h := mw.Wrap(handler)
 
-			err := h.ServeDNS(tctx, rw, tc.req)
+			err = h.ServeDNS(tctx, rw, tc.req)
 			require.NoError(t, err)
 
 			msg := rw.Msg()

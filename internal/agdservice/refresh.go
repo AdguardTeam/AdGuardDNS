@@ -3,11 +3,13 @@ package agdservice
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/service"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"golang.org/x/exp/rand"
 )
 
@@ -23,12 +25,12 @@ type Refresher interface {
 // RefreshWorker is an [Interface] implementation that updates its [Refresher]
 // every tick of the provided ticker.
 type RefreshWorker struct {
+	logger        *slog.Logger
 	done          chan unit
 	context       func() (ctx context.Context, cancel context.CancelFunc)
 	tick          *time.Ticker
 	rand          *rand.Rand
 	refr          Refresher
-	name          string
 	maxStartSleep time.Duration
 
 	refrOnShutdown bool
@@ -37,17 +39,17 @@ type RefreshWorker struct {
 // RefreshWorkerConfig is the configuration structure for a *RefreshWorker.
 type RefreshWorkerConfig struct {
 	// Context is used to provide a context for the Refresh method of Refresher.
+	//
+	// NOTE:  It is not used for the shutdown refresh.
+	//
+	// TODO(a.garipov):  Consider ways of fixing that.
 	Context func() (ctx context.Context, cancel context.CancelFunc)
 
 	// Refresher is the entity being refreshed.
 	Refresher Refresher
 
-	// Name is the name of this worker.  It is used for logging and error
-	// collecting.
-	//
-	// TODO(a.garipov): Consider accepting a slog.Logger or removing this and
-	// making all Refreshers handle their own logging.
-	Name string
+	// Logger is used for logging the operation of the worker.
+	Logger *slog.Logger
 
 	// Interval is the refresh interval.  Must be greater than zero.
 	//
@@ -76,16 +78,17 @@ func NewRefreshWorker(c *RefreshWorkerConfig) (w *RefreshWorker) {
 	var rng *rand.Rand
 	if c.RandomizeStart {
 		maxStartSleep = c.Interval / 10
+		// #nosec G115 -- The Unix epoch time is highly unlikely to be negative.
 		rng = rand.New(rand.NewSource(uint64(time.Now().UnixNano())))
 	}
 
 	return &RefreshWorker{
+		logger:         c.Logger,
 		done:           make(chan unit),
 		context:        c.Context,
 		tick:           time.NewTicker(c.Interval),
 		rand:           rng,
 		refr:           c.Refresher,
-		name:           c.Name,
 		maxStartSleep:  maxStartSleep,
 		refrOnShutdown: c.RefreshOnShutdown,
 	}
@@ -103,20 +106,22 @@ func (w *RefreshWorker) Start(_ context.Context) (err error) {
 }
 
 // Shutdown implements the [service.Interface] interface for *RefreshWorker.
+//
+// NOTE:  The context provided by [RefreshWorkerConfig.Context] is not used for
+// the shutdown refresh.
 func (w *RefreshWorker) Shutdown(ctx context.Context) (err error) {
 	if w.refrOnShutdown {
-		err = w.refr.Refresh(ctx)
+		err = w.refr.Refresh(slogutil.ContextWithLogger(ctx, w.logger))
 	}
 
 	close(w.done)
 
 	w.tick.Stop()
 
-	name := w.name
 	if err != nil {
 		err = fmt.Errorf("refresh on shutdown: %w", err)
 	} else {
-		log.Info("worker %q: shut down successfully", name)
+		w.logger.InfoContext(ctx, "shut down successfully")
 	}
 
 	return err
@@ -125,19 +130,19 @@ func (w *RefreshWorker) Shutdown(ctx context.Context) (err error) {
 // refreshInALoop refreshes the entity every tick of w.tick until Shutdown is
 // called.
 func (w *RefreshWorker) refreshInALoop() {
-	name := w.name
-	defer log.OnPanic(name)
+	ctx := context.Background()
+	defer slogutil.RecoverAndLog(ctx, w.logger)
 
-	log.Info("worker %q: starting refresh loop", name)
+	w.logger.InfoContext(ctx, "starting refresh loop")
 
 	for {
 		select {
 		case <-w.done:
-			log.Info("worker %q: finished refresh loop", name)
+			w.logger.InfoContext(ctx, "finished refresh loop")
 
 			return
 		case <-w.tick.C:
-			if w.sleepRandom() {
+			if w.sleepRandom(ctx) {
 				w.refresh()
 			}
 		}
@@ -146,13 +151,17 @@ func (w *RefreshWorker) refreshInALoop() {
 
 // sleepRandom sleeps for up to maxStartSleep unless it's zero.  shouldRefresh
 // shows if a refresh should be performed once the sleep is finished.
-func (w *RefreshWorker) sleepRandom() (shouldRefresh bool) {
+func (w *RefreshWorker) sleepRandom(ctx context.Context) (shouldRefresh bool) {
 	if w.maxStartSleep == 0 {
 		return true
 	}
 
 	sleepDur := time.Duration(w.rand.Int63n(int64(w.maxStartSleep)))
-	log.Debug("worker %q: sleeping for %s before refresh", w.name, sleepDur)
+	// TODO(a.garipov):  Augment our JSON handler to use time.Duration.String
+	// automatically?
+	w.logger.DebugContext(ctx, "sleeping before refresh", "dur", timeutil.Duration{
+		Duration: sleepDur,
+	})
 
 	timer := time.NewTimer(sleepDur)
 	defer func() {
@@ -183,14 +192,16 @@ func (w *RefreshWorker) refresh() {
 	ctx, cancel := w.context()
 	defer cancel()
 
+	ctx = slogutil.ContextWithLogger(ctx, w.logger)
+
 	_ = w.refr.Refresh(ctx)
 }
 
 // RefresherWithErrColl reports all refresh errors to errColl and logs them
 // using a provided logging function.
 type RefresherWithErrColl struct {
+	logger  *slog.Logger
 	refr    Refresher
-	log     func(format string, args ...any)
 	errColl errcoll.Interface
 	prefix  string
 }
@@ -199,13 +210,13 @@ type RefresherWithErrColl struct {
 // logs them.
 func NewRefresherWithErrColl(
 	refr Refresher,
-	logFunc func(format string, args ...any),
+	logger *slog.Logger,
 	errColl errcoll.Interface,
 	prefix string,
 ) (wrapped *RefresherWithErrColl) {
 	return &RefresherWithErrColl{
 		refr:    refr,
-		log:     logFunc,
+		logger:  logger,
 		errColl: errColl,
 		prefix:  prefix,
 	}
@@ -218,9 +229,7 @@ var _ Refresher = (*RefresherWithErrColl)(nil)
 func (r *RefresherWithErrColl) Refresh(ctx context.Context) (err error) {
 	err = r.refr.Refresh(ctx)
 	if err != nil {
-		err = fmt.Errorf("%s: %w", r.prefix, err)
-		r.log("%s", err)
-		r.errColl.Collect(ctx, err)
+		errcoll.Collect(ctx, r.errColl, r.logger, "refreshing", err)
 	}
 
 	return err

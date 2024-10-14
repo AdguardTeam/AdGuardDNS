@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -17,24 +18,30 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/ioutil"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/netutil/urlutil"
+	"github.com/c2h5oh/datasize"
 	renameio "github.com/google/renameio/v2"
 )
 
 // Refreshable contains entities common to filters that can refresh themselves
 // from a file and a URL.
 type Refreshable struct {
+	logger    *slog.Logger
 	http      *agdhttp.Client
 	url       *url.URL
 	id        agd.FilterListID
 	cachePath string
 	staleness time.Duration
-	maxSize   uint64
+	maxSize   datasize.ByteSize
 }
 
 // RefreshableConfig is the configuration structure for a refreshable filter.
 type RefreshableConfig struct {
-	// URL is the URL used to refresh the filter.
+	// Logger is used to log errors during refreshes.
+	Logger *slog.Logger
+
+	// URL is the URL used to refresh the filter.  URL should not be nil.  The
+	// scheme of the URL should be one of: "file", "http", or "https".
 	URL *url.URL
 
 	// ID is the filter list ID for this filter.
@@ -50,13 +57,20 @@ type RefreshableConfig struct {
 	// filter.
 	Timeout time.Duration
 
-	// MaxSize is the maximum size in bytes of the downloadable filter content.
-	MaxSize uint64
+	// MaxSize is the maximum size of the downloadable filter content.
+	MaxSize datasize.ByteSize
 }
 
 // NewRefreshable returns a new refreshable filter.  c must not be nil.
-func NewRefreshable(c *RefreshableConfig) (f *Refreshable) {
+func NewRefreshable(c *RefreshableConfig) (f *Refreshable, err error) {
+	if c.URL == nil {
+		return nil, fmt.Errorf("internal.NewRefreshable: nil url for refreshable with ID %q", c.ID)
+	} else if s := c.URL.Scheme; s != agdhttp.SchemeFile && !agdhttp.CheckHTTPURLScheme(s) {
+		return nil, fmt.Errorf("internal.NewRefreshable: bad url scheme %q", s)
+	}
+
 	return &Refreshable{
+		logger: c.Logger,
 		http: agdhttp.NewClient(&agdhttp.ClientConfig{
 			Timeout: c.Timeout,
 		}),
@@ -65,7 +79,7 @@ func NewRefreshable(c *RefreshableConfig) (f *Refreshable) {
 		cachePath: c.CachePath,
 		staleness: c.Staleness,
 		maxSize:   c.MaxSize,
-	}
+	}, nil
 }
 
 // Refresh reloads the filter data.  If acceptStale is true, refresh doesn't try
@@ -73,44 +87,76 @@ func NewRefreshable(c *RefreshableConfig) (f *Refreshable) {
 // cache directory, regardless of its staleness.
 //
 // TODO(a.garipov): Consider making refresh return a reader instead of a string.
-func (f *Refreshable) Refresh(
-	ctx context.Context,
-	acceptStale bool,
-) (text string, err error) {
-	now := time.Now()
-
+func (f *Refreshable) Refresh(ctx context.Context, acceptStale bool) (text string, err error) {
 	defer func() { err = errors.Annotate(err, "%s: %w", f.id) }()
 
-	text, err = f.refreshFromFile(acceptStale, now)
-	if err != nil {
-		return "", fmt.Errorf("refreshing from file %q: %w", f.cachePath, err)
+	if f.url.Scheme == agdhttp.SchemeFile {
+		text, err = f.refreshFromFileOnly(ctx)
+	} else {
+		text, err = f.useCachedOrRefreshFromURL(ctx, acceptStale)
 	}
 
-	if text == "" {
-		log.Info("%s: refreshing from url %q", f.id, f.url)
+	return text, err
+}
 
-		text, err = f.refreshFromURL(ctx, now)
-		if err != nil {
-			return "", fmt.Errorf("refreshing from url %q: %w", f.url, err)
-		}
-	} else {
-		log.Info("%s: using cached data from file %q", f.id, f.cachePath)
+// refreshFromFileOnly refreshes from the file in the URL.  It must only be
+// called when the URL of this refreshable filter is a file URI.
+func (f *Refreshable) refreshFromFileOnly(ctx context.Context) (text string, err error) {
+	filePath := f.url.Path
+	f.logger.InfoContext(ctx, "using data from file", "path", filePath)
+
+	text, err = f.refreshFromFile(true, filePath, time.Time{})
+	if err != nil {
+		return "", fmt.Errorf("refreshing from file %q: %w", filePath, err)
 	}
 
 	return text, nil
 }
 
-// refreshFromFile loads filter data from a file if the file's mtime shows that
-// it's still fresh relative to updTime.  If acceptStale is true, and the cache
+// useCachedOrRefreshFromURL reloads the filter data from the cache file or the http
+// URL.  If acceptStale is true, refresh doesn't try to load the filter data
+// from its URL when there is already a file in the cache directory, regardless
+// of its staleness.  It must only be called when the URL of this refreshable
+// filter has an HTTP(S) URL.
+func (f *Refreshable) useCachedOrRefreshFromURL(
+	ctx context.Context,
+	acceptStale bool,
+) (text string, err error) {
+	now := time.Now()
+
+	text, err = f.refreshFromFile(acceptStale, f.cachePath, now)
+	if err != nil {
+		return "", fmt.Errorf("refreshing from cache file %q: %w", f.cachePath, err)
+	}
+
+	if text == "" {
+		f.logger.InfoContext(ctx, "refreshing from url", "url", &urlutil.URL{
+			URL: *f.url,
+		})
+
+		text, err = f.refreshFromURL(ctx, now)
+		if err != nil {
+			return "", fmt.Errorf("refreshing from url %q: %w", f.url.Redacted(), err)
+		}
+	} else {
+		f.logger.InfoContext(ctx, "using cached data from file", "path", f.cachePath)
+	}
+
+	return text, nil
+}
+
+// refreshFromFile loads filter data from filePath if the file's mtime shows
+// that it's still fresh relative to updTime.  If acceptStale is true, and the
 // file exists, the data is read from there regardless of its staleness.  If err
 // is nil and text is empty, a refresh from a URL is required.
 func (f *Refreshable) refreshFromFile(
 	acceptStale bool,
+	filePath string,
 	updTime time.Time,
 ) (text string, err error) {
-	// #nosec G304 -- Assume that cachePath is always cacheDir + a valid,
-	// no-slash filter list ID.
-	file, err := os.Open(f.cachePath)
+	// #nosec G304 -- Assume that filePath is always either cacheDir + a valid,
+	// no-slash filter list ID or a path from the index env.
+	file, err := os.Open(filePath)
 	if errors.Is(err, os.ErrNotExist) {
 		// File does not exist.  Refresh from the URL.
 		return "", nil
@@ -161,16 +207,15 @@ func (f *Refreshable) refreshFromURL(
 	}
 	defer func() { err = errors.WithDeferred(err, resp.Body.Close()) }()
 
-	srv := resp.Header.Get(httphdr.Server)
-	cl := resp.ContentLength
-
-	log.Info(
-		"%s: loading from %q: got content-length %d, code %d, srv %q",
-		f.id,
-		f.url,
-		cl,
-		resp.StatusCode,
-		srv,
+	f.logger.InfoContext(
+		ctx,
+		"got data from url",
+		"code", resp.StatusCode,
+		"content-length", resp.ContentLength,
+		"server", resp.Header.Get(httphdr.Server),
+		"url", &urlutil.URL{
+			URL: *f.url,
+		},
 	)
 
 	err = agdhttp.CheckStatus(resp, http.StatusOK)
@@ -181,7 +226,7 @@ func (f *Refreshable) refreshFromURL(
 
 	b := &strings.Builder{}
 	mw := io.MultiWriter(b, tmpFile)
-	_, err = io.Copy(mw, ioutil.LimitReader(resp.Body, f.maxSize))
+	_, err = io.Copy(mw, ioutil.LimitReader(resp.Body, f.maxSize.Bytes()))
 	if err != nil {
 		return "", agdhttp.WrapServerError(fmt.Errorf("reading into file: %w", err), resp)
 	}

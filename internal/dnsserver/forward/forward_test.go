@@ -15,6 +15,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	// TODO(a.garipov):  Remove after removing golibs/log from dnsserver.
 	testutil.DiscardLogOutput(m)
 }
 

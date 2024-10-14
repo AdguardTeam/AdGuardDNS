@@ -10,6 +10,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+	"github.com/AdguardTeam/AdGuardDNS/internal/version"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/getsentry/sentry-go"
 	"github.com/stretchr/testify/assert"
@@ -58,7 +59,7 @@ func TestSentryErrorCollector(t *testing.T) {
 	sentryClient, err := sentry.NewClient(sentry.ClientOptions{
 		Dsn:       "https://user:password@does.not.exist/test",
 		Transport: tr,
-		Release:   agd.Version(),
+		Release:   version.Version(),
 	})
 	require.NoError(t, err)
 
@@ -72,10 +73,12 @@ func TestSentryErrorCollector(t *testing.T) {
 
 	ctx := context.Background()
 	ctx = agd.ContextWithRequestInfo(ctx, &agd.RequestInfo{
-		Device:         &agd.Device{ID: devID},
-		Profile:        &agd.Profile{ID: profID},
+		DeviceResult: &agd.DeviceResultOK{
+			Device:  &agd.Device{ID: devID},
+			Profile: &agd.Profile{ID: profID},
+		},
 		FilteringGroup: &agd.FilteringGroup{ID: fltGrpID},
-		Messages:       agdtest.NewConstructor(),
+		Messages:       agdtest.NewConstructor(t),
 		ID:             reqID,
 	})
 

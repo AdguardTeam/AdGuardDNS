@@ -11,7 +11,7 @@ import (
 // settings.
 type ServerGroup struct {
 	// DDR is the configuration for the server group's Discovery Of Designated
-	// Resolvers (DDR) handlers.  DDR is never nil.
+	// Resolvers (DDR) handlers.  DDR must not be nil.
 	DDR *DDR
 
 	// TLS are the TLS settings for this server group.  If Servers contains at
@@ -22,11 +22,15 @@ type ServerGroup struct {
 	// Name is the unique name of the server group.
 	Name ServerGroupName
 
-	// FilteringGroup is the ID of the filtering group for this server.
+	// FilteringGroup is the ID of the filtering group for this server group.
 	FilteringGroup FilteringGroupID
 
 	// Servers are the settings for servers.  Each element must be non-nil.
 	Servers []*Server
+
+	// ProfilesEnabled, if true, enables recognition of user devices and
+	// profiles for this server group.
+	ProfilesEnabled bool
 }
 
 // ServerGroupName is the name of a server group.
@@ -37,9 +41,9 @@ type TLS struct {
 	// Conf is the server's TLS configuration.
 	Conf *tls.Config
 
-	// DeviceIDWildcards are the domain wildcards used to detect device IDs from
+	// DeviceDomains are the domain names used to detect device IDs from
 	// clients' server names.
-	DeviceIDWildcards []string
+	DeviceDomains []string
 
 	// SessionKeys are paths to files containing the TLS session keys for this
 	// server.

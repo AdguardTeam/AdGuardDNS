@@ -6,8 +6,6 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 )
 
-// Common Errors
-
 // BadECSError is returned by functions that work with EDNS Client Subnet
 // option when the data in the option is invalid.
 type BadECSError struct {

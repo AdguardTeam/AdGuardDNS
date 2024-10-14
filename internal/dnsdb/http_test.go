@@ -116,9 +116,7 @@ func TestDefault_ServeHTTP(t *testing.T) {
 
 	for _, tc := range testCases {
 		db := dnsdb.New(&dnsdb.DefaultConfig{
-			ErrColl: &agdtest.ErrorCollector{
-				OnCollect: func(_ context.Context, _ error) { panic("not implemented") },
-			},
+			ErrColl: agdtest.NewErrorCollector(),
 			MaxSize: 100,
 		})
 		rw := httptest.NewRecorder()

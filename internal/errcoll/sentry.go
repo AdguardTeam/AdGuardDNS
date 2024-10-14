@@ -13,6 +13,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
+	"github.com/AdguardTeam/AdGuardDNS/internal/version"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/getsentry/sentry-go"
@@ -183,8 +184,7 @@ type sentryTags = map[string]string
 // tagsFromCtx returns Sentry tags based on the information from ctx.
 func tagsFromCtx(ctx context.Context) (tags sentryTags) {
 	tags = sentryTags{
-		// TODO(a.garipov):  Use a standard version package.
-		"git_revision": agd.Revision(),
+		"git_revision": version.Revision(),
 	}
 
 	// TODO(a.garipov):  Consider splitting agdctx package.
@@ -193,11 +193,10 @@ func tagsFromCtx(ctx context.Context) (tags sentryTags) {
 		tags["filtering_group_id"] = string(ri.FilteringGroup.ID)
 		tags["request_id"] = ri.ID.String()
 
-		if p := ri.Profile; p != nil {
+		p, d := ri.DeviceData()
+		if p != nil {
 			tags["profile_id"] = string(p.ID)
-
-			// Assume that if we have a profile then we also have a device.
-			tags["device_id"] = string(ri.Device.ID)
+			tags["device_id"] = string(d.ID)
 		}
 	} else if reqID, ok = agd.RequestIDFromContext(ctx); ok {
 		// This context could be from the part of the pipeline where the request

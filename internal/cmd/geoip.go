@@ -1,18 +1,9 @@
 package cmd
 
 import (
-	"context"
-	"fmt"
-
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
-	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
-	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
-
-// GeoIP database configuration
 
 // geoIPConfig is the GeoIP database configuration.
 type geoIPConfig struct {
@@ -27,70 +18,23 @@ type geoIPConfig struct {
 	RefreshIvl timeutil.Duration `yaml:"refresh_interval"`
 }
 
-// validate returns an error if the GeoIP database configuration is invalid.
+// type check
+var _ validator = (*geoIPConfig)(nil)
+
+// validate implements the [validator] interface for *geoIPConfig.
 func (c *geoIPConfig) validate() (err error) {
 	switch {
 	case c == nil:
-		return errNilConfig
+		return errors.ErrNoValue
 	case c.HostCacheSize <= 0:
 		// Note that while geoip.File can work with an empty host cache, that
 		// feature is only used for tests.
-		return newMustBePositiveError("host_cache_size", c.HostCacheSize)
+		return newNotPositiveError("host_cache_size", c.HostCacheSize)
 	case c.IPCacheSize <= 0:
-		return newMustBePositiveError("ip_cache_size", c.IPCacheSize)
+		return newNotPositiveError("ip_cache_size", c.IPCacheSize)
 	case c.RefreshIvl.Duration <= 0:
-		return newMustBePositiveError("refresh_interval", c.RefreshIvl)
+		return newNotPositiveError("refresh_interval", c.RefreshIvl)
 	default:
 		return nil
 	}
-}
-
-// setupGeoIP creates and sets the GeoIP database as well as creates and starts
-// its refresher.  It is intended to be used as a goroutine.  geoIPPtr and
-// refrPtr must not be nil.  errCh receives nil if the database and the
-// refresher have been created successfully or an error if not.
-func setupGeoIP(
-	geoIPPtr *geoip.File,
-	refrPtr *agdservice.RefreshWorker,
-	errCh chan<- error,
-	conf *geoIPConfig,
-	envs *environments,
-	errColl errcoll.Interface,
-	cacheManager agdcache.Manager,
-) {
-	// TODO(e.burkov):  Pass the context through arguments.
-	ctx := context.Background()
-
-	geoIP, err := envs.geoIP(ctx, conf, cacheManager)
-	if err != nil {
-		errCh <- fmt.Errorf("creating geoip: %w", err)
-
-		return
-	}
-
-	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
-		Context: ctxWithDefaultTimeout,
-		// Do not add errColl to geoip's config, as that would create an import
-		// cycle.
-		Refresher: agdservice.NewRefresherWithErrColl(
-			geoIP,
-			log.Info,
-			errColl,
-			"geoip_refresh",
-		),
-		Name:              "geoip",
-		Interval:          conf.RefreshIvl.Duration,
-		RefreshOnShutdown: false,
-		RandomizeStart:    false,
-	})
-	err = refr.Start(ctx)
-	if err != nil {
-		errCh <- fmt.Errorf("starting geoip refresher: %w", err)
-
-		return
-	}
-
-	*geoIPPtr, *refrPtr = *geoIP, *refr
-
-	errCh <- nil
 }

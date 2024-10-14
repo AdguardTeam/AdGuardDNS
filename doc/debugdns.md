@@ -1,4 +1,6 @@
- #  AdGuard DNS Query Debugging API
+# AdGuard DNS query debugging API
+
+<!-- markdownlint-disable MD010 -->
 
 You can debug AdGuard DNS queries by performing a query with the `CHAOS` class:
 
@@ -41,8 +43,7 @@ In the `ANSWER SECTION`, the usual `IN` reply is returned.
 
 In the `ADDITIONAL SECTION`, the following debug information is returned:
 
- *  <a href="#additional-client-ip" id="additional-client-ip" name="additional-client-ip">`client-ip`</a>:
-    The IP address of the client.  The full name is `client-ip.adguard-dns.com`.
+- <a href="#additional-client-ip" id="additional-client-ip" name="additional-client-ip">`client-ip`</a>: The IP address of the client. The full name is `client-ip.adguard-dns.com`.
 
     **Example:**
 
@@ -50,8 +51,7 @@ In the `ADDITIONAL SECTION`, the following debug information is returned:
     client-ip.adguard-dns.com. 10	CH	TXT	"127.0.0.1"
     ```
 
- *  <a href="#additional-server-ip" id="additional-server-ip" name="additional-server-ip">`server-ip`</a>:
-    The IP address of the server.  The full name is `server-ip.adguard-dns.com`.
+- <a href="#additional-server-ip" id="additional-server-ip" name="additional-server-ip">`server-ip`</a>: The IP address of the server. The full name is `server-ip.adguard-dns.com`.
 
     **Example:**
 
@@ -59,9 +59,7 @@ In the `ADDITIONAL SECTION`, the following debug information is returned:
     server-ip.adguard-dns.com. 10	CH	TXT	"127.0.0.1"
     ```
 
- *  <a href="#additional-device-id" id="additional-device-id" name="additional-device-id">`device-id`</a>:
-    The ID of the device as detected by the server, if any.  The full name is
-    `device-id.adguard-dns.com`.
+- <a href="#additional-device-id" id="additional-device-id" name="additional-device-id">`device-id`</a>: The ID of the device as detected by the server, if any. The full name is `device-id.adguard-dns.com`.
 
     **Example:**
 
@@ -69,9 +67,7 @@ In the `ADDITIONAL SECTION`, the following debug information is returned:
     device-id.adguard-dns.com. 10	CH	TXT	"dev1234"
     ```
 
- *  <a href="#additional-profile-id" id="additional-profile-id" name="additional-profile-id">`profile-id`</a>:
-    The ID of the profile (aka “DNS server” on the UI) of the AdGuard DNS
-    server.  The full name is `profile-id.adguard-dns.com`.
+- <a href="#additional-profile-id" id="additional-profile-id" name="additional-profile-id">`profile-id`</a>: The ID of the profile (aka “DNS server” on the UI) of the AdGuard DNS server. The full name is `profile-id.adguard-dns.com`.
 
     **Example:**
 
@@ -79,8 +75,7 @@ In the `ADDITIONAL SECTION`, the following debug information is returned:
     profile-id.adguard-dns.com. 10	CH	TXT	"prof1234"
     ```
 
- *  <a href="#additional-country" id="additional-country" name="additional-country">`country`</a>:
-    User's country code.  The full name is `country.adguard-dns.com`.
+- <a href="#additional-country" id="additional-country" name="additional-country">`country`</a>: User's country code. The full name is `country.adguard-dns.com`.
 
     **Example:**
 
@@ -88,9 +83,7 @@ In the `ADDITIONAL SECTION`, the following debug information is returned:
     country.adguard-dns.com.	10 CH	TXT	"CY"
     ```
 
- *  <a href="#additional-asn" id="additional-asn" name="additional-asn">`asn`</a>:
-    User's autonomous system number (ASN).  The full name is
-    `asn.adguard-dns.com`.
+- <a href="#additional-asn" id="additional-asn" name="additional-asn">`asn`</a>: User's autonomous system number (ASN). The full name is `asn.adguard-dns.com`.
 
     **Example:**
 
@@ -98,9 +91,7 @@ In the `ADDITIONAL SECTION`, the following debug information is returned:
     asn.adguard-dns.com.	10 CH	TXT	"1234"
     ```
 
- *  <a href="#additional-subdivision" id="additional-subdivision" name="additional-subdivision">`subdivision`</a>:
-    User's location subdivision code.  This field could be empty even if user's
-    country code is present.  The full name is `subdivision.adguard-dns.com`.
+- <a href="#additional-subdivision" id="additional-subdivision" name="additional-subdivision">`subdivision`</a>: User's location subdivision code. This field could be empty even if user's country code is present. The full name is `subdivision.adguard-dns.com`.
 
    **Example:**
 
@@ -109,26 +100,17 @@ In the `ADDITIONAL SECTION`, the following debug information is returned:
    subdivision.adguard-dns.com. 10 CH	TXT	"CA"
    ```
 
-The following debug records can have one of two prefixes: `req` or `resp`.  The
-prefix depends on whether the filtering was applied to the request or the
-response.
+The following debug records can have one of two prefixes: `req` or `resp`. The prefix depends on whether the filtering was applied to the request or the response.
 
- *  <a href="#additional-res-type" id="additional-res-type" name="additional-res-type">`res-type`</a>:
-    The `type` of response.  The full name is
-    `(req|resp).res-type.adguard-dns.com`.  Can be the following types:
+- <a href="#additional-res-type" id="additional-res-type" name="additional-res-type">`res-type`</a>: The `type` of response. The full name is `(req|resp).res-type.adguard-dns.com`. Can be the following types:
 
-    *  <a href="#additional-res-type-normal" id="additional-res-type-normal" name="additional-res-type-normal">`normal`</a>:
-       The request or response was not filtered.
+    - <a href="#additional-res-type-normal" id="additional-res-type-normal" name="additional-res-type-normal">`normal`</a>: The request or response was not filtered.
 
-    *  <a href="#additional-res-type-blocked" id="additional-res-type-blocked" name="additional-res-type-blocked">`blocked`</a>:
-       The request or response was blocked by a filter list or parental
-       protection.
+    - <a href="#additional-res-type-blocked" id="additional-res-type-blocked" name="additional-res-type-blocked">`blocked`</a>: The request or response was blocked by a filter list or parental protection.
 
-    *  <a href="#additional-res-type-allowed" id="additional-res-type-allowed" name="additional-res-type-allowed">`allowed`</a>:
-       The request or response was allowed by an exception rule.
+    - <a href="#additional-res-type-allowed" id="additional-res-type-allowed" name="additional-res-type-allowed">`allowed`</a>: The request or response was allowed by an exception rule.
 
-    *  <a href="#additional-res-type-modified" id="additional-res-type-modified" name="additional-res-type-modified">`modified`</a>:
-       The query has been rewritten by a rewrite rule or parental protection.
+    - <a href="#additional-res-type-modified" id="additional-res-type-modified" name="additional-res-type-modified">`modified`</a>: The query has been rewritten by a rewrite rule or parental protection.
 
     **Example:**
 
@@ -136,10 +118,7 @@ response.
     req.res-type.adguard-dns.com. 10 CH	TXT	"blocked"
     ```
 
- *  <a href="#additional-rule" id="additional-rule" name="additional-rule">`rule`</a>:
-    The rule that was applied to the query.  The full name is
-    `(req|resp).rule.adguard-dns.com`.  Rules that are longer than 255 bytes are
-    split into several consecutive strings.
+- <a href="#additional-rule" id="additional-rule" name="additional-rule">`rule`</a>: The rule that was applied to the query. The full name is `(req|resp).rule.adguard-dns.com`. Rules that are longer than 255 bytes are split into several consecutive strings.
 
     **Example:**
 
@@ -156,10 +135,7 @@ response.
     "heregoesthesecondpartoftherule"
     ```
 
- *  <a href="#additional-rule-list-id" id="additional-rule-list-id" name="additional-rule-list-id">`rule-list-id`</a>:
-    The ID of the rule list that was applied, if any.  The full name is
-    `(req|resp).rule-list-id.adguard-dns.com`.
-
+- <a href="#additional-rule-list-id" id="additional-rule-list-id" name="additional-rule-list-id">`rule-list-id`</a>: The ID of the rule list that was applied, if any. The full name is `(req|resp).rule-list-id.adguard-dns.com`.
 
     **Example:**
 
@@ -167,7 +143,6 @@ response.
     req.rule-list-id.adguard-dns.com.	10 CH	TXT	"adguard_dns_filter"
     ```
 
-The TTL of these responses is taken from parameter
-[`filters.response_ttl`][conf-filters-ttl] in the configuration file.
+The TTL of these responses is taken from parameter [`filters.response_ttl`][conf-filters-ttl] in the configuration file.
 
 [conf-filters-ttl]: configuration.md#filters-response_ttl

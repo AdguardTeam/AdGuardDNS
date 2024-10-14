@@ -12,6 +12,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/c2h5oh/datasize"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,6 +30,9 @@ const (
 	HumanID      agd.HumanID      = "My-Device-X--10"
 	HumanIDLower agd.HumanIDLower = "my-device-x--10"
 )
+
+// RespSzEst is a response-size estimate for tests.
+const RespSzEst datasize.ByteSize = 1 * datasize.KB
 
 // NewProfile returns the common profile and device for tests.
 func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
@@ -79,6 +83,11 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 		},
 		FilteredResponseTTL: 10 * time.Second,
 		FilteringEnabled:    true,
+		Ratelimiter: agd.NewDefaultRatelimiter(&agd.RatelimitConfig{
+			ClientSubnets: []netip.Prefix{netip.MustParsePrefix("5.5.5.0/24")},
+			RPS:           100,
+			Enabled:       true,
+		}, RespSzEst),
 		SafeBrowsing: &agd.SafeBrowsingSettings{
 			Enabled:                     true,
 			BlockDangerousDomains:       true,

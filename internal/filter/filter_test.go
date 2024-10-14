@@ -20,13 +20,10 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/require"
 )
-
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
 
 // testFilterID is the standard ID of the filter for tests.
 const testFilterID agd.FilterListID = "filter"
@@ -173,6 +170,7 @@ func prepareConf(t testing.TB) (c *filter.DefaultStorageConfig) {
 	fltsURL, svcsURL, ssURL, cacheDir := prepareIndex(t)
 
 	return &filter.DefaultStorageConfig{
+		BaseLogger:                slogutil.NewDiscardLogger(),
 		BlockedServiceIndexURL:    svcsURL,
 		FilterIndexURL:            fltsURL,
 		GeneralSafeSearchRulesURL: ssURL,
@@ -196,12 +194,15 @@ func prepareConf(t testing.TB) (c *filter.DefaultStorageConfig) {
 
 // newReqInfo returns a new request information structure with the given data.
 func newReqInfo(
+	tb testing.TB,
 	g *agd.FilteringGroup,
 	p *agd.Profile,
 	host string,
 	ip netip.Addr,
 	qt dnsmsg.RRType,
 ) (ri *agd.RequestInfo) {
+	tb.Helper()
+
 	var d *agd.Device
 	if p != nil {
 		d = &agd.Device{
@@ -211,10 +212,12 @@ func newReqInfo(
 	}
 
 	ri = &agd.RequestInfo{
-		Device:         d,
-		Profile:        p,
+		DeviceResult: &agd.DeviceResultOK{
+			Device:  d,
+			Profile: p,
+		},
 		FilteringGroup: g,
-		Messages:       agdtest.NewConstructor(),
+		Messages:       agdtest.NewConstructor(tb),
 		Host:           host,
 		RemoteIP:       ip,
 		QType:          qt,

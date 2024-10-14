@@ -116,7 +116,7 @@ const (
 	// Brunei Darussalam.
 	CountryBN Country = "BN"
 	// CountryBO is the ISO 3166-1 alpha-2 code for
-	// Bolivia (Plurinational State of).
+	// Bolivia, Plurinational State of.
 	CountryBO Country = "BO"
 	// CountryBQ is the ISO 3166-1 alpha-2 code for
 	// Bonaire, Sint Eustatius and Saba.
@@ -248,7 +248,7 @@ const (
 	// Falkland Islands (Malvinas).
 	CountryFK Country = "FK"
 	// CountryFM is the ISO 3166-1 alpha-2 code for
-	// Micronesia (Federated States of).
+	// Micronesia, Federated States of.
 	CountryFM Country = "FM"
 	// CountryFO is the ISO 3166-1 alpha-2 code for
 	// Faroe Islands.
@@ -353,7 +353,7 @@ const (
 	// Iraq.
 	CountryIQ Country = "IQ"
 	// CountryIR is the ISO 3166-1 alpha-2 code for
-	// Iran (Islamic Republic of).
+	// Iran, Islamic Republic of.
 	CountryIR Country = "IR"
 	// CountryIS is the ISO 3166-1 alpha-2 code for
 	// Iceland.
@@ -392,7 +392,7 @@ const (
 	// Saint Kitts and Nevis.
 	CountryKN Country = "KN"
 	// CountryKP is the ISO 3166-1 alpha-2 code for
-	// Korea (Democratic People's Republic of).
+	// Korea, Democratic People's Republic of.
 	CountryKP Country = "KP"
 	// CountryKR is the ISO 3166-1 alpha-2 code for
 	// Korea, Republic of.
@@ -527,7 +527,7 @@ const (
 	// Nicaragua.
 	CountryNI Country = "NI"
 	// CountryNL is the ISO 3166-1 alpha-2 code for
-	// Netherlands.
+	// Netherlands, Kingdom of the.
 	CountryNL Country = "NL"
 	// CountryNO is the ISO 3166-1 alpha-2 code for
 	// Norway.
@@ -704,7 +704,7 @@ const (
 	// Tonga.
 	CountryTO Country = "TO"
 	// CountryTR is the ISO 3166-1 alpha-2 code for
-	// Turkey.
+	// Türkiye.
 	CountryTR Country = "TR"
 	// CountryTT is the ISO 3166-1 alpha-2 code for
 	// Trinidad and Tobago.
@@ -743,7 +743,7 @@ const (
 	// Saint Vincent and the Grenadines.
 	CountryVC Country = "VC"
 	// CountryVE is the ISO 3166-1 alpha-2 code for
-	// Venezuela (Bolivarian Republic of).
+	// Venezuela, Bolivarian Republic of.
 	CountryVE Country = "VE"
 	// CountryVG is the ISO 3166-1 alpha-2 code for
 	// Virgin Islands (British).

@@ -20,6 +20,9 @@ type BillStatConfig struct {
 	// non-critical errors.
 	ErrColl errcoll.Interface
 
+	// Metrics is used for the collection of the protobuf errors.
+	Metrics Metrics
+
 	// Endpoint is the backend API URL.  The scheme should be either "grpc" or
 	// "grpcs".
 	Endpoint *url.URL
@@ -38,6 +41,7 @@ func NewBillStat(c *BillStatConfig) (b *BillStat, err error) {
 
 	return &BillStat{
 		errColl: c.ErrColl,
+		metrics: c.Metrics,
 		client:  client,
 		apiKey:  c.APIKey,
 	}, nil
@@ -51,6 +55,7 @@ func NewBillStat(c *BillStatConfig) (b *BillStat, err error) {
 // backendpb.Client.
 type BillStat struct {
 	errColl errcoll.Interface
+	metrics Metrics
 	client  DNSServiceClient
 	apiKey  string
 }
@@ -67,7 +72,7 @@ func (b *BillStat) Upload(ctx context.Context, records billstat.Records) (err er
 	ctx = ctxWithAuthentication(ctx, b.apiKey)
 	stream, err := b.client.SaveDevicesBillingStat(ctx)
 	if err != nil {
-		return fmt.Errorf("opening stream: %w", fixGRPCError(err))
+		return fmt.Errorf("opening stream: %w", fixGRPCError(ctx, b.metrics, err))
 	}
 
 	for deviceID, record := range records {
@@ -79,7 +84,11 @@ func (b *BillStat) Upload(ctx context.Context, records billstat.Records) (err er
 
 		sendErr := stream.Send(recordToProtobuf(record, deviceID))
 		if sendErr != nil {
-			return fmt.Errorf("uploading device %q record: %w", deviceID, fixGRPCError(sendErr))
+			return fmt.Errorf(
+				"uploading device %q record: %w",
+				deviceID,
+				fixGRPCError(ctx, b.metrics, sendErr),
+			)
 		}
 	}
 
@@ -100,6 +109,7 @@ func recordToProtobuf(r *billstat.Record, devID agd.DeviceID) (s *DeviceBillingS
 		ClientCountry:    string(r.Country),
 		Proto:            uint32(r.Proto),
 		Asn:              uint32(r.ASN),
-		Queries:          uint32(r.Queries),
+		// #nosec G115 -- r.Queries must not be negative.
+		Queries: uint32(r.Queries),
 	}
 }
