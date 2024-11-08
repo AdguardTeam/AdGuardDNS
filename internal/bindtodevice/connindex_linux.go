@@ -20,23 +20,19 @@ type connIndex struct {
 }
 
 // subnetCompare is a comparison function for the two subnets.  It returns -1 if
-// x sorts before y, 1 if x sorts after y, and 0 if their relative sorting
+// a sorts before b, 1 if a sorts after b, and 0 if their relative sorting
 // position is the same.
-func subnetCompare(x, y netip.Prefix) (cmp int) {
-	if x == y {
-		return 0
-	}
+func subnetCompare(a, b netip.Prefix) (cmp int) {
+	aAddr, aBits := a.Addr(), a.Bits()
+	bAddr, bBits := b.Addr(), b.Bits()
 
-	xAddr, xBits := x.Addr(), x.Bits()
-	yAddr, yBits := y.Addr(), y.Bits()
-	if xBits == yBits {
-		return xAddr.Compare(yAddr)
-	}
-
-	if xBits > yBits {
+	switch {
+	case aBits > bBits:
 		return -1
-	} else {
+	case aBits < bBits:
 		return 1
+	default:
+		return aAddr.Compare(bAddr)
 	}
 }
 
@@ -45,8 +41,8 @@ func subnetCompare(x, y netip.Prefix) (cmp int) {
 //
 // TODO(a.garipov): Merge with [addListenerChannel].
 func (idx *connIndex) addPacketConn(c *chanPacketConn) (err error) {
-	cmpFunc := func(x, y *chanPacketConn) (cmp int) {
-		return subnetCompare(x.subnet, y.subnet)
+	cmpFunc := func(a, b *chanPacketConn) (cmp int) {
+		return subnetCompare(a.subnet, b.subnet)
 	}
 
 	newIdx, ok := slices.BinarySearchFunc(idx.packetConns, c, cmpFunc)
@@ -67,8 +63,8 @@ func (idx *connIndex) addPacketConn(c *chanPacketConn) (err error) {
 //
 // TODO(a.garipov): Merge with [addPacketConnChannel].
 func (idx *connIndex) addListener(l *chanListener) (err error) {
-	cmpFunc := func(x, y *chanListener) (cmp int) {
-		return subnetCompare(x.subnet, y.subnet)
+	cmpFunc := func(a, b *chanListener) (cmp int) {
+		return subnetCompare(a.subnet, b.subnet)
 	}
 
 	newIdx, ok := slices.BinarySearchFunc(idx.listeners, l, cmpFunc)

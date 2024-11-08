@@ -16,8 +16,8 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// newClient returns new properly initialized DNSServiceClient.
-func newClient(apiURL *url.URL) (client DNSServiceClient, err error) {
+// newClient returns new properly initialized gRPC connection to the API server.
+func newClient(apiURL *url.URL) (client *grpc.ClientConn, err error) {
 	var creds credentials.TransportCredentials
 	switch s := apiURL.Scheme; s {
 	case "grpc":
@@ -38,7 +38,7 @@ func newClient(apiURL *url.URL) (client DNSServiceClient, err error) {
 	// called right before the initial refresh.
 	conn.Connect()
 
-	return NewDNSServiceClient(conn), nil
+	return conn, nil
 }
 
 // reportf is a helper method for reporting non-critical errors.

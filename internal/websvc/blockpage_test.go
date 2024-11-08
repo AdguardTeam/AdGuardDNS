@@ -12,6 +12,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/httphdr"
+	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -122,7 +123,7 @@ func TestBlockPageServers_gzip(t *testing.T) {
 	}
 
 	u := &url.URL{
-		Scheme: "http",
+		Scheme: urlutil.SchemeHTTP,
 		Host:   addr.String(),
 		Path:   "/",
 	}

@@ -309,11 +309,37 @@ func (s *ServerBase) serveDNSMsgInternal(
 		s.metrics.OnError(ctx, err)
 
 		resp = genErrorResponse(req, dns.RcodeServerFailure)
+		if isNonCriticalNetError(err) {
+			addEDE(req, resp, dns.ExtendedErrorCodeNetworkError, "")
+		}
+
 		err = rw.WriteMsg(ctx, req, resp)
 		if err != nil {
 			log.Debug("[%d]: error writing a response: %s", req.Id, err)
 		}
 	}
+}
+
+// addEDE adds an Extended DNS Error (EDE) option to the blocked response
+// message, if the request indicates EDNS support.
+func addEDE(req, resp *dns.Msg, code uint16, text string) {
+	reqOpt := req.IsEdns0()
+	if reqOpt == nil {
+		// Requestor doesn't implement EDNS, see
+		// https://datatracker.ietf.org/doc/html/rfc6891#section-7.
+		return
+	}
+
+	respOpt := resp.IsEdns0()
+	if respOpt == nil {
+		resp.SetEdns0(reqOpt.UDPSize(), reqOpt.Do())
+		respOpt = resp.Extra[len(resp.Extra)-1].(*dns.OPT)
+	}
+
+	respOpt.Option = append(respOpt.Option, &dns.EDNS0_EDE{
+		InfoCode:  code,
+		ExtraText: text,
+	})
 }
 
 // acceptMsg checks if we should process the incoming DNS query.

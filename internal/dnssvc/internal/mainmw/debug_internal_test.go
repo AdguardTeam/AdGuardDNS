@@ -44,7 +44,9 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 	msgs, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
 		Cloner:              cloner,
 		BlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		StructuredErrors:    agdtest.NewSDEConfig(true),
 		FilteredResponseTTL: agdtest.FilteredResponseTTL,
+		EDEEnabled:          true,
 	})
 	require.NoError(t, err)
 

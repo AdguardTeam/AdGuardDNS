@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
@@ -54,8 +55,9 @@ func (c *checkConfig) toInternal(
 	errColl errcoll.Interface,
 	namespace string,
 	reg prometheus.Registerer,
+	backendMtrc backendpb.Metrics,
 ) (conf *dnscheck.RemoteKVConfig, err error) {
-	kv, err := newDNSCheckKV(c, envs, namespace, reg)
+	kv, err := newRemoteKV(c.RemoteKV, envs, namespace, reg, backendMtrc)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
@@ -85,21 +87,33 @@ const maxRespSize = 1 * datasize.MB
 // [remotekv.KeyNamespace].
 const keyNamespaceCheck = "check"
 
-// newDNSCheckKV returns a new properly initialized remote key-value storage.
-func newDNSCheckKV(
-	conf *checkConfig,
+// newRemoteKV returns a new properly initialized remote key-value storage.
+func newRemoteKV(
+	c *remoteKVConfig,
 	envs *environment,
 	namespace string,
 	reg prometheus.Registerer,
+	backendMtrc backendpb.Metrics,
 ) (kv remotekv.Interface, err error) {
-	if conf.RemoteKV.Type == kvModeRedis {
+	switch c.Type {
+	case kvModeBackend:
+		kv, err = backendpb.NewRemoteKV(&backendpb.RemoteKVConfig{
+			Metrics:  backendMtrc,
+			Endpoint: &envs.DNSCheckRemoteKVURL.URL,
+			APIKey:   envs.DNSCheckRemoteKVAPIKey,
+			TTL:      c.TTL.Duration,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("initializing backend dnscheck kv: %w", err)
+		}
+	case kvModeRedis:
 		var redisKVMtrc rediskv.Metrics
 		redisKVMtrc, err = metrics.NewRedisKV(namespace, reg)
 		if err != nil {
 			return nil, fmt.Errorf("registering redis kv metrics: %w", err)
 		}
 
-		kv := rediskv.NewRedisKV(&rediskv.RedisKVConfig{
+		redisKV := rediskv.NewRedisKV(&rediskv.RedisKVConfig{
 			Metrics: redisKVMtrc,
 			Addr: &netutil.HostPort{
 				Host: envs.RedisAddr,
@@ -108,18 +122,20 @@ func newDNSCheckKV(
 			MaxActive:   envs.RedisMaxActive,
 			MaxIdle:     envs.RedisMaxIdle,
 			IdleTimeout: envs.RedisIdleTimeout.Duration,
-			TTL:         conf.RemoteKV.TTL.Duration,
+			TTL:         c.TTL.Duration,
 		})
 
-		return remotekv.NewKeyNamespace(&remotekv.KeyNamespaceConfig{
-			KV:     kv,
+		kv = remotekv.NewKeyNamespace(&remotekv.KeyNamespaceConfig{
+			KV:     redisKV,
 			Prefix: fmt.Sprintf("%s:%s:", envs.RedisKeyPrefix, keyNamespaceCheck),
-		}), nil
-	}
+		})
+	case kvModeConsul:
+		consulKVURL := envs.ConsulDNSCheckKVURL
+		consulSessionURL := envs.ConsulDNSCheckSessionURL
+		if consulKVURL == nil || consulSessionURL == nil {
+			return remotekv.Empty{}, nil
+		}
 
-	consulKVURL := envs.ConsulDNSCheckKVURL
-	consulSessionURL := envs.ConsulDNSCheckSessionURL
-	if consulKVURL != nil && consulSessionURL != nil {
 		kv, err = consulkv.NewKV(&consulkv.Config{
 			URL:        &consulKVURL.URL,
 			SessionURL: &consulSessionURL.URL,
@@ -129,14 +145,14 @@ func newDNSCheckKV(
 			}),
 			// TODO(ameshkov): Consider making configurable.
 			Limiter:     rate.NewLimiter(rate.Limit(200)/60, 1),
-			TTL:         conf.RemoteKV.TTL.Duration,
+			TTL:         c.TTL.Duration,
 			MaxRespSize: maxRespSize,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("initializing consul dnscheck: %w", err)
+			return nil, fmt.Errorf("initializing consul dnscheck kv: %w", err)
 		}
-	} else {
-		kv = remotekv.Empty{}
+	default:
+		return remotekv.Empty{}, nil
 	}
 
 	return kv, nil
@@ -221,15 +237,16 @@ func validateNonNilIPs(ips []netip.Addr, fam netutil.AddrFamily) (err error) {
 
 // DNSCheck key-value database modes.
 const (
-	kvModeConsul = "consul"
-	kvModeRedis  = "redis"
+	kvModeBackend = "backend"
+	kvModeConsul  = "consul"
+	kvModeRedis   = "redis"
 )
 
 // remoteKVConfig is remote key-value store configuration for DNS server
 // checking.
 type remoteKVConfig struct {
 	// Type defines the type of remote key-value store.  Allowed values are
-	// [kvModeConsul] and [kvModeRedis].
+	// [kvModeBackend], [kvModeConsul] and [kvModeRedis].
 	Type string `yaml:"type"`
 
 	// TTL defines, for how long to keep the information about a single client.
@@ -248,6 +265,10 @@ func (c *remoteKVConfig) validate() (err error) {
 	ttl := c.TTL
 
 	switch c.Type {
+	case kvModeBackend:
+		if ttl.Duration <= 0 {
+			return newNotPositiveError("ttl", ttl)
+		}
 	case kvModeConsul:
 		if ttl.Duration < consulkv.MinTTL || ttl.Duration > consulkv.MaxTTL {
 			return fmt.Errorf(
@@ -270,7 +291,7 @@ func (c *remoteKVConfig) validate() (err error) {
 	case "":
 		return fmt.Errorf("type: %w", errors.ErrEmptyValue)
 	default:
-		return fmt.Errorf("type: %q: %w", c.Type, errors.ErrBadEnumValue)
+		return fmt.Errorf("type: %w: %q", errors.ErrBadEnumValue, c.Type)
 	}
 
 	return nil

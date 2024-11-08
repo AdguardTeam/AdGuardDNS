@@ -16,7 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
-	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -134,20 +134,13 @@ func TestMiddleware_recordQueryInfo_respCtry(t *testing.T) {
 				Country: testCtry,
 			}
 
-			geoIP := &agdtest.GeoIP{
-				OnSubnetByLocation: func(
-					_ *geoip.Location,
-					_ netutil.AddrFamily,
-				) (n netip.Prefix, err error) {
-					panic("not implemented")
-				},
-				OnData: func(_ string, _ netip.Addr) (l *geoip.Location, err error) {
-					if !tc.wantGeoIP {
-						t.Error("unexpected call to geoip")
-					}
+			geoIP := agdtest.NewGeoIP()
+			geoIP.OnData = func(_ string, _ netip.Addr) (l *geoip.Location, err error) {
+				if !tc.wantGeoIP {
+					t.Error("unexpected call to geoip")
+				}
 
-					return loc, nil
-				},
+				return loc, nil
 			}
 
 			queryLogCalled := false
@@ -164,6 +157,7 @@ func TestMiddleware_recordQueryInfo_respCtry(t *testing.T) {
 			}
 
 			mw := &Middleware{
+				logger:   slogutil.NewDiscardLogger(),
 				billStat: billstat.EmptyRecorder{},
 				geoIP:    geoIP,
 				queryLog: queryLog,

@@ -11,6 +11,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/httphdr"
+	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,7 +26,7 @@ func TestService_ServeHTTP(t *testing.T) {
 	})
 
 	rootRedirectURL := &url.URL{
-		Scheme: "http",
+		Scheme: urlutil.SchemeHTTP,
 		Host:   "adguard-dns.com",
 		Path:   "/",
 	}
@@ -73,7 +74,7 @@ func assertResponse(
 	t.Helper()
 
 	r := httptest.NewRequest(http.MethodGet, (&url.URL{
-		Scheme: "http",
+		Scheme: urlutil.SchemeHTTP,
 		Host:   "127.0.0.1",
 		Path:   path,
 	}).String(), strings.NewReader(""))

@@ -72,8 +72,7 @@ func (c *optCloner) clone(rr *dns.OPT) (clone *dns.OPT, full bool) {
 			optClone = opt
 		case *dns.EDNS0_EDE:
 			opt := c.ede.Get()
-			opt.InfoCode = orig.InfoCode
-			opt.ExtraText = orig.ExtraText
+			*opt = *orig
 
 			optClone = opt
 		case *dns.EDNS0_SUBNET:

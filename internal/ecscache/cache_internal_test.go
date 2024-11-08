@@ -1,6 +1,7 @@
 package ecscache
 
 import (
+	"context"
 	"net/netip"
 	"testing"
 
@@ -35,9 +36,11 @@ func BenchmarkMiddleware_Get(b *testing.B) {
 		reqDO:  true,
 	}
 
+	ctx := context.Background()
+
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		msgSink, _ = mw.get(req, cr)
+		msgSink, _ = mw.get(ctx, req, cr)
 	}
 }

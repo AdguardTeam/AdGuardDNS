@@ -16,16 +16,13 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/ecscache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
 
 // Common test domain names.
 const (
@@ -668,31 +665,29 @@ func newWithCache(
 
 	pt := testutil.PanicT{}
 
-	// TODO(a.garipov): Actually test ASNs once we have the data.
-	geoIP := &agdtest.GeoIP{
-		OnSubnetByLocation: func(
-			l *geoip.Location,
-			_ netutil.AddrFamily,
-		) (n netip.Prefix, err error) {
-			require.Equal(pt, wantCtry, l.Country)
+	geoIP := agdtest.NewGeoIP()
 
-			return geoIPNet, nil
-		},
-		OnData: func(_ string, _ netip.Addr) (_ *geoip.Location, _ error) {
-			panic("not implemented")
-		},
+	// TODO(a.garipov): Actually test ASNs once we have the data.
+	geoIP.OnSubnetByLocation = func(
+		l *geoip.Location,
+		_ netutil.AddrFamily,
+	) (n netip.Prefix, err error) {
+		require.Equal(pt, wantCtry, l.Country)
+
+		return geoIPNet, nil
 	}
 
 	return dnsserver.WithMiddlewares(
 		h,
 		ecscache.NewMiddleware(&ecscache.MiddlewareConfig{
-			Cloner:         agdtest.NewCloner(),
-			CacheManager:   agdcache.EmptyManager{},
-			GeoIP:          geoIP,
-			Size:           100,
-			ECSSize:        100,
-			MinTTL:         minTTL,
-			UseTTLOverride: useTTLOverride,
+			Cloner:       agdtest.NewCloner(),
+			Logger:       slogutil.NewDiscardLogger(),
+			CacheManager: agdcache.EmptyManager{},
+			GeoIP:        geoIP,
+			NoECSCount:   100,
+			ECSCount:     100,
+			MinTTL:       minTTL,
+			OverrideTTL:  useTTLOverride,
 		}),
 	)
 }

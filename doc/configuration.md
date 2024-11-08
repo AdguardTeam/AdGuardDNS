@@ -104,9 +104,13 @@ The `ratelimit` object has the following properties:
 
 - <a href="#ratelimit-ipv4" id="ratelimit-ipv4" name="ratelimit-ipv4">`ipv4`</a>: The ipv4 configuration object. It has the following fields:
 
-    - <a href="#ratelimit-ipv4-rps" id="ratelimit-ipv4-rps" name="ratelimit-ipv4-rps">`rps`</a>: The rate of requests per second for one subnet. Requests above this are counted in the backoff count.
+    - <a href="#ratelimit-ipv4-count" id="ratelimit-ipv4-count" name="ratelimit-ipv4-count">`count`</a>: Requests per configured interval for one subnet for IPv4 addresses. Requests above this are counted in the backoff count.
 
-        **Example:** `30`.
+        **Example:** `300`.
+
+    - <a href="#ratelimit-ipv4-interval" id="ratelimit-ipv4-interval" name="ratelimit-ipv4-interval">`interval`</a>: The time during which to count the number of requests.
+
+        **Example:** `10s`.
 
     - <a href="#ratelimit-ipv4-subnet_key_len" id="ratelimit-ipv4-subnet_key_len" name="ratelimit-ipv4-subnet_key_len">`ipv4-subnet_key_len`</a>: The length of the subnet prefix used to calculate rate limiter bucket keys.
 
@@ -134,7 +138,11 @@ The `ratelimit` object has the following properties:
 
         **Example:** `30s`.
 
-For example, if `backoff_period` is `1m`, `backoff_count` is `10`, and `ipv4-rps` is `5`, a client (meaning all IP addresses within the subnet defined by `ipv4-subnet_key_len`) that made 15 requests in one second or 6 requests (one above `rps`) every second for 10 seconds within one minute, the client is blocked for `backoff_duration`.
+    - <a href="#ratelimit-allowlist-type" id="ratelimit-allowlist-type" name="ratelimit-allowlist-type">`type`</a>: Defines where the rate limit settings are received from. Allowed values are `backend` and `consul`.
+
+        **Example:** `consul`.
+
+For example, if `backoff_period` is `1m`, `backoff_count` is `10`, `ipv4-count` is `5`, and `ipv4-interval` is `1s`, a client (meaning all IP addresses within the subnet defined by `ipv4-subnet_key_len`) that made 15 requests in one second or 6 requests (one above `rps`) every second for 10 seconds within one minute, the client is blocked for `backoff_duration`.
 
 ### <a href="#ratelimit-connection_limit" id="ratelimit-connection_limit" name="ratelimit-connection_limit">Stream connection limit</a>
 
@@ -370,11 +378,13 @@ The `check` object has the following properties:
 
 - <a href="#check_kv" id="check_kv" name="check_kv">`kv`</a>: Remote key-value storage settings. It has the following properties:
 
-    - <a href="#check-kv-type" id="check-kv-type" name="check-kv-type">`type`</a>: Type of the remote KV storage. Allowed values are `consul` and `redis`.
+    - <a href="#check-kv-type" id="check-kv-type" name="check-kv-type">`type`</a>: Type of the remote KV storage. Allowed values are `backend`, `consul`, and `redis`.
 
         **Example:** `consul`.
 
     - <a href="#check-kv-ttl" id="check-kv-ttl" name="check-kv-ttl">`ttl`</a>: For how long to keep the information about a single user in remote KV, as a human-readable duration.
+
+        For `backend`, the TTL must be greater than `0s`.
 
         For `consul`, the TTL must be between `10s` and `1d`. Note that the actual TTL can be up to twice as long.
 
@@ -591,6 +601,14 @@ The `filters` object has the following properties:
     - <a href="#filters-rule_list_cache-size" id="filters-rule_list_cache-size" name="filters-rule_list_cache-size">`rule_list_cache-size`</a>: The size of the LRU cache of the rule-list filtering results.
 
         **Example:** `10000`.
+
+- <a href="#filters-ede_enabled" id="filters-ede_enabled" name="filters-ede_enabled">`ede_enabled`</a>: Shows if Extended DNS Error codes should be added.
+
+    **Example:** `true`.
+
+- <a href="#filters-sde_enabled" id="filters-sde_enabled" name="filters-sde_enabled">`sde_enabled`</a>: Shows if the experimental Structured DNS Errors feature should be enabled. `ede_enabled` must be `true` to enable SDE.
+
+    **Example:** `true`.
 
 [env-blocked_services]: environment.md#BLOCKED_SERVICE_INDEX_URL
 

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -9,10 +10,9 @@ import (
 	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
+	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 // tlsConfig are the TLS settings of a DNS server, if any.
@@ -37,12 +37,15 @@ type tlsConfig struct {
 
 // toInternal converts c to the TLS configuration for a DNS server.  c must be
 // valid.
-func (c *tlsConfig) toInternal() (conf *agd.TLS, err error) {
+func (c *tlsConfig) toInternal(
+	ctx context.Context,
+	mtrc tlsconfig.Metrics,
+) (conf *agd.TLS, err error) {
 	if c == nil {
 		return nil, nil
 	}
 
-	tlsConf, err := c.Certificates.toInternal()
+	tlsConf, err := c.Certificates.toInternal(ctx, mtrc)
 	if err != nil {
 		return nil, fmt.Errorf("certificates: %w", err)
 	}
@@ -123,7 +126,10 @@ type tlsConfigCert struct {
 type tlsConfigCerts []*tlsConfigCert
 
 // toInternal converts certs to a TLS configuration.  certs must be valid.
-func (certs tlsConfigCerts) toInternal() (conf *tls.Config, err error) {
+func (certs tlsConfigCerts) toInternal(
+	ctx context.Context,
+	mtrc tlsconfig.Metrics,
+) (conf *tls.Config, err error) {
 	if len(certs) == 0 {
 		return nil, nil
 	}
@@ -146,13 +152,8 @@ func (certs tlsConfigCerts) toInternal() (conf *tls.Config, err error) {
 		tlsCerts[i] = cert
 
 		authAlgo, subj := leaf.PublicKeyAlgorithm.String(), leaf.Subject.String()
-		metrics.TLSCertificateInfo.With(prometheus.Labels{
-			"auth_algo": authAlgo,
-			"subject":   subj,
-		}).Set(1)
-		metrics.TLSCertificateNotAfter.With(prometheus.Labels{
-			"subject": subj,
-		}).Set(float64(leaf.NotAfter.Unix()))
+
+		mtrc.SetCertificateInfo(ctx, authAlgo, subj, leaf.NotAfter)
 	}
 
 	return &tls.Config{

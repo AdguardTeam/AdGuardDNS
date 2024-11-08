@@ -19,16 +19,21 @@ import (
 // normal unit test, we create a cache middleware, emulate a query and then
 // check if prom metrics were incremented.
 func TestRateLimiterMetricsListener_integration_cache(t *testing.T) {
-	rps := 5
+	const (
+		count = 5
+		ivl   = time.Second
+	)
 
 	rl := ratelimit.NewBackoff(&ratelimit.BackoffConfig{
 		Allowlist:            ratelimit.NewDynamicAllowlist([]netip.Prefix{}, []netip.Prefix{}),
 		Period:               time.Minute,
 		Duration:             time.Minute,
-		Count:                uint(rps),
+		Count:                count,
 		ResponseSizeEstimate: 1 * datasize.KB,
-		IPv4RPS:              uint(rps),
-		IPv6RPS:              uint(rps),
+		IPv4Count:            count,
+		IPv4Interval:         ivl,
+		IPv6Count:            count,
+		IPv6Interval:         ivl,
 		RefuseANY:            true,
 	})
 	rlMw, err := ratelimit.NewMiddleware(&ratelimit.MiddlewareConfig{
@@ -38,7 +43,7 @@ func TestRateLimiterMetricsListener_integration_cache(t *testing.T) {
 	require.NoError(t, err)
 
 	handlerWithMiddleware := dnsserver.WithMiddlewares(
-		dnsservertest.DefaultHandler(),
+		dnsservertest.NewDefaultHandler(),
 		rlMw,
 	)
 
@@ -55,7 +60,7 @@ func TestRateLimiterMetricsListener_integration_cache(t *testing.T) {
 
 		err = handlerWithMiddleware.ServeDNS(ctx, nrw, req)
 		require.NoError(t, err)
-		if i < rps {
+		if i < count {
 			dnsservertest.RequireResponse(t, req, nrw.Msg(), 1, dns.RcodeSuccess, false)
 		} else {
 			require.Nil(t, nrw.Msg())

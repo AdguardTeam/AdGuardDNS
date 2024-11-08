@@ -11,6 +11,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdpasswd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
@@ -19,6 +20,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
@@ -46,7 +48,7 @@ import (
 // from the service.  The channels must not be nil.  Each sending to a channel
 // wrapped with [testutil.RequireSend] using [dnssvctest.Timeout].
 //
-// It also uses the [dnsservertest.DefaultHandler] to create the DNS handler.
+// It also uses the [dnsservertest.NewDefaultHandler] to create the DNS handler.
 func newTestService(
 	t testing.TB,
 	flt filter.Interface,
@@ -81,46 +83,14 @@ func newTestService(
 		QueryLogEnabled:     true,
 	}
 
-	db := &agdtest.ProfileDB{
-		OnCreateAutoDevice: func(
-			ctx context.Context,
-			id agd.ProfileID,
-			humanID agd.HumanID,
-			devType agd.DeviceType,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
+	profDB := agdtest.NewProfileDB()
+	profDB.OnProfileByDeviceID = func(
+		_ context.Context,
+		id agd.DeviceID,
+	) (p *agd.Profile, d *agd.Device, err error) {
+		testutil.RequireSend(pt, profileDBCh, id, dnssvctest.Timeout)
 
-		OnProfileByDedicatedIP: func(
-			_ context.Context,
-			_ netip.Addr,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-
-		OnProfileByDeviceID: func(
-			_ context.Context,
-			id agd.DeviceID,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			testutil.RequireSend(pt, profileDBCh, id, dnssvctest.Timeout)
-
-			return prof, dev, nil
-		},
-
-		OnProfileByHumanID: func(
-			_ context.Context,
-			_ agd.ProfileID,
-			_ agd.HumanIDLower,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-
-		OnProfileByLinkedIP: func(
-			ctx context.Context,
-			ip netip.Addr,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
+		return prof, dev, nil
 	}
 
 	accessManager := &agdtest.AccessManager{
@@ -145,18 +115,12 @@ func newTestService(
 		Continent: geoip.ContinentEU,
 		ASN:       42,
 	}
-	geoIP := &agdtest.GeoIP{
-		OnSubnetByLocation: func(
-			_ *geoip.Location,
-			_ netutil.AddrFamily,
-		) (n netip.Prefix, err error) {
-			panic("not implemented")
-		},
-		OnData: func(host string, _ netip.Addr) (l *geoip.Location, err error) {
-			testutil.RequireSend(pt, geoIPCh, host, dnssvctest.Timeout)
 
-			return loc, nil
-		},
+	geoIP := agdtest.NewGeoIP()
+	geoIP.OnData = func(host string, _ netip.Addr) (l *geoip.Location, err error) {
+		testutil.RequireSend(pt, geoIPCh, host, dnssvctest.Timeout)
+
+		return loc, nil
 	}
 
 	fltStrg := &agdtest.FilterStorage{
@@ -205,25 +169,38 @@ func newTestService(
 		},
 	}
 
-	rl := &agdtest.RateLimit{
-		OnIsRateLimited: func(
-			_ context.Context,
-			_ *dns.Msg,
-			_ netip.Addr,
-		) (drop, allowlisted bool, err error) {
-			return true, false, nil
-		},
-		OnCountResponses: func(_ context.Context, _ *dns.Msg, _ netip.Addr) {
-			panic("not implemented")
-		},
+	rl := agdtest.NewRateLimit()
+	rl.OnIsRateLimited = func(
+		_ context.Context,
+		_ *dns.Msg,
+		_ netip.Addr,
+	) (shouldDrop, isAllowlisted bool, err error) {
+		return true, false, nil
 	}
 
-	testFltGrpID := agd.FilteringGroupID("1234")
+	srvGrps := []*agd.ServerGroup{{
+		DDR: &agd.DDR{
+			Enabled: true,
+		},
+		TLS: &agd.TLS{
+			DeviceDomains: []string{dnssvctest.DomainForDevices},
+		},
+		Name:            dnssvctest.ServerGroupName,
+		FilteringGroup:  dnssvctest.FilteringGroupID,
+		Servers:         []*agd.Server{srv},
+		ProfilesEnabled: true,
+	}}
 
-	c := &dnssvc.Config{
-		BaseLogger:    slogutil.NewDiscardLogger(),
-		AccessManager: accessManager,
-		Messages:      agdtest.NewConstructor(t),
+	hdlrConf := &dnssvc.HandlersConfig{
+		BaseLogger: slogutil.NewDiscardLogger(),
+		Cache: &dnssvc.CacheConfig{
+			Type: dnssvc.CacheTypeNone,
+		},
+		StructuredErrors: agdtest.NewSDEConfig(true),
+		Cloner:           agdtest.NewCloner(),
+		HumanIDParser:    agd.NewHumanIDParser(),
+		Messages:         agdtest.NewConstructor(t),
+		AccessManager:    accessManager,
 		BillStat: &agdtest.BillStatRecorder{
 			OnRecord: func(
 				_ context.Context,
@@ -235,42 +212,47 @@ func newTestService(
 			) {
 			},
 		},
-		ProfileDB:            db,
-		PrometheusRegisterer: agdtest.NewTestPrometheusRegisterer(),
+		CacheManager:         agdcache.EmptyManager{},
 		DNSCheck:             dnsCk,
-		NonDNS:               http.NotFoundHandler(),
 		DNSDB:                dnsDB,
 		ErrColl:              errColl,
 		FilterStorage:        fltStrg,
 		GeoIP:                geoIP,
+		Handler:              dnsservertest.NewDefaultHandler(),
+		HashMatcher:          hashprefix.NewMatcher(nil),
+		ProfileDB:            profDB,
+		PrometheusRegisterer: agdtest.NewTestPrometheusRegisterer(),
 		QueryLog:             ql,
-		RuleStat:             ruleStat,
-		NewListener:          newTestListenerFunc(tl),
-		Handler:              dnsservertest.DefaultHandler(),
 		RateLimit:            rl,
+		RuleStat:             ruleStat,
 		MetricsNamespace:     path.Base(t.Name()),
 		FilteringGroups: map[agd.FilteringGroupID]*agd.FilteringGroup{
-			testFltGrpID: {
-				ID:               testFltGrpID,
+			dnssvctest.FilteringGroupID: {
+				ID:               dnssvctest.FilteringGroupID,
 				RuleListIDs:      []agd.FilterListID{dnssvctest.FilterListID1},
 				RuleListsEnabled: true,
 			},
 		},
-		ServerGroups: []*agd.ServerGroup{{
-			DDR: &agd.DDR{
-				Enabled: true,
-			},
-			TLS: &agd.TLS{
-				DeviceDomains: []string{dnssvctest.DomainForDevices},
-			},
-			Name:            testSrvGrpName,
-			FilteringGroup:  testFltGrpID,
-			Servers:         []*agd.Server{srv},
-			ProfilesEnabled: true,
-		}},
+		ServerGroups: srvGrps,
+		EDEEnabled:   true,
 	}
 
-	svc, err := dnssvc.New(c)
+	ctx := context.Background()
+	handlers, err := dnssvc.NewHandlers(ctx, hdlrConf)
+	require.NoError(t, err)
+
+	c := &dnssvc.Config{
+		Handlers:         handlers,
+		NewListener:      newTestListenerFunc(tl),
+		Cloner:           agdtest.NewCloner(),
+		ErrColl:          errColl,
+		NonDNS:           http.NotFoundHandler(),
+		MetricsNamespace: path.Base(t.Name()),
+		ServerGroups:     srvGrps,
+		HandleTimeout:    dnssvctest.Timeout,
+	}
+
+	svc, err = dnssvc.New(c)
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 
@@ -283,6 +265,7 @@ func newTestService(
 	return svc, srvAddr
 }
 
+// TODO(a.garipov):  Refactor to test handlers separately from the service.
 func TestService_Wrap(t *testing.T) {
 	profileDBCh := make(chan agd.DeviceID, 1)
 	querylogCh := make(chan *querylog.Entry, 1)
@@ -346,7 +329,7 @@ func TestService_Wrap(t *testing.T) {
 			TLSServerName: dnssvctest.DeviceIDSrvName,
 		})
 
-		err := svc.Handle(ctx, testSrvGrpName, dnssvctest.ServerName, rw, req)
+		err := svc.Handle(ctx, dnssvctest.ServerGroupName, dnssvctest.ServerName, rw, req)
 		require.NoError(t, err)
 
 		resp := rw.Msg()
@@ -420,7 +403,7 @@ func TestService_Wrap(t *testing.T) {
 			TLSServerName: dnssvctest.DeviceIDSrvName,
 		})
 
-		err := svc.Handle(ctx, testSrvGrpName, dnssvctest.ServerName, rw, req)
+		err := svc.Handle(ctx, dnssvctest.ServerGroupName, dnssvctest.ServerName, rw, req)
 		require.NoError(t, err)
 
 		resp := rw.Msg()

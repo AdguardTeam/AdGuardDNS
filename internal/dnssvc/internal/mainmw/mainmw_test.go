@@ -17,16 +17,12 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
-	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
 
 // Common constants for tests.
 const (
@@ -121,24 +117,17 @@ func TestMiddleware_Wrap(t *testing.T) {
 		OnHasListID: func(_ agd.FilterListID) (ok bool) { panic("not implemented") },
 	}
 
-	geoIP := &agdtest.GeoIP{
-		OnSubnetByLocation: func(
-			_ *geoip.Location,
-			_ netutil.AddrFamily,
-		) (n netip.Prefix, err error) {
-			panic("not implemented")
-		},
-		OnData: func(host string, addr netip.Addr) (l *geoip.Location, err error) {
-			pt := testutil.PanicT{}
-			require.Equal(pt, dnssvctest.Domain, host)
-			if addr.Is4() {
-				require.Equal(pt, addr, testRespAddr4)
-			} else if addr.Is6() {
-				require.Equal(pt, addr, testRespAddr6)
-			}
+	geoIP := agdtest.NewGeoIP()
+	geoIP.OnData = func(host string, addr netip.Addr) (l *geoip.Location, err error) {
+		pt := testutil.PanicT{}
+		require.Equal(pt, dnssvctest.Domain, host)
+		if addr.Is4() {
+			require.Equal(pt, addr, testRespAddr4)
+		} else if addr.Is6() {
+			require.Equal(pt, addr, testRespAddr6)
+		}
 
-			return nil, nil
-		},
+		return nil, nil
 	}
 
 	ruleStat := &agdtest.RuleStat{
@@ -153,7 +142,9 @@ func TestMiddleware_Wrap(t *testing.T) {
 	msgs, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
 		Cloner:              cloner,
 		BlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		StructuredErrors:    agdtest.NewSDEConfig(true),
 		FilteredResponseTTL: agdtest.FilteredResponseTTL,
+		EDEEnabled:          true,
 	})
 	require.NoError(t, err)
 
@@ -227,13 +218,14 @@ func TestMiddleware_Wrap(t *testing.T) {
 			}
 
 			c := &mainmw.Config{
-				Metrics:       mainmw.EmptyMetrics{},
-				Messages:      msgs,
 				Cloner:        cloner,
+				Logger:        slogutil.NewDiscardLogger(),
+				Messages:      msgs,
 				BillStat:      tc.billStat,
 				ErrColl:       agdtest.NewErrorCollector(),
 				FilterStorage: fltStrg,
 				GeoIP:         geoIP,
+				Metrics:       mainmw.EmptyMetrics{},
 				QueryLog:      queryLog,
 				RuleStat:      ruleStat,
 			}
@@ -411,16 +403,9 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 		}
 	)
 
-	geoIP := &agdtest.GeoIP{
-		OnSubnetByLocation: func(
-			_ *geoip.Location,
-			_ netutil.AddrFamily,
-		) (n netip.Prefix, err error) {
-			panic("not implemented")
-		},
-		OnData: func(host string, addr netip.Addr) (l *geoip.Location, err error) {
-			return nil, nil
-		},
+	geoIP := agdtest.NewGeoIP()
+	geoIP.OnData = func(_ string, _ netip.Addr) (l *geoip.Location, err error) {
+		return nil, nil
 	}
 
 	var (
@@ -537,7 +522,9 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 	msgs, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
 		Cloner:              cloner,
 		BlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		StructuredErrors:    agdtest.NewSDEConfig(true),
 		FilteredResponseTTL: agdtest.FilteredResponseTTL,
+		EDEEnabled:          true,
 	})
 	require.NoError(t, err)
 
@@ -701,13 +688,14 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 			}
 
 			c := &mainmw.Config{
-				Metrics:       mainmw.EmptyMetrics{},
-				Messages:      msgs,
 				Cloner:        cloner,
+				Logger:        slogutil.NewDiscardLogger(),
+				Messages:      msgs,
 				BillStat:      tc.billStat,
 				ErrColl:       agdtest.NewErrorCollector(),
 				FilterStorage: fltStrg,
 				GeoIP:         geoIP,
+				Metrics:       mainmw.EmptyMetrics{},
 				QueryLog:      queryLog,
 				RuleStat:      ruleStat,
 			}

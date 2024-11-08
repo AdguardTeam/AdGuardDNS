@@ -58,6 +58,12 @@ type filtersConfig struct {
 
 	// MaxSize is the maximum size of the downloadable filtering rule-list.
 	MaxSize datasize.ByteSize `yaml:"max_size"`
+
+	// EDEEnabled enables the Extended DNS Errors feature.
+	EDEEnabled bool `yaml:"ede_enabled"`
+
+	// SDEEnabled enables the experimental Structured DNS Errors feature.
+	SDEEnabled bool `yaml:"sde_enabled"`
 }
 
 // toInternal converts c to the filter storage configuration for the DNS server.
@@ -117,33 +123,31 @@ var _ validator = (*filtersConfig)(nil)
 
 // validate implements the [validator] interface for *filtersConfig.
 func (c *filtersConfig) validate() (err error) {
-	switch {
-	case c == nil:
+	if c == nil {
 		return errors.ErrNoValue
-	case c.SafeSearchCacheSize <= 0:
-		return newNotPositiveError("safe_search_cache_size", c.SafeSearchCacheSize)
-	case c.ResponseTTL.Duration <= 0:
-		return newNotPositiveError("response_ttl", c.ResponseTTL)
-	case c.RefreshIvl.Duration <= 0:
-		return newNotPositiveError("refresh_interval", c.RefreshIvl)
-	case c.RefreshTimeout.Duration <= 0:
-		return newNotPositiveError("refresh_timeout", c.RefreshTimeout)
-	case c.IndexRefreshTimeout.Duration <= 0:
-		return newNotPositiveError("index_refresh_timeout", c.IndexRefreshTimeout)
-	case c.RuleListRefreshTimeout.Duration <= 0:
-		return newNotPositiveError("rule_list_refresh_timeout", c.RuleListRefreshTimeout)
-	case c.MaxSize <= 0:
-		return newNotPositiveError("max_size", c.MaxSize)
-	default:
-		// Go on.
+	}
+
+	errs := []error{
+		validatePositive("custom_filter_cache_size", c.CustomFilterCacheSize),
+		validatePositive("safe_search_cache_size", c.SafeSearchCacheSize),
+		validatePositive("response_ttl", c.ResponseTTL),
+		validatePositive("refresh_interval", c.RefreshIvl),
+		validatePositive("refresh_timeout", c.RefreshTimeout),
+		validatePositive("index_refresh_timeout", c.IndexRefreshTimeout),
+		validatePositive("rule_list_refresh_timeout", c.RuleListRefreshTimeout),
+		validatePositive("max_size", c.MaxSize),
+	}
+
+	if !c.EDEEnabled && c.SDEEnabled {
+		errs = append(errs, errors.Error("ede must be enabled to enable sde"))
 	}
 
 	err = c.RuleListCache.validate()
 	if err != nil {
-		return fmt.Errorf("rule_list_cache: %w", err)
+		errs = append(errs, fmt.Errorf("rule_list_cache: %w", err))
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // fltRuleListCache contains filtering rule-list cache configuration.

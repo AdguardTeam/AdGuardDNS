@@ -159,7 +159,7 @@ You'll need to supply the following:
 
 See the [external HTTP API documentation][externalhttp].
 
-You may use `go run ./scripts/backend` to start mock GRPC server for `BILLSTAT_URL` and `PROFILES_URL` endpoints.
+You may use `go run ./scripts/backend` to start mock GRPC server for `BACKEND_PROFILES_URL`, `BILLSTAT_URL`, `DNSCHECK_REMOTEKV_URL`, and `PROFILES_URL` endpoints.
 
 You may need to change the listen ports in `config.yaml` which are less than 1024 to some other ports. Otherwise, `sudo` or `doas` is required to run `AdGuardDNS`.
 

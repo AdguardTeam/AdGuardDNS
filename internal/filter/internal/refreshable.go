@@ -40,8 +40,8 @@ type RefreshableConfig struct {
 	// Logger is used to log errors during refreshes.
 	Logger *slog.Logger
 
-	// URL is the URL used to refresh the filter.  URL should not be nil.  The
-	// scheme of the URL should be one of: "file", "http", or "https".
+	// URL is the URL used to refresh the filter.  URL should be either a file
+	// URL or an HTTP(S) URL and should not be nil.
 	URL *url.URL
 
 	// ID is the filter list ID for this filter.
@@ -65,7 +65,8 @@ type RefreshableConfig struct {
 func NewRefreshable(c *RefreshableConfig) (f *Refreshable, err error) {
 	if c.URL == nil {
 		return nil, fmt.Errorf("internal.NewRefreshable: nil url for refreshable with ID %q", c.ID)
-	} else if s := c.URL.Scheme; s != agdhttp.SchemeFile && !agdhttp.CheckHTTPURLScheme(s) {
+	} else if s := c.URL.Scheme; !strings.EqualFold(s, urlutil.SchemeFile) &&
+		!urlutil.IsValidHTTPURLScheme(s) {
 		return nil, fmt.Errorf("internal.NewRefreshable: bad url scheme %q", s)
 	}
 
@@ -90,7 +91,7 @@ func NewRefreshable(c *RefreshableConfig) (f *Refreshable, err error) {
 func (f *Refreshable) Refresh(ctx context.Context, acceptStale bool) (text string, err error) {
 	defer func() { err = errors.Annotate(err, "%s: %w", f.id) }()
 
-	if f.url.Scheme == agdhttp.SchemeFile {
+	if strings.EqualFold(f.url.Scheme, urlutil.SchemeFile) {
 		text, err = f.refreshFromFileOnly(ctx)
 	} else {
 		text, err = f.useCachedOrRefreshFromURL(ctx, acceptStale)
@@ -130,13 +131,12 @@ func (f *Refreshable) useCachedOrRefreshFromURL(
 	}
 
 	if text == "" {
-		f.logger.InfoContext(ctx, "refreshing from url", "url", &urlutil.URL{
-			URL: *f.url,
-		})
+		ru := urlutil.RedactUserinfo(f.url)
+		f.logger.InfoContext(ctx, "refreshing from url", "url", ru)
 
 		text, err = f.refreshFromURL(ctx, now)
 		if err != nil {
-			return "", fmt.Errorf("refreshing from url %q: %w", f.url.Redacted(), err)
+			return "", fmt.Errorf("refreshing from url %q: %w", ru, err)
 		}
 	} else {
 		f.logger.InfoContext(ctx, "using cached data from file", "path", f.cachePath)
@@ -213,9 +213,7 @@ func (f *Refreshable) refreshFromURL(
 		"code", resp.StatusCode,
 		"content-length", resp.ContentLength,
 		"server", resp.Header.Get(httphdr.Server),
-		"url", &urlutil.URL{
-			URL: *f.url,
-		},
+		"url", urlutil.RedactUserinfo(f.url),
 	)
 
 	err = agdhttp.CheckStatus(resp, http.StatusOK)

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/netip"
+	"net/url"
 	"path"
 	"path/filepath"
 	"slices"
@@ -14,7 +15,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
@@ -38,9 +38,11 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
+	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/osutil"
 	"github.com/AdguardTeam/golibs/service"
 	"github.com/c2h5oh/datasize"
@@ -112,6 +114,8 @@ type builder struct {
 	ruleStat            rulestat.Interface
 	safeBrowsing        *hashprefix.Filter
 	safeBrowsingHashes  *hashprefix.Storage
+	sdeConf             *dnsmsg.StructuredDNSErrorsConfig
+	tlsMtrc             tlsconfig.Metrics
 	webSvc              *websvc.Service
 
 	// The fields below are initialized later, just like with the fields above,
@@ -556,12 +560,42 @@ func (b *builder) initBindToDevice(ctx context.Context) (err error) {
 	return nil
 }
 
+// Constants for the experimental Structured DNS Errors feature.
+//
+// TODO(a.garipov):  Make configurable.
+const (
+	sdeJustification = "Filtered by AdGuard DNS"
+	sdeOrganization  = "AdGuard DNS"
+)
+
+// Variables for the experimental Structured DNS Errors feature.
+//
+// TODO(a.garipov):  Make configurable.
+var (
+	sdeContactURL = &url.URL{
+		Scheme: "mailto",
+		Opaque: "support@adguard-dns.io",
+	}
+)
+
 // initMsgConstructor initializes the common DNS message constructor.
 func (b *builder) initMsgConstructor(ctx context.Context) (err error) {
+	fltConf := b.conf.Filters
+	b.sdeConf = &dnsmsg.StructuredDNSErrorsConfig{
+		Contact: []*url.URL{
+			sdeContactURL,
+		},
+		Justification: sdeJustification,
+		Organization:  sdeOrganization,
+		Enabled:       fltConf.SDEEnabled,
+	}
+
 	b.messages, err = dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
 		Cloner:              b.cloner,
 		BlockingMode:        &dnsmsg.BlockingModeNullIP{},
-		FilteredResponseTTL: b.conf.Filters.ResponseTTL.Duration,
+		StructuredErrors:    b.sdeConf,
+		FilteredResponseTTL: fltConf.ResponseTTL.Duration,
+		EDEEnabled:          fltConf.EDEEnabled,
 	})
 	if err != nil {
 		return fmt.Errorf("creating dns message constructor: %w", err)
@@ -579,8 +613,17 @@ func (b *builder) initMsgConstructor(ctx context.Context) (err error) {
 //   - [builder.initFilteringGroups]
 //   - [builder.initMsgConstructor]
 func (b *builder) initServerGroups(ctx context.Context) (err error) {
+	mtrc, err := metrics.NewTLSConfig(b.mtrcNamespace, b.promRegisterer)
+	if err != nil {
+		return fmt.Errorf("registering tls metrics: %w", err)
+	}
+
+	b.tlsMtrc = mtrc
+
 	c := b.conf
 	b.serverGroups, err = c.ServerGroups.toInternal(
+		ctx,
+		mtrc,
 		b.messages,
 		b.btdManager,
 		b.filteringGroups,
@@ -671,7 +714,7 @@ func (b *builder) initTLS(ctx context.Context) (err error) {
 		}
 	}
 
-	tickRot := newTicketRotator(b.baseLogger, b.errColl, b.serverGroups)
+	tickRot := newTicketRotator(b.baseLogger, b.errColl, b.tlsMtrc, b.serverGroups)
 	err = tickRot.Refresh(ctx)
 	if err != nil {
 		return fmt.Errorf("initial session ticket refresh: %w", err)
@@ -700,6 +743,29 @@ func (b *builder) initTLS(ctx context.Context) (err error) {
 	return nil
 }
 
+// initGRPCMetrics initializes the gRPC metrics if necessary.
+func (b *builder) initGRPCMetrics(ctx context.Context) (err error) {
+	switch {
+	case
+		b.profilesEnabled,
+		b.conf.Check.RemoteKV.Type == kvModeBackend,
+		b.conf.RateLimit.Allowlist.Type == rlAllowlistTypeBackend:
+		// Go on.
+	default:
+		// Don't initialize the metrics if no protobuf backend is used.
+		return nil
+	}
+
+	b.backendGRPCMtrc, err = metrics.NewBackendPB(b.mtrcNamespace, b.promRegisterer)
+	if err != nil {
+		return fmt.Errorf("registering backendbp metrics: %w", err)
+	}
+
+	b.logger.DebugContext(ctx, "initialized grpc metrics")
+
+	return nil
+}
+
 // initBillStat initializes the billing-statistics recorder if necessary.  It
 // also adds the refresher with ID [debugIDBillStat] to the debug refreshers.
 func (b *builder) initBillStat(ctx context.Context) (err error) {
@@ -707,11 +773,6 @@ func (b *builder) initBillStat(ctx context.Context) (err error) {
 		b.billStat = billstat.EmptyRecorder{}
 
 		return nil
-	}
-
-	b.backendGRPCMtrc, err = metrics.NewBackendPB(b.mtrcNamespace, b.promRegisterer)
-	if err != nil {
-		return fmt.Errorf("registering backendbp metrics: %w", err)
 	}
 
 	upl, err := newBillStatUploader(b.env, b.errColl, b.backendGRPCMtrc)
@@ -760,9 +821,9 @@ func (b *builder) initBillStat(ctx context.Context) (err error) {
 
 // initProfileDB initializes the profile database if necessary.
 //
-// [builder.initBillStat] and [builder.initServerGroups] must be called before
-// this method.  It also adds the refresher with ID [debugIDProfileDB] to the
-// debug refreshers.
+// [builder.initGRPCMetrics] and [builder.initServerGroups] must be called
+// before this method.  It also adds the refresher with ID [debugIDProfileDB] to
+// the debug refreshers.
 func (b *builder) initProfileDB(ctx context.Context) (err error) {
 	if !b.profilesEnabled {
 		b.profileDB = &profiledb.Disabled{}
@@ -771,8 +832,9 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 	}
 
 	apiURL := netutil.CloneURL(&b.env.ProfilesURL.URL)
-	if !agdhttp.CheckGRPCURLScheme(apiURL.Scheme) {
-		return fmt.Errorf("invalid backend api url: %s", apiURL)
+	err = urlutil.ValidateGRPCURL(apiURL)
+	if err != nil {
+		return fmt.Errorf("profile api url: %w", err)
 	}
 
 	respSzEst := b.conf.RateLimit.ResponseSizeEstimate
@@ -842,7 +904,8 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 
 // initDNSCheck initializes the DNS checker.
 //
-// [builder.initMsgConstructor] must be called before this method.
+// [builder.initGRPCMetrics] and [builder.initMsgConstructor] must be called
+// before this method.
 func (b *builder) initDNSCheck(ctx context.Context) (err error) {
 	b.dnsCheck = b.plugins.DNSCheck()
 	if b.dnsCheck != nil {
@@ -853,7 +916,14 @@ func (b *builder) initDNSCheck(ctx context.Context) (err error) {
 
 	c := b.conf.Check
 
-	checkConf, err := c.toInternal(b.env, b.messages, b.errColl, b.mtrcNamespace, b.promRegisterer)
+	checkConf, err := c.toInternal(
+		b.env,
+		b.messages,
+		b.errColl,
+		b.mtrcNamespace,
+		b.promRegisterer,
+		b.backendGRPCMtrc,
+	)
 	if err != nil {
 		return fmt.Errorf("initializing dnscheck: %w", err)
 	}
@@ -911,18 +981,44 @@ func (b *builder) initRuleStat(ctx context.Context) (err error) {
 // well as starts and registers the rate-limiter refresher in the signal
 // handler.  It also adds the refresher with ID [debugIDAllowlist] to the debug
 // refreshers.
+//
+// [builder.initGRPCMetrics] must be called before this method.
 func (b *builder) initRateLimiter(ctx context.Context) (err error) {
 	c := b.conf.RateLimit
 	allowSubnets := netutil.UnembedPrefixes(c.Allowlist.List)
 	allowlist := ratelimit.NewDynamicAllowlist(allowSubnets, nil)
-	updater := consul.NewAllowlistUpdater(&consul.AllowlistUpdaterConfig{
-		Logger:    b.baseLogger.With(slogutil.KeyPrefix, "ratelimit_allowlist_updater"),
-		Allowlist: allowlist,
-		ConsulURL: &b.env.ConsulAllowlistURL.URL,
-		ErrColl:   b.errColl,
-		// TODO(a.garipov):  Make configurable.
-		Timeout: 15 * time.Second,
-	})
+
+	typ := b.conf.RateLimit.Allowlist.Type
+	mtrc, err := metrics.NewAllowlist(b.mtrcNamespace, b.promRegisterer, typ)
+	if err != nil {
+		return fmt.Errorf("ratelimit metrics: %w", err)
+	}
+
+	var updater agdservice.Refresher
+	if typ == rlAllowlistTypeBackend {
+		updater, err = backendpb.NewRateLimiter(&backendpb.RateLimiterConfig{
+			Logger:      b.baseLogger.With(slogutil.KeyPrefix, "backend_ratelimiter"),
+			Metrics:     mtrc,
+			GRPCMetrics: b.backendGRPCMtrc,
+			Allowlist:   allowlist,
+			Endpoint:    &b.env.BackendRateLimitURL.URL,
+			ErrColl:     b.errColl,
+			APIKey:      b.env.BackendRateLimitAPIKey,
+		})
+		if err != nil {
+			return fmt.Errorf("ratelimit: %w", err)
+		}
+	} else {
+		updater = consul.NewAllowlistUpdater(&consul.AllowlistUpdaterConfig{
+			Logger:    b.baseLogger.With(slogutil.KeyPrefix, "ratelimit_allowlist_updater"),
+			Allowlist: allowlist,
+			ConsulURL: &b.env.ConsulAllowlistURL.URL,
+			ErrColl:   b.errColl,
+			Metrics:   mtrc,
+			// TODO(a.garipov):  Make configurable.
+			Timeout: 15 * time.Second,
+		})
+	}
 
 	err = updater.Refresh(ctx)
 	if err != nil {
@@ -956,9 +1052,11 @@ func (b *builder) initRateLimiter(ctx context.Context) (err error) {
 
 // initWeb initializes the web service, starts it, and registers it in the
 // signal handler.
+//
+// [builder.initServerGroups] must be called before this method.
 func (b *builder) initWeb(ctx context.Context) (err error) {
 	c := b.conf.Web
-	webConf, err := c.toInternal(b.env, b.dnsCheck, b.errColl)
+	webConf, err := c.toInternal(ctx, b.env, b.dnsCheck, b.errColl, b.tlsMtrc)
 	if err != nil {
 		return fmt.Errorf("converting web configuration: %w", err)
 	}
@@ -1057,45 +1155,55 @@ func (b *builder) initDNS(ctx context.Context) (err error) {
 	b.fwdHandler = forward.NewHandler(b.conf.Upstream.toInternal(b.baseLogger))
 	b.dnsDB = b.conf.DNSDB.toInternal(b.errColl)
 
-	cacheConf := b.conf.Cache
-	dnsConf := &dnssvc.Config{
+	dnsHdlrsConf := &dnssvc.HandlersConfig{
 		BaseLogger:           b.baseLogger,
-		Messages:             b.messages,
+		Cache:                b.conf.Cache.toInternal(),
 		Cloner:               b.cloner,
-		ControlConf:          b.controlConf,
-		ConnLimiter:          b.connLimit,
 		HumanIDParser:        agd.NewHumanIDParser(),
+		Messages:             b.messages,
 		PluginRegistry:       b.plugins,
+		StructuredErrors:     b.sdeConf,
 		AccessManager:        b.access,
-		SafeBrowsing:         b.hashMatcher,
 		BillStat:             b.billStat,
 		CacheManager:         b.cacheManager,
-		ProfileDB:            b.profileDB,
-		PrometheusRegisterer: b.promRegisterer,
 		DNSCheck:             b.dnsCheck,
-		NonDNS:               b.webSvc,
 		DNSDB:                b.dnsDB,
 		ErrColl:              b.errColl,
 		FilterStorage:        b.filterStorage,
 		GeoIP:                b.geoIP,
 		Handler:              b.fwdHandler,
+		HashMatcher:          b.hashMatcher,
+		ProfileDB:            b.profileDB,
+		PrometheusRegisterer: b.promRegisterer,
 		QueryLog:             b.queryLog(),
-		RuleStat:             b.ruleStat,
 		RateLimit:            b.rateLimit,
+		RuleStat:             b.ruleStat,
 		MetricsNamespace:     b.mtrcNamespace,
 		FilteringGroups:      b.filteringGroups,
 		ServerGroups:         b.serverGroups,
-		HandleTimeout:        b.conf.DNS.HandleTimeout.Duration,
-		CacheSize:            cacheConf.Size,
-		ECSCacheSize:         cacheConf.ECSSize,
-		CacheMinTTL:          cacheConf.TTLOverride.Min.Duration,
-		UseCacheTTLOverride:  cacheConf.TTLOverride.Enabled,
-		UseECSCache:          cacheConf.Type == cacheTypeECS,
+		EDEEnabled:           b.conf.Filters.EDEEnabled,
+	}
+
+	dnsHdlrs, err := dnssvc.NewHandlers(ctx, dnsHdlrsConf)
+	if err != nil {
+		return fmt.Errorf("dns handlers: %w", err)
+	}
+
+	dnsConf := &dnssvc.Config{
+		Handlers:         dnsHdlrs,
+		Cloner:           b.cloner,
+		ControlConf:      b.controlConf,
+		ConnLimiter:      b.connLimit,
+		NonDNS:           b.webSvc,
+		ErrColl:          b.errColl,
+		MetricsNamespace: b.mtrcNamespace,
+		ServerGroups:     b.serverGroups,
+		HandleTimeout:    b.conf.DNS.HandleTimeout.Duration,
 	}
 
 	b.dnsSvc, err = dnssvc.New(dnsConf)
 	if err != nil {
-		return fmt.Errorf("initializing dns: %w", err)
+		return fmt.Errorf("dns service: %w", err)
 	}
 
 	b.logger.DebugContext(ctx, "initialized dns")

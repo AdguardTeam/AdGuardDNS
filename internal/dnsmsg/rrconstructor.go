@@ -140,3 +140,36 @@ func newTXT(c *Cloner, txt []string) (rr *dns.TXT) {
 
 	return rr
 }
+
+// newOPT constructs a new resource record of type OPT, optionally using c to
+// allocate the structure.
+func newOPT(c *Cloner, udpSize uint16, doBit bool) (opt *dns.OPT) {
+	if c == nil {
+		opt = &dns.OPT{}
+	} else {
+		opt = c.opt.rr.Get()
+		opt.Option = opt.Option[:0]
+	}
+
+	opt.Hdr.Name = "."
+	opt.Hdr.Rrtype = dns.TypeOPT
+	opt.SetUDPSize(udpSize)
+	opt.SetDo(doBit)
+
+	return opt
+}
+
+// newEDNS0EDE constructs a new resource record of type EDNS0_EDE, optionally
+// using c to allocate the structure.
+func newEDNS0EDE(c *Cloner, infoCode uint16, extraText string) (opt *dns.EDNS0_EDE) {
+	if c == nil {
+		opt = &dns.EDNS0_EDE{}
+	} else {
+		opt = c.opt.ede.Get()
+	}
+
+	opt.InfoCode = infoCode
+	opt.ExtraText = extraText
+
+	return opt
+}

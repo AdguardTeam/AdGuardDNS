@@ -18,7 +18,7 @@ import (
 // normal unit test, we create a forward handler, emulate a query and then
 // check if prom metrics were incremented.
 func TestForwardMetricsListener_integration_request(t *testing.T) {
-	srv, addr := dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
+	srv, addr := dnsservertest.RunDNSServer(t, dnsservertest.NewDefaultHandler())
 
 	// Initialize a new forward.Handler and set the metrics listener.
 	handler := forward.NewHandler(&forward.HandlerConfig{

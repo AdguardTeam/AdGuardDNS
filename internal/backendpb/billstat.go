@@ -42,7 +42,7 @@ func NewBillStat(c *BillStatConfig) (b *BillStat, err error) {
 	return &BillStat{
 		errColl: c.ErrColl,
 		metrics: c.Metrics,
-		client:  client,
+		client:  NewDNSServiceClient(client),
 		apiKey:  c.APIKey,
 	}, nil
 }

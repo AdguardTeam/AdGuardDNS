@@ -36,7 +36,7 @@ func TestUpstreamPlain_Exchange(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, addr := dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
+			_, addr := dnsservertest.RunDNSServer(t, dnsservertest.NewDefaultHandler())
 			ups := forward.NewUpstreamPlain(&forward.UpstreamPlainConfig{
 				Network: tc.network,
 				Address: netip.MustParseAddrPort(addr),
@@ -65,7 +65,7 @@ func TestUpstreamPlain_Exchange_truncated(t *testing.T) {
 			rw.LocalAddr(),
 			rw.RemoteAddr(),
 		)
-		handler := dnsservertest.DefaultHandler()
+		handler := dnsservertest.NewDefaultHandler()
 		err = handler.ServeDNS(ctx, nrw, req)
 		if err != nil {
 			return err

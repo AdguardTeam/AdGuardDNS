@@ -12,7 +12,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
+	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
@@ -112,8 +112,7 @@ func (mw *Middleware) responseCountry(
 	}
 
 	ctry = mw.country(ctx, host, respIP)
-	// TODO(a.garipov):  Use optslog.Trace2.
-	optlog.Debug2("mainmw: got ctry %q for resp ip %v", ctry, respIP)
+	optslog.Trace2(ctx, mw.logger, "geoip for resp", "ctry", ctry, "resp_ip", respIP)
 
 	return ctry
 }

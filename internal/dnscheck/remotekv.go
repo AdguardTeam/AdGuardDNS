@@ -201,18 +201,21 @@ func (cc *RemoteKV) newInfo(ri *agd.RequestInfo) (inf *info) {
 }
 
 // resp returns the corresponding response.
+//
+// TODO(e.burkov):  Inspect the reason for using different message constructors
+// for different DNS types, and consider using only one of them.
 func (cc *RemoteKV) resp(ri *agd.RequestInfo, req *dns.Msg) (resp *dns.Msg, err error) {
 	qt := ri.QType
 
 	if qt != dns.TypeA && qt != dns.TypeAAAA {
-		return ri.Messages.NewMsgNODATA(req), nil
+		return ri.Messages.NewRespRCode(req, dns.RcodeSuccess), nil
 	}
 
 	if qt == dns.TypeA {
-		return cc.messages.NewIPRespMsg(req, cc.ipv4...)
+		return cc.messages.NewRespIP(req, cc.ipv4...)
 	}
 
-	return cc.messages.NewIPRespMsg(req, cc.ipv6...)
+	return cc.messages.NewRespIP(req, cc.ipv6...)
 }
 
 // type check

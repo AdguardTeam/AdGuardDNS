@@ -15,6 +15,11 @@ type ConstructorConfig struct {
 	// Cloner used to clone DNS messages.  It must not be nil.
 	Cloner *Cloner
 
+	// StructuredErrors is the configuration for the experimental Structured DNS
+	// Errors feature.  It must not be nil.  If enabled,
+	// [ConstructorConfig.Enabled] should also be true.
+	StructuredErrors *StructuredDNSErrorsConfig
+
 	// BlockingMode is the blocking mode to use in
 	// [Constructor.NewBlockedRespMsg].  It must not be nil.
 	BlockingMode BlockingMode
@@ -22,6 +27,9 @@ type ConstructorConfig struct {
 	// FilteredResponseTTL is the time-to-live value used for responses created
 	// by this message constructor.  It must be non-negative.
 	FilteredResponseTTL time.Duration
+
+	// EDEEnabled enables the addition of the Extended DNS Error (EDE) codes.
+	EDEEnabled bool
 }
 
 // validate checks the configuration for errors.
@@ -33,13 +41,19 @@ func (conf *ConstructorConfig) validate() (err error) {
 		errs = append(errs, err)
 	}
 
+	err = conf.StructuredErrors.validate(conf.EDEEnabled)
+	if err != nil {
+		err = fmt.Errorf("structured errors: %w", err)
+		errs = append(errs, err)
+	}
+
 	if conf.BlockingMode == nil {
 		err = fmt.Errorf("blocking mode: %w", errors.ErrNoValue)
 		errs = append(errs, err)
 	}
 
 	if conf.FilteredResponseTTL < 0 {
-		err = fmt.Errorf("filtered response TTL: %w", errors.ErrNegative)
+		err = fmt.Errorf("filtered response ttl: %w", errors.ErrNegative)
 		errs = append(errs, err)
 	}
 
@@ -51,7 +65,9 @@ func (conf *ConstructorConfig) validate() (err error) {
 type Constructor struct {
 	cloner       *Cloner
 	blockingMode BlockingMode
+	sde          string
 	fltRespTTL   time.Duration
+	edeEnabled   bool
 }
 
 // NewConstructor returns a properly initialized constructor using conf.
@@ -60,166 +76,23 @@ func NewConstructor(conf *ConstructorConfig) (c *Constructor, err error) {
 		return nil, fmt.Errorf("configuration: %w", err)
 	}
 
+	var sde string
+	if sdeConf := conf.StructuredErrors; sdeConf.Enabled {
+		sde = sdeConf.iJSON()
+	}
+
 	return &Constructor{
 		cloner:       conf.Cloner,
 		blockingMode: conf.BlockingMode,
+		sde:          sde,
 		fltRespTTL:   conf.FilteredResponseTTL,
+		edeEnabled:   conf.EDEEnabled,
 	}, nil
 }
 
 // Cloner returns the constructor's Cloner.
 func (c *Constructor) Cloner() (cloner *Cloner) {
 	return c.cloner
-}
-
-// FilteredResponseTTL returns the TTL that the constructor uses to build
-// blocked responses.
-func (c *Constructor) FilteredResponseTTL() (ttl time.Duration) {
-	return c.fltRespTTL
-}
-
-// NewBlockedRespMsg returns a blocked DNS response message based on the
-// constructor's blocking mode.
-func (c *Constructor) NewBlockedRespMsg(req *dns.Msg) (msg *dns.Msg, err error) {
-	switch m := c.blockingMode.(type) {
-	case *BlockingModeCustomIP:
-		return c.newBlockedCustomIPRespMsg(req, m)
-	case *BlockingModeNullIP:
-		switch qt := req.Question[0].Qtype; qt {
-		case dns.TypeA, dns.TypeAAAA:
-			return c.NewIPRespMsg(req, netip.Addr{})
-		default:
-			return c.NewMsgNODATA(req), nil
-		}
-	case *BlockingModeNXDOMAIN:
-		return c.NewMsgNXDOMAIN(req), nil
-	case *BlockingModeREFUSED:
-		return c.NewMsgREFUSED(req), nil
-	default:
-		// Consider unhandled sum type members as unrecoverable programmer
-		// errors.
-		panic(fmt.Errorf("unexpected type %T", c.blockingMode))
-	}
-}
-
-// newBlockedCustomIPRespMsg returns a blocked DNS response message with either
-// the custom IPs from the blocking mode options or a NODATA one.
-func (c *Constructor) newBlockedCustomIPRespMsg(
-	req *dns.Msg,
-	m *BlockingModeCustomIP,
-) (msg *dns.Msg, err error) {
-	switch qt := req.Question[0].Qtype; qt {
-	case dns.TypeA:
-		if len(m.IPv4) > 0 {
-			return c.NewIPRespMsg(req, m.IPv4...)
-		}
-	case dns.TypeAAAA:
-		if len(m.IPv6) > 0 {
-			return c.NewIPRespMsg(req, m.IPv6...)
-		}
-	default:
-		// Go on.
-	}
-
-	return c.NewMsgNODATA(req), nil
-}
-
-// NewIPRespMsg returns a DNS A or AAAA response message with the given IP
-// addresses.  If any IP address is nil, it is replaced by an unspecified (aka
-// null) IP.  The TTL is also set to c.FilteredResponseTTL.
-func (c *Constructor) NewIPRespMsg(req *dns.Msg, ips ...netip.Addr) (msg *dns.Msg, err error) {
-	switch qt := req.Question[0].Qtype; qt {
-	case dns.TypeA:
-		return c.newMsgA(req, ips...)
-	case dns.TypeAAAA:
-		return c.newMsgAAAA(req, ips...)
-	default:
-		return nil, fmt.Errorf("bad qtype for a or aaaa resp: %d", qt)
-	}
-}
-
-// NewCNAMEWithIPs generates a filtered response to req with CNAME record and
-// provided ips.  cname is the fully-qualified name and must not be empty, ips
-// must be of the same family.
-func (c *Constructor) NewCNAMEWithIPs(
-	req *dns.Msg,
-	cname string,
-	ips ...netip.Addr,
-) (resp *dns.Msg, err error) {
-	resp = c.NewRespMsg(req)
-
-	resp.Answer = make([]dns.RR, 0, len(ips)+1)
-	resp.Answer = append(resp.Answer, c.NewAnswerCNAME(req, cname))
-
-	var ans dns.RR
-	for i, ip := range ips {
-		switch qt := req.Question[0].Qtype; qt {
-		case dns.TypeA:
-			ans, err = c.NewAnswerA(cname, ip)
-		case dns.TypeAAAA:
-			ans, err = c.NewAnswerAAAA(cname, ip)
-		default:
-			return nil, fmt.Errorf("bad qtype for a or aaaa resp: %d", qt)
-		}
-
-		if err != nil {
-			return nil, fmt.Errorf("bad ip at idx %d: %w", i, err)
-		}
-
-		resp.Answer = append(resp.Answer, ans)
-	}
-
-	return resp, err
-}
-
-// NewMsgFORMERR returns a properly initialized FORMERR response.
-func (c *Constructor) NewMsgFORMERR(req *dns.Msg) (resp *dns.Msg) {
-	return c.newMsgRCode(req, dns.RcodeFormatError)
-}
-
-// NewMsgNXDOMAIN returns a properly initialized NXDOMAIN response.
-func (c *Constructor) NewMsgNXDOMAIN(req *dns.Msg) (resp *dns.Msg) {
-	return c.newMsgRCode(req, dns.RcodeNameError)
-}
-
-// NewMsgREFUSED returns a properly initialized REFUSED response.
-func (c *Constructor) NewMsgREFUSED(req *dns.Msg) (resp *dns.Msg) {
-	return c.newMsgRCode(req, dns.RcodeRefused)
-}
-
-// NewMsgSERVFAIL returns a properly initialized SERVFAIL response.
-func (c *Constructor) NewMsgSERVFAIL(req *dns.Msg) (resp *dns.Msg) {
-	return c.newMsgRCode(req, dns.RcodeServerFailure)
-}
-
-// NewMsgNODATA returns a properly initialized NODATA response.
-//
-// See https://www.rfc-editor.org/rfc/rfc2308#section-2.2.
-func (c *Constructor) NewMsgNODATA(req *dns.Msg) (resp *dns.Msg) {
-	return c.newMsgRCode(req, dns.RcodeSuccess)
-}
-
-// newMsgRCode returns a properly initialized response with the given RCode.
-func (c *Constructor) newMsgRCode(req *dns.Msg, rc RCode) (resp *dns.Msg) {
-	resp = (&dns.Msg{}).SetRcode(req, int(rc))
-	resp.Ns = c.newSOARecords(req)
-	resp.RecursionAvailable = true
-
-	return resp
-}
-
-// NewTXTRespMsg returns a DNS TXT response message with the given strings as
-// content.  The TTL is also set to c.FilteredResponseTTL.
-func (c *Constructor) NewTXTRespMsg(req *dns.Msg, strs ...string) (msg *dns.Msg, err error) {
-	ans, err := c.NewAnswerTXT(req, strs)
-	if err != nil {
-		return nil, err
-	}
-
-	msg = c.NewRespMsg(req)
-	msg.Answer = append(msg.Answer, ans)
-
-	return msg, nil
 }
 
 // AppendDebugExtra appends to response message a DNS TXT extra with CHAOS
@@ -386,26 +259,23 @@ func (c *Constructor) newSOARecords(req *dns.Msg) (soaRecs []dns.RR) {
 		zone = req.Question[0].Name
 	}
 
-	// TODO(a.garipov): A lot of this is copied from AdGuard Home and needs
-	// to be inspected and refactored.
+	// TODO(a.garipov): A lot of this is copied from AdGuard Home and needs to
+	// be inspected and refactored.
 	soa := &dns.SOA{
-		// values copied from verisign's nonexistent .com domain
-		// their exact values are not important in our use case because they are used for domain transfers between primary/secondary DNS servers
+		// Use values from verisign's nonexistent.com domain.  Their exact
+		// values are not important in our use case because they are used for
+		// domain transfers between primary/secondary DNS servers.
 		Refresh: 1800,
 		Retry:   900,
 		Expire:  604800,
 		Minttl:  86400,
-		// copied from AdGuard DNS
+		// Copied from AdGuard DNS.
 		Ns:     "fake-for-negative-caching.adguard.com.",
 		Serial: 100500,
-		// rest is request-specific
-		Hdr: dns.RR_Header{
-			Name:   zone,
-			Rrtype: dns.TypeSOA,
-			Ttl:    uint32(c.fltRespTTL.Seconds()),
-			Class:  dns.ClassINET,
-		},
-		Mbox: "hostmaster.", // zone will be appended later if it's not empty or "."
+		// Rest is request-specific.
+		Hdr: c.newHdrWithClass(zone, dns.TypeSOA, dns.ClassINET),
+		// Zone will be appended later if it's not empty or ".".
+		Mbox: "hostmaster.",
 	}
 
 	if len(zone) > 0 && zone[0] != '.' {
@@ -415,25 +285,10 @@ func (c *Constructor) newSOARecords(req *dns.Msg) (soaRecs []dns.RR) {
 	return []dns.RR{soa}
 }
 
-// NewRespMsg creates a DNS response for req and sets all necessary flags and
-// fields.  It also guarantees that req.Question will be not empty.
-func (c *Constructor) NewRespMsg(req *dns.Msg) (resp *dns.Msg) {
-	resp = &dns.Msg{
-		MsgHdr: dns.MsgHdr{
-			RecursionAvailable: true,
-		},
-		Compress: true,
-	}
-
-	resp.SetReply(req)
-
-	return resp
-}
-
 // newMsgA returns a new DNS response with the given IPv4 addresses.  If any IP
 // address is nil, it is replaced by an unspecified (aka null) IP, 0.0.0.0.
 func (c *Constructor) newMsgA(req *dns.Msg, ips ...netip.Addr) (msg *dns.Msg, err error) {
-	msg = c.NewRespMsg(req)
+	msg = c.NewResp(req)
 	for i, ip := range ips {
 		var ans dns.RR
 		ans, err = c.NewAnswerA(req.Question[0].Name, ip)
@@ -450,7 +305,7 @@ func (c *Constructor) newMsgA(req *dns.Msg, ips ...netip.Addr) (msg *dns.Msg, er
 // newMsgAAAA returns a new DNS response with the given IPv6 addresses.  If any
 // IP address is nil, it is replaced by an unspecified (aka null) IP, [::].
 func (c *Constructor) newMsgAAAA(req *dns.Msg, ips ...netip.Addr) (msg *dns.Msg, err error) {
-	msg = c.NewRespMsg(req)
+	msg = c.NewResp(req)
 	for i, ip := range ips {
 		var ans dns.RR
 		ans, err = c.NewAnswerAAAA(req.Question[0].Name, ip)

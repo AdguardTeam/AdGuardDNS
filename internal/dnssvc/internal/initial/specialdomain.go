@@ -29,8 +29,8 @@ const (
 	// Resolvers for querying the resolver with unknown or absent name.
 	DDRDomain = DDRLabel + "." + ResolverARPADomain
 
-	// FirefoxCanaryHost is the hostname that Firefox uses to check if it
-	// should use its own DNS-over-HTTPS settings.
+	// FirefoxCanaryHost is the hostname that Firefox uses to check if it should
+	// use its own DNS-over-HTTPS settings.
 	//
 	// See https://support.mozilla.org/en-US/kb/configuring-networks-disable-dns-over-https.
 	FirefoxCanaryHost = "use-application-dns.net"
@@ -56,6 +56,11 @@ func (mw *Middleware) reqInfoSpecialHandler(
 		return nil, ""
 	}
 
+	// As per RFC-9462 section 6.4, resolvers SHOULD respond to queries of any
+	// type other than SVCB for _dns.resolver.arpa. with NODATA and queries of
+	// any type for any domain name under resolver.arpa with NODATA.
+	//
+	// TODO(e.burkov):  Consider adding SOA records for these NODATA responses.
 	if mw.isDDRRequest(ri) {
 		if _, ok := ri.DeviceResult.(*agd.DeviceResultAuthenticationFailure); ok {
 			return mw.handleDDRNoData, "ddr_doh"
@@ -83,8 +88,6 @@ type reqInfoHandlerFunc func(
 	req *dns.Msg,
 	ri *agd.RequestInfo,
 ) (err error)
-
-// DDR And Resolver ARPA Domain
 
 // isDDRRequest determines if the message is the request for Discovery of
 // Designated Resolvers as defined by the RFC draft.  The request is considered
@@ -141,8 +144,8 @@ func isDDRDomain(ri *agd.RequestInfo, host string) (ok bool) {
 	return false
 }
 
-// handleDDR checks if the request is for the Discovery of Designated Resolvers
-// and writes a response if needed.
+// handleDDR responds to Discovery of Designated Resolvers (DDR) queries with a
+// response containing the designated resolvers.
 func (mw *Middleware) handleDDR(
 	ctx context.Context,
 	rw dnsserver.ResponseWriter,
@@ -157,11 +160,11 @@ func (mw *Middleware) handleDDR(
 		return rw.WriteMsg(ctx, req, mw.newRespDDR(req, ri))
 	}
 
-	return rw.WriteMsg(ctx, req, ri.Messages.NewMsgNXDOMAIN(req))
+	return rw.WriteMsg(ctx, req, ri.Messages.NewRespRCode(req, dns.RcodeNameError))
 }
 
-// handleDDRNoData processes DDR (Discovery of Designated Resolvers) requests
-// for devices which need NODATA response and writes the response if needed.
+// handleDDRNoData responds to Discovery of Designated Resolvers (DDR) queries
+// with a NODATA response.
 func (mw *Middleware) handleDDRNoData(
 	ctx context.Context,
 	rw dnsserver.ResponseWriter,
@@ -173,17 +176,17 @@ func (mw *Middleware) handleDDRNoData(
 	metrics.DNSSvcDDRRequestsTotal.Inc()
 
 	if ri.ServerGroup.DDR.Enabled {
-		return rw.WriteMsg(ctx, req, ri.Messages.NewMsgNODATA(req))
+		return rw.WriteMsg(ctx, req, ri.Messages.NewRespRCode(req, dns.RcodeSuccess))
 	}
 
-	return rw.WriteMsg(ctx, req, ri.Messages.NewMsgNXDOMAIN(req))
+	return rw.WriteMsg(ctx, req, ri.Messages.NewRespRCode(req, dns.RcodeNameError))
 }
 
 // newRespDDR returns a new Discovery of Designated Resolvers response copying
 // it from the prebuilt templates in srvGrp and modifying it in accordance with
 // the request data.  req must not be nil.
 func (mw *Middleware) newRespDDR(req *dns.Msg, ri *agd.RequestInfo) (resp *dns.Msg) {
-	resp = ri.Messages.NewRespMsg(req)
+	resp = ri.Messages.NewResp(req)
 	name := req.Question[0].Name
 	ddr := ri.ServerGroup.DDR
 
@@ -210,7 +213,8 @@ func (mw *Middleware) newRespDDR(req *dns.Msg, ri *agd.RequestInfo) (resp *dns.M
 	return resp
 }
 
-// handleBadResolverARPA writes a NODATA response.
+// handleBadResolverARPA responds to badly formed resolver.arpa queries with a
+// NODATA response.
 func (mw *Middleware) handleBadResolverARPA(
 	ctx context.Context,
 	rw dnsserver.ResponseWriter,
@@ -219,7 +223,8 @@ func (mw *Middleware) handleBadResolverARPA(
 ) (err error) {
 	metrics.DNSSvcBadResolverARPA.Inc()
 
-	err = rw.WriteMsg(ctx, req, ri.Messages.NewRespMsg(req))
+	resp := ri.Messages.NewRespRCode(req, dns.RcodeSuccess)
+	err = rw.WriteMsg(ctx, req, resp)
 
 	return errors.Annotate(err, "writing nodata resp for %q: %w", ri.Host)
 }
@@ -257,8 +262,6 @@ func (mw *Middleware) specialDomainHandler(
 	return nil, ""
 }
 
-// Apple Private Relay
-
 // shouldBlockPrivateRelay returns true if the query is for an Apple Private
 // Relay check domain and the request information or profile indicates that
 // Apple Private Relay should be blocked.
@@ -280,12 +283,11 @@ func (mw *Middleware) handlePrivateRelay(
 ) (err error) {
 	metrics.DNSSvcApplePrivateRelayRequestsTotal.Inc()
 
-	err = rw.WriteMsg(ctx, req, ri.Messages.NewMsgNXDOMAIN(req))
+	resp := ri.Messages.NewRespRCode(req, dns.RcodeNameError)
+	err = rw.WriteMsg(ctx, req, resp)
 
 	return errors.Annotate(err, "writing private relay resp: %w")
 }
-
-// Firefox canary domain
 
 // shouldBlockFirefoxCanary returns true if the query is for a Firefox canary
 // domain and the request information or profile indicates that Firefox canary
@@ -298,8 +300,8 @@ func shouldBlockFirefoxCanary(ri *agd.RequestInfo, prof *agd.Profile) (ok bool) 
 	return ri.FilteringGroup.BlockFirefoxCanary
 }
 
-// handleFirefoxCanary checks if the request is for the fully-qualified domain
-// name that Firefox uses to check DoH settings and writes a response if needed.
+// handleFirefoxCanary responds to Firefox canary domain queries with a REFUSED
+// response.
 func (mw *Middleware) handleFirefoxCanary(
 	ctx context.Context,
 	rw dnsserver.ResponseWriter,
@@ -308,7 +310,7 @@ func (mw *Middleware) handleFirefoxCanary(
 ) (err error) {
 	metrics.DNSSvcFirefoxRequestsTotal.Inc()
 
-	resp := ri.Messages.NewMsgREFUSED(req)
+	resp := ri.Messages.NewRespRCode(req, dns.RcodeRefused)
 	err = rw.WriteMsg(ctx, req, resp)
 
 	return errors.Annotate(err, "writing firefox canary resp: %w")

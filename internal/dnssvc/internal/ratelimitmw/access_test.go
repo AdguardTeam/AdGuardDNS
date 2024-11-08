@@ -18,7 +18,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
-	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -56,16 +55,9 @@ func TestMiddleware_Wrap_access(t *testing.T) {
 	)
 	require.NoError(t, errAccess)
 
-	geoIP := &agdtest.GeoIP{
-		OnSubnetByLocation: func(
-			_ *geoip.Location,
-			_ netutil.AddrFamily,
-		) (n netip.Prefix, err error) {
-			panic("not implemented")
-		},
-		OnData: func(_ string, _ netip.Addr) (l *geoip.Location, err error) {
-			return nil, nil
-		},
+	geoIP := agdtest.NewGeoIP()
+	geoIP.OnData = func(_ string, _ netip.Addr) (l *geoip.Location, err error) {
+		return nil, nil
 	}
 
 	rlMw := ratelimitmw.New(&ratelimitmw.Config{
@@ -77,7 +69,8 @@ func TestMiddleware_Wrap_access(t *testing.T) {
 			// Use a DoT server to prevent ratelimiting.
 			Protocol: agd.ProtoDoT,
 		},
-		AccessManager: accessMgr,
+		StructuredErrors: agdtest.NewSDEConfig(true),
+		AccessManager:    accessMgr,
 		DeviceFinder: &agdtest.DeviceFinder{
 			OnFind: func(_ context.Context, _ *dns.Msg, _, _ netip.AddrPort) (r agd.DeviceResult) {
 				return nil
@@ -86,21 +79,11 @@ func TestMiddleware_Wrap_access(t *testing.T) {
 		ErrColl: agdtest.NewErrorCollector(),
 		GeoIP:   geoIP,
 		Metrics: ratelimitmw.EmptyMetrics{},
-		Limiter: &agdtest.RateLimit{
-			OnIsRateLimited: func(
-				_ context.Context,
-				_ *dns.Msg,
-				_ netip.Addr,
-			) (shouldDrop, isAllowlisted bool, err error) {
-				panic("not implemented")
-			},
-			OnCountResponses: func(_ context.Context, _ *dns.Msg, _ netip.Addr) {
-				panic("not implemented")
-			},
-		},
+		Limiter: agdtest.NewRateLimit(),
 		Protocols: []agd.Protocol{
 			agd.ProtoDNS,
 		},
+		EDEEnabled: true,
 	})
 
 	testCases := []struct {

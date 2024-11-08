@@ -49,7 +49,7 @@ func TestServerDNSCrypt_integration_query(t *testing.T) {
 		name:    "udp_truncate_response",
 		network: dnsserver.NetworkUDP,
 		// Set a handler that generates a large response
-		handler: dnsservertest.CreateTestHandler(64),
+		handler: dnsservertest.NewDefaultHandlerWithCount(64),
 		// DNSCrypt server removes all records from a truncated response
 		expectedRecordsCount: 0,
 		expectedRCode:        dns.RcodeSuccess,
@@ -66,7 +66,7 @@ func TestServerDNSCrypt_integration_query(t *testing.T) {
 		name:    "udp_edns0_no_truncate",
 		network: dnsserver.NetworkUDP,
 		// Set a handler that generates a large response
-		handler:              dnsservertest.CreateTestHandler(64),
+		handler:              dnsservertest.NewDefaultHandlerWithCount(64),
 		expectedRecordsCount: 64,
 		expectedRCode:        dns.RcodeSuccess,
 		expectedTruncated:    false,
@@ -89,7 +89,7 @@ func TestServerDNSCrypt_integration_query(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			handler := tc.handler
 			if tc.handler == nil {
-				handler = dnsservertest.DefaultHandler()
+				handler = dnsservertest.NewDefaultHandler()
 			}
 
 			s := dnsservertest.RunDNSCryptServer(t, handler)

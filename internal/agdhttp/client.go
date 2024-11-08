@@ -10,6 +10,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/golibs/httphdr"
+	"github.com/AdguardTeam/golibs/netutil/urlutil"
 )
 
 // Client is a wrapper around http.Client.
@@ -93,6 +94,7 @@ func (c *Client) do(
 	req.Header.Set(httphdr.UserAgent, c.userAgent)
 
 	resp, err = c.http.Do(req)
+	urlutil.RedactUserinfoInURLError(u, err)
 	if err != nil && resp != nil && resp.Header != nil {
 		// A non-nil Response with a non-nil error only occurs when
 		// CheckRedirect fails.

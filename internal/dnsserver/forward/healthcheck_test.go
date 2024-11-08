@@ -20,7 +20,7 @@ func TestHandler_Refresh(t *testing.T) {
 	var upstreamIsUp atomic.Bool
 	var upstreamRequestsCount atomic.Int64
 
-	defaultHandler := dnsservertest.DefaultHandler()
+	defaultHandler := dnsservertest.NewDefaultHandler()
 
 	// This handler writes an empty message if upstreamUp flag is false.
 	handlerFunc := dnsserver.HandlerFunc(func(

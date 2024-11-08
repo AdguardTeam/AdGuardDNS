@@ -18,13 +18,14 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/golibs/httphdr"
+	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestDefault_ServeHTTP(t *testing.T) {
-	const dname = "some-domain.name"
+	const domain = "domain.example"
 
 	testIP := netip.MustParseAddr("1.2.3.4")
 
@@ -39,7 +40,7 @@ func TestDefault_ServeHTTP(t *testing.T) {
 			rcode,
 			dnsservertest.NewReq(name, qtype, dns.ClassINET),
 			dnsservertest.SectionAnswer{
-				dnsservertest.NewA(dname, 0, testIP),
+				dnsservertest.NewA(domain, 0, testIP),
 			},
 		)
 	}
@@ -52,38 +53,38 @@ func TestDefault_ServeHTTP(t *testing.T) {
 	}{{
 		name: "single",
 		msgs: []*dns.Msg{
-			newMsg(dns.RcodeSuccess, dname, dns.TypeA),
+			newMsg(dns.RcodeSuccess, domain, dns.TypeA),
 		},
 		wantHdr:  successHdr,
-		wantResp: [][]byte{[]byte(dname + `,A,NOERROR,` + testIP.String() + `,1`)},
+		wantResp: [][]byte{[]byte(domain + `,A,NOERROR,` + testIP.String() + `,1`)},
 	}, {
 		name: "existing",
 		msgs: []*dns.Msg{
-			newMsg(dns.RcodeSuccess, dname, dns.TypeA),
-			newMsg(dns.RcodeSuccess, dname, dns.TypeA),
+			newMsg(dns.RcodeSuccess, domain, dns.TypeA),
+			newMsg(dns.RcodeSuccess, domain, dns.TypeA),
 		},
 		wantHdr:  successHdr,
-		wantResp: [][]byte{[]byte(dname + `,A,NOERROR,` + testIP.String() + `,2`)},
+		wantResp: [][]byte{[]byte(domain + `,A,NOERROR,` + testIP.String() + `,2`)},
 	}, {
 		name: "different",
 		msgs: []*dns.Msg{
-			newMsg(dns.RcodeSuccess, dname, dns.TypeA),
-			newMsg(dns.RcodeSuccess, "sub."+dname, dns.TypeA),
+			newMsg(dns.RcodeSuccess, domain, dns.TypeA),
+			newMsg(dns.RcodeSuccess, "sub."+domain, dns.TypeA),
 		},
 		wantHdr: successHdr,
 		wantResp: [][]byte{
-			[]byte("sub." + dname + `,A,NOERROR,` + testIP.String() + `,1`),
-			[]byte(dname + `,A,NOERROR,` + testIP.String() + `,1`),
+			[]byte("sub." + domain + `,A,NOERROR,` + testIP.String() + `,1`),
+			[]byte(domain + `,A,NOERROR,` + testIP.String() + `,1`),
 		},
 	}, {
 		name: "non-recordable",
 		msgs: []*dns.Msg{
 			// Not NOERROR.
-			newMsg(dns.RcodeBadName, dname, dns.TypeA),
+			newMsg(dns.RcodeBadName, domain, dns.TypeA),
 			// Not A/AAAA.
-			newMsg(dns.RcodeSuccess, dname, dns.TypeSRV),
+			newMsg(dns.RcodeSuccess, domain, dns.TypeSRV),
 			// Android metrics.
-			newMsg(dns.RcodeSuccess, dname+"-dnsotls-ds.metric.gstatic.com.", dns.TypeA),
+			newMsg(dns.RcodeSuccess, domain+"-dnsotls-ds.metric.gstatic.com.", dns.TypeA),
 		},
 		wantHdr:  successHdr,
 		wantResp: [][]byte{},
@@ -109,7 +110,10 @@ func TestDefault_ServeHTTP(t *testing.T) {
 
 	r := httptest.NewRequest(
 		http.MethodGet,
-		(&url.URL{Scheme: "http", Host: "example.com"}).String(),
+		(&url.URL{
+			Scheme: urlutil.SchemeHTTP,
+			Host:   "dnsdb.example",
+		}).String(),
 		nil,
 	)
 	r.Header.Add(httphdr.AcceptEncoding, agdhttp.HdrValGzip)

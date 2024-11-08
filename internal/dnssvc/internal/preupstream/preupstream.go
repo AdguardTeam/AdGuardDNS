@@ -1,91 +1,40 @@
-// Package preupstream contains the middleware that prepares records for
-// upstream handling and caches them, as well as records anonymous DNS
+// Package preupstream contains the middleware that records anonymous DNS
 // statistics.
+//
+// TODO(a.garipov):  Consider merging with mainmw if not expanded.
 package preupstream
 
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/cache"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal"
-	"github.com/AdguardTeam/AdGuardDNS/internal/ecscache"
-	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/miekg/dns"
 )
 
 // Middleware is a middleware that prepares records for caching and upstream
 // handling as well as records anonymous DNS statistics.
 type Middleware struct {
-	cloner              *dnsmsg.Cloner
-	cacheManager        agdcache.Manager
-	db                  dnsdb.Interface
-	geoIP               geoip.Interface
-	cacheMinTTL         time.Duration
-	cacheSize           int
-	ecsCacheSize        int
-	useECSCache         bool
-	useCacheTTLOverride bool
+	db dnsdb.Interface
 }
 
-// Config is the configurational structure for the preupstream middleware.  DB
-// must not be nil.
+// Config is the configuration structure for the preupstream middleware.
 type Config struct {
-	// Cloner is used to clone messages taken from cache.
-	Cloner *dnsmsg.Cloner
-
-	// CacheManager is the global cache manager.  CacheManager must not be nil.
-	CacheManager agdcache.Manager
-
-	// DB is used to update anonymous statistics about DNS queries.
+	// DB is used to update anonymous statistics about DNS queries.  It must not
+	// be nil.
 	DB dnsdb.Interface
-
-	// GeoIP is the GeoIP database used to detect geographic data about IP
-	// addresses in requests and responses.
-	GeoIP geoip.Interface
-
-	// CacheMinTTL is the minimum supported TTL for cache items.
-	CacheMinTTL time.Duration
-
-	// CacheSize is the size of the DNS cache for domain names that don't
-	// support ECS.
-	CacheSize int
-
-	// ECSCacheSize is the size of the DNS cache for domain names that support
-	// ECS.
-	ECSCacheSize int
-
-	// UseECSCache shows if the EDNS Client Subnet (ECS) aware cache should be
-	// used.
-	UseECSCache bool
-
-	// UseCacheTTLOverride shows if the TTL overrides logic should be used.
-	UseCacheTTLOverride bool
 }
 
 // New returns a new preupstream middleware.  c must not be nil.
-func New(c *Config) (mw *Middleware) {
+func New(ctx context.Context, c *Config) (mw *Middleware) {
 	return &Middleware{
-		cloner:              c.Cloner,
-		cacheManager:        c.CacheManager,
-		db:                  c.DB,
-		geoIP:               c.GeoIP,
-		cacheMinTTL:         c.CacheMinTTL,
-		cacheSize:           c.CacheSize,
-		ecsCacheSize:        c.ECSCacheSize,
-		useECSCache:         c.UseECSCache,
-		useCacheTTLOverride: c.UseCacheTTLOverride,
+		db: c.DB,
 	}
 }
 
@@ -94,10 +43,8 @@ var _ dnsserver.Middleware = (*Middleware)(nil)
 
 // Wrap implements the [dnsserver.Middleware] interface for *Middleware.
 func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
-	next = mw.wrapCacheMw(next)
-
 	f := func(ctx context.Context, rw dnsserver.ResponseWriter, req *dns.Msg) (err error) {
-		defer func() { err = errors.Annotate(err, "preupstream mw: %w") }()
+		defer func() { err = errors.Annotate(err, "preupstreammw: %w") }()
 
 		if rn := agdnet.AndroidMetricDomainReplacement(req.Question[0].Name); rn != "" {
 			// Don't wrap the error, because it's informative enough as is.
@@ -125,40 +72,6 @@ func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
 	}
 
 	return dnsserver.HandlerFunc(f)
-}
-
-// wrapCacheMw does nothing if cacheSize is zero otherwise returns wrapped
-// handler with caching middleware which is ECS-aware or not.
-//
-// TODO(s.chzhen):  Consider separating caching middleware.
-func (mw *Middleware) wrapCacheMw(next dnsserver.Handler) (wrapped dnsserver.Handler) {
-	log.Info("cache: size: %d, ecs: %t", mw.cacheSize, mw.useECSCache)
-
-	if mw.cacheSize == 0 {
-		return next
-	}
-
-	var cacheMw dnsserver.Middleware
-	if mw.useECSCache {
-		cacheMw = ecscache.NewMiddleware(&ecscache.MiddlewareConfig{
-			Cloner:         mw.cloner,
-			CacheManager:   mw.cacheManager,
-			GeoIP:          mw.geoIP,
-			Size:           mw.cacheSize,
-			ECSSize:        mw.ecsCacheSize,
-			MinTTL:         mw.cacheMinTTL,
-			UseTTLOverride: mw.useCacheTTLOverride,
-		})
-	} else {
-		cacheMw = cache.NewMiddleware(&cache.MiddlewareConfig{
-			MetricsListener: prometheus.NewCacheMetricsListener(metrics.Namespace()),
-			Size:            mw.cacheSize,
-			MinTTL:          mw.cacheMinTTL,
-			UseTTLOverride:  mw.useCacheTTLOverride,
-		})
-	}
-
-	return cacheMw.Wrap(next)
 }
 
 // serveAndroidMetric makes sure we avoid resolving random Android DoT, DoH

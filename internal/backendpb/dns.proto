@@ -45,6 +45,42 @@ service DNSService {
   rpc createDeviceByHumanId(CreateDeviceRequest) returns (CreateDeviceResponse);
 }
 
+service RateLimitService {
+
+  /*
+    Gets rate limit settings.
+  */
+  rpc getRateLimitSettings(RateLimitSettingsRequest) returns (RateLimitSettingsResponse);
+}
+
+service RemoteKVService {
+
+  /**
+    Get the value for the specified key.
+
+    This method may return the following errors:
+    - AuthenticationFailedError: If the authentication failed.
+   */
+  rpc get(RemoteKVGetRequest) returns (RemoteKVGetResponse);
+
+  /**
+    Set the value for the specified key.
+
+    This method may return the following errors:
+    - AuthenticationFailedError: If the authentication failed.
+    - BadRequestError: If the request is invalid: value size exceeds the 512kb.
+   */
+  rpc set(RemoteKVSetRequest) returns (RemoteKVSetResponse);
+}
+
+message RateLimitSettingsRequest {
+
+}
+
+message RateLimitSettingsResponse {
+  repeated CidrRange allowed_subnets = 1;
+}
+
 message DNSProfilesRequest {
   google.protobuf.Timestamp sync_time = 1;
 }
@@ -211,4 +247,25 @@ message RateLimitSettings {
   bool enabled = 1;
   uint32 rps = 2;
   repeated CidrRange client_cidr = 3;
+}
+
+message RemoteKVGetRequest {
+  string key = 1;
+}
+
+message RemoteKVGetResponse {
+  oneof value {
+    bytes data = 1;
+    google.protobuf.Empty empty = 2;
+  }
+}
+
+message RemoteKVSetRequest {
+  string key = 1;
+  bytes data = 2;
+  google.protobuf.Duration ttl = 3;
+}
+
+message RemoteKVSetResponse {
+
 }

@@ -34,6 +34,7 @@ type Middleware struct {
 	logger        *slog.Logger
 	messages      *dnsmsg.Constructor
 	pool          *syncutil.Pool[agd.RequestInfo]
+	sdeConf       *dnsmsg.StructuredDNSErrorsConfig
 	accessManager access.Interface
 	deviceFinder  agd.DeviceFinder
 	errColl       errcoll.Interface
@@ -41,6 +42,7 @@ type Middleware struct {
 	limiter       ratelimit.Interface
 	metrics       Metrics
 	protos        []dnsserver.Protocol
+	edeEnabled    bool
 }
 
 // Config is the configuration structure for the access and ratelimiting
@@ -60,6 +62,10 @@ type Config struct {
 
 	// Server is the current server which serves the request.
 	Server *agd.Server
+
+	// StructuredErrors is the configuration for the experimental Structured DNS
+	// Errors feature for the profiles' message constructors.
+	StructuredErrors *dnsmsg.StructuredDNSErrorsConfig
 
 	// AccessManager is the global access manager.
 	AccessManager access.Interface
@@ -82,6 +88,10 @@ type Config struct {
 	// Protocols is a list of protocols this middleware applies ratelimiting
 	// logic to.  Protocols must not be changed after calling [New].
 	Protocols []agd.Protocol
+
+	// EDEEnabled enables the addition of the Extended DNS Error (EDE) codes in
+	// the profiles' message constructors.
+	EDEEnabled bool
 }
 
 // New returns a new access middleware.  c must not be nil.
@@ -98,6 +108,7 @@ func New(c *Config) (mw *Middleware) {
 				Proto:          c.Server.Protocol,
 			}
 		}),
+		sdeConf:       c.StructuredErrors,
 		accessManager: c.AccessManager,
 		deviceFinder:  c.DeviceFinder,
 		errColl:       c.ErrColl,
@@ -105,6 +116,7 @@ func New(c *Config) (mw *Middleware) {
 		limiter:       c.Limiter,
 		metrics:       c.Metrics,
 		protos:        c.Protocols,
+		edeEnabled:    c.EDEEnabled,
 	}
 }
 
@@ -172,7 +184,8 @@ func (mw *Middleware) processLocationErr(
 	// We've got a bad ECS option.  Log and respond with a FORMERR immediately.
 	optslog.Debug1(ctx, mw.logger, "ecs error", slogutil.KeyError, origErr)
 
-	writeErr := rw.WriteMsg(ctx, req, mw.messages.NewMsgFORMERR(req))
+	resp := mw.messages.NewRespRCode(req, dns.RcodeFormatError)
+	writeErr := rw.WriteMsg(ctx, req, resp)
 	writeErr = errors.Annotate(writeErr, "writing formerr resp: %w")
 
 	return errors.WithDeferred(origErr, writeErr)

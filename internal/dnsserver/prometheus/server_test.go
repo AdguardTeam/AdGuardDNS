@@ -24,7 +24,7 @@ func TestServerMetricsListener_integration_requestLifetime(t *testing.T) {
 		ConfigBase: dnsserver.ConfigBase{
 			Name:    "test",
 			Addr:    "127.0.0.1:0",
-			Handler: dnsservertest.DefaultHandler(),
+			Handler: dnsservertest.NewDefaultHandler(),
 			Metrics: prometheus.NewServerMetricsListener(testNamespace),
 		},
 	}

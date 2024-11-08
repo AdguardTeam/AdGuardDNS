@@ -25,7 +25,7 @@ import (
 func TestServerQUIC_integration_query(t *testing.T) {
 	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
 	srv, addr, err := dnsservertest.RunLocalQUICServer(
-		dnsservertest.DefaultHandler(),
+		dnsservertest.NewDefaultHandler(),
 		tlsConfig,
 	)
 	require.NoError(t, err)
@@ -74,7 +74,7 @@ func TestServerQUIC_integration_query(t *testing.T) {
 func TestServerQUIC_integration_ENDS0Padding(t *testing.T) {
 	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
 	srv, addr, err := dnsservertest.RunLocalQUICServer(
-		dnsservertest.DefaultHandler(),
+		dnsservertest.NewDefaultHandler(),
 		tlsConfig,
 	)
 	require.NoError(t, err)
@@ -108,7 +108,7 @@ func TestServerQUIC_integration_ENDS0Padding(t *testing.T) {
 func TestServerQUIC_integration_0RTT(t *testing.T) {
 	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
 	srv, addr, err := dnsservertest.RunLocalQUICServer(
-		dnsservertest.DefaultHandler(),
+		dnsservertest.NewDefaultHandler(),
 		tlsConfig,
 	)
 	require.NoError(t, err)
@@ -146,7 +146,7 @@ func TestServerQUIC_integration_0RTT(t *testing.T) {
 func TestServerQUIC_integration_largeQuery(t *testing.T) {
 	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
 	srv, addr, err := dnsservertest.RunLocalQUICServer(
-		dnsservertest.DefaultHandler(),
+		dnsservertest.NewDefaultHandler(),
 		tlsConfig,
 	)
 	require.NoError(t, err)

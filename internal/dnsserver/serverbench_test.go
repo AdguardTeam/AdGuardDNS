@@ -37,7 +37,7 @@ func BenchmarkServeDNS(b *testing.B) {
 
 	for _, tc := range testCases {
 		b.Run(tc.name, func(b *testing.B) {
-			_, addr := dnsservertest.RunDNSServer(b, dnsservertest.DefaultHandler())
+			_, addr := dnsservertest.RunDNSServer(b, dnsservertest.NewDefaultHandler())
 
 			// Prepare a test message.
 			m := new(dns.Msg)
@@ -105,7 +105,7 @@ func readMsg(resBuf []byte, network dnsserver.Network, conn net.Conn) (err error
 
 func BenchmarkServeTLS(b *testing.B) {
 	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
-	addr := dnsservertest.RunTLSServer(b, dnsservertest.DefaultHandler(), tlsConfig)
+	addr := dnsservertest.RunTLSServer(b, dnsservertest.NewDefaultHandler(), tlsConfig)
 
 	// Prepare a test message
 	m := new(dns.Msg)
@@ -171,7 +171,7 @@ func BenchmarkServeDoH(b *testing.B) {
 	for _, tc := range testCases {
 		b.Run(tc.name, func(b *testing.B) {
 			srv, err := dnsservertest.RunLocalHTTPSServer(
-				dnsservertest.DefaultHandler(),
+				dnsservertest.NewDefaultHandler(),
 				tc.tlsConfig,
 				nil,
 			)
@@ -250,7 +250,7 @@ func BenchmarkServeDNSCrypt(b *testing.B) {
 				Net:     string(tc.network),
 			}
 
-			s := dnsservertest.RunDNSCryptServer(b, dnsservertest.DefaultHandler())
+			s := dnsservertest.RunDNSCryptServer(b, dnsservertest.NewDefaultHandler())
 			stamp := dnsstamps.ServerStamp{
 				ServerAddrStr: s.ServerAddr,
 				ServerPk:      s.ResolverPk,
@@ -282,7 +282,7 @@ func BenchmarkServeDNSCrypt(b *testing.B) {
 func BenchmarkServeQUIC(b *testing.B) {
 	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
 	srv, addr, err := dnsservertest.RunLocalQUICServer(
-		dnsservertest.DefaultHandler(),
+		dnsservertest.NewDefaultHandler(),
 		tlsConfig,
 	)
 	require.NoError(b, err)

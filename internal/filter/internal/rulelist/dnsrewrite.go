@@ -46,8 +46,10 @@ func ProcessDNSRewrites(
 	}
 
 	if dnsRewriteResult.RCode != dns.RcodeSuccess {
-		resp := messages.NewRespMsg(req)
-		resp.Rcode = dnsRewriteResult.RCode
+		// #nosec G115 -- The value of dnsRewriteResult.RCode comes from the
+		// urlfilter package, where it either parsed by [dns.StringToRcode] or
+		// defined statically.
+		resp := messages.NewBlockedRespRCode(req, dnsmsg.RCode(dnsRewriteResult.RCode))
 
 		return &internal.ResultModifiedResponse{
 			Msg:  resp,
@@ -115,9 +117,9 @@ func processDNSRewriteRules(dnsr []*rules.NetworkRule) (res *dnsRewriteResult) {
 	return dnsrr
 }
 
-// filterDNSRewrite handles dnsrewrite filters.  It constructs a DNS
-// response and returns it.  dnsrr.RCode should be dns.RcodeSuccess and contain
-// a non-empty dnsrr.Response.
+// filterDNSRewrite handles dnsrewrite filters.  It constructs a DNS response
+// and returns it.  dnsrr.RCode should be [dns.RcodeSuccess] and contain a
+// non-empty dnsrr.Response.
 func filterDNSRewrite(
 	messages *dnsmsg.Constructor,
 	req *dns.Msg,
@@ -127,7 +129,8 @@ func filterDNSRewrite(
 		return nil, errors.Error("no dns rewrite rule responses")
 	}
 
-	resp = messages.NewRespMsg(req)
+	// TODO(e.burkov):  Use another constructor method for this.
+	resp = messages.NewBlockedRespRCode(req, dns.RcodeSuccess)
 
 	rr := req.Question[0].Qtype
 	values := dnsrr.Response[rr]

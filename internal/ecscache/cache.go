@@ -1,6 +1,7 @@
 package ecscache
 
 import (
+	"context"
 	"encoding/binary"
 	"hash/maphash"
 	"net/netip"
@@ -8,7 +9,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
+	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/golibs/mathutil"
 	"github.com/miekg/dns"
 )
@@ -43,9 +44,13 @@ type cacheRequest struct {
 // there is one.  If the host was found in the cache for domain names that
 // support ECS, isECSDependent is true.  cr, cr.req, and cr.subnet must not be
 // nil.
-func (mw *Middleware) get(req *dns.Msg, cr *cacheRequest) (resp *dns.Msg, isECSDependent bool) {
+func (mw *Middleware) get(
+	ctx context.Context,
+	req *dns.Msg,
+	cr *cacheRequest,
+) (resp *dns.Msg, isECSDependent bool) {
 	key := mw.toCacheKey(cr, false)
-	item, ok := itemFromCache(mw.cache, key, cr)
+	item, ok := mw.itemFromCache(ctx, mw.cache, key, cr)
 	if ok {
 		return fromCacheItem(item, mw.cloner, req, cr.reqDO), false
 	} else if cr.isECSDeclined {
@@ -54,7 +59,7 @@ func (mw *Middleware) get(req *dns.Msg, cr *cacheRequest) (resp *dns.Msg, isECSD
 
 	// Try ECS-aware cache.
 	key = mw.toCacheKey(cr, true)
-	item, ok = itemFromCache(mw.ecsCache, key, cr)
+	item, ok = mw.itemFromCache(ctx, mw.ecsCache, key, cr)
 	if ok {
 		return fromCacheItem(item, mw.cloner, req, cr.reqDO), true
 	}
@@ -65,7 +70,8 @@ func (mw *Middleware) get(req *dns.Msg, cr *cacheRequest) (resp *dns.Msg, isECSD
 // itemFromCache retrieves a DNS message for the given key.  cr.host is used to
 // detect key collisions.  If there is a key collision, it returns nil and
 // false.
-func itemFromCache(
+func (mw *Middleware) itemFromCache(
+	ctx context.Context,
 	cache agdcache.Interface[uint64, *cacheItem],
 	key uint64,
 	cr *cacheRequest,
@@ -77,7 +83,7 @@ func itemFromCache(
 
 	// Check for cache key collisions.
 	if item.host != cr.host {
-		optlog.Error2("ecs-cache: collision: bad cache item %v for host %q", item, cr.host)
+		optslog.Warn2(ctx, mw.logger, "cache collision", "item", item, "host", cr.host)
 
 		return nil, false
 	}
@@ -136,7 +142,7 @@ func (mw *Middleware) set(resp *dns.Msg, cr *cacheRequest, respIsECSDependent bo
 	}
 
 	exp := time.Duration(ttl) * time.Second
-	if mw.useTTLOverride && resp.Rcode != dns.RcodeServerFailure {
+	if mw.overrideTTL && resp.Rcode != dns.RcodeServerFailure {
 		exp = max(exp, mw.cacheMinTTL)
 		dnsmsg.SetMinTTL(resp, uint32(exp.Seconds()))
 	}

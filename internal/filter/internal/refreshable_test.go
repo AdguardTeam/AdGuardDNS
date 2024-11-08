@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -221,7 +221,7 @@ func TestRefreshable_Refresh_fileURL(t *testing.T) {
 	c := &internal.RefreshableConfig{
 		Logger: slogutil.NewDiscardLogger(),
 		URL: &url.URL{
-			Scheme: agdhttp.SchemeFile,
+			Scheme: urlutil.SchemeFile,
 			Path:   fltFile.Name(),
 		},
 		ID:        refrID,

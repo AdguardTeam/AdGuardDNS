@@ -65,3 +65,39 @@ func (s *testDNSServiceServer) SaveDevicesBillingStat(
 ) (err error) {
 	return s.OnSaveDevicesBillingStat(srv)
 }
+
+// testRemoteKVServiceServer is the [backendpb.RemoteKVServiceServer] for tests.
+type testRemoteKVServiceServer struct {
+	backendpb.UnimplementedRemoteKVServiceServer
+
+	OnGet func(
+		ctx context.Context,
+		req *backendpb.RemoteKVGetRequest,
+	) (resp *backendpb.RemoteKVGetResponse, err error)
+
+	OnSet func(
+		ctx context.Context,
+		req *backendpb.RemoteKVSetRequest,
+	) (resp *backendpb.RemoteKVSetResponse, err error)
+}
+
+// type check
+var _ backendpb.RemoteKVServiceServer = (*testRemoteKVServiceServer)(nil)
+
+// Get implements the [backendpb.RemoteKVServiceServer] interface for
+// *testRemoteKVServiceServer.
+func (s *testRemoteKVServiceServer) Get(
+	ctx context.Context,
+	req *backendpb.RemoteKVGetRequest,
+) (resp *backendpb.RemoteKVGetResponse, err error) {
+	return s.OnGet(ctx, req)
+}
+
+// Set implements the [backendpb.RemoteKVServiceServer] interface for
+// *testRemoteKVServiceServer.
+func (s *testRemoteKVServiceServer) Set(
+	ctx context.Context,
+	req *backendpb.RemoteKVSetRequest,
+) (resp *backendpb.RemoteKVSetResponse, err error) {
+	return s.OnSet(ctx, req)
+}

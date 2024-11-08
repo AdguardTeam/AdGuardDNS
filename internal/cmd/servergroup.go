@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 )
@@ -17,6 +19,8 @@ type serverGroups []*serverGroup
 // toInternal returns the configuration for all server groups in the DNS
 // service.  srvGrps and other parts of the configuration must be valid.
 func (srvGrps serverGroups) toInternal(
+	ctx context.Context,
+	mtrc tlsconfig.Metrics,
 	messages *dnsmsg.Constructor,
 	btdMgr *bindtodevice.Manager,
 	fltGrps map[agd.FilteringGroupID]*agd.FilteringGroup,
@@ -32,7 +36,7 @@ func (srvGrps serverGroups) toInternal(
 		}
 
 		var tlsConf *agd.TLS
-		tlsConf, err = g.TLS.toInternal()
+		tlsConf, err = g.TLS.toInternal(ctx, mtrc)
 		if err != nil {
 			return nil, fmt.Errorf("tls: %w", err)
 		}
@@ -45,7 +49,13 @@ func (srvGrps serverGroups) toInternal(
 			ProfilesEnabled: g.ProfilesEnabled,
 		}
 
-		svcSrvGrps[i].Servers, err = g.Servers.toInternal(tlsConf, btdMgr, ratelimitConf, dnsConf)
+		svcSrvGrps[i].Servers, err = g.Servers.toInternal(
+			mtrc,
+			tlsConf,
+			btdMgr,
+			ratelimitConf,
+			dnsConf,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("server group %q: %w", g.Name, err)
 		}

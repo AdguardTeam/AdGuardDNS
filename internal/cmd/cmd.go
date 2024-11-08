@@ -100,6 +100,8 @@ func Main(plugins *plugin.Registry) {
 
 	errors.Check(b.initTLS(ctx))
 
+	errors.Check(b.initGRPCMetrics(ctx))
+
 	errors.Check(b.initBillStat(ctx))
 
 	errors.Check(b.initProfileDB(ctx))

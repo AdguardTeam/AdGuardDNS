@@ -11,6 +11,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/httphdr"
+	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -62,7 +63,7 @@ func TestService_NonDoH(t *testing.T) {
 	}
 
 	resp, err := client.Get((&url.URL{
-		Scheme: "http",
+		Scheme: urlutil.SchemeHTTP,
 		Host:   nonDoHPort.String(),
 		Path:   "/other",
 	}).String())
@@ -89,7 +90,7 @@ func assertContent(t *testing.T, addr netip.AddrPort, path string, status int, e
 	var body []byte
 
 	u := &url.URL{
-		Scheme: "http",
+		Scheme: urlutil.SchemeHTTP,
 		Host:   addr.String(),
 		Path:   path,
 	}

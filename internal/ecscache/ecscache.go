@@ -5,6 +5,7 @@ package ecscache
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -13,9 +14,8 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
+	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/miekg/dns"
@@ -33,6 +33,12 @@ type Middleware struct {
 	// cloner is the memory-efficient cloner of DNS messages.
 	cloner *dnsmsg.Cloner
 
+	// cacheReqPool is a pool of cache requests.
+	cacheReqPool *syncutil.Pool[cacheRequest]
+
+	// logger is used to log the operation of the middleware.
+	logger *slog.Logger
+
 	// cache is the LRU cache for results indicating no support for ECS.
 	cache agdcache.Interface[uint64, *cacheItem]
 
@@ -42,22 +48,23 @@ type Middleware struct {
 	// geoIP is used to get subnets for countries.
 	geoIP geoip.Interface
 
-	// cacheReqPool is a pool of cache requests.
-	cacheReqPool *syncutil.Pool[cacheRequest]
-
 	// cacheMinTTL is the minimum supported TTL for cache items.
 	cacheMinTTL time.Duration
 
-	// useTTLOverride shows if the TTL overrides logic should be used.
-	useTTLOverride bool
+	// overrideTTL shows if the TTL overrides logic should be used.
+	overrideTTL bool
 }
 
-// MiddlewareConfig is the configuration structure for NewMiddleware.
+// MiddlewareConfig is the configuration structure for [NewMiddleware].
 type MiddlewareConfig struct {
-	// Cloner is used to clone messages taken from cache.
+	// Cloner is used to clone messages taken from cache.  It must not be nil.
 	Cloner *dnsmsg.Cloner
 
-	// CacheManager is the global cache manager.  CacheManager must not be nil.
+	// Logger is used to log the operation of the middleware.  It must not be
+	// nil.
+	Logger *slog.Logger
+
+	// CacheManager is the global cache manager.  It must not be nil.
 	CacheManager agdcache.Manager
 
 	// GeoIP is the GeoIP database used to get subnets for countries.  It must
@@ -67,16 +74,16 @@ type MiddlewareConfig struct {
 	// MinTTL is the minimum supported TTL for cache items.
 	MinTTL time.Duration
 
-	// Size is the number of entities to hold in the cache for hosts that don't
-	// support ECS.  It must be greater than zero.
-	Size int
+	// NoECSCount is the number of entities to hold in the cache for hosts that
+	// don't support ECS, in entries.  It must be greater than zero.
+	NoECSCount int
 
-	// ECSSize is the number of entities to hold in the cache for hosts that
-	// support ECS.  It must be greater than zero.
-	ECSSize int
+	// ECSCount is the number of entities to hold in the cache for hosts that
+	// support ECS, in entries.  It must be greater than zero.
+	ECSCount int
 
-	// UseTTLOverride shows if the TTL overrides logic should be used.
-	UseTTLOverride bool
+	// OverrideTTL shows if the TTL overrides logic should be used.
+	OverrideTTL bool
 }
 
 // NewMiddleware initializes a new ECS-aware LRU caching middleware.  It also
@@ -84,25 +91,26 @@ type MiddlewareConfig struct {
 // manager.  c must not be nil.
 func NewMiddleware(c *MiddlewareConfig) (m *Middleware) {
 	cache := agdcache.NewLRU[uint64, *cacheItem](&agdcache.LRUConfig{
-		Size: c.Size,
+		Size: c.NoECSCount,
 	})
 	ecsCache := agdcache.NewLRU[uint64, *cacheItem](&agdcache.LRUConfig{
-		Size: c.ECSSize,
+		Size: c.ECSCount,
 	})
 
 	c.CacheManager.Add(cacheIDNoECS, cache)
 	c.CacheManager.Add(cacheIDWithECS, ecsCache)
 
 	return &Middleware{
-		cloner:   c.Cloner,
-		cache:    cache,
-		ecsCache: ecsCache,
-		geoIP:    c.GeoIP,
+		cloner: c.Cloner,
+		logger: c.Logger,
 		cacheReqPool: syncutil.NewPool(func() (req *cacheRequest) {
 			return &cacheRequest{}
 		}),
-		cacheMinTTL:    c.MinTTL,
-		useTTLOverride: c.UseTTLOverride,
+		cache:       cache,
+		ecsCache:    ecsCache,
+		geoIP:       c.GeoIP,
+		cacheMinTTL: c.MinTTL,
+		overrideTTL: c.OverrideTTL,
 	}
 }
 
@@ -224,8 +232,7 @@ func (mw *Middleware) writeUpstreamResponse(
 		return fmt.Errorf("getting ecs from resp: %w", err)
 	}
 
-	// TODO(a.garipov):  Use optslog.Trace2.
-	optlog.Debug2("ecscache: upstream: %s/%d", subnet, scope)
+	optslog.Trace2(ctx, mw.logger, "upstream data", "subnet", subnet, "scope", scope)
 
 	reqDO := cr.reqDO
 	rmHopToHopData(resp, ri.QType, reqDO)
@@ -304,7 +311,7 @@ func (mh *mwHandler) ServeDNS(
 		// Cache key calculation shouldn't consider the subnet of the cache
 		// request in this case, but the actual DNS request generated on cache
 		// miss will use this data.
-		log.Debug("ecscache: explicitly declined ecs")
+		mw.logger.DebugContext(ctx, "explicitly declined ecs")
 
 		cr.subnet = netutil.ZeroPrefix(ecsFam)
 	} else {
@@ -319,21 +326,28 @@ func (mh *mwHandler) ServeDNS(
 			)
 		}
 
-		optlog.Debug3("ecscache: got ctry %s, asn %d, subnet %s", loc.Country, loc.ASN, cr.subnet)
+		optslog.Debug3(
+			ctx,
+			mw.logger,
+			"request data",
+			"ctry", loc.Country,
+			"asn", loc.ASN,
+			"subnet", cr.subnet,
+		)
 	}
 
 	// Try getting a cached result using the subnet of the location or zero one
 	// when explicitly requested by user.  If there is one, write, increment the
 	// metrics, and return.  See also [writeCachedResponse].
-	resp, respIsECS := mw.get(req, cr)
+	resp, respIsECS := mw.get(ctx, req, cr)
 	if resp != nil {
-		optlog.Debug1("ecscache: using cached response (ecs-aware: %t)", respIsECS)
+		optslog.Debug1(ctx, mw.logger, "using cached response", "ecs_aware", respIsECS)
 
 		// Don't wrap the error, because it's informative enough as is.
 		return writeCachedResponse(ctx, rw, req, resp, ri.ECS, ecsFam, respIsECS)
 	}
 
-	log.Debug("ecscache: no cached response")
+	mw.logger.DebugContext(ctx, "no cached response")
 
 	// Perform an upstream request with the ECS data for the location or zero
 	// one on circumstances described above.  If successful, write, increment

@@ -6,6 +6,8 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 
 - [`ADULT_BLOCKING_ENABLED`](#ADULT_BLOCKING_ENABLED)
 - [`ADULT_BLOCKING_URL`](#ADULT_BLOCKING_URL)
+- [`BACKEND_RATELIMIT_API_KEY`](#BACKEND_RATELIMIT_API_KEY)
+- [`BACKEND_RATELIMIT_URL`](#BACKEND_RATELIMIT_URL)
 - [`BILLSTAT_API_KEY`](#BILLSTAT_API_KEY)
 - [`BILLSTAT_URL`](#BILLSTAT_URL)
 - [`BLOCKED_SERVICE_ENABLED`](#BLOCKED_SERVICE_ENABLED)
@@ -14,6 +16,8 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`CONSUL_ALLOWLIST_URL`](#CONSUL_ALLOWLIST_URL)
 - [`CONSUL_DNSCHECK_KV_URL`](#CONSUL_DNSCHECK_KV_URL)
 - [`CONSUL_DNSCHECK_SESSION_URL`](#CONSUL_DNSCHECK_SESSION_URL)
+- [`DNSCHECK_REMOTEKV_API_KEY`](#DNSCHECK_REMOTEKV_API_KEY)
+- [`DNSCHECK_REMOTEKV_URL`](#DNSCHECK_REMOTEKV_URL)
 - [`FILTER_CACHE_PATH`](#FILTER_CACHE_PATH)
 - [`FILTER_INDEX_URL`](#FILTER_INDEX_URL)
 - [`GENERAL_SAFE_ENABLED`](#GENERAL_SAFE_SEARCH_ENABLED)
@@ -62,6 +66,21 @@ The HTTP(S) URL of source list of rules for adult blocking filter.
 
 **Default:** No default value, the variable is required if `ADULT_BLOCKING_ENABLED` is set to `1`.
 
+## <a href="#BACKEND_RATELIMIT_API_KEY" id="BACKEND_RATELIMIT_API_KEY" name="BACKEND_RATELIMIT_API_KEY">`BACKEND_RATELIMIT_API_KEY`</a>
+
+The API key to use when authenticating requests to the backend rate limiter API, if any. The API key should be valid as defined by [RFC 6750].
+
+**Default:** **Unset.**
+
+## <a href="#BACKEND_RATELIMIT_URL" id="BACKEND_RATELIMIT_URL" name="BACKEND_RATELIMIT_URL">`BACKEND_RATELIMIT_URL`</a>
+
+The base backend URL for backend rate limiter. Supports gRPC(S) (`grpc://` and `grpcs://`) URLs. See the [external API requirements section][ext-backend-ratelimit].
+
+**Default:** No default value, the variable is required if the [type][conf-ratelimit-type] of rate limiter is `backend` in the configuration file.
+
+[conf-ratelimit-type]:   configuration.md#ratelimit-type
+[ext-backend-ratelimit]: externalhttp.md#backend-ratelimit
+
 ## <a href="#BILLSTAT_API_KEY" id="BILLSTAT_API_KEY" name="BILLSTAT_API_KEY">`BILLSTAT_API_KEY`</a>
 
 The API key to use when authenticating queries to the billing statistics API, if any. The API key should be valid as defined by [RFC 6750].
@@ -72,7 +91,7 @@ The API key to use when authenticating queries to the billing statistics API, if
 
 ## <a href="#BILLSTAT_URL" id="BILLSTAT_URL" name="BILLSTAT_URL">`BILLSTAT_URL`</a>
 
-The base backend URL for backend billing statistics uploader API. Supports gRPC(S) (`grpc://` and`grpcs://`) URLs. See the [external HTTP API requirements section][ext-billstat].
+The base backend URL for backend billing statistics uploader API. Supports gRPC(S) (`grpc://` and `grpcs://`) URLs. See the [external HTTP API requirements section][ext-billstat].
 
 **Default:** No default value, the variable is required if there is at least one [server group][conf-sg] with profiles enabled.
 
@@ -103,7 +122,7 @@ The path to the configuration file.
 
 The HTTP(S) URL of the Consul instance serving the dynamic part of the rate-limit allowlist. See the [external HTTP API requirements section][ext-consul] on the expected format of the response.
 
-**Default:** No default value, the variable is **required.**
+**Default:** No default value, the variable is required if the [type][conf-ratelimit-type] of rate limiter is `consul` in the configuration file.
 
 [ext-consul]: externalhttp.md#consul
 
@@ -122,6 +141,20 @@ The HTTP(S) URL of the session API of the Consul instance used as a key-value da
 **Default:** **Unset.**
 
 **Example:** `http://localhost:8500/v1/session/create`
+
+## <a href="#DNSCHECK_REMOTEKV_API_KEY" id="DNSCHECK_REMOTEKV_API_KEY" name="DNSCHECK_REMOTEKV_API_KEY">`DNSCHECK_REMOTEKV_API_KEY`</a>
+
+The API key to use when authenticating queries to the backend key-value database API, if any. The API key should be valid as defined by [RFC 6750].
+
+**Default:** **Unset.**
+
+## <a href="#DNSCHECK_REMOTEKV_URL" id="DNSCHECK_REMOTEKV_URL" name="DNSCHECK_REMOTEKV_URL">`DNSCHECK_REMOTEKV_URL`</a>
+
+The base backend URL used as a key-value database for the DNS server checking. Supports gRPC(S) (`grpc://` and`grpcs://`) URLs. See the [external API requirements section][ext-backend-dnscheck].
+
+**Default:** **Unset.**
+
+[ext-backend-dnscheck]: externalhttp.md#backend-dnscheck
 
 ## <a href="#FILTER_CACHE_PATH" id="FILTER_CACHE_PATH" name="FILTER_CACHE_PATH">`FILTER_CACHE_PATH`</a>
 
@@ -238,11 +271,11 @@ The profile cache is read on start and is later updated on every [full refresh][
 
 The maximum size of the response from the profiles API in a human-readable format.
 
-**Default:** `8MB`.
+**Default:** `64MB`.
 
 ## <a href="#PROFILES_URL" id="PROFILES_URL" name="PROFILES_URL">`PROFILES_URL`</a>
 
-The base backend URL for profiles API. Supports gRPC(S) (`grpc://` and`grpcs://`) URLs. See the [external API requirements section][ext-profiles].
+The base backend URL for profiles API. Supports gRPC(S) (`grpc://` and `grpcs://`) URLs. See the [external API requirements section][ext-profiles].
 
 **Default:** No default value, the variable is required if there is at least one [server group][conf-sg] with profiles enabled.
 
@@ -252,7 +285,7 @@ The base backend URL for profiles API. Supports gRPC(S) (`grpc://` and`grpcs://`
 
 Redis server address.  Can be an IP address or a hostname.
 
-**Default:** No default value, the variable if required if the [type][conf-check-kv-type] of remote KV storage for DNS server checking is `redis` in the configuration file.
+**Default:** No default value, the variable is required if the [type][conf-check-kv-type] of remote KV storage for DNS server checking is `redis` in the configuration file.
 
 [conf-check-kv-type]: configuration.md#check-kv-type
 

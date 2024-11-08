@@ -15,7 +15,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 )
@@ -28,6 +27,7 @@ type AllowlistUpdater struct {
 	http      *agdhttp.Client
 	url       *url.URL
 	errColl   errcoll.Interface
+	metrics   Metrics
 }
 
 // AllowlistUpdaterConfig is the configuration structure for the allowlist
@@ -45,6 +45,9 @@ type AllowlistUpdaterConfig struct {
 	// ErrColl is used to collect errors during refreshes.
 	ErrColl errcoll.Interface
 
+	// Metrics is used to collect allowlist statistics.
+	Metrics Metrics
+
 	// Timeout is the timeout for Consul queries.
 	Timeout time.Duration
 }
@@ -60,6 +63,7 @@ func NewAllowlistUpdater(c *AllowlistUpdaterConfig) (upd *AllowlistUpdater) {
 		}),
 		url:     c.ConsulURL,
 		errColl: c.ErrColl,
+		metrics: c.Metrics,
 	}
 }
 
@@ -72,10 +76,7 @@ func (upd *AllowlistUpdater) Refresh(ctx context.Context) (err error) {
 	upd.logger.InfoContext(ctx, "refresh started")
 	defer upd.logger.InfoContext(ctx, "refresh finished")
 
-	defer func() {
-		metrics.ConsulAllowlistUpdateTime.SetToCurrentTime()
-		metrics.SetStatusGauge(metrics.ConsulAllowlistUpdateStatus, err)
-	}()
+	defer func() { upd.metrics.SetStatus(ctx, err) }()
 
 	consulNets, err := upd.loadConsul(ctx)
 	if err != nil {
@@ -89,13 +90,11 @@ func (upd *AllowlistUpdater) Refresh(ctx context.Context) (err error) {
 		ctx,
 		"refresh successful",
 		"num_records", len(consulNets),
-		"url", &urlutil.URL{
-			URL: *upd.url,
-		},
+		"url", urlutil.RedactUserinfo(upd.url),
 	)
 
 	upd.allowlist.Update(consulNets)
-	metrics.ConsulAllowlistSize.Set(float64(len(consulNets)))
+	upd.metrics.SetSize(ctx, len(consulNets))
 
 	return nil
 }
@@ -107,7 +106,7 @@ type consulRecord struct {
 
 // loadConsul fetches, decodes, and returns the list of IP networks from consul.
 func (upd *AllowlistUpdater) loadConsul(ctx context.Context) (nets []netip.Prefix, err error) {
-	defer func() { err = errors.Annotate(err, "loading allowlist nets from %s: %w", upd.url) }()
+	defer func() { err = errors.Annotate(err, "loading allowlist nets: %w") }()
 
 	httpResp, err := upd.http.Get(ctx, upd.url)
 	if err != nil {

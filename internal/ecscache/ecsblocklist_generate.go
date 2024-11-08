@@ -4,7 +4,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"slices"
@@ -12,41 +14,42 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/osutil"
 )
 
 func main() {
+	ctx := context.Background()
+	logger := slogutil.New(nil)
+	defer slogutil.RecoverAndExit(ctx, logger, osutil.ExitCodeFailure)
+
 	c := &http.Client{
 		Timeout: 10 * time.Second,
 	}
 
-	req, err := http.NewRequest(http.MethodGet, fakeECSBlocklistURL, nil)
-	check(err)
+	req := errors.Must(http.NewRequest(http.MethodGet, fakeECSBlocklistURL, nil))
 
 	req.Header.Add(httphdr.UserAgent, agdhttp.UserAgent())
 
-	resp, err := c.Do(req)
-	check(err)
-	defer log.OnCloserError(resp.Body, log.ERROR)
+	resp := errors.Must(c.Do(req))
+	defer slogutil.CloseAndLog(ctx, logger, resp.Body, slog.LevelError)
 
-	out, err := os.OpenFile("./ecsblocklist.go", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o664)
-	check(err)
-	defer log.OnCloserError(out, log.ERROR)
+	out := errors.Must(os.OpenFile("./ecsblocklist.go", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o664))
+	defer slogutil.CloseAndLog(ctx, logger, out, slog.LevelError)
 
-	contents, err := io.ReadAll(resp.Body)
-	check(err)
+	contents := errors.Must(io.ReadAll(resp.Body))
 
 	lines := bytes.Split(contents, []byte("\n"))
 	lines = lines[:len(lines)-1]
 
 	slices.SortStableFunc(lines, bytes.Compare)
 
-	tmpl, err := template.New("main").Parse(tmplStr)
-	check(err)
+	tmpl := template.Must(template.New("main").Parse(tmplStr))
 
-	err = tmpl.Execute(out, lines)
-	check(err)
+	err := tmpl.Execute(out, lines)
+	errors.Check(err)
 }
 
 // fakeECSBlocklistURL is the default URL from where to get ECS fake domains.
@@ -67,10 +70,3 @@ var FakeECSFQDNs = container.NewMapSet(
 {{- end }}
 )
 `
-
-// check is a simple error checker.
-func check(err error) {
-	if err != nil {
-		panic(err)
-	}
-}

@@ -15,6 +15,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/debugsvc"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil/httputil"
+	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -92,7 +93,7 @@ func TestService_Start(t *testing.T) {
 	})
 
 	srvURL := &url.URL{
-		Scheme: agdhttp.SchemeHTTP,
+		Scheme: urlutil.SchemeHTTP,
 		Host:   addr,
 	}
 

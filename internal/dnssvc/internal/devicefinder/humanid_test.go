@@ -1,8 +1,6 @@
 package devicefinder_test
 
 import (
-	"context"
-	"net/netip"
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -49,53 +47,13 @@ func TestDefault_Find_humanID(t *testing.T) {
 		in:   "otr-abcd1234-!!!",
 	}}
 
-	profDB := &agdtest.ProfileDB{
-		OnCreateAutoDevice: func(
-			ctx context.Context,
-			id agd.ProfileID,
-			humanID agd.HumanID,
-			devType agd.DeviceType,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-
-		OnProfileByDedicatedIP: func(
-			_ context.Context,
-			_ netip.Addr,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-
-		OnProfileByDeviceID: func(
-			_ context.Context,
-			devID agd.DeviceID,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-
-		OnProfileByHumanID: func(
-			_ context.Context,
-			_ agd.ProfileID,
-			_ agd.HumanIDLower,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-
-		OnProfileByLinkedIP: func(
-			_ context.Context,
-			_ netip.Addr,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-	}
-
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			df := devicefinder.NewDefault(&devicefinder.Config{
 				Logger:        slogutil.NewDiscardLogger(),
-				ProfileDB:     profDB,
+				ProfileDB:     agdtest.NewProfileDB(),
 				HumanIDParser: agd.NewHumanIDParser(),
 				Server:        srvDoT,
 				DeviceDomains: []string{dnssvctest.DomainForDevices},

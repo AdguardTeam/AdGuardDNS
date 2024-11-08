@@ -4,6 +4,7 @@ package mainmw
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
@@ -14,7 +15,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
+	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
 	"github.com/AdguardTeam/golibs/errors"
@@ -24,14 +25,15 @@ import (
 
 // Middleware is the main middleware of AdGuard DNS.
 type Middleware struct {
-	messages   *dnsmsg.Constructor
 	cloner     *dnsmsg.Cloner
 	fltCtxPool *syncutil.Pool[filteringContext]
-	metrics    Metrics
+	logger     *slog.Logger
+	messages   *dnsmsg.Constructor
 	billStat   billstat.Recorder
 	errColl    errcoll.Interface
 	fltStrg    filter.Storage
 	geoIP      geoip.Interface
+	metrics    Metrics
 	queryLog   querylog.Interface
 	ruleStat   rulestat.Interface
 }
@@ -39,18 +41,16 @@ type Middleware struct {
 // Config is the configuration structure for the main middleware.  All fields
 // must be non-nil.
 type Config struct {
-	// Metrics is used to collect the statistics.
-	Metrics Metrics
+	// Cloner is used to clone messages more efficiently by disposing of parts
+	// of DNS responses for later reuse.
+	Cloner *dnsmsg.Cloner
+
+	// Logger is used to log the operation of the middleware.
+	Logger *slog.Logger
 
 	// Messages is the message constructor used to create blocked and other
 	// messages for this middleware.
 	Messages *dnsmsg.Constructor
-
-	// Cloner is used to clone messages more efficiently by disposing of parts
-	// of DNS responses for later reuse.
-	//
-	// TODO(a.garipov): Use.
-	Cloner *dnsmsg.Cloner
 
 	// BillStat is used to collect billing statistics.
 	BillStat billstat.Recorder
@@ -66,6 +66,9 @@ type Config struct {
 	// addresses in requests and responses.
 	GeoIP geoip.Interface
 
+	// Metrics is used to collect the statistics.
+	Metrics Metrics
+
 	// QueryLog is used to write the logs into.
 	QueryLog querylog.Interface
 
@@ -77,16 +80,17 @@ type Config struct {
 // New returns a new main middleware.  c must not be nil.
 func New(c *Config) (mw *Middleware) {
 	return &Middleware{
-		metrics:  c.Metrics,
-		messages: c.Messages,
-		cloner:   c.Cloner,
+		cloner: c.Cloner,
 		fltCtxPool: syncutil.NewPool(func() (v *filteringContext) {
 			return &filteringContext{}
 		}),
+		logger:   c.Logger,
+		messages: c.Messages,
 		billStat: c.BillStat,
 		errColl:  c.ErrColl,
 		fltStrg:  c.FilterStorage,
 		geoIP:    c.GeoIP,
+		metrics:  c.Metrics,
 		queryLog: c.QueryLog,
 		ruleStat: c.RuleStat,
 	}
@@ -106,8 +110,20 @@ func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
 		defer mw.fltCtxPool.Put(fctx)
 
 		ri := agd.MustRequestInfoFromContext(ctx)
-		optlog.Debug2("processing request %q from %s", ri.ID, ri.RemoteIP)
-		defer optlog.Debug2("finished processing request %q from %s", ri.ID, ri.RemoteIP)
+		optslog.Debug2(
+			ctx,
+			mw.logger,
+			"processing request",
+			"req_id", ri.ID,
+			"remote_ip", ri.RemoteIP,
+		)
+		defer optslog.Debug2(
+			ctx,
+			mw.logger,
+			"finished processing request",
+			"req_id", ri.ID,
+			"remote_ip", ri.RemoteIP,
+		)
 
 		flt := mw.fltStrg.FilterFromContext(ctx, ri)
 		mw.filterRequest(ctx, fctx, flt, ri)
@@ -184,10 +200,12 @@ func (mw *Middleware) nextParams(
 
 	ctx = agd.ContextWithRequestInfo(ctx, modReqInfo)
 
-	optlog.Debug2(
-		"mainmw: request for %q rewritten to %q by CNAME rewrite rule",
-		ri.Host,
-		modReqInfo.Host,
+	optslog.Debug2(
+		ctx,
+		mw.logger,
+		"request rewritten by cname rewrite rule",
+		"orig_host", ri.Host,
+		"mod_host", modReqInfo.Host,
 	)
 
 	return ctx, origRW, modReq

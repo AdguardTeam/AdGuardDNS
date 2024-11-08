@@ -98,7 +98,6 @@ const testDataFiltersTmpl = `{
   "filters": [
     {
       "filterKey": %q,
-      "filterId": 42,
       "downloadUrl": "http://example.com"
     }
   ]

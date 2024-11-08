@@ -22,7 +22,10 @@ func TestMain(m *testing.M) {
 }
 
 func TestRatelimitMiddleware(t *testing.T) {
-	const rps = 10
+	const (
+		rps = 10
+		ivl = time.Second
+	)
 
 	persistent := []netip.Prefix{
 		netip.MustParsePrefix("4.3.2.1/8"),
@@ -99,9 +102,11 @@ func TestRatelimitMiddleware(t *testing.T) {
 				Duration:             time.Minute,
 				Count:                rps,
 				ResponseSizeEstimate: 128 * datasize.B,
-				IPv4RPS:              rps,
+				IPv4Count:            rps,
+				IPv4Interval:         ivl,
 				IPv4SubnetKeyLen:     24,
-				IPv6RPS:              rps,
+				IPv6Count:            rps,
+				IPv6Interval:         ivl,
 				IPv6SubnetKeyLen:     48,
 				RefuseANY:            true,
 			})
@@ -112,7 +117,7 @@ func TestRatelimitMiddleware(t *testing.T) {
 			require.NoError(t, err)
 
 			withMw := dnsserver.WithMiddlewares(
-				dnsservertest.CreateTestHandler(tc.respCount),
+				dnsservertest.NewDefaultHandlerWithCount(tc.respCount),
 				rlMw,
 			)
 

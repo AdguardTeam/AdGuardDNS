@@ -4,6 +4,7 @@ package plugin
 
 import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 )
 
@@ -13,16 +14,19 @@ import (
 type Registry struct {
 	dnscheck   dnscheck.Interface
 	mainMwMtrc metrics.MainMiddleware
+	postInitMw dnsserver.Middleware
 }
 
 // NewRegistry returns a new registry with the given custom implementations.
 func NewRegistry(
 	dnsCk dnscheck.Interface,
 	mainMwMtrc metrics.MainMiddleware,
+	postInitMw dnsserver.Middleware,
 ) (r *Registry) {
 	return &Registry{
 		dnscheck:   dnsCk,
 		mainMwMtrc: mainMwMtrc,
+		postInitMw: postInitMw,
 	}
 }
 
@@ -43,4 +47,14 @@ func (r *Registry) MainMiddlewareMetrics() (mainMwMtrc metrics.MainMiddleware) {
 	}
 
 	return r.mainMwMtrc
+}
+
+// PostInitialMiddleware returns a custom implementation of the post-initial
+// middleware, if any.
+func (r *Registry) PostInitialMiddleware() (postInitMw dnsserver.Middleware) {
+	if r == nil {
+		return nil
+	}
+
+	return r.postInitMw
 }

@@ -162,7 +162,7 @@ func (mw *Middleware) setFilteredResponse(
 		mw.setFilteredResponseNoReq(ctx, fctx, ri)
 	case *filter.ResultBlocked:
 		var err error
-		fctx.filteredResponse, err = ri.Messages.NewBlockedRespMsg(fctx.originalRequest)
+		fctx.filteredResponse, err = ri.Messages.NewBlockedResp(fctx.originalRequest)
 		if err != nil {
 			mw.reportf(ctx, "creating blocked resp for filtered req: %w", err)
 			fctx.filteredResponse = fctx.originalResponse
@@ -199,7 +199,7 @@ func (mw *Middleware) setFilteredResponseNoReq(
 		fctx.filteredResponse = fctx.originalResponse
 	case *filter.ResultBlocked:
 		var err error
-		fctx.filteredResponse, err = ri.Messages.NewBlockedRespMsg(fctx.originalRequest)
+		fctx.filteredResponse, err = ri.Messages.NewBlockedResp(fctx.originalRequest)
 		if err != nil {
 			mw.reportf(ctx, "creating blocked resp for filtered resp: %w", err)
 			fctx.filteredResponse = fctx.originalResponse

@@ -10,50 +10,97 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+	"github.com/AdguardTeam/golibs/errors"
 )
 
-// filterIndexResp is the struct for the JSON response from a filter index API.
-type filterIndexResp struct {
-	Filters []*filterIndexRespFilter `json:"filters"`
-}
-
-// filterIndexRespFilter is the struct for a filter from the JSON response from
-// a filter index API.
+// indexResp is the struct for the JSON response from a filter index API.
 //
-// TODO(a.garipov):  Remove ID once the index switches the format completely.
-type filterIndexRespFilter struct {
-	DownloadURL string `json:"downloadUrl"`
-	FilterID    any    `json:"filterId"`
-	Key         string `json:"filterKey"`
+// TODO(a.garipov):  Consider validating uniqueness of the keys.
+type indexResp struct {
+	Filters []*indexRespFilter `json:"filters"`
 }
 
-// filterIndexFilterData is the data of a single item in the filtering-rule
-// index response.
-type filterIndexFilterData struct {
+// indexRespFilter is the struct for a filter from the JSON response from a
+// filter index API.
+//
+// NOTE:  Keep these strings instead of unmarshalers to make sure that objects
+// with invalid data do not prevent valid objects from being used.
+type indexRespFilter struct {
+	// DownloadURL contains the URL to use for downloading this filter.
+	DownloadURL string `json:"downloadUrl"`
+
+	// Key contains the ID of the filter as a string.
+	Key string `json:"filterKey"`
+}
+
+// compare is the comparison function for filters in the index.  f and other may
+// be nil; nil filters are sorted after non-nil ones.
+func (f *indexRespFilter) compare(other *indexRespFilter) (res int) {
+	if f == nil {
+		if other == nil {
+			return 0
+		}
+
+		return 1
+	} else if other == nil {
+		return -1
+	}
+
+	return cmp.Compare(f.Key, other.Key)
+}
+
+// validate returns an error if f is invalid.
+func (f *indexRespFilter) validate() (err error) {
+	if f == nil {
+		return errors.ErrNoValue
+	}
+
+	var errs []error
+
+	// TODO(a.garipov):  Use urlutil.URL or add IsValidURLString to golibs.
+	if f.DownloadURL == "" {
+		errs = append(errs, fmt.Errorf("downloadUrl: %w", errors.ErrEmptyValue))
+	}
+
+	if f.Key == "" {
+		errs = append(errs, fmt.Errorf("filterKey: %w", errors.ErrEmptyValue))
+	}
+
+	return errors.Join(errs...)
+}
+
+// indexData is the data of a single item in the filtering-rule index response.
+type indexData struct {
 	url *url.URL
 	id  agd.FilterListID
 }
 
-// toInternal converts the filters from the index to []*filterIndexFilterData.
-func (r *filterIndexResp) toInternal(
+// toInternal converts the filters from the index to []*indexData.  All errors
+// are logged and collected.  logger and errColl must not be nil.
+func (r *indexResp) toInternal(
 	ctx context.Context,
 	logger *slog.Logger,
 	errColl errcoll.Interface,
-) (fls []*filterIndexFilterData) {
-	fls = make([]*filterIndexFilterData, 0, len(r.Filters))
-	for _, rf := range r.Filters {
-		rfFltID, _ := rf.FilterID.(string)
-		rfID := cmp.Or(rf.Key, rfFltID)
-		id, err := agd.NewFilterListID(rfID)
+) (fls []*indexData) {
+	fls = make([]*indexData, 0, len(r.Filters))
+	for i, rf := range r.Filters {
+		err := rf.validate()
 		if err != nil {
-			err = fmt.Errorf("validating id/key: %w", err)
+			err = fmt.Errorf("validating filter at index %d: %w", i, err)
 			errcoll.Collect(ctx, errColl, logger, "index response", err)
 
 			continue
 		}
 
-		var u *url.URL
-		u, err = agdhttp.ParseHTTPURL(rf.DownloadURL)
+		id, err := agd.NewFilterListID(rf.Key)
+		if err != nil {
+			err = fmt.Errorf("validating id/key: %w", err)
+			errcoll.Collect(ctx, errColl, logger, "index response ids", err)
+
+			continue
+		}
+
+		u, err := agdhttp.ParseHTTPURL(rf.DownloadURL)
 		if err != nil {
 			err = fmt.Errorf("validating url: %w", err)
 			errcoll.Collect(ctx, errColl, logger, "index response", err)
@@ -61,7 +108,7 @@ func (r *filterIndexResp) toInternal(
 			continue
 		}
 
-		fls = append(fls, &filterIndexFilterData{
+		fls = append(fls, &indexData{
 			url: u,
 			id:  id,
 		})

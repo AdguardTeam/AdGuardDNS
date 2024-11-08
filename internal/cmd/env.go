@@ -6,9 +6,10 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/debugsvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
@@ -25,13 +26,17 @@ import (
 )
 
 // environment represents the configuration that is kept in the environment.
+//
+// TODO(e.burkov, a.garipov):  Name variables more consistently.
 type environment struct {
 	AdultBlockingURL         *urlutil.URL `env:"ADULT_BLOCKING_URL"`
+	BackendRateLimitURL      *urlutil.URL `env:"BACKEND_RATELIMIT_URL"`
 	BillStatURL              *urlutil.URL `env:"BILLSTAT_URL"`
 	BlockedServiceIndexURL   *urlutil.URL `env:"BLOCKED_SERVICE_INDEX_URL"`
-	ConsulAllowlistURL       *urlutil.URL `env:"CONSUL_ALLOWLIST_URL,notEmpty"`
+	ConsulAllowlistURL       *urlutil.URL `env:"CONSUL_ALLOWLIST_URL"`
 	ConsulDNSCheckKVURL      *urlutil.URL `env:"CONSUL_DNSCHECK_KV_URL"`
 	ConsulDNSCheckSessionURL *urlutil.URL `env:"CONSUL_DNSCHECK_SESSION_URL"`
+	DNSCheckRemoteKVURL      *urlutil.URL `env:"DNSCHECK_REMOTEKV_URL"`
 	FilterIndexURL           *urlutil.URL `env:"FILTER_INDEX_URL,notEmpty"`
 	GeneralSafeSearchURL     *urlutil.URL `env:"GENERAL_SAFE_SEARCH_URL"`
 	LinkedIPTargetURL        *urlutil.URL `env:"LINKED_IP_TARGET_URL"`
@@ -41,23 +46,25 @@ type environment struct {
 	SafeBrowsingURL          *urlutil.URL `env:"SAFE_BROWSING_URL"`
 	YoutubeSafeSearchURL     *urlutil.URL `env:"YOUTUBE_SAFE_SEARCH_URL"`
 
-	BillStatAPIKey    string `env:"BILLSTAT_API_KEY"`
-	ConfPath          string `env:"CONFIG_PATH" envDefault:"./config.yaml"`
-	FilterCachePath   string `env:"FILTER_CACHE_PATH" envDefault:"./filters/"`
-	GeoIPASNPath      string `env:"GEOIP_ASN_PATH" envDefault:"./asn.mmdb"`
-	GeoIPCountryPath  string `env:"GEOIP_COUNTRY_PATH" envDefault:"./country.mmdb"`
-	ProfilesAPIKey    string `env:"PROFILES_API_KEY"`
-	ProfilesCachePath string `env:"PROFILES_CACHE_PATH" envDefault:"./profilecache.pb"`
-	RedisAddr         string `env:"REDIS_ADDR"`
-	RedisKeyPrefix    string `env:"REDIS_KEY_PREFIX" envDefault:"agdns"`
-	QueryLogPath      string `env:"QUERYLOG_PATH" envDefault:"./querylog.jsonl"`
-	SSLKeyLogFile     string `env:"SSL_KEY_LOG_FILE"`
-	SentryDSN         string `env:"SENTRY_DSN" envDefault:"stderr"`
-	WebStaticDir      string `env:"WEB_STATIC_DIR"`
+	BackendRateLimitAPIKey string `env:"BACKEND_RATELIMIT_API_KEY"`
+	BillStatAPIKey         string `env:"BILLSTAT_API_KEY"`
+	ConfPath               string `env:"CONFIG_PATH" envDefault:"./config.yaml"`
+	DNSCheckRemoteKVAPIKey string `env:"DNSCHECK_REMOTEKV_API_KEY"`
+	FilterCachePath        string `env:"FILTER_CACHE_PATH" envDefault:"./filters/"`
+	GeoIPASNPath           string `env:"GEOIP_ASN_PATH" envDefault:"./asn.mmdb"`
+	GeoIPCountryPath       string `env:"GEOIP_COUNTRY_PATH" envDefault:"./country.mmdb"`
+	ProfilesAPIKey         string `env:"PROFILES_API_KEY"`
+	ProfilesCachePath      string `env:"PROFILES_CACHE_PATH" envDefault:"./profilecache.pb"`
+	RedisAddr              string `env:"REDIS_ADDR"`
+	RedisKeyPrefix         string `env:"REDIS_KEY_PREFIX" envDefault:"agdns"`
+	QueryLogPath           string `env:"QUERYLOG_PATH" envDefault:"./querylog.jsonl"`
+	SSLKeyLogFile          string `env:"SSL_KEY_LOG_FILE"`
+	SentryDSN              string `env:"SENTRY_DSN" envDefault:"stderr"`
+	WebStaticDir           string `env:"WEB_STATIC_DIR"`
 
 	ListenAddr net.IP `env:"LISTEN_ADDR" envDefault:"127.0.0.1"`
 
-	ProfilesMaxRespSize datasize.ByteSize `env:"PROFILES_MAX_RESP_SIZE" envDefault:"8MB"`
+	ProfilesMaxRespSize datasize.ByteSize `env:"PROFILES_MAX_RESP_SIZE" envDefault:"64MB"`
 
 	RedisIdleTimeout timeutil.Duration `env:"REDIS_IDLE_TIMEOUT" envDefault:"30s"`
 
@@ -100,7 +107,8 @@ func (envs *environment) validate() (err error) {
 
 	errs = envs.validateHTTPURLs(errs)
 
-	if s := envs.FilterIndexURL.Scheme; s != agdhttp.SchemeFile && !agdhttp.CheckHTTPURLScheme(s) {
+	if s := envs.FilterIndexURL.Scheme; !strings.EqualFold(s, urlutil.SchemeFile) &&
+		!urlutil.IsValidHTTPURLScheme(s) {
 		errs = append(errs, fmt.Errorf(
 			"env %s: not a valid http(s) url or file uri",
 			"FILTER_INDEX_URL",
@@ -141,10 +149,6 @@ func (envs *environment) validateHTTPURLs(errs []error) (res []error) {
 		name:       "BLOCKED_SERVICE_INDEX_URL",
 		isRequired: bool(envs.BlockedServiceEnabled),
 	}, {
-		url:        envs.ConsulAllowlistURL,
-		name:       "CONSUL_ALLOWLIST_URL",
-		isRequired: true,
-	}, {
 		url:        envs.ConsulDNSCheckKVURL,
 		name:       "CONSUL_DNSCHECK_KV_URL",
 		isRequired: envs.ConsulDNSCheckKVURL != nil,
@@ -184,15 +188,14 @@ func (envs *environment) validateHTTPURLs(errs []error) (res []error) {
 			continue
 		}
 
-		u := urlData.url
-		if u == nil {
-			res = append(res, fmt.Errorf("env %s: %w", urlData.name, errors.ErrEmptyValue))
-
-			continue
+		var u *url.URL
+		if urlData.url != nil {
+			u = &urlData.url.URL
 		}
 
-		if !agdhttp.CheckHTTPURLScheme(u.Scheme) {
-			res = append(res, fmt.Errorf("env %s: not a valid http(s) url", urlData.name))
+		err := urlutil.ValidateHTTPURL(u)
+		if err != nil {
+			res = append(res, fmt.Errorf("env %s: %w", urlData.name, err))
 		}
 	}
 
@@ -227,59 +230,86 @@ func (envs *environment) validateWebStaticDir() (err error) {
 // validateFromValidConfig returns an error if environment variables that depend
 // on configuration properties contain errors.  conf is expected to be valid.
 func (envs *environment) validateFromValidConfig(conf *configuration) (err error) {
-	err = envs.validateRedis(conf)
-	if err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		return err
-	}
-
-	if !conf.isProfilesEnabled() {
-		return nil
-	}
-
-	if envs.ProfilesMaxRespSize > math.MaxInt {
-		return fmt.Errorf(
-			"PROFILES_MAX_RESP_SIZE: %w: must be less than or equal to %s, got %s",
-			errors.ErrOutOfRange,
-			datasize.ByteSize(math.MaxInt),
-			envs.ProfilesMaxRespSize,
-		)
-	}
-
-	return envs.validateProfilesURLs()
-}
-
-// validateRedis returns an error if environment variables for Redis as a remote
-// key-value store for DNS server checking contain errors.
-func (envs *environment) validateRedis(conf *configuration) (err error) {
-	if conf.Check.RemoteKV.Type != kvModeRedis {
-		return nil
-	}
-
 	var errs []error
-	if envs.RedisAddr == "" {
-		errs = append(errs, fmt.Errorf("REDIS_ADDR: %q", errors.ErrEmptyValue))
+
+	switch typ := conf.Check.RemoteKV.Type; typ {
+	case kvModeRedis:
+		errs = envs.validateRedis(errs)
+	case kvModeBackend:
+		errs = envs.validateBackendKV(errs)
+	default:
+		// Probably consul.
 	}
 
-	if envs.RedisIdleTimeout.Duration <= 0 {
-		errs = append(errs, newNotPositiveError("REDIS_IDLE_TIMEOUT", envs.RedisIdleTimeout))
+	if conf.isProfilesEnabled() {
+		errs = envs.validateProfilesURLs(errs)
+
+		if envs.ProfilesMaxRespSize > math.MaxInt {
+			errs = append(errs, fmt.Errorf(
+				"PROFILES_MAX_RESP_SIZE: %w: must be less than or equal to %s, got %s",
+				errors.ErrOutOfRange,
+				datasize.ByteSize(math.MaxInt),
+				envs.ProfilesMaxRespSize,
+			))
+		}
 	}
 
-	if envs.RedisMaxActive < 0 {
-		errs = append(errs, newNegativeError("REDIS_MAX_ACTIVE", envs.RedisMaxActive))
-	}
-
-	if envs.RedisMaxIdle < 0 {
-		errs = append(errs, newNegativeError("REDIS_MAX_IDLE", envs.RedisMaxIdle))
-	}
+	errs = envs.validateRateLimitURLs(conf, errs)
 
 	return errors.Join(errs...)
 }
 
+// validateRedis appends validation errors to the given errs if environment
+// variables for Redis contain errors.
+func (envs *environment) validateRedis(errs []error) (withRedis []error) {
+	withRedis = errs
+
+	if envs.RedisAddr == "" {
+		err := fmt.Errorf("REDIS_ADDR: %q", errors.ErrEmptyValue)
+		withRedis = append(withRedis, err)
+	}
+
+	if envs.RedisIdleTimeout.Duration <= 0 {
+		err := newNotPositiveError("REDIS_IDLE_TIMEOUT", envs.RedisIdleTimeout)
+		withRedis = append(withRedis, err)
+	}
+
+	if envs.RedisMaxActive < 0 {
+		err := newNegativeError("REDIS_MAX_ACTIVE", envs.RedisMaxActive)
+		withRedis = append(withRedis, err)
+	}
+
+	if envs.RedisMaxIdle < 0 {
+		err := newNegativeError("REDIS_MAX_IDLE", envs.RedisMaxIdle)
+		withRedis = append(withRedis, err)
+	}
+
+	return withRedis
+}
+
+// validateBackendKV appends validation errors to the given errs if environment
+// variables for a backend key-value store contain errors.
+func (envs *environment) validateBackendKV(errs []error) (withKV []error) {
+	withKV = errs
+
+	var u *url.URL
+	if envs.DNSCheckRemoteKVURL != nil {
+		u = &envs.DNSCheckRemoteKVURL.URL
+	}
+
+	err := urlutil.ValidateGRPCURL(u)
+	if err != nil {
+		withKV = append(withKV, fmt.Errorf("env DNSCHECK_REMOTEKV_URL: %w", err))
+	}
+
+	return withKV
+}
+
 // validateProfilesURLs appends validation errors to the given errs if profiles
-// URLs in environment variables are invalid.  All errors are appended to errs
-// and returned as res.
-func (envs *environment) validateProfilesURLs() (err error) {
+// URLs in environment variables are invalid.
+func (envs *environment) validateProfilesURLs(errs []error) (withURLs []error) {
+	withURLs = errs
+
 	grpcOnlyURLs := []*urlEnvData{{
 		url:        envs.BillStatURL,
 		name:       "BILLSTAT_URL",
@@ -290,24 +320,52 @@ func (envs *environment) validateProfilesURLs() (err error) {
 		isRequired: true,
 	}}
 
-	var res []error
 	for _, urlData := range grpcOnlyURLs {
 		if !urlData.isRequired {
 			continue
 		}
 
-		if urlData.url == nil {
-			res = append(res, fmt.Errorf("env %s: %w", urlData.name, errors.ErrEmptyValue))
-
-			continue
+		var u *url.URL
+		if urlData.url != nil {
+			u = &urlData.url.URL
 		}
 
-		if !agdhttp.CheckGRPCURLScheme(urlData.url.Scheme) {
-			res = append(res, fmt.Errorf("env %s: not a valid grpc(s) url", urlData.name))
+		err := urlutil.ValidateGRPCURL(u)
+		if err != nil {
+			withURLs = append(withURLs, fmt.Errorf("env %s: %w", urlData.name, err))
 		}
 	}
 
-	return errors.Join(res...)
+	return withURLs
+}
+
+// validateRateLimitURLs appends validation errors to the given errs if rate
+// limit URLs in environment variables are invalid.
+func (envs *environment) validateRateLimitURLs(
+	conf *configuration,
+	errs []error,
+) (withURLs []error) {
+	rlURL := envs.BackendRateLimitURL
+	rlEnv := "BACKEND_RATELIMIT_URL"
+	validateFunc := urlutil.ValidateGRPCURL
+
+	if conf.RateLimit.Allowlist.Type == rlAllowlistTypeConsul {
+		rlURL = envs.ConsulAllowlistURL
+		rlEnv = "CONSUL_ALLOWLIST_URL"
+		validateFunc = urlutil.ValidateHTTPURL
+	}
+
+	var u *url.URL
+	if rlURL != nil {
+		u = &rlURL.URL
+	}
+
+	err := validateFunc(u)
+	if err != nil {
+		return append(errs, fmt.Errorf("env %s: %w", rlEnv, err))
+	}
+
+	return errs
 }
 
 // configureLogs sets the configuration for the plain text logs.  It also

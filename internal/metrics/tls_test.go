@@ -12,7 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTLSMetricsAfterHandshake(t *testing.T) {
+func TestTLSConfig_AfterHandshake(t *testing.T) {
+	// TODO(s.chzhen):  Consider using [agdtest.PrometheusRegisterer].
+	reg := prometheus.NewRegistry()
+	m, err := metrics.NewTLSConfig(metrics.Namespace(), reg)
+	require.NoError(t, err)
+
 	serverName := "test_server"
 	devDomains := []string{"d.adguard-dns.com"}
 	dnsNames := []string{
@@ -87,18 +92,19 @@ func TestTLSMetricsAfterHandshake(t *testing.T) {
 
 			cert := tls.Certificate{Leaf: &x509Cert}
 
-			listener := metrics.TLSMetricsAfterHandshake(
+			listener := m.AfterHandshake(
 				"",
 				serverName,
 				tc.devDomains,
 				[]tls.Certificate{cert},
 			)
 
-			err := listener(tls.ConnectionState{ServerName: tc.connectionServerName})
+			err = listener(tls.ConnectionState{ServerName: tc.connectionServerName})
 
 			require.NoError(t, err)
 
-			metricFamilies, err := prometheus.DefaultGatherer.Gather()
+			var metricFamilies []*io_prometheus_client.MetricFamily
+			metricFamilies, err = reg.Gather()
 			require.NoError(t, err)
 			require.NotNil(t, metricFamilies)
 
@@ -140,11 +146,14 @@ func findLabel(ms []*io_prometheus_client.Metric, label string) (ok bool) {
 	return false
 }
 
-func TestTLSMetricsBeforeHandshake(t *testing.T) {
-	f := metrics.TLSMetricsBeforeHandshake("srv-name")
+func TestTLSConfig_BeforeHandshake(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m, err := metrics.NewTLSConfig(metrics.Namespace(), reg)
+	require.NoError(t, err)
+
+	f := m.BeforeHandshake("srv-name")
 
 	var conf *tls.Config
-	var err error
 	require.NotPanics(t, func() {
 		conf, err = f(&tls.ClientHelloInfo{
 			SupportedProtos: []string{"\xC0\xC1\xF5\xF6\xF7\xF8\xF9\xFA\xFB\xFC\xFD\xFE\xFF"},

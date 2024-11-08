@@ -78,7 +78,9 @@ func TestClone(t *testing.T) {
 		},
 		name: "empty_slice_ans",
 	}, {
-		msg:  dnsservertest.NewReq(testFQDN, dns.TypeA, dns.ClassINET),
+		msg: dnsservertest.NewReq(testFQDN, dns.TypeA, dns.ClassINET, dnsservertest.SectionExtra{
+			dnsservertest.NewOPT(true, dns.MaxMsgSize, &dns.EDNS0_EDE{}),
+		}),
 		name: "a",
 	}}
 

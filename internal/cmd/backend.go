@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
@@ -14,6 +13,7 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
 
@@ -100,8 +100,9 @@ func newBillStatUploader(
 	mtrc backendpb.Metrics,
 ) (s billstat.Uploader, err error) {
 	apiURL := netutil.CloneURL(&envs.BillStatURL.URL)
-	if !agdhttp.CheckGRPCURLScheme(apiURL.Scheme) {
-		return nil, fmt.Errorf("invalid backend api url: %s", apiURL)
+	err = urlutil.ValidateGRPCURL(apiURL)
+	if err != nil {
+		return nil, fmt.Errorf("billstat api url: %w", err)
 	}
 
 	return backendpb.NewBillStat(&backendpb.BillStatConfig{

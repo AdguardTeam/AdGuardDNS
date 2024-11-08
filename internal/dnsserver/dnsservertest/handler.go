@@ -2,6 +2,7 @@ package dnsservertest
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
@@ -13,9 +14,15 @@ import (
 // AnswerTTL is the default TTL of the test handler's answers.
 const AnswerTTL time.Duration = 100 * time.Second
 
-// CreateTestHandler creates a [dnsserver.Handler] with the specified
+// NewDefaultHandler returns a simple handler that always returns a response
+// with a single A record.
+func NewDefaultHandler() (handler dnsserver.Handler) {
+	return NewDefaultHandlerWithCount(1)
+}
+
+// NewDefaultHandlerWithCount creates a [dnsserver.Handler] with the specified
 // parameters.  All responses will have the [TestAnsTTL] TTL.
-func CreateTestHandler(recordsCount int) (h dnsserver.Handler) {
+func NewDefaultHandlerWithCount(recordsCount int) (h dnsserver.Handler) {
 	f := func(ctx context.Context, rw dnsserver.ResponseWriter, req *dns.Msg) (err error) {
 		// Check that necessary context keys are set.
 		si := dnsserver.MustServerInfoFromContext(ctx)
@@ -49,8 +56,12 @@ func CreateTestHandler(recordsCount int) (h dnsserver.Handler) {
 	return dnsserver.HandlerFunc(f)
 }
 
-// DefaultHandler returns a simple handler that always returns a response with
-// a single A record.
-func DefaultHandler() (handler dnsserver.Handler) {
-	return CreateTestHandler(1)
+// NewPanicHandler returns a DNS handler that panics with an error.
+func NewPanicHandler() (handler dnsserver.Handler) {
+	f := func(ctx context.Context, rw dnsserver.ResponseWriter, req *dns.Msg) (err error) {
+		// TODO(a.garipov):  Add a helper for these kinds of errors to golibs.
+		panic(fmt.Errorf("unexpected call to ServeDNS(%v, %v)", rw, req))
+	}
+
+	return dnsserver.HandlerFunc(f)
 }

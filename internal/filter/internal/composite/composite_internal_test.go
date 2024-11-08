@@ -32,9 +32,13 @@ func BenchmarkFilter_FilterReqWithRuleLists(b *testing.B) {
 	})
 
 	msgs, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
-		Cloner:              dnsmsg.NewCloner(dnsmsg.EmptyClonerStat{}),
-		BlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		Cloner:       dnsmsg.NewCloner(dnsmsg.EmptyClonerStat{}),
+		BlockingMode: &dnsmsg.BlockingModeNullIP{},
+		StructuredErrors: &dnsmsg.StructuredDNSErrorsConfig{
+			Enabled: false,
+		},
 		FilteredResponseTTL: filtertest.Staleness,
+		EDEEnabled:          false,
 	})
 	require.NoError(b, err)
 

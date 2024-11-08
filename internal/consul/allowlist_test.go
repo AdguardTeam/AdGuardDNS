@@ -83,6 +83,7 @@ func TestNewAllowlistUpdater(t *testing.T) {
 				Allowlist: al,
 				ConsulURL: u,
 				ErrColl:   agdtest.NewErrorCollector(),
+				Metrics:   consul.EmptyMetrics{},
 				Timeout:   testTimeout,
 			})
 
@@ -128,6 +129,7 @@ func TestNewAllowlistUpdater(t *testing.T) {
 			Allowlist: al,
 			ConsulURL: u,
 			ErrColl:   errColl,
+			Metrics:   consul.EmptyMetrics{},
 			Timeout:   testTimeout,
 		})
 
@@ -161,6 +163,7 @@ func TestAllowlistUpdater_Refresh_deadline(t *testing.T) {
 		Allowlist: al,
 		ConsulURL: u,
 		ErrColl:   errColl,
+		Metrics:   consul.EmptyMetrics{},
 		Timeout:   testTimeout,
 	})
 

@@ -10,15 +10,19 @@ ratelimit:
     response_size_estimate: 1KB
     # Rate limit options for IPv4 addresses.
     ipv4:
-        # Rate of requests per second for one subnet for IPv4 addresses.
-        rps: 30
+        # Requests per configured interval for one subnet for IPv4 addresses.
+        count: 300
+        # The time during which to count the number of requests.
+        interval: 10s
         # The lengths of the subnet prefixes used to calculate rate limiter
         # bucket keys for IPv4 addresses.
         subnet_key_len: 24
     # Rate limit options for IPv6 addresses.
     ipv6:
-        # Rate of requests per second for one subnet for IPv6 addresses.
-        rps: 300
+        # Requests per configured interval for one subnet for IPv6 addresses.
+        count: 3000
+        # The time during which to count the number of requests.
+        interval: 10s
         # The lengths of the subnet prefixes used to calculate rate limiter
         # bucket keys for IPv6 addresses.
         subnet_key_len: 48
@@ -40,6 +44,9 @@ ratelimit:
           - '127.0.0.1/24'
         # Time between two updates of allow list.
         refresh_interval: 1h
+        # Defines where the rate limiting settings are received from.  Allowed
+        # values are "backend" and "consul".
+        type: 'consul'
 
     # Configuration for the stream connection limiting.
     connection_limit:
@@ -167,8 +174,8 @@ geoip:
 check:
     # Domains to use for DNS checking.
     kv:
-        # Defines the type of remote kay-value storage.  Allowed values are
-        # "consul" and "redis".
+        # Defines the type of remote key-value storage.  Allowed values are
+        # "backend", "consul", and "redis".
         type: 'consul'
         # For how long to keep the information about the client.
         ttl: 30s
@@ -313,6 +320,10 @@ filters:
         enabled: true
         # The size of the LRU cache of rule-list filtering results.
         size: 10000
+    # Enable the Extended DNS Errors feature.
+    ede_enabled: true
+    # Enable the Structured DNS Errors feature.  Requires ede_enabled: true.
+    sde_enabled: true
 
 # Filtering groups are a set of different filtering configurations.  These
 # filtering configurations are then used by server_groups.

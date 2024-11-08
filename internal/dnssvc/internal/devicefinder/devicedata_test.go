@@ -2,7 +2,6 @@ package devicefinder_test
 
 import (
 	"context"
-	"net/netip"
 	"net/url"
 	"path"
 	"testing"
@@ -88,48 +87,16 @@ func TestDefault_Find_DoHAuth(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			profDB := &agdtest.ProfileDB{
-				OnCreateAutoDevice: func(
-					ctx context.Context,
-					id agd.ProfileID,
-					humanID agd.HumanID,
-					devType agd.DeviceType,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					panic("not implemented")
-				},
+			profDB := agdtest.NewProfileDB()
+			profDB.OnProfileByDeviceID = func(
+				_ context.Context,
+				devID agd.DeviceID,
+			) (p *agd.Profile, d *agd.Device, err error) {
+				if tc.profDBDev != nil {
+					return profNormal, tc.profDBDev, nil
+				}
 
-				OnProfileByDedicatedIP: func(
-					_ context.Context,
-					_ netip.Addr,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					panic("not implemented")
-				},
-
-				OnProfileByDeviceID: func(
-					_ context.Context,
-					devID agd.DeviceID,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					if tc.profDBDev != nil {
-						return profNormal, tc.profDBDev, nil
-					}
-
-					return nil, nil, profiledb.ErrDeviceNotFound
-				},
-
-				OnProfileByHumanID: func(
-					_ context.Context,
-					_ agd.ProfileID,
-					_ agd.HumanIDLower,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					panic("not implemented")
-				},
-
-				OnProfileByLinkedIP: func(
-					_ context.Context,
-					_ netip.Addr,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					panic("not implemented")
-				},
+				return nil, nil, profiledb.ErrDeviceNotFound
 			}
 
 			df := devicefinder.NewDefault(&devicefinder.Config{
@@ -220,44 +187,12 @@ func TestDefault_Find_DoHAuthOnly(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			profDB := &agdtest.ProfileDB{
-				OnCreateAutoDevice: func(
-					ctx context.Context,
-					id agd.ProfileID,
-					humanID agd.HumanID,
-					devType agd.DeviceType,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					panic("not implemented")
-				},
-
-				OnProfileByDedicatedIP: func(
-					_ context.Context,
-					_ netip.Addr,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					panic("not implemented")
-				},
-
-				OnProfileByDeviceID: func(
-					_ context.Context,
-					devID agd.DeviceID,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					return profNormal, tc.profDBDev, nil
-				},
-
-				OnProfileByHumanID: func(
-					_ context.Context,
-					_ agd.ProfileID,
-					_ agd.HumanIDLower,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					panic("not implemented")
-				},
-
-				OnProfileByLinkedIP: func(
-					_ context.Context,
-					_ netip.Addr,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					panic("not implemented")
-				},
+			profDB := agdtest.NewProfileDB()
+			profDB.OnProfileByDeviceID = func(
+				_ context.Context,
+				devID agd.DeviceID,
+			) (p *agd.Profile, d *agd.Device, err error) {
+				return profNormal, tc.profDBDev, nil
 			}
 
 			df := devicefinder.NewDefault(&devicefinder.Config{
@@ -351,34 +286,9 @@ func TestDefault_Find_DoH(t *testing.T) {
 		name: "human_id_path_match",
 	}}
 
-	profDB := &agdtest.ProfileDB{
-		OnCreateAutoDevice: func(
-			ctx context.Context,
-			id agd.ProfileID,
-			humanID agd.HumanID,
-			devType agd.DeviceType,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-
-		OnProfileByDedicatedIP: func(
-			_ context.Context,
-			_ netip.Addr,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-
-		OnProfileByDeviceID: newOnProfileByDeviceID(dnssvctest.DeviceID),
-
-		OnProfileByHumanID: newOnProfileByHumanID(dnssvctest.ProfileID, dnssvctest.HumanIDLower),
-
-		OnProfileByLinkedIP: func(
-			_ context.Context,
-			_ netip.Addr,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-	}
+	profDB := agdtest.NewProfileDB()
+	profDB.OnProfileByDeviceID = newOnProfileByDeviceID(dnssvctest.DeviceID)
+	profDB.OnProfileByHumanID = newOnProfileByHumanID(dnssvctest.ProfileID, dnssvctest.HumanIDLower)
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -450,34 +360,9 @@ func TestDefault_Find_stdEncrypted(t *testing.T) {
 		deviceDomains: []string{dnssvctest.DomainForDevices},
 	}}
 
-	profDB := &agdtest.ProfileDB{
-		OnCreateAutoDevice: func(
-			ctx context.Context,
-			id agd.ProfileID,
-			humanID agd.HumanID,
-			devType agd.DeviceType,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-
-		OnProfileByDedicatedIP: func(
-			_ context.Context,
-			_ netip.Addr,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-
-		OnProfileByDeviceID: newOnProfileByDeviceID(dnssvctest.DeviceID),
-
-		OnProfileByHumanID: newOnProfileByHumanID(dnssvctest.ProfileID, dnssvctest.HumanIDLower),
-
-		OnProfileByLinkedIP: func(
-			_ context.Context,
-			_ netip.Addr,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-	}
+	profDB := agdtest.NewProfileDB()
+	profDB.OnProfileByDeviceID = newOnProfileByDeviceID(dnssvctest.DeviceID)
+	profDB.OnProfileByHumanID = newOnProfileByHumanID(dnssvctest.ProfileID, dnssvctest.HumanIDLower)
 
 	srvData := []struct {
 		srv    *agd.Server

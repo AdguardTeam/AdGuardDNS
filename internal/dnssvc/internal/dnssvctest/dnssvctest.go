@@ -55,8 +55,16 @@ const (
 	DomainRewrittenCNAMEFQDN = DomainRewrittenCNAME + "."
 )
 
-// ServerName is the common server name for tests.
-const ServerName agd.ServerName = "test_server_dns_tls"
+const (
+	// FilteringGroupID is the common filtering-group ID for tests.
+	FilteringGroupID agd.FilteringGroupID = "test_filtering_group"
+
+	// ServerName is the common server name for tests.
+	ServerName agd.ServerName = "test_server_dns_tls"
+
+	// ServerGroupName is the common server-group name for tests.
+	ServerGroupName agd.ServerGroupName = "test_server_group"
+)
 
 const (
 	// DomainForDevices is the upper-level domain name for requests with device

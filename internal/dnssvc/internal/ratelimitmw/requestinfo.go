@@ -56,7 +56,9 @@ func (mw *Middleware) newRequestInfo(
 		messages, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
 			Cloner:              cloner,
 			BlockingMode:        p.BlockingMode,
+			StructuredErrors:    mw.sdeConf,
 			FilteredResponseTTL: p.FilteredResponseTTL,
+			EDEEnabled:          mw.edeEnabled,
 		})
 		if err != nil {
 			err = fmt.Errorf("creating constructor for profile %q: %w", p.ID, err)

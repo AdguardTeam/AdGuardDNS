@@ -36,19 +36,29 @@ type BackoffConfig struct {
 	// as several responses.
 	ResponseSizeEstimate datasize.ByteSize
 
-	// IPv4RPS is the maximum number of requests per second allowed from a
-	// single subnet for IPv4 addresses.  Any requests above this rate are
-	// counted as the client's backoff count.  RPS must be greater than zero.
-	IPv4RPS uint
+	// IPv4Count is the maximum number of requests per a specified interval
+	// allowed from a single subnet for IPv4 addresses.  Any requests above this
+	// rate are counted as the client's backoff count.  It must be greater than
+	// zero.
+	IPv4Count uint
+
+	// IPv4Interval is the time during which to count the number of requests
+	// for IPv4 addresses.
+	IPv4Interval time.Duration
 
 	// IPv4SubnetKeyLen is the length of the subnet prefix used to calculate
 	// rate limiter bucket keys for IPv4 addresses.  Must be greater than zero.
 	IPv4SubnetKeyLen int
 
-	// IPv6RPS is the maximum number of requests per second allowed from a
-	// single subnet for IPv6 addresses.  Any requests above this rate are
-	// counted as the client's backoff count.  RPS must be greater than zero.
-	IPv6RPS uint
+	// IPv6Count is the maximum number of requests per a specified interval
+	// allowed from a single subnet for IPv6 addresses.  Any requests above this
+	// rate are counted as the client's backoff count.  It must be greater than
+	// zero.
+	IPv6Count uint
+
+	// IPv6Interval is the time during which to count the number of requests
+	// for IPv6 addresses.
+	IPv6Interval time.Duration
 
 	// IPv6SubnetKeyLen is the length of the subnet prefix used to calculate
 	// rate limiter bucket keys for IPv6 addresses.  Must be greater than zero.
@@ -75,9 +85,11 @@ type Backoff struct {
 	allowlist        Allowlist
 	respSzEst        datasize.ByteSize
 	count            uint
-	ipv4rps          uint
+	ipv4Count        uint
+	ipv4Interval     time.Duration
 	ipv4SubnetKeyLen int
-	ipv6rps          uint
+	ipv6Count        uint
+	ipv6Interval     time.Duration
 	ipv6SubnetKeyLen int
 	refuseANY        bool
 }
@@ -93,9 +105,11 @@ func NewBackoff(c *BackoffConfig) (l *Backoff) {
 		allowlist:        c.Allowlist,
 		respSzEst:        c.ResponseSizeEstimate,
 		count:            c.Count,
-		ipv4rps:          c.IPv4RPS,
+		ipv4Count:        c.IPv4Count,
+		ipv4Interval:     c.IPv4Interval,
 		ipv4SubnetKeyLen: c.IPv4SubnetKeyLen,
-		ipv6rps:          c.IPv6RPS,
+		ipv6Count:        c.IPv6Count,
+		ipv6Interval:     c.IPv6Interval,
 		ipv6SubnetKeyLen: c.IPv6SubnetKeyLen,
 		refuseANY:        c.RefuseANY,
 	}
@@ -133,12 +147,12 @@ func (l *Backoff) IsRateLimited(
 		return true, false, nil
 	}
 
-	rps := l.ipv4rps
+	count, ivl := l.ipv4Count, l.ipv4Interval
 	if ip.Is6() {
-		rps = l.ipv6rps
+		count, ivl = l.ipv6Count, l.ipv6Interval
 	}
 
-	return l.hasHitRateLimit(key, rps), false, nil
+	return l.hasHitRateLimit(key, count, ivl), false, nil
 }
 
 // validateAddr returns an error if addr is not a valid IPv4 or IPv6 address.
@@ -198,15 +212,15 @@ func (l *Backoff) incBackoff(key string) {
 	l.hitCounters.SetDefault(key, counter)
 }
 
-// hasHitRateLimit checks value for a subnet with rps as a maximum number
-// requests per second.
-func (l *Backoff) hasHitRateLimit(subnetIPStr string, rps uint) (ok bool) {
+// hasHitRateLimit checks if the value of requests for given subnet hit the
+// maximum count of requests per given interval.
+func (l *Backoff) hasHitRateLimit(subnetIPStr string, count uint, ivl time.Duration) (ok bool) {
 	var r *RequestCounter
 	rVal, ok := l.reqCounters.Get(subnetIPStr)
 	if ok {
 		r = rVal.(*RequestCounter)
 	} else {
-		r = NewRequestCounter(rps, time.Second)
+		r = NewRequestCounter(count, ivl)
 		l.reqCounters.SetDefault(subnetIPStr, r)
 	}
 

@@ -19,6 +19,7 @@ import (
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/miekg/dns"
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
@@ -304,9 +305,9 @@ func (s *ServerHTTPS) serveHTTPS(ctx context.Context, hs *http.Server, l net.Lis
 	// application won't be able to continue listening to DoH.
 	defer s.handlePanicAndExit(ctx)
 
-	scheme := "https"
+	scheme := urlutil.SchemeHTTPS
 	if s.conf.TLSConfig == nil {
-		scheme = "http"
+		scheme = urlutil.SchemeHTTP
 	}
 
 	u := &url.URL{

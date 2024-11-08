@@ -20,7 +20,7 @@ import (
 )
 
 func TestServerDNS_StartShutdown(t *testing.T) {
-	_, _ = dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
+	_, _ = dnsservertest.RunDNSServer(t, dnsservertest.NewDefaultHandler())
 }
 
 func TestServerDNS_integration_query(t *testing.T) {
@@ -42,7 +42,7 @@ func TestServerDNS_integration_query(t *testing.T) {
 				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
 			},
 		},
-		handler:          dnsservertest.DefaultHandler(),
+		handler:          dnsservertest.NewDefaultHandler(),
 		wantRecordsCount: 1,
 		wantRCode:        dns.RcodeSuccess,
 	}, {
@@ -54,7 +54,7 @@ func TestServerDNS_integration_query(t *testing.T) {
 				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
 			},
 		},
-		handler:          dnsservertest.DefaultHandler(),
+		handler:          dnsservertest.NewDefaultHandler(),
 		wantRecordsCount: 1,
 		wantRCode:        dns.RcodeSuccess,
 	}, {
@@ -89,7 +89,7 @@ func TestServerDNS_integration_query(t *testing.T) {
 				},
 			},
 		},
-		handler: dnsservertest.DefaultHandler(),
+		handler: dnsservertest.NewDefaultHandler(),
 		wantMsg: func(t *testing.T, m *dns.Msg) {
 			opt := m.IsEdns0()
 			require.NotNil(t, opt)
@@ -109,7 +109,7 @@ func TestServerDNS_integration_query(t *testing.T) {
 				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
 			},
 		},
-		handler:          dnsservertest.DefaultHandler(),
+		handler:          dnsservertest.NewDefaultHandler(),
 		wantRecordsCount: 0,
 		wantRCode:        dns.RcodeFormatError,
 	}, {
@@ -122,7 +122,7 @@ func TestServerDNS_integration_query(t *testing.T) {
 				{Name: "eXaMplE.oRg.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
 			},
 		},
-		handler:          dnsservertest.DefaultHandler(),
+		handler:          dnsservertest.NewDefaultHandler(),
 		wantRecordsCount: 1,
 		wantRCode:        dns.RcodeSuccess,
 	}, {
@@ -136,7 +136,7 @@ func TestServerDNS_integration_query(t *testing.T) {
 				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
 			},
 		},
-		handler:          dnsservertest.DefaultHandler(),
+		handler:          dnsservertest.NewDefaultHandler(),
 		wantRecordsCount: 0,
 		wantRCode:        dns.RcodeNotImplemented,
 	}, {
@@ -170,7 +170,7 @@ func TestServerDNS_integration_query(t *testing.T) {
 				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
 			},
 		},
-		handler:          dnsservertest.DefaultHandler(),
+		handler:          dnsservertest.NewDefaultHandler(),
 		wantRecordsCount: 1,
 		wantRCode:        dns.RcodeSuccess,
 	}, {
@@ -185,7 +185,7 @@ func TestServerDNS_integration_query(t *testing.T) {
 			},
 		},
 		// Set a handler that generates a large response
-		handler:          dnsservertest.CreateTestHandler(64),
+		handler:          dnsservertest.NewDefaultHandlerWithCount(64),
 		wantRecordsCount: 0,
 		wantRCode:        dns.RcodeSuccess,
 		wantTruncated:    true,
@@ -210,7 +210,7 @@ func TestServerDNS_integration_query(t *testing.T) {
 			},
 		},
 		// Set a handler that generates a large response
-		handler:          dnsservertest.CreateTestHandler(64),
+		handler:          dnsservertest.NewDefaultHandlerWithCount(64),
 		wantRecordsCount: 64,
 		wantRCode:        dns.RcodeSuccess,
 		wantTruncated:    false,
@@ -226,7 +226,7 @@ func TestServerDNS_integration_query(t *testing.T) {
 			},
 		},
 		// Set a handler that generates a large response
-		handler: dnsservertest.CreateTestHandler(64),
+		handler: dnsservertest.NewDefaultHandlerWithCount(64),
 		// No truncate
 		wantRecordsCount: 64,
 		wantRCode:        dns.RcodeSuccess,
@@ -257,7 +257,7 @@ func TestServerDNS_integration_query(t *testing.T) {
 				},
 			},
 		},
-		handler:          dnsservertest.DefaultHandler(),
+		handler:          dnsservertest.NewDefaultHandler(),
 		wantRecordsCount: 1,
 		wantRCode:        dns.RcodeSuccess,
 	}}
@@ -304,7 +304,7 @@ func TestServerDNS_integration_tcpQueriesPipelining(t *testing.T) {
 	// As per RFC 7766 we should support queries pipelining for TCP, that is
 	// server must be able to process incoming queries in parallel and write
 	// responses possibly out of order within the same connection.
-	_, addr := dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
+	_, addr := dnsservertest.RunDNSServer(t, dnsservertest.NewDefaultHandler())
 
 	// Establish a connection.
 	conn, err := net.Dial("tcp", addr)
@@ -372,7 +372,7 @@ func TestServerDNS_integration_tcpQueriesPipelining(t *testing.T) {
 }
 
 func TestServerDNS_integration_udpMsgIgnore(t *testing.T) {
-	_, addr := dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
+	_, addr := dnsservertest.RunDNSServer(t, dnsservertest.NewDefaultHandler())
 	conn, err := net.Dial("udp", addr)
 	require.Nil(t, err)
 
@@ -469,7 +469,7 @@ func TestServerDNS_integration_tcpMsgIgnore(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, addr := dnsservertest.RunDNSServer(t, dnsservertest.DefaultHandler())
+			_, addr := dnsservertest.RunDNSServer(t, dnsservertest.NewDefaultHandler())
 			conn, err := net.Dial("tcp", addr)
 			require.Nil(t, err)
 

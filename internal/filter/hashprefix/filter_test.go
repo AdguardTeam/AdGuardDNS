@@ -234,7 +234,7 @@ func newModRespResult(
 ) (r *internal.ResultModifiedResponse) {
 	tb.Helper()
 
-	resp, err := messages.NewIPRespMsg(req, replIP)
+	resp, err := messages.NewRespIP(req, replIP)
 	require.NoError(tb, err)
 
 	return &internal.ResultModifiedResponse{
@@ -370,7 +370,9 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	msgs, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
 		Cloner:              cloner,
 		BlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		StructuredErrors:    agdtest.NewSDEConfig(true),
 		FilteredResponseTTL: agdtest.FilteredResponseTTL,
+		EDEEnabled:          true,
 	})
 	require.NoError(t, err)
 

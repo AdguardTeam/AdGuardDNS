@@ -109,7 +109,7 @@ func TestServerHTTPS_integration_serveRequests(t *testing.T) {
 
 			tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
 			srv, err := dnsservertest.RunLocalHTTPSServer(
-				dnsservertest.DefaultHandler(),
+				dnsservertest.NewDefaultHandler(),
 				tlsConfig,
 				nil,
 			)
@@ -146,7 +146,7 @@ func TestServerHTTPS_integration_nonDNSHandler(t *testing.T) {
 	})
 
 	srv, err := dnsservertest.RunLocalHTTPSServer(
-		dnsservertest.DefaultHandler(),
+		dnsservertest.NewDefaultHandler(),
 		nil,
 		testHandler,
 	)
@@ -321,7 +321,7 @@ func TestDNSMsgToJSONMsg(t *testing.T) {
 func TestServerHTTPS_integration_ENDS0Padding(t *testing.T) {
 	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
 	srv, err := dnsservertest.RunLocalHTTPSServer(
-		dnsservertest.DefaultHandler(),
+		dnsservertest.NewDefaultHandler(),
 		tlsConfig,
 		nil,
 	)
@@ -346,7 +346,7 @@ func TestServerHTTPS_integration_ENDS0Padding(t *testing.T) {
 func TestServerHTTPS_0RTT(t *testing.T) {
 	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
 	srv, err := dnsservertest.RunLocalHTTPSServer(
-		dnsservertest.DefaultHandler(),
+		dnsservertest.NewDefaultHandler(),
 		tlsConfig,
 		nil,
 	)
@@ -514,7 +514,7 @@ func createDoH3Client(
 	tlsConfig = tlsConfig.Clone()
 	tlsConfig.NextProtos = []string{http3.NextProtoH3}
 
-	transport := &http3.RoundTripper{
+	transport := &http3.Transport{
 		DisableCompression: true,
 		Dial: func(
 			ctx context.Context,

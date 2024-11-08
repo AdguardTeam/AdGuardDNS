@@ -17,6 +17,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv"
+	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -86,7 +87,7 @@ func TestConsul_ServeHTTP(t *testing.T) {
 
 	t.Run("hit", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodGet, (&url.URL{
-			Scheme: "http",
+			Scheme: urlutil.SchemeHTTP,
 			Host:   randomid + "-" + checkDomain,
 			Path:   "/dnscheck/test",
 		}).String(), strings.NewReader(""))
@@ -103,7 +104,7 @@ func TestConsul_ServeHTTP(t *testing.T) {
 
 	t.Run("miss", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodGet, (&url.URL{
-			Scheme: "http",
+			Scheme: urlutil.SchemeHTTP,
 			Host:   "non" + randomid + "-" + checkDomain,
 			Path:   "/dnscheck/test",
 		}).String(), strings.NewReader(""))

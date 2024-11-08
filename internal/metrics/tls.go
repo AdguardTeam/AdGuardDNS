@@ -1,112 +1,148 @@
 package metrics
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/AdguardTeam/golibs/container"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-var (
-	// TLSCertificateInfo is a gauge with the authentication algorithm of
-	// the certificate.
-	TLSCertificateInfo = promauto.NewGaugeVec(prometheus.GaugeOpts{
-		Name:      "cert_info",
-		Namespace: namespace,
-		Subsystem: subsystemTLS,
-		Help:      "Authentication algorithm and other information about the certificate.",
-	}, []string{"auth_algo", "subject"})
+// TLSConfig is the Prometheus-based implementation of the [tlsconfig.Metrics]
+// interface.
+type TLSConfig struct {
+	// certificateInfo is a gauge with the authentication algorithm of the
+	// certificate.
+	certificateInfo *prometheus.GaugeVec
 
-	// TLSCertificateNotAfter is a gauge with the time when the certificate
+	// certificateNotAfter is a gauge with the time when the certificate
 	// expires.
-	TLSCertificateNotAfter = promauto.NewGaugeVec(prometheus.GaugeOpts{
-		Name:      "cert_not_after",
-		Namespace: namespace,
-		Subsystem: subsystemTLS,
-		Help:      "Time when the certificate expires.",
-	}, []string{"subject"})
+	certificateNotAfter *prometheus.GaugeVec
 
-	// TLSSessionTicketsRotateStatus is a gauge with the status of the last
-	// tickets rotation.
-	TLSSessionTicketsRotateStatus = promauto.NewGauge(prometheus.GaugeOpts{
-		Name:      "session_tickets_rotate_status",
-		Namespace: namespace,
-		Subsystem: subsystemTLS,
-		Help:      "Status of the last tickets rotation.",
-	})
-	// TLSSessionTicketsRotateTime is a gauge with the time when the TLS session
+	// sessionTicketsRotateStatus is a gauge with the status of the last tickets
+	// rotation.
+	sessionTicketsRotateStatus prometheus.Gauge
+
+	// sessionTicketsRotateTime is a gauge with the time when the TLS session
 	// tickets were rotated.
-	TLSSessionTicketsRotateTime = promauto.NewGauge(prometheus.GaugeOpts{
-		Name:      "session_tickets_rotate_time",
-		Namespace: namespace,
-		Subsystem: subsystemTLS,
-		Help:      "Time when the TLS session tickets were rotated.",
-	})
-	// TLSHandshakeAttemptsTotal is a counter with the total number of attempts
-	// to establish a TLS connection.  "supported_protos" is a comma-separated
-	// list of the protocols supported by the client.
-	TLSHandshakeAttemptsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name:      "handshake_attempts_total",
-		Namespace: namespace,
-		Subsystem: subsystemTLS,
-		Help:      "Total count of TLS handshakes.",
-	}, []string{
-		"proto",
-		"supported_protos",
-		"tls_version",
-	})
-	// TLSHandshakeTotal is a counter with the total count of TLS handshakes.
-	TLSHandshakeTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name:      "handshake_total",
-		Namespace: namespace,
-		Subsystem: subsystemTLS,
-		Help:      "Total count of TLS handshakes.",
-	}, []string{
-		"proto",
-		"tls_version",
-		"did_resume",
-		"cipher_suite",
-		"negotiated_proto",
-		"server_name",
-	})
-)
+	sessionTicketsRotateTime prometheus.Gauge
 
-// TLSMetricsAfterHandshake is a function that needs to be passed to
-// *tls.Config VerifyConnection.
-func TLSMetricsAfterHandshake(
-	proto string,
-	srvName string,
-	devDomains []string,
-	srvCerts []tls.Certificate,
-) (f func(tls.ConnectionState) error) {
-	return func(state tls.ConnectionState) error {
-		sLabel := serverNameToLabel(state.ServerName, srvName, devDomains, srvCerts)
+	// handshakeAttemptsTotal is a counter with the total number of attempts to
+	// establish a TLS connection.  "supported_protos" is a comma-separated list
+	// of the protocols supported by the client.
+	handshakeAttemptsTotal *prometheus.CounterVec
 
-		// Stick to using WithLabelValues instead of With in order to avoid
-		// extra allocations on prometheus.Labels.  The labels order is VERY
-		// important here.
-		TLSHandshakeTotal.WithLabelValues(
-			proto,
-			tlsVersionToString(state.Version),
-			BoolString(state.DidResume),
-			tls.CipherSuiteName(state.CipherSuite),
-			// Don't validate the negotiated protocol since it's expected to
-			// contain only ASCII after negotiation itself.
-			state.NegotiatedProtocol,
-			sLabel,
-		).Inc()
-
-		return nil
-	}
+	// handshakeTotal is a counter with the total count of TLS handshakes.
+	handshakeTotal *prometheus.CounterVec
 }
 
-// TLSMetricsBeforeHandshake is a function that needs to be passed to
-// *tls.Config GetConfigForClient.
-func TLSMetricsBeforeHandshake(proto string) (f func(*tls.ClientHelloInfo) (*tls.Config, error)) {
+// NewTLSConfig registers the TLS related metrics in reg and returns a properly
+// initialized [TLSConfig].
+func NewTLSConfig(namespace string, reg prometheus.Registerer) (m *TLSConfig, err error) {
+	const (
+		certInfo                = "cert_info"
+		certNotAfter            = "cert_not_after"
+		sessTicketsRotateStatus = "session_tickets_rotate_status"
+		sessTicketsRotateTime   = "session_tickets_rotate_time"
+		handshakeAttemptsTotal  = "handshake_attempts_total"
+		handshakeTotal          = "handshake_total"
+	)
+
+	m = &TLSConfig{
+		certificateInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name:      certInfo,
+			Namespace: namespace,
+			Subsystem: subsystemTLS,
+			Help:      "Authentication algorithm and other information about the certificate.",
+		}, []string{"auth_algo", "subject"}),
+		certificateNotAfter: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name:      certNotAfter,
+			Namespace: namespace,
+			Subsystem: subsystemTLS,
+			Help:      "Time when the certificate expires.",
+		}, []string{"subject"}),
+		sessionTicketsRotateStatus: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name:      sessTicketsRotateStatus,
+			Namespace: namespace,
+			Subsystem: subsystemTLS,
+			Help:      "Status of the last tickets rotation.",
+		}),
+		sessionTicketsRotateTime: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name:      sessTicketsRotateTime,
+			Namespace: namespace,
+			Subsystem: subsystemTLS,
+			Help:      "Time when the TLS session tickets were rotated.",
+		}),
+		handshakeAttemptsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name:      handshakeAttemptsTotal,
+			Namespace: namespace,
+			Subsystem: subsystemTLS,
+			Help:      "Total count of TLS handshakes.",
+		}, []string{
+			"proto",
+			"supported_protos",
+			"tls_version",
+		}),
+		handshakeTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name:      handshakeTotal,
+			Namespace: namespace,
+			Subsystem: subsystemTLS,
+			Help:      "Total count of TLS handshakes.",
+		}, []string{
+			"proto",
+			"tls_version",
+			"did_resume",
+			"cipher_suite",
+			"negotiated_proto",
+			"server_name",
+		}),
+	}
+
+	var errs []error
+	collectors := container.KeyValues[string, prometheus.Collector]{{
+		Key:   certInfo,
+		Value: m.certificateInfo,
+	}, {
+		Key:   certNotAfter,
+		Value: m.certificateNotAfter,
+	}, {
+		Key:   sessTicketsRotateStatus,
+		Value: m.sessionTicketsRotateStatus,
+	}, {
+		Key:   sessTicketsRotateTime,
+		Value: m.sessionTicketsRotateTime,
+	}, {
+		Key:   handshakeAttemptsTotal,
+		Value: m.handshakeAttemptsTotal,
+	}, {
+		Key:   handshakeTotal,
+		Value: m.handshakeTotal,
+	}}
+
+	for _, c := range collectors {
+		err = reg.Register(c.Value)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("registering metrics %q: %w", c.Key, err))
+		}
+	}
+
+	if err = errors.Join(errs...); err != nil {
+		return nil, err
+	}
+
+	return m, nil
+}
+
+// BeforeHandshake implements the [tlsconfig.Metrics] interface for *TLSConfig.
+func (m *TLSConfig) BeforeHandshake(
+	proto string,
+) (f func(*tls.ClientHelloInfo) (*tls.Config, error)) {
 	return func(info *tls.ClientHelloInfo) (*tls.Config, error) {
 		var maxVersion uint16
 		if len(info.SupportedVersions) > 0 {
@@ -121,7 +157,7 @@ func TLSMetricsBeforeHandshake(proto string) (f func(*tls.ClientHelloInfo) (*tls
 		// Stick to using WithLabelValues instead of With in order to avoid
 		// extra allocations on prometheus.Labels.  The labels order is VERY
 		// important here.
-		TLSHandshakeAttemptsTotal.WithLabelValues(
+		m.handshakeAttemptsTotal.WithLabelValues(
 			proto,
 			strings.Join(supProtos, ","),
 			tlsVersionToString(maxVersion),
@@ -129,6 +165,60 @@ func TLSMetricsBeforeHandshake(proto string) (f func(*tls.ClientHelloInfo) (*tls
 
 		return nil, nil
 	}
+}
+
+// AfterHandshake implements the [tlsconfig.Metrics] interface for *TLSConfig.
+func (m *TLSConfig) AfterHandshake(
+	proto string,
+	srvName string,
+	devDomains []string,
+	srvCerts []tls.Certificate,
+) (f func(tls.ConnectionState) error) {
+	return func(state tls.ConnectionState) error {
+		sLabel := serverNameToLabel(state.ServerName, srvName, devDomains, srvCerts)
+
+		// Stick to using WithLabelValues instead of With in order to avoid
+		// extra allocations on prometheus.Labels.  The labels order is VERY
+		// important here.
+		m.handshakeTotal.WithLabelValues(
+			proto,
+			tlsVersionToString(state.Version),
+			BoolString(state.DidResume),
+			tls.CipherSuiteName(state.CipherSuite),
+			// Don't validate the negotiated protocol since it's expected to
+			// contain only ASCII after negotiation itself.
+			state.NegotiatedProtocol,
+			sLabel,
+		).Inc()
+
+		return nil
+	}
+}
+
+// SetCertificateInfo implements the [tlsconfig.Metrics] interface for
+// *TLSConfig.
+func (m *TLSConfig) SetCertificateInfo(_ context.Context, algo, subj string, notAfter time.Time) {
+	m.certificateInfo.With(prometheus.Labels{
+		"auth_algo": algo,
+		"subject":   subj,
+	}).Set(1)
+
+	m.certificateNotAfter.With(prometheus.Labels{
+		"subject": subj,
+	}).Set(float64(notAfter.Unix()))
+}
+
+// SetSessionTicketRotationStatus implements the [tlsconfig.Metrics] interface
+// for *TLSConfig.
+func (m *TLSConfig) SetSessionTicketRotationStatus(_ context.Context, enabled bool) {
+	if !enabled {
+		m.sessionTicketsRotateStatus.Set(0)
+
+		return
+	}
+
+	m.sessionTicketsRotateStatus.Set(1)
+	m.sessionTicketsRotateTime.SetToCurrentTime()
 }
 
 // tlsVersionToString converts TLS version to string.

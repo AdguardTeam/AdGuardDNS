@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"strings"
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
+	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/AdguardTeam/urlfilter/filterlist"
 )
@@ -42,7 +43,7 @@ func NewRefreshable(c *internal.RefreshableConfig, cache ResultCache) (f *Refres
 		mu:     &sync.RWMutex{},
 	}
 
-	if c.URL.Scheme == agdhttp.SchemeFile {
+	if strings.EqualFold(c.URL.Scheme, urlutil.SchemeFile) {
 		return nil, fmt.Errorf("unsupported url %q", c.URL)
 	}
 

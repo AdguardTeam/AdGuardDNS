@@ -7,6 +7,94 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 [kec]: https://keepachangelog.com/en/1.0.0/
 [sem]: https://semver.org/spec/v2.0.0.html
 
+## AGDNS-2484/ Build 886
+
+- Property `type` of the `ratelimit` object has been moved to the underlying `allowlist` object. So replace this:
+
+    ```yaml
+    ratelimit:
+        type: 'consul'
+        # …
+        allowlist:
+            # …
+    ```
+
+    with this:
+
+    ```yaml
+    ratelimit:
+        # …
+        allowlist:
+            type: 'consul'
+            # …
+    ```
+
+## AGDNS-2443 / Build 877
+
+- The object `filters` has new properties: `ede_enabled`, and `sde_enabled`. So replace this:
+
+    ```yaml
+    filters:
+        # …
+    ```
+
+    with this:
+
+    ```yaml
+    filters:
+        # …
+        ede_enabled: true
+        sde_enabled: true
+    ```
+
+## AGDNS-2456 / Build 873
+
+- The environment variables `BACKEND_RATELIMIT_URL` and `BACKEND_RATELIMIT_API_KEY` have been added.
+
+- Added the `type` property within the `ratelimit` object. So add it:
+
+    ```yaml
+    ratelimit:
+        type: 'consul'
+        # …
+    ```
+
+## AGDNS-2431 / Build 872
+
+- The objects `ratelimit.ipv4` and `ratelimit.ipv6` have been modified. Its `rps` properties have been replaced with the new properties `count` and `interval`. So replace this:
+
+    ```yaml
+    ratelimit:
+        # …
+        ipv4:
+            rps: 30
+        ipv6:
+            rps: 300
+    ```
+
+  with this:
+
+    ```yaml
+    ratelimit:
+        # …
+        ipv4:
+            # …
+            count: 300
+            interval: 10s
+        ipv6:
+            # …
+            count: 3000
+            interval: 10s
+    ```
+
+  Adjust the value and add new ones, if necessary.
+
+## AGDNS-2457 / Build 871
+
+- The environment variables `DNSCHECK_REMOTEKV_URL` and `DNSCHECK_REMOTEKV_API_KEY` have been added.
+
+- The property `kv.type` within the `check` object now supports the `backend` value.
+
 ## AGDNS-2468 / Build 869
 
 - The environment variable `PROFILES_MAX_RESP_SIZE` has been added. It sets the maximum size of the response from the profiles endpoint of the backend API. The default value is `8MB`.

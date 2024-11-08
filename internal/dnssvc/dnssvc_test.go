@@ -10,25 +10,16 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
-
-// testSrvGrpName is the [agd.ServerGroupName] for tests.
-const testSrvGrpName agd.ServerGroupName = "test_group"
 
 // type check
 var _ agdservice.Refresher = (*forward.Handler)(nil)
@@ -159,16 +150,23 @@ func TestService_Start(t *testing.T) {
 		AddrPort: netip.MustParseAddrPort("127.0.0.1:53"),
 	})
 
+	srvGrp := &agd.ServerGroup{
+		Name:    dnssvctest.ServerGroupName,
+		Servers: []*agd.Server{srv},
+	}
+
+	k := dnssvc.HandlerKey{
+		Server:      srv,
+		ServerGroup: srvGrp,
+	}
+
 	c := &dnssvc.Config{
-		BaseLogger:           slogutil.NewDiscardLogger(),
-		NewListener:          newTestListenerFunc(tl),
-		PrometheusRegisterer: agdtest.NewTestPrometheusRegisterer(),
-		Handler:              dnsservertest.DefaultHandler(),
-		MetricsNamespace:     "test_start",
-		ServerGroups: []*agd.ServerGroup{{
-			Name:    "test_group",
-			Servers: []*agd.Server{srv},
-		}},
+		NewListener: newTestListenerFunc(tl),
+		Handlers: dnssvc.Handlers{
+			k: dnsservertest.NewDefaultHandler(),
+		},
+		MetricsNamespace: "test_start",
+		ServerGroups:     []*agd.ServerGroup{srvGrp},
 	}
 
 	svc, err := dnssvc.New(c)
@@ -206,15 +204,25 @@ func TestNew(t *testing.T) {
 		}),
 	}
 
+	srvGrp := &agd.ServerGroup{
+		Name:    dnssvctest.ServerGroupName,
+		Servers: srvs,
+	}
+
+	handlers := dnssvc.Handlers{}
+	for _, srv := range srvs {
+		k := dnssvc.HandlerKey{
+			Server:      srv,
+			ServerGroup: srvGrp,
+		}
+
+		handlers[k] = dnsservertest.NewDefaultHandler()
+	}
+
 	c := &dnssvc.Config{
-		BaseLogger:           slogutil.NewDiscardLogger(),
-		Handler:              dnsservertest.DefaultHandler(),
-		PrometheusRegisterer: agdtest.NewTestPrometheusRegisterer(),
-		MetricsNamespace:     "test_new",
-		ServerGroups: []*agd.ServerGroup{{
-			Name:    "test_group",
-			Servers: srvs,
-		}},
+		Handlers:         handlers,
+		MetricsNamespace: "test_new",
+		ServerGroups:     []*agd.ServerGroup{srvGrp},
 	}
 
 	svc, err := dnssvc.New(c)

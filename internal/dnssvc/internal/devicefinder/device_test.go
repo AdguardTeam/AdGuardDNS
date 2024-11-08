@@ -80,35 +80,9 @@ func TestDefault_Find_plainAddrs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			profDB := &agdtest.ProfileDB{
-				OnCreateAutoDevice: func(
-					ctx context.Context,
-					id agd.ProfileID,
-					humanID agd.HumanID,
-					devType agd.DeviceType,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					panic("not implemented")
-				},
-
-				OnProfileByDedicatedIP: newOnProfileByDedicatedIP(dnssvctest.DedicatedAddr),
-
-				OnProfileByDeviceID: func(
-					_ context.Context,
-					_ agd.DeviceID,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					panic("not implemented")
-				},
-
-				OnProfileByHumanID: func(
-					_ context.Context,
-					_ agd.ProfileID,
-					_ agd.HumanIDLower,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					panic("not implemented")
-				},
-
-				OnProfileByLinkedIP: newOnProfileByLinkedIP(dnssvctest.LinkedAddr),
-			}
+			profDB := agdtest.NewProfileDB()
+			profDB.OnProfileByDedicatedIP = newOnProfileByDedicatedIP(dnssvctest.DedicatedAddr)
+			profDB.OnProfileByLinkedIP = newOnProfileByLinkedIP(dnssvctest.LinkedAddr)
 
 			df := devicefinder.NewDefault(&devicefinder.Config{
 				Logger:        slogutil.NewDiscardLogger(),
@@ -177,40 +151,8 @@ func TestDefault_Find_plainEDNS(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			profDB := &agdtest.ProfileDB{
-				OnCreateAutoDevice: func(
-					ctx context.Context,
-					id agd.ProfileID,
-					humanID agd.HumanID,
-					devType agd.DeviceType,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					panic("not implemented")
-				},
-
-				OnProfileByDedicatedIP: func(
-					_ context.Context,
-					_ netip.Addr,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					panic("not implemented")
-				},
-
-				OnProfileByDeviceID: newOnProfileByDeviceID(dnssvctest.DeviceID),
-
-				OnProfileByHumanID: func(
-					_ context.Context,
-					_ agd.ProfileID,
-					_ agd.HumanIDLower,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					panic("not implemented")
-				},
-
-				OnProfileByLinkedIP: func(
-					_ context.Context,
-					_ netip.Addr,
-				) (p *agd.Profile, d *agd.Device, err error) {
-					panic("not implemented")
-				},
-			}
+			profDB := agdtest.NewProfileDB()
+			profDB.OnProfileByDeviceID = newOnProfileByDeviceID(dnssvctest.DeviceID)
 
 			df := devicefinder.NewDefault(&devicefinder.Config{
 				Logger:        slogutil.NewDiscardLogger(),
@@ -231,44 +173,12 @@ func TestDefault_Find_plainEDNS(t *testing.T) {
 func TestDefault_Find_deleted(t *testing.T) {
 	t.Parallel()
 
-	profDB := &agdtest.ProfileDB{
-		OnCreateAutoDevice: func(
-			ctx context.Context,
-			id agd.ProfileID,
-			humanID agd.HumanID,
-			devType agd.DeviceType,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-
-		OnProfileByDedicatedIP: func(
-			_ context.Context,
-			_ netip.Addr,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-
-		OnProfileByDeviceID: func(
-			_ context.Context,
-			_ agd.DeviceID,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-
-		OnProfileByHumanID: func(
-			_ context.Context,
-			_ agd.ProfileID,
-			_ agd.HumanIDLower,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-
-		OnProfileByLinkedIP: func(
-			_ context.Context,
-			_ netip.Addr,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			return profDeleted, devNormal, nil
-		},
+	profDB := agdtest.NewProfileDB()
+	profDB.OnProfileByLinkedIP = func(
+		_ context.Context,
+		_ netip.Addr,
+	) (p *agd.Profile, d *agd.Device, err error) {
+		return profDeleted, devNormal, nil
 	}
 
 	df := devicefinder.NewDefault(&devicefinder.Config{
@@ -291,44 +201,21 @@ func TestDefault_Find_byHumanID(t *testing.T) {
 	// device-type and profile data regardless of the case.
 	extIDStr := "OTR-" + strings.ToUpper(dnssvctest.ProfileIDStr) + "-" + dnssvctest.HumanIDStr + "-!!!"
 
-	profDB := &agdtest.ProfileDB{
-		OnCreateAutoDevice: func(
-			ctx context.Context,
-			id agd.ProfileID,
-			humanID agd.HumanID,
-			devType agd.DeviceType,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			return profNormal, devAuto, nil
-		},
-
-		OnProfileByDedicatedIP: func(
-			_ context.Context,
-			_ netip.Addr,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-
-		OnProfileByDeviceID: func(
-			_ context.Context,
-			devID agd.DeviceID,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
-
-		OnProfileByHumanID: func(
-			_ context.Context,
-			_ agd.ProfileID,
-			_ agd.HumanIDLower,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			return nil, nil, profiledb.ErrDeviceNotFound
-		},
-
-		OnProfileByLinkedIP: func(
-			_ context.Context,
-			_ netip.Addr,
-		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
-		},
+	profDB := agdtest.NewProfileDB()
+	profDB.OnCreateAutoDevice = func(
+		ctx context.Context,
+		id agd.ProfileID,
+		humanID agd.HumanID,
+		devType agd.DeviceType,
+	) (p *agd.Profile, d *agd.Device, err error) {
+		return profNormal, devAuto, nil
+	}
+	profDB.OnProfileByHumanID = func(
+		_ context.Context,
+		_ agd.ProfileID,
+		_ agd.HumanIDLower,
+	) (p *agd.Profile, d *agd.Device, err error) {
+		return nil, nil, profiledb.ErrDeviceNotFound
 	}
 
 	df := devicefinder.NewDefault(&devicefinder.Config{

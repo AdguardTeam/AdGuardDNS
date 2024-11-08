@@ -15,6 +15,12 @@ import (
 	"github.com/c2h5oh/datasize"
 )
 
+// Constants for rate limit settings endpoints.
+const (
+	rlAllowlistTypeBackend = "backend"
+	rlAllowlistTypeConsul  = "consul"
+)
+
 // rateLimitConfig is the configuration of the instance's rate limiting.
 type rateLimitConfig struct {
 	// AllowList is the allowlist of clients.
@@ -57,20 +63,14 @@ type rateLimitConfig struct {
 	RefuseANY bool `yaml:"refuse_any"`
 }
 
-// allowListConfig is the consul allow list configuration.
-type allowListConfig struct {
-	// List contains IPs and CIDRs.
-	List []netutil.Prefix `yaml:"list"`
-
-	// RefreshIvl time between two updates of allow list from the Consul URL.
-	RefreshIvl timeutil.Duration `yaml:"refresh_interval"`
-}
-
 // rateLimitOptions allows define maximum number of requests for IPv4 or IPv6
 // addresses.
 type rateLimitOptions struct {
-	// RPS is the maximum number of requests per second.
-	RPS uint `yaml:"rps"`
+	// Count is the maximum number of requests per interval.
+	Count uint `yaml:"count"`
+
+	// Interval is the time during which to count the number of requests.
+	Interval timeutil.Duration `yaml:"interval"`
 
 	// SubnetKeyLen is the length of the subnet prefix used to calculate
 	// rate limiter bucket keys.
@@ -87,7 +87,8 @@ func (o *rateLimitOptions) validate() (err error) {
 	}
 
 	return cmp.Or(
-		validatePositive("rps", o.RPS),
+		validatePositive("count", o.Count),
+		validatePositive("interval", o.Interval),
 		validatePositive("subnet_key_len", o.SubnetKeyLen),
 	)
 }
@@ -100,9 +101,11 @@ func (c *rateLimitConfig) toInternal(al ratelimit.Allowlist) (conf *ratelimit.Ba
 		ResponseSizeEstimate: c.ResponseSizeEstimate,
 		Duration:             c.BackoffDuration.Duration,
 		Period:               c.BackoffPeriod.Duration,
-		IPv4RPS:              c.IPv4.RPS,
+		IPv4Count:            c.IPv4.Count,
+		IPv4Interval:         c.IPv4.Interval.Duration,
 		IPv4SubnetKeyLen:     c.IPv4.SubnetKeyLen,
-		IPv6RPS:              c.IPv6.RPS,
+		IPv6Count:            c.IPv6.Count,
+		IPv6Interval:         c.IPv6.Interval.Duration,
 		IPv6SubnetKeyLen:     c.IPv6.SubnetKeyLen,
 		Count:                c.BackoffCount,
 		RefuseANY:            c.RefuseANY,
@@ -114,14 +117,12 @@ var _ validator = (*rateLimitConfig)(nil)
 
 // validate implements the [validator] interface for *rateLimitConfig.
 func (c *rateLimitConfig) validate() (err error) {
-	switch {
-	case c == nil:
+	if c == nil {
 		return errors.ErrNoValue
-	case c.Allowlist == nil:
-		return fmt.Errorf("allowlist: %w", errors.ErrNoValue)
 	}
 
 	return cmp.Or(
+		validateProp("allowlist", c.Allowlist.validate),
 		validateProp("connection_limit", c.ConnectionLimit.validate),
 		validateProp("ipv4", c.IPv4.validate),
 		validateProp("ipv6", c.IPv6.validate),
@@ -131,8 +132,39 @@ func (c *rateLimitConfig) validate() (err error) {
 		validatePositive("backoff_duration", c.BackoffDuration),
 		validatePositive("backoff_period", c.BackoffPeriod),
 		validatePositive("response_size_estimate", c.ResponseSizeEstimate),
-		validatePositive("allowlist.refresh_interval", c.Allowlist.RefreshIvl),
 	)
+}
+
+// allowListConfig is the consul allow list configuration.
+type allowListConfig struct {
+	// Type defines where the rate limit settings are received from.  Allowed
+	// values are [rlAllowlistTypeBackend] and [rlAllowlistTypeConsul].
+	Type string `yaml:"type"`
+
+	// List contains IPs and CIDRs.
+	List []netutil.Prefix `yaml:"list"`
+
+	// RefreshIvl time between two updates of allow list from the Consul URL.
+	RefreshIvl timeutil.Duration `yaml:"refresh_interval"`
+}
+
+// type check
+var _ validator = (*allowListConfig)(nil)
+
+// validate implements the [validator] interface for *allowListConfig.
+func (c *allowListConfig) validate() (err error) {
+	if c == nil {
+		return errors.ErrNoValue
+	}
+
+	switch c.Type {
+	case rlAllowlistTypeBackend, rlAllowlistTypeConsul:
+		// Go on.
+	default:
+		return fmt.Errorf("type: %w: %q", errors.ErrBadEnumValue, c.Type)
+	}
+
+	return validatePositive("refresh_interval", c.RefreshIvl)
 }
 
 // connLimitConfig is the configuration structure for the stream-connection

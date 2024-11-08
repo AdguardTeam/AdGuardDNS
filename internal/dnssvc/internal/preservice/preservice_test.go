@@ -17,18 +17,16 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
-	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
-
 func TestPreServiceMwHandler_ServeDNS(t *testing.T) {
+	t.Parallel()
+
 	const safeBrowsingHost = "scam.example.net."
 
 	var (
@@ -124,6 +122,8 @@ func TestPreServiceMwHandler_ServeDNS(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			rw := dnsserver.NewNonWriterResponseWriter(nil, dnssvctest.ClientTCPAddr)
 			tctx := agd.ContextWithRequestInfo(ctx, tc.ri)
 
@@ -152,16 +152,19 @@ func TestPreServiceMwHandler_ServeDNS(t *testing.T) {
 			msgs, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
 				Cloner:              cloner,
 				BlockingMode:        &dnsmsg.BlockingModeNullIP{},
+				StructuredErrors:    agdtest.NewSDEConfig(true),
 				FilteredResponseTTL: ttl * time.Second,
+				EDEEnabled:          true,
 			})
 			require.NoError(t, err)
 
 			mw := preservice.New(&preservice.Config{
+				Logger:      slogutil.NewDiscardLogger(),
 				Messages:    msgs,
 				HashMatcher: hashMatcher,
 				Checker:     dnsCk,
 			})
-			handler := dnsservertest.DefaultHandler()
+			handler := dnsservertest.NewDefaultHandler()
 			h := mw.Wrap(handler)
 
 			err = h.ServeDNS(tctx, rw, tc.req)

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -684,7 +685,7 @@ func (s *DefaultStorage) refresh(ctx context.Context, acceptStale bool) (err err
 func (s *DefaultStorage) addRuleList(
 	ctx context.Context,
 	ruleLists filteringRuleLists,
-	fl *filterIndexFilterData,
+	fl *indexData,
 	acceptStale bool,
 ) {
 	if _, ok := ruleLists[fl.id]; ok {
@@ -741,7 +742,7 @@ func (s *DefaultStorage) addRuleList(
 func (s *DefaultStorage) reportRuleListError(
 	ctx context.Context,
 	ruleLists filteringRuleLists,
-	fl *filterIndexFilterData,
+	fl *indexData,
 	err error,
 ) {
 	errcoll.Collect(ctx, s.errColl, s.logger, "rule-list error", err)
@@ -756,21 +757,23 @@ func (s *DefaultStorage) reportRuleListError(
 }
 
 // loadIndex fetches, decodes, and returns the filter list index data of the
-// storage.
+// storage.  resp.Filters are sorted.
 func (s *DefaultStorage) loadIndex(
 	ctx context.Context,
 	acceptStale bool,
-) (resp *filterIndexResp, err error) {
+) (resp *indexResp, err error) {
 	text, err := s.refr.Refresh(ctx, acceptStale)
 	if err != nil {
 		return nil, fmt.Errorf("loading index: %w", err)
 	}
 
-	resp = &filterIndexResp{}
+	resp = &indexResp{}
 	err = json.NewDecoder(strings.NewReader(text)).Decode(resp)
 	if err != nil {
 		return nil, fmt.Errorf("decoding: %w", err)
 	}
+
+	slices.SortStableFunc(resp.Filters, (*indexRespFilter).compare)
 
 	return resp, nil
 }

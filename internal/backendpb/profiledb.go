@@ -81,7 +81,7 @@ func NewProfileStorage(c *ProfileStorageConfig) (s *ProfileStorage, err error) {
 	return &ProfileStorage{
 		bindSet:     c.BindSet,
 		errColl:     c.ErrColl,
-		client:      client,
+		client:      NewDNSServiceClient(client),
 		logger:      c.Logger,
 		metrics:     c.Metrics,
 		apiKey:      c.APIKey,

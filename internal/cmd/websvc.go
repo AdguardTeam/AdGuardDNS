@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"maps"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
@@ -62,9 +64,11 @@ type webConfig struct {
 // toInternal converts c to the AdGuardDNS web service configuration.  c must be
 // valid.
 func (c *webConfig) toInternal(
+	ctx context.Context,
 	envs *environment,
 	dnsCk dnscheck.Interface,
 	errColl errcoll.Interface,
+	mtrc tlsconfig.Metrics,
 ) (conf *websvc.Config, err error) {
 	if c == nil {
 		return nil, nil
@@ -83,7 +87,7 @@ func (c *webConfig) toInternal(
 		conf.RootRedirectURL = netutil.CloneURL(&c.RootRedirectURL.URL)
 	}
 
-	conf.LinkedIP, err = c.LinkedIP.toInternal(envs.LinkedIPTargetURL)
+	conf.LinkedIP, err = c.LinkedIP.toInternal(ctx, mtrc, envs.LinkedIPTargetURL)
 	if err != nil {
 		return nil, fmt.Errorf("converting linked_ip: %w", err)
 	}
@@ -107,7 +111,7 @@ func (c *webConfig) toInternal(
 	}}
 
 	for _, bp := range blockPages {
-		*bp.webConfPtr, err = bp.conf.toInternal()
+		*bp.webConfPtr, err = bp.conf.toInternal(ctx, mtrc)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", bp.name, err)
 		}
@@ -119,7 +123,7 @@ func (c *webConfig) toInternal(
 		return nil, err
 	}
 
-	conf.NonDoHBind, err = c.NonDoHBind.toInternal()
+	conf.NonDoHBind, err = c.NonDoHBind.toInternal(ctx, mtrc)
 	if err != nil {
 		return nil, fmt.Errorf("converting non_doh_bind: %w", err)
 	}
@@ -225,6 +229,8 @@ type linkedIPServer struct {
 
 // toInternal converts s to a linkedIP server configuration.  s must be valid.
 func (s *linkedIPServer) toInternal(
+	ctx context.Context,
+	mtrc tlsconfig.Metrics,
 	targetURL *urlutil.URL,
 ) (srv *websvc.LinkedIPServer, err error) {
 	if s == nil {
@@ -232,7 +238,7 @@ func (s *linkedIPServer) toInternal(
 	}
 
 	srv = &websvc.LinkedIPServer{}
-	srv.Bind, err = s.Bind.toInternal()
+	srv.Bind, err = s.Bind.toInternal(ctx, mtrc)
 	if err != nil {
 		return nil, fmt.Errorf("converting bind: %w", err)
 	}
@@ -280,7 +286,10 @@ type blockPageServer struct {
 }
 
 // toInternal converts s to a block page server configuration.  s must be valid.
-func (s *blockPageServer) toInternal() (conf *websvc.BlockPageServerConfig, err error) {
+func (s *blockPageServer) toInternal(
+	ctx context.Context,
+	mtrc tlsconfig.Metrics,
+) (conf *websvc.BlockPageServerConfig, err error) {
 	if s == nil {
 		return nil, nil
 	}
@@ -289,7 +298,7 @@ func (s *blockPageServer) toInternal() (conf *websvc.BlockPageServerConfig, err 
 		ContentFilePath: s.BlockPage,
 	}
 
-	conf.Bind, err = s.Bind.toInternal()
+	conf.Bind, err = s.Bind.toInternal(ctx, mtrc)
 	if err != nil {
 		return nil, fmt.Errorf("converting bind: %w", err)
 	}
@@ -326,11 +335,14 @@ type bindData []*bindItem
 
 // toInternal converts bd to bind data for the AdGuard DNS web service.  bd must
 // be valid.
-func (bd bindData) toInternal() (data []*websvc.BindData, err error) {
+func (bd bindData) toInternal(
+	ctx context.Context,
+	mtrc tlsconfig.Metrics,
+) (data []*websvc.BindData, err error) {
 	data = make([]*websvc.BindData, len(bd))
 
 	for i, d := range bd {
-		data[i], err = d.toInternal()
+		data[i], err = d.toInternal(ctx, mtrc)
 		if err != nil {
 			return nil, fmt.Errorf("bind data at index %d: %w", i, err)
 		}
@@ -369,8 +381,11 @@ type bindItem struct {
 
 // toInternal converts i to bind data for the AdGuard DNS web service.  i must
 // be valid.
-func (i *bindItem) toInternal() (data *websvc.BindData, err error) {
-	tlsConf, err := i.Certificates.toInternal()
+func (i *bindItem) toInternal(
+	ctx context.Context,
+	mtrc tlsconfig.Metrics,
+) (data *websvc.BindData, err error) {
+	tlsConf, err := i.Certificates.toInternal(ctx, mtrc)
 	if err != nil {
 		return nil, fmt.Errorf("certificates: %w", err)
 	}

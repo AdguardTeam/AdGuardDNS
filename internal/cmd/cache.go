@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
@@ -42,6 +43,28 @@ const (
 	cacheTypeECS    = "ecs"
 	cacheTypeSimple = "simple"
 )
+
+// toInternal converts c to the cache configuration for the DNS server.  c must
+// be valid.
+func (c *cacheConfig) toInternal() (cacheConf *dnssvc.CacheConfig) {
+	var typ dnssvc.CacheType
+	if c.Size == 0 {
+		// TODO(a.garipov):  Add as a type in the configuration file.
+		typ = dnssvc.CacheTypeNone
+	} else if c.Type == cacheTypeSimple {
+		typ = dnssvc.CacheTypeSimple
+	} else {
+		typ = dnssvc.CacheTypeECS
+	}
+
+	return &dnssvc.CacheConfig{
+		MinTTL:           c.TTLOverride.Min.Duration,
+		ECSCount:         c.ECSSize,
+		NoECSCount:       c.Size,
+		Type:             typ,
+		OverrideCacheTTL: c.TTLOverride.Enabled,
+	}
+}
 
 // type check
 var _ validator = (*cacheConfig)(nil)

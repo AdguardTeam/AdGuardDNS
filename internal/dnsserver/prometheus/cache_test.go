@@ -23,7 +23,7 @@ func TestCacheMetricsListener_integration_cache(t *testing.T) {
 	})
 
 	handlerWithMiddleware := dnsserver.WithMiddlewares(
-		dnsservertest.DefaultHandler(),
+		dnsservertest.NewDefaultHandler(),
 		cacheMiddleware,
 	)
 

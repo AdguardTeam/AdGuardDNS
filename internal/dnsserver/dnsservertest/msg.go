@@ -273,6 +273,22 @@ func NewNS(name string, ttl uint32, ns string) (rr dns.RR) {
 	}
 }
 
+// NewOPT constructs the new resource record of type OPT.
+func NewOPT(do bool, udpSize uint16, opts ...dns.EDNS0) (rr dns.RR) {
+	opt := &dns.OPT{
+		Hdr: dns.RR_Header{
+			Name:   ".",
+			Rrtype: dns.TypeOPT,
+		},
+		Option: opts,
+	}
+
+	opt.SetDo(do)
+	opt.SetUDPSize(udpSize)
+
+	return opt
+}
+
 // NewECSExtra constructs a new OPT RR for the extra section.
 func NewECSExtra(ip net.IP, fam uint16, mask, scope uint8) (extra dns.RR) {
 	return &dns.OPT{
@@ -300,11 +316,8 @@ func NewEDNS0Padding(msgLen int, UDPBufferSize uint16) (extra dns.RR) {
 	padLen := requestPaddingBlockSize - msgLen%requestPaddingBlockSize
 
 	// Truncate padding to fit in UDP buffer.
-	if msgLen+padLen > int(UDPBufferSize) {
-		padLen = int(UDPBufferSize) - msgLen
-		if padLen < 0 {
-			padLen = 0
-		}
+	if bufSzInt := int(UDPBufferSize); msgLen+padLen > bufSzInt {
+		padLen = max(bufSzInt-msgLen, 0)
 	}
 
 	return &dns.OPT{

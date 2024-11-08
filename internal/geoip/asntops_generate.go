@@ -13,6 +13,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/osutil"
@@ -27,22 +28,22 @@ func main() {
 		Timeout: 10 * time.Second,
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, countriesASNURL, nil)
-	check(err)
+	req := errors.Must(http.NewRequestWithContext(ctx, http.MethodGet, countriesASNURL, nil))
 
 	req.Header.Add(httphdr.UserAgent, agdhttp.UserAgent())
 
-	resp, err := c.Do(req)
-	check(err)
+	resp := errors.Must(c.Do(req))
 	defer slogutil.CloseAndLog(ctx, logger, resp.Body, slog.LevelError)
 
-	out, err := os.OpenFile("./asntops.go", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o664)
-	check(err)
+	err := agdhttp.CheckStatus(resp, http.StatusOK)
+	errors.Check(err)
+
+	out := errors.Must(os.OpenFile("./asntops.go", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o664))
 	defer slogutil.CloseAndLog(ctx, logger, out, slog.LevelError)
 
 	defaultCountryTopASNs := map[geoip.Country][]geoip.ASN{}
 	err = json.NewDecoder(resp.Body).Decode(&defaultCountryTopASNs)
-	check(err)
+	errors.Check(err)
 
 	// Don't use a *container.MapSet here, because the map is iterated over in
 	// the template.
@@ -65,11 +66,10 @@ func main() {
 		DefaultCountryTopASNs: defaultCountryTopASNs,
 	}
 
-	tmpl, err := template.New("main").Parse(tmplStr)
-	check(err)
+	tmpl := template.Must(template.New("main").Parse(tmplStr))
 
 	err = tmpl.Execute(out, tmplData)
-	check(err)
+	errors.Check(err)
 }
 
 // countriesASNURL is the default URL to get the per-country top ASN statistics
@@ -101,10 +101,3 @@ var DefaultCountryTopASNs = map[Country]ASN{
 {{- end }}
 }
 `
-
-// check is a simple error checker.
-func check(err error) {
-	if err != nil {
-		panic(err)
-	}
-}

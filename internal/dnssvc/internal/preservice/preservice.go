@@ -5,15 +5,16 @@ package preservice
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
+	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/miekg/dns"
 )
 
@@ -22,19 +23,18 @@ import (
 // names that may be filtered by safe browsing or parental control filters as
 // well as handling of the DNS-server check queries.
 type Middleware struct {
-	// messages is used to construct TXT responses.
-	messages *dnsmsg.Constructor
-
-	// hashMatcher is the safe browsing DNS hashMatcher.
+	logger      *slog.Logger
+	messages    *dnsmsg.Constructor
 	hashMatcher filter.HashMatcher
-
-	// checker is used to detect and process DNS-check requests.
-	checker dnscheck.Interface
+	checker     dnscheck.Interface
 }
 
 // Config is the configurational structure for the preservice middleware.  All
 // fields must be non-nil.
 type Config struct {
+	// Logger is used to log the operation of the middleware.
+	Logger *slog.Logger
+
 	// Messages is used to construct TXT responses.
 	Messages *dnsmsg.Constructor
 
@@ -48,6 +48,7 @@ type Config struct {
 // New returns a new preservice middleware.  c must not be nil.
 func New(c *Config) (mw *Middleware) {
 	return &Middleware{
+		logger:      c.Logger,
 		messages:    c.Messages,
 		hashMatcher: c.HashMatcher,
 		checker:     c.Checker,
@@ -60,7 +61,7 @@ var _ dnsserver.Middleware = (*Middleware)(nil)
 // Wrap implements the [dnsserver.Middleware] interface for *Middleware.
 func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
 	f := func(ctx context.Context, rw dnsserver.ResponseWriter, req *dns.Msg) (err error) {
-		defer func() { err = errors.Annotate(err, "preservice mw: %w") }()
+		defer func() { err = errors.Annotate(err, "presvcmw: %w") }()
 
 		ri := agd.MustRequestInfoFromContext(ctx)
 		if ri.QType == dns.TypeTXT {
@@ -71,13 +72,20 @@ func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
 		resp, err := mw.checker.Check(ctx, req, ri)
 		if err != nil {
 			return fmt.Errorf("calling dnscheck: %w", err)
-		} else if resp != nil {
-			return errors.Annotate(rw.WriteMsg(ctx, req, resp), "writing dnscheck response: %w")
 		}
 
-		// Don't wrap the error, because this is the main flow, and there is
-		// already [errors.Annotate] here.
-		return next.ServeDNS(ctx, rw, req)
+		if resp == nil {
+			// Don't wrap the error, because this is the main flow, and there is
+			// already [errors.Annotate] here.
+			return next.ServeDNS(ctx, rw, req)
+		}
+
+		err = rw.WriteMsg(ctx, req, resp)
+		if err != nil {
+			return fmt.Errorf("writing dnscheck response: %w", err)
+		}
+
+		return nil
 	}
 
 	return dnsserver.HandlerFunc(f)
@@ -92,15 +100,19 @@ func (mw *Middleware) respondWithHashes(
 	req *dns.Msg,
 	ri *agd.RequestInfo,
 ) (err error) {
-	optlog.Debug1("preservice mw: safe browsing: got txt req for %q", ri.Host)
+	optslog.Debug1(ctx, mw.logger, "got txt req", "host", ri.Host)
 
 	hashes, matched, err := mw.hashMatcher.MatchByPrefix(ctx, ri.Host)
 	if err != nil {
 		// Don't return or collect this error to prevent DDoS of the error
 		// collector by sending bad requests.
-		log.Error("preservice mw: safe browsing: matching hashes: %s", err)
+		mw.logger.ErrorContext(
+			ctx,
+			"matching hashes",
+			slogutil.KeyError, err,
+		)
 
-		resp := mw.messages.NewMsgREFUSED(req)
+		resp := mw.messages.NewRespRCode(req, dns.RcodeRefused)
 		err = rw.WriteMsg(ctx, req, resp)
 
 		return errors.Annotate(err, "writing refused response: %w")
@@ -110,7 +122,7 @@ func (mw *Middleware) respondWithHashes(
 		return next.ServeDNS(ctx, rw, req)
 	}
 
-	resp, err := mw.messages.NewTXTRespMsg(req, hashes...)
+	resp, err := mw.messages.NewRespTXT(req, hashes...)
 	if err != nil {
 		// Technically should never happen since the only error that could arise
 		// in [dnsmsg.Constructor.NewTXTRespMsg] is the one about request type
@@ -118,7 +130,7 @@ func (mw *Middleware) respondWithHashes(
 		return fmt.Errorf("creating safe browsing result: %w", err)
 	}
 
-	optlog.Debug1("preservice mw: safe browsing: writing hashes %q", hashes)
+	optslog.Debug1(ctx, mw.logger, "writing hashes", "hashes", hashes)
 
 	err = rw.WriteMsg(ctx, req, resp)
 	if err != nil {

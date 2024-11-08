@@ -186,9 +186,9 @@ func TestMiddleware_Wrap(t *testing.T) {
 			withCache := dnsserver.WithMiddlewares(
 				handler,
 				cache.NewMiddleware(&cache.MiddlewareConfig{
-					Size:           100,
-					MinTTL:         minTTL,
-					UseTTLOverride: tc.minTTL != nil,
+					Size:        100,
+					MinTTL:      minTTL,
+					OverrideTTL: tc.minTTL != nil,
 				}),
 			)
 

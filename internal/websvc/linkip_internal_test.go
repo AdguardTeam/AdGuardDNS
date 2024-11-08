@@ -12,6 +12,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/golibs/httphdr"
+	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -107,8 +108,8 @@ func TestLinkedIPProxy_ServeHTTP(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := httptest.NewRequest(tc.method, (&url.URL{
-				Scheme: "http",
-				Host:   "www.example.com",
+				Scheme: urlutil.SchemeHTTP,
+				Host:   "link-ip.example",
 				Path:   tc.path,
 			}).String(), strings.NewReader(""))
 
@@ -117,7 +118,7 @@ func TestLinkedIPProxy_ServeHTTP(t *testing.T) {
 			r.Header.Set(httphdr.Forwarded, "1.1.1.1")
 			r.Header.Set(httphdr.TrueClientIP, "1.1.1.1")
 			r.Header.Set(httphdr.XForwardedFor, "1.1.1.1")
-			r.Header.Set(httphdr.XForwardedHost, "forward.example.org")
+			r.Header.Set(httphdr.XForwardedHost, "forward.example")
 			r.Header.Set(httphdr.XForwardedProto, "https")
 			r.Header.Set(httphdr.XRealIP, "1.1.1.1")
 

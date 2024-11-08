@@ -1,20 +1,14 @@
 package querylog_test
 
 import (
-	"testing"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
-	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 )
-
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
 
 // testRequestID is the common request ID for tests.
 var testRequestID = agd.NewRequestID()

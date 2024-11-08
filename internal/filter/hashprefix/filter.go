@@ -310,18 +310,23 @@ func (f *Filter) respForFamily(
 		//
 		// TODO(ameshkov): Consider putting the resolved IP addresses into hints
 		// to show the blocked page here as well?
-		return ri.Messages.NewBlockedRespMsg(req)
+		return ri.Messages.NewBlockedResp(req)
 	}
 
 	ip := f.repIP
 
 	switch {
 	case ip.Is4() && fam == netutil.AddrFamilyIPv4:
-		return ri.Messages.NewIPRespMsg(req, ip)
+		return ri.Messages.NewBlockedRespIP(req, ip)
 	case ip.Is6() && fam == netutil.AddrFamilyIPv6:
-		return ri.Messages.NewIPRespMsg(req, ip)
+		return ri.Messages.NewBlockedRespIP(req, ip)
 	default:
-		return ri.Messages.NewMsgNODATA(req), nil
+		// TODO(e.burkov):  Use [dnsmsg.Constructor.NewBlockedRespRCode] when it
+		// adds SOA records.
+		resp = ri.Messages.NewRespRCode(req, dns.RcodeSuccess)
+		ri.Messages.AddEDE(req, resp, dns.ExtendedErrorCodeFiltered)
+
+		return resp, nil
 	}
 }
 

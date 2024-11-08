@@ -6,7 +6,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
+	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 )
@@ -14,6 +14,7 @@ import (
 // toInternal returns the configuration of DNS servers for a single server
 // group.  srvs and other parts of the configuration must be valid.
 func (srvs servers) toInternal(
+	mtrc tlsconfig.Metrics,
 	tlsConfig *agd.TLS,
 	btdMgr *bindtodevice.Manager,
 	ratelimitConf *rateLimitConfig,
@@ -68,8 +69,8 @@ func (srvs servers) toInternal(
 			tlsConf := tlsConfig.Conf.Clone()
 
 			// Attach the functions that will count TLS handshake metrics.
-			tlsConf.GetConfigForClient = metrics.TLSMetricsBeforeHandshake(string(srv.Protocol))
-			tlsConf.VerifyConnection = metrics.TLSMetricsAfterHandshake(
+			tlsConf.GetConfigForClient = mtrc.BeforeHandshake(string(srv.Protocol))
+			tlsConf.VerifyConnection = mtrc.AfterHandshake(
 				string(srv.Protocol),
 				srv.Name,
 				tlsConfig.DeviceDomains,

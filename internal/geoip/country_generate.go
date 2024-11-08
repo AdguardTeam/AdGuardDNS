@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/osutil"
@@ -28,22 +29,18 @@ func main() {
 		Timeout: 10 * time.Second,
 	}
 
-	req, err := http.NewRequest(http.MethodGet, csvURL, nil)
-	check(err)
+	req := errors.Must(http.NewRequest(http.MethodGet, csvURL, nil))
 
 	req.Header.Add(httphdr.UserAgent, agdhttp.UserAgent())
 
-	resp, err := c.Do(req)
-	check(err)
+	resp := errors.Must(c.Do(req))
 	defer slogutil.CloseAndLog(ctx, logger, resp.Body, slog.LevelError)
 
-	out, err := os.OpenFile("./country.go", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o664)
-	check(err)
+	out := errors.Must(os.OpenFile("./country.go", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o664))
 	defer slogutil.CloseAndLog(ctx, logger, out, slog.LevelError)
 
 	r := csv.NewReader(resp.Body)
-	rows, err := r.ReadAll()
-	check(err)
+	rows := errors.Must(r.ReadAll())
 
 	// Skip the first row, as it is a header.
 	rows = rows[1:]
@@ -54,11 +51,10 @@ func main() {
 		return strings.Compare(a[1], b[1])
 	})
 
-	tmpl, err := template.New("main").Parse(tmplStr)
-	check(err)
+	tmpl := template.Must(template.New("main").Parse(tmplStr))
 
-	err = tmpl.Execute(out, rows)
-	check(err)
+	err := tmpl.Execute(out, rows)
+	errors.Check(err)
 }
 
 // csvURL is the default URL of the information about country codes.
@@ -75,8 +71,6 @@ import (
 
 	"github.com/AdguardTeam/golibs/errors"
 )
-
-// Country Codes
 
 // Country represents an ISO 3166-1 alpha-2 country code.
 type Country string
@@ -165,10 +159,3 @@ func isUserAssigned(s string) (ok bool) {
 	}
 }
 `
-
-// check is a simple error checker.
-func check(err error) {
-	if err != nil {
-		panic(err)
-	}
-}

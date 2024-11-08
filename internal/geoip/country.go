@@ -9,8 +9,6 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 )
 
-// Country Codes
-
 // Country represents an ISO 3166-1 alpha-2 country code.
 type Country string
 

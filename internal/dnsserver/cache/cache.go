@@ -31,8 +31,8 @@ type Middleware struct {
 	// cacheMinTTL is the minimum supported TTL for cache items.
 	cacheMinTTL time.Duration
 
-	// useTTLOverride shows if the TTL overrides logic should be used.
-	useTTLOverride bool
+	// overrideTTL shows if the TTL overrides logic should be used.
+	overrideTTL bool
 }
 
 // MiddlewareConfig is the configuration structure for NewMiddleware.
@@ -49,8 +49,8 @@ type MiddlewareConfig struct {
 	// MinTTL is the minimum supported TTL for cache items.
 	MinTTL time.Duration
 
-	// UseTTLOverride shows if the TTL overrides logic should be used.
-	UseTTLOverride bool
+	// OverrideTTL shows if the TTL overrides logic should be used.
+	OverrideTTL bool
 }
 
 // NewMiddleware initializes a new LRU caching middleware.  c must not be nil.
@@ -63,10 +63,10 @@ func NewMiddleware(c *MiddlewareConfig) (m *Middleware) {
 	}
 
 	return &Middleware{
-		metrics:        metrics,
-		cache:          gcache.New(c.Size).LRU().Build(),
-		cacheMinTTL:    c.MinTTL,
-		useTTLOverride: c.UseTTLOverride,
+		metrics:     metrics,
+		cache:       gcache.New(c.Size).LRU().Build(),
+		cacheMinTTL: c.MinTTL,
+		overrideTTL: c.OverrideTTL,
 	}
 }
 
@@ -150,7 +150,7 @@ func (m *Middleware) set(msg *dns.Msg) (err error) {
 	}
 
 	exp := time.Duration(ttl) * time.Second
-	if m.useTTLOverride && msg.Rcode != dns.RcodeServerFailure {
+	if m.overrideTTL && msg.Rcode != dns.RcodeServerFailure {
 		exp = max(exp, m.cacheMinTTL)
 		setMinTTL(msg, uint32(exp.Seconds()))
 	}

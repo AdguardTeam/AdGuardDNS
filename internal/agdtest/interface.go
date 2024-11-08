@@ -116,7 +116,7 @@ func (r *Refresher) Refresh(ctx context.Context) (err error) {
 // type check
 var _ billstat.Recorder = (*BillStatRecorder)(nil)
 
-// BillStatRecorder is a billstat.Recorder for tests.
+// BillStatRecorder is a [billstat.Recorder] for tests.
 type BillStatRecorder struct {
 	OnRecord func(
 		ctx context.Context,
@@ -128,7 +128,7 @@ type BillStatRecorder struct {
 	)
 }
 
-// Record implements the billstat.Recorder interface for *BillStatRecorder.
+// Record implements the [billstat.Recorder] interface for *BillStatRecorder.
 func (r *BillStatRecorder) Record(
 	ctx context.Context,
 	id agd.DeviceID,
@@ -143,12 +143,12 @@ func (r *BillStatRecorder) Record(
 // type check
 var _ billstat.Uploader = (*BillStatUploader)(nil)
 
-// BillStatUploader is a billstat.Uploader for tests.
+// BillStatUploader is a [billstat.Uploader] for tests.
 type BillStatUploader struct {
 	OnUpload func(ctx context.Context, records billstat.Records) (err error)
 }
 
-// Upload implements the billstat.Uploader interface for *BillStatUploader.
+// Upload implements the [billstat.Uploader] interface for *BillStatUploader.
 func (b *BillStatUploader) Upload(ctx context.Context, records billstat.Records) (err error) {
 	return b.OnUpload(ctx, records)
 }
@@ -158,7 +158,7 @@ func (b *BillStatUploader) Upload(ctx context.Context, records billstat.Records)
 // type check
 var _ dnscheck.Interface = (*DNSCheck)(nil)
 
-// DNSCheck is a dnscheck.Interface for tests.
+// DNSCheck is a [dnscheck.Interface] for tests.
 type DNSCheck struct {
 	OnCheck func(ctx context.Context, req *dns.Msg, ri *agd.RequestInfo) (reqp *dns.Msg, err error)
 }
@@ -177,12 +177,12 @@ func (db *DNSCheck) Check(
 // type check
 var _ dnsdb.Interface = (*DNSDB)(nil)
 
-// DNSDB is a dnsdb.Interface for tests.
+// DNSDB is a [dnsdb.Interface] for tests.
 type DNSDB struct {
 	OnRecord func(ctx context.Context, resp *dns.Msg, ri *agd.RequestInfo)
 }
 
-// Record implements the dnsdb.Interface interface for *DNSDB.
+// Record implements the [dnsdb.Interface] interface for *DNSDB.
 func (db *DNSDB) Record(ctx context.Context, resp *dns.Msg, ri *agd.RequestInfo) {
 	db.OnRecord(ctx, resp, ri)
 }
@@ -204,7 +204,7 @@ func (c *ErrorCollector) Collect(ctx context.Context, err error) {
 	c.OnCollect(ctx, err)
 }
 
-// NewErrorCollector returns a new [ErrorCollector] all methods of which panic.
+// NewErrorCollector returns a new *ErrorCollector all methods of which panic.
 func NewErrorCollector() (c *ErrorCollector) {
 	return &ErrorCollector{
 		OnCollect: func(_ context.Context, err error) {
@@ -297,21 +297,38 @@ func (s *FilterStorage) HasListID(id agd.FilterListID) (ok bool) {
 // type check
 var _ geoip.Interface = (*GeoIP)(nil)
 
-// GeoIP is a geoip.Interface for tests.
+// GeoIP is a [geoip.Interface] for tests.
 type GeoIP struct {
-	OnSubnetByLocation func(l *geoip.Location, fam netutil.AddrFamily) (n netip.Prefix, err error)
 	OnData             func(host string, ip netip.Addr) (l *geoip.Location, err error)
+	OnSubnetByLocation func(l *geoip.Location, fam netutil.AddrFamily) (n netip.Prefix, err error)
 }
 
-// SubnetByLocation implements the geoip.Interface interface for *GeoIP.
-func (g *GeoIP) SubnetByLocation(l *geoip.Location, fam netutil.AddrFamily,
+// Data implements the [geoip.Interface] interface for *GeoIP.
+func (g *GeoIP) Data(host string, ip netip.Addr) (l *geoip.Location, err error) {
+	return g.OnData(host, ip)
+}
+
+// SubnetByLocation implements the [geoip.Interface] interface for *GeoIP.
+func (g *GeoIP) SubnetByLocation(
+	l *geoip.Location,
+	fam netutil.AddrFamily,
 ) (n netip.Prefix, err error) {
 	return g.OnSubnetByLocation(l, fam)
 }
 
-// Data implements the geoip.Interface interface for *GeoIP.
-func (g *GeoIP) Data(host string, ip netip.Addr) (l *geoip.Location, err error) {
-	return g.OnData(host, ip)
+// NewGeoIP returns a new *GeoIP all methods of which panic.
+func NewGeoIP() (c *GeoIP) {
+	return &GeoIP{
+		OnData: func(host string, ip netip.Addr) (l *geoip.Location, err error) {
+			panic(fmt.Errorf("unexpected call to GeoIP.Data(%v, %v)", host, ip))
+		},
+		OnSubnetByLocation: func(
+			l *geoip.Location,
+			fam netutil.AddrFamily,
+		) (n netip.Prefix, err error) {
+			panic(fmt.Errorf("unexpected call to GeoIP.SubnetByLocation(%v, %v)", l, fam))
+		},
+	}
 }
 
 // Package profiledb
@@ -398,6 +415,58 @@ func (db *ProfileDB) ProfileByLinkedIP(
 	return db.OnProfileByLinkedIP(ctx, ip)
 }
 
+// NewProfileDB returns a new *ProfileDB all methods of which panic.
+func NewProfileDB() (db *ProfileDB) {
+	return &ProfileDB{
+		OnCreateAutoDevice: func(
+			_ context.Context,
+			id agd.ProfileID,
+			humanID agd.HumanID,
+			devType agd.DeviceType,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic(fmt.Errorf(
+				"unexpected call to ProfileDB.CreateAutoDevice(%v, %v, %v)",
+				id,
+				humanID,
+				devType,
+			))
+		},
+
+		OnProfileByDedicatedIP: func(
+			_ context.Context,
+			ip netip.Addr,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic(fmt.Errorf("unexpected call to ProfileDB.ProfileByDedicatedIP(%v)", ip))
+		},
+
+		OnProfileByDeviceID: func(
+			_ context.Context,
+			id agd.DeviceID,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic(fmt.Errorf("unexpected call to ProfileDB.ProfileByDeviceID(%v)", id))
+		},
+
+		OnProfileByHumanID: func(
+			_ context.Context,
+			profID agd.ProfileID,
+			humanID agd.HumanIDLower,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic(fmt.Errorf(
+				"unexpected call to ProfileDB.ProfileByHumanID(%v, %v)",
+				profID,
+				humanID,
+			))
+		},
+
+		OnProfileByLinkedIP: func(
+			_ context.Context,
+			ip netip.Addr,
+		) (p *agd.Profile, d *agd.Device, err error) {
+			panic(fmt.Errorf("unexpected call to ProfileDB.ProfileByLinkedIP(%v)", ip))
+		},
+	}
+}
+
 // type check
 var _ profiledb.Storage = (*ProfileStorage)(nil)
 
@@ -436,12 +505,12 @@ func (s *ProfileStorage) Profiles(
 // type check
 var _ querylog.Interface = (*QueryLog)(nil)
 
-// QueryLog is a querylog.Interface for tests.
+// QueryLog is a [querylog.Interface] for tests.
 type QueryLog struct {
 	OnWrite func(ctx context.Context, e *querylog.Entry) (err error)
 }
 
-// Write implements the querylog.Interface interface for *QueryLog.
+// Write implements the [querylog.Interface] interface for *QueryLog.
 func (ql *QueryLog) Write(ctx context.Context, e *querylog.Entry) (err error) {
 	return ql.OnWrite(ctx, e)
 }
@@ -451,12 +520,12 @@ func (ql *QueryLog) Write(ctx context.Context, e *querylog.Entry) (err error) {
 // type check
 var _ rulestat.Interface = (*RuleStat)(nil)
 
-// RuleStat is a rulestat.Interface for tests.
+// RuleStat is a [rulestat.Interface] for tests.
 type RuleStat struct {
 	OnCollect func(ctx context.Context, id agd.FilterListID, text agd.FilterRuleText)
 }
 
-// Collect implements the rulestat.Interface interface for *RuleStat.
+// Collect implements the [rulestat.Interface] interface for *RuleStat.
 func (s *RuleStat) Collect(ctx context.Context, id agd.FilterListID, text agd.FilterRuleText) {
 	s.OnCollect(ctx, id, text)
 }
@@ -501,7 +570,7 @@ func (c *ListenConfig) ListenPacket(
 // type check
 var _ ratelimit.Interface = (*RateLimit)(nil)
 
-// RateLimit is a ratelimit.Interface for tests.
+// RateLimit is a [ratelimit.Interface] for tests.
 type RateLimit struct {
 	OnIsRateLimited func(
 		ctx context.Context,
@@ -511,7 +580,7 @@ type RateLimit struct {
 	OnCountResponses func(ctx context.Context, resp *dns.Msg, ip netip.Addr)
 }
 
-// IsRateLimited implements the ratelimit.Interface interface for *RateLimit.
+// IsRateLimited implements the [ratelimit.Interface] interface for *RateLimit.
 func (l *RateLimit) IsRateLimited(
 	ctx context.Context,
 	req *dns.Msg,
@@ -520,10 +589,25 @@ func (l *RateLimit) IsRateLimited(
 	return l.OnIsRateLimited(ctx, req, ip)
 }
 
-// CountResponses implements the ratelimit.Interface interface for
-// *RateLimit.
+// CountResponses implements the [ratelimit.Interface] interface for *RateLimit.
 func (l *RateLimit) CountResponses(ctx context.Context, req *dns.Msg, ip netip.Addr) {
 	l.OnCountResponses(ctx, req, ip)
+}
+
+// NewRateLimit returns a new *RateLimit all methods of which panic.
+func NewRateLimit() (c *RateLimit) {
+	return &RateLimit{
+		OnIsRateLimited: func(
+			_ context.Context,
+			req *dns.Msg,
+			addr netip.Addr,
+		) (shouldDrop, isAllowlisted bool, err error) {
+			panic(fmt.Errorf("unexpected call to RateLimit.IsRateLimited(%v, %v)", req, addr))
+		},
+		OnCountResponses: func(_ context.Context, resp *dns.Msg, addr netip.Addr) {
+			panic(fmt.Errorf("unexpected call to RateLimit.CountResponses(%v, %v)", resp, addr))
+		},
+	}
 }
 
 // RemoteKV is an [remotekv.Interface] implementation for tests.

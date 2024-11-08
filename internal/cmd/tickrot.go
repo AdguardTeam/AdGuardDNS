@@ -10,7 +10,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
+	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 )
 
@@ -19,6 +19,7 @@ import (
 type ticketRotator struct {
 	logger  *slog.Logger
 	errColl errcoll.Interface
+	mtrc    tlsconfig.Metrics
 	confs   map[*tls.Config][]string
 }
 
@@ -29,6 +30,7 @@ type ticketRotator struct {
 func newTicketRotator(
 	logger *slog.Logger,
 	errColl errcoll.Interface,
+	mtrc tlsconfig.Metrics,
 	grps []*agd.ServerGroup,
 ) (tr *ticketRotator) {
 	confs := map[*tls.Config][]string{}
@@ -49,6 +51,7 @@ func newTicketRotator(
 	return &ticketRotator{
 		logger:  logger.With(slogutil.KeyPrefix, "tickrot"),
 		errColl: errColl,
+		mtrc:    mtrc,
 		confs:   confs,
 	}
 }
@@ -81,7 +84,7 @@ func (r *ticketRotator) Refresh(ctx context.Context) (err error) {
 			var key [sessTickLen]byte
 			key, err = readSessionTicketKey(fileName)
 			if err != nil {
-				metrics.TLSSessionTicketsRotateStatus.Set(0)
+				r.mtrc.SetSessionTicketRotationStatus(ctx, false)
 
 				return fmt.Errorf("session ticket for srv %s: %w", conf.ServerName, err)
 			}
@@ -96,8 +99,7 @@ func (r *ticketRotator) Refresh(ctx context.Context) (err error) {
 		conf.SetSessionTicketKeys(keys)
 	}
 
-	metrics.TLSSessionTicketsRotateStatus.Set(1)
-	metrics.TLSSessionTicketsRotateTime.SetToCurrentTime()
+	r.mtrc.SetSessionTicketRotationStatus(ctx, true)
 
 	return nil
 }
