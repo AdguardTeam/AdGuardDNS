@@ -96,9 +96,9 @@ func TestRefreshWorker(t *testing.T) {
 	})
 
 	t.Run("error", func(t *testing.T) {
-		errRefr, syncCh := newTestRefresher(t, testError)
+		refrWithError, syncCh := newTestRefresher(t, testError)
 
-		w := agdservice.NewRefreshWorker(newRefrConfig(t, errRefr, testIvl, false))
+		w := agdservice.NewRefreshWorker(newRefrConfig(t, refrWithError, testIvl, false))
 
 		err := w.Start(testutil.ContextWithTimeout(t, testTimeout))
 		require.NoError(t, err)
@@ -110,9 +110,9 @@ func TestRefreshWorker(t *testing.T) {
 	})
 
 	t.Run("error_on_shutdown", func(t *testing.T) {
-		errRefr, syncCh := newTestRefresher(t, testError)
+		refrWithError, syncCh := newTestRefresher(t, testError)
 
-		w := agdservice.NewRefreshWorker(newRefrConfig(t, errRefr, testIvlLong, true))
+		w := agdservice.NewRefreshWorker(newRefrConfig(t, refrWithError, testIvlLong, true))
 
 		err := w.Start(testutil.ContextWithTimeout(t, testTimeout))
 		require.NoError(t, err)

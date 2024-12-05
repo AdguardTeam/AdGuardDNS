@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"slices"
@@ -19,7 +20,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv/consulkv"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 	cache "github.com/patrickmn/go-cache"
@@ -28,8 +29,10 @@ import (
 
 // RemoteKV is the RemoteKV KV based DNS checker.
 type RemoteKV struct {
-	// mu protects cache.  Don't use an RWMutex here, since the ratio of read
-	// and write access is expected to be approximately equal.
+	logger *slog.Logger
+
+	// mu protects cache.  Don't use an RWMutex here, since it is expected that
+	// there are about as many reads as there are writes.
 	mu    *sync.Mutex
 	cache *cache.Cache
 
@@ -49,6 +52,9 @@ type RemoteKV struct {
 // RemoteKVConfig is the configuration structure for remote KV based DNS
 // checker.  All fields must be non-empty.
 type RemoteKVConfig struct {
+	// Logger is used to log the operation of the DNS checker.
+	Logger *slog.Logger
+
 	// Messages is the message constructor used to create DNS responses with
 	// IPv4 and IPv6 IPs.
 	Messages *dnsmsg.Constructor
@@ -85,8 +91,9 @@ const (
 )
 
 // NewRemoteKV creates a new remote KV based DNS checker.  c must be non-nil.
-func NewRemoteKV(c *RemoteKVConfig) (cc *RemoteKV) {
+func NewRemoteKV(c *RemoteKVConfig) (dc *RemoteKV) {
 	return &RemoteKV{
+		logger:       c.Logger,
 		mu:           &sync.Mutex{},
 		cache:        cache.New(defaultCacheExp, defaultCacheGC),
 		kv:           c.RemoteKV,
@@ -104,7 +111,7 @@ func NewRemoteKV(c *RemoteKVConfig) (cc *RemoteKV) {
 var _ Interface = (*RemoteKV)(nil)
 
 // Check implements the Interface interface for *RemoteKV.
-func (cc *RemoteKV) Check(
+func (dc *RemoteKV) Check(
 	ctx context.Context,
 	req *dns.Msg,
 	ri *agd.RequestInfo,
@@ -124,7 +131,7 @@ func (cc *RemoteKV) Check(
 	}()
 
 	var randomID string
-	randomID, matched, err = randomIDFromDomain(ri.Host, cc.domains)
+	randomID, matched, err = randomIDFromDomain(ri.Host, dc.domains)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
@@ -132,32 +139,32 @@ func (cc *RemoteKV) Check(
 		// Not a dnscheck domain, just ignore the request.
 		return nil, nil
 	} else if randomID == "" {
-		return cc.resp(ri, req)
+		return dc.resp(ri, req)
 	}
 
-	inf := cc.newInfo(ri)
+	inf := dc.newInfo(ri)
 	b, err := json.Marshal(inf)
 	if err != nil {
 		return nil, fmt.Errorf("encoding value for key %q for remote kv: %w", randomID, err)
 	}
 
-	cc.addToCache(randomID, b)
+	dc.addToCache(randomID, b)
 
-	err = cc.kv.Set(ctx, randomID, b)
+	err = dc.kv.Set(ctx, randomID, b)
 	if err != nil {
-		errcoll.Collectf(ctx, cc.errColl, "dnscheck: remote kv setting: %w", err)
+		errcoll.Collect(ctx, dc.errColl, dc.logger, "remote kv setting", err)
 	}
 
-	return cc.resp(ri, req)
+	return dc.resp(ri, req)
 }
 
 // addToCache adds inf into cache using randomID as key.  It's safe for
 // concurrent use.
-func (cc *RemoteKV) addToCache(randomID string, inf []byte) {
-	cc.mu.Lock()
-	defer cc.mu.Unlock()
+func (dc *RemoteKV) addToCache(randomID string, inf []byte) {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
 
-	cc.cache.SetDefault(randomID, inf)
+	dc.cache.SetDefault(randomID, inf)
 }
 
 // serverType is a type for the enum of server types in the DNS checker HTTP
@@ -172,7 +179,7 @@ const (
 
 // newInfo returns an information record with all available data about the
 // server and the request.  ri must not be nil.
-func (cc *RemoteKV) newInfo(ri *agd.RequestInfo) (inf *info) {
+func (dc *RemoteKV) newInfo(ri *agd.RequestInfo) (inf *info) {
 	g := ri.ServerGroup
 
 	srvType := serverTypePublic
@@ -186,8 +193,8 @@ func (cc *RemoteKV) newInfo(ri *agd.RequestInfo) (inf *info) {
 		ServerType:      srvType,
 
 		Protocol:     ri.Proto.String(),
-		NodeLocation: cc.nodeLocation,
-		NodeName:     cc.nodeName,
+		NodeLocation: dc.nodeLocation,
+		NodeName:     dc.nodeName,
 
 		ClientIP: ri.RemoteIP,
 	}
@@ -204,7 +211,7 @@ func (cc *RemoteKV) newInfo(ri *agd.RequestInfo) (inf *info) {
 //
 // TODO(e.burkov):  Inspect the reason for using different message constructors
 // for different DNS types, and consider using only one of them.
-func (cc *RemoteKV) resp(ri *agd.RequestInfo, req *dns.Msg) (resp *dns.Msg, err error) {
+func (dc *RemoteKV) resp(ri *agd.RequestInfo, req *dns.Msg) (resp *dns.Msg, err error) {
 	qt := ri.QType
 
 	if qt != dns.TypeA && qt != dns.TypeAAAA {
@@ -212,24 +219,23 @@ func (cc *RemoteKV) resp(ri *agd.RequestInfo, req *dns.Msg) (resp *dns.Msg, err 
 	}
 
 	if qt == dns.TypeA {
-		return cc.messages.NewRespIP(req, cc.ipv4...)
+		return dc.messages.NewRespIP(req, dc.ipv4...)
 	}
 
-	return cc.messages.NewRespIP(req, cc.ipv6...)
+	return dc.messages.NewRespIP(req, dc.ipv6...)
 }
 
 // type check
 var _ http.Handler = (*RemoteKV)(nil)
 
 // ServeHTTP implements the http.Handler interface for *RemoteKV.
-func (cc *RemoteKV) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	m, p, raddr := r.Method, r.URL.Path, r.RemoteAddr
-	log.Debug("dnscheck: http req %s %s from %s", m, p, raddr)
-	defer log.Debug("dnscheck: finished http req %s %s from %s", m, p, raddr)
-
+//
+// TODO(a.garipov):  Consider using the websvc logger once it switches to
+// log/slog.
+func (dc *RemoteKV) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// TODO(a.garipov): Put this into constant here and in package dnssvc.
 	if r.URL.Path == "/dnscheck/test" {
-		cc.serveCheckTest(r.Context(), w, r)
+		dc.serveCheckTest(r.Context(), w, r)
 
 		return
 	}
@@ -241,48 +247,48 @@ func (cc *RemoteKV) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 //
 // TODO(a.garipov): Refactor this and other HTTP handlers to return wrapped
 // errors and centralize the error handling.
-func (cc *RemoteKV) serveCheckTest(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-	raddr := r.RemoteAddr
+func (dc *RemoteKV) serveCheckTest(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	l := dc.logger.With("raddr", r.RemoteAddr)
 
-	name, err := netutil.SplitHost(r.Host)
+	host, err := netutil.SplitHost(r.Host)
 	if err != nil {
-		log.Debug("dnscheck: http req from %s: bad host %q: %s", raddr, r.Host, err)
+		l.DebugContext(ctx, "bad host", "hostport", r.Host, slogutil.KeyError, err)
 
 		http.NotFound(w, r)
 
 		return
 	}
 
-	randomID, matched, err := randomIDFromDomain(name, cc.domains)
+	randomID, matched, err := randomIDFromDomain(host, dc.domains)
 	if err != nil {
-		log.Debug("dnscheck: http req from %s: id: %s", raddr, err)
+		l.DebugContext(ctx, "bad request", "host", host, slogutil.KeyError, err)
 
 		http.NotFound(w, r)
 
 		return
 	} else if !matched || randomID == "" {
 		// We expect dnscheck requests to have a unique ID in the domain name.
-		log.Debug("dnscheck: http req from %s: bad domain %q", raddr, name)
+		l.DebugContext(ctx, "bad domain", "host", host, slogutil.KeyError, err)
 
 		http.NotFound(w, r)
 
 		return
 	}
 
-	inf, ok, err := cc.info(ctx, randomID)
+	inf, ok, err := dc.info(ctx, randomID)
 	// TODO(s.chzhen):  Use error interface instead of error value.
 	if errors.Is(err, consulkv.ErrRateLimited) {
 		http.Error(w, err.Error(), http.StatusTooManyRequests)
 
 		return
 	} else if err != nil {
-		log.Debug("dnscheck: http req from %s: getting info: %s", raddr, err)
+		l.DebugContext(ctx, "getting info", "random_id", randomID, slogutil.KeyError, err)
 
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 
 		return
 	} else if !ok {
-		log.Debug("dnscheck: http req from %s: no info for %q", raddr, randomID)
+		l.DebugContext(ctx, "no info", "random_id", randomID, slogutil.KeyError, err)
 
 		http.NotFound(w, r)
 
@@ -295,12 +301,12 @@ func (cc *RemoteKV) serveCheckTest(ctx context.Context, w http.ResponseWriter, r
 
 	_, err = w.Write(inf)
 	if err != nil {
-		errcoll.Collectf(ctx, cc.errColl, "dnscheck: http resp write error: %w", err)
+		errcoll.Collect(ctx, dc.errColl, dc.logger, "http resp write", err)
 	}
 }
 
 // info returns an information record by the random request ID.
-func (cc *RemoteKV) info(ctx context.Context, randomID string) (inf []byte, ok bool, err error) {
+func (dc *RemoteKV) info(ctx context.Context, randomID string) (inf []byte, ok bool, err error) {
 	defer func() {
 		metrics.DNSCheckRequestTotal.With(prometheus.Labels{
 			"type":  "http",
@@ -312,17 +318,17 @@ func (cc *RemoteKV) info(ctx context.Context, randomID string) (inf []byte, ok b
 
 	defer func() { err = errors.Annotate(err, "getting from remote kv: %w") }()
 
-	cc.mu.Lock()
-	defer cc.mu.Unlock()
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
 
-	infoVal, ok := cc.cache.Get(randomID)
+	infoVal, ok := dc.cache.Get(randomID)
 	if ok {
 		return infoVal.([]byte), true, nil
 	}
 
-	inf, ok, err = cc.kv.Get(ctx, randomID)
+	inf, ok, err = dc.kv.Get(ctx, randomID)
 	if err != nil {
-		errcoll.Collectf(ctx, cc.errColl, "dnscheck: remote kv getting: %w", err)
+		errcoll.Collect(ctx, dc.errColl, dc.logger, "remote kv getting", err)
 
 		// Don't wrap the error, as it will get annotated.
 		return nil, false, err

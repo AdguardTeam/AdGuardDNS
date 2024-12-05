@@ -19,10 +19,10 @@ func TestMiddleware_Wrap(t *testing.T) {
 	const (
 		servFailMaxCacheTTL = 30
 
-		reqHostname = "example.com"
-		reqCname    = "cname.example.com"
-		reqNs1      = "ns1.example.com"
-		reqNs2      = "ns2.example.com"
+		reqHost  = "example.com"
+		reqCNAME = "cname.example.com"
+		reqNs1   = "ns1.example.com"
+		reqNs2   = "ns2.example.com"
 
 		defaultTTL uint32 = 3600
 	)
@@ -30,10 +30,10 @@ func TestMiddleware_Wrap(t *testing.T) {
 	reqAddr := netip.MustParseAddr("1.2.3.4")
 	testTTL := 60 * time.Second
 
-	aReq := dnsservertest.NewReq(reqHostname, dns.TypeA, dns.ClassINET)
-	cnameReq := dnsservertest.NewReq(reqHostname, dns.TypeCNAME, dns.ClassINET)
-	cnameAns := dnsservertest.SectionAnswer{dnsservertest.NewCNAME(reqHostname, defaultTTL, reqCname)}
-	soaNs := dnsservertest.SectionNs{dnsservertest.NewSOA(reqHostname, defaultTTL, reqNs1, reqNs2)}
+	aReq := dnsservertest.NewReq(reqHost, dns.TypeA, dns.ClassINET)
+	cnameReq := dnsservertest.NewReq(reqHost, dns.TypeCNAME, dns.ClassINET)
+	cnameAns := dnsservertest.SectionAnswer{dnsservertest.NewCNAME(reqHost, defaultTTL, reqCNAME)}
+	soaNs := dnsservertest.SectionNs{dnsservertest.NewSOA(reqHost, defaultTTL, reqNs1, reqNs2)}
 
 	const N = 5
 	testCases := []struct {
@@ -46,7 +46,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 	}{{
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
-			dnsservertest.NewA(reqHostname, defaultTTL, reqAddr),
+			dnsservertest.NewA(reqHost, defaultTTL, reqAddr),
 		}),
 		name:       "simple_a",
 		wantNumReq: 1,
@@ -83,7 +83,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 	}, {
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeNameError, aReq, dnsservertest.SectionNs{
-			dnsservertest.NewNS(reqHostname, defaultTTL, reqNs1),
+			dnsservertest.NewNS(reqHost, defaultTTL, reqNs1),
 		}),
 		name: "non_authoritative_nxdomain",
 		// TODO(ameshkov): Consider https://datatracker.ietf.org/doc/html/rfc2308#section-3.
@@ -107,7 +107,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 	}, {
 		req: cnameReq,
 		resp: dnsservertest.NewResp(dns.RcodeSuccess, cnameReq, dnsservertest.SectionAnswer{
-			dnsservertest.NewCNAME(reqHostname, defaultTTL, reqCname),
+			dnsservertest.NewCNAME(reqHost, defaultTTL, reqCNAME),
 		}),
 		name:       "simple_cname_ans",
 		wantNumReq: 1,
@@ -116,7 +116,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 	}, {
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
-			dnsservertest.NewA(reqHostname, 0, reqAddr),
+			dnsservertest.NewA(reqHost, 0, reqAddr),
 		}),
 		name:       "expired_one",
 		wantNumReq: N,
@@ -125,7 +125,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 	}, {
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
-			dnsservertest.NewA(reqHostname, 10, reqAddr),
+			dnsservertest.NewA(reqHost, 10, reqAddr),
 		}),
 		name:       "override_ttl_ok",
 		wantNumReq: 1,
@@ -134,7 +134,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 	}, {
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
-			dnsservertest.NewA(reqHostname, 1000, reqAddr),
+			dnsservertest.NewA(reqHost, 1000, reqAddr),
 		}),
 		name:       "override_ttl_max",
 		wantNumReq: 1,
@@ -143,7 +143,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 	}, {
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeSuccess, aReq, dnsservertest.SectionAnswer{
-			dnsservertest.NewA(reqHostname, 0, reqAddr),
+			dnsservertest.NewA(reqHost, 0, reqAddr),
 		}),
 		name:       "override_ttl_zero",
 		wantNumReq: N,
@@ -152,7 +152,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 	}, {
 		req: aReq,
 		resp: dnsservertest.NewResp(dns.RcodeServerFailure, aReq, dnsservertest.SectionAnswer{
-			dnsservertest.NewA(reqHostname, servFailMaxCacheTTL, reqAddr),
+			dnsservertest.NewA(reqHost, servFailMaxCacheTTL, reqAddr),
 		}),
 		name:       "override_ttl_servfail",
 		wantNumReq: 1,
@@ -186,7 +186,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 			withCache := dnsserver.WithMiddlewares(
 				handler,
 				cache.NewMiddleware(&cache.MiddlewareConfig{
-					Size:        100,
+					Count:       100,
 					MinTTL:      minTTL,
 					OverrideTTL: tc.minTTL != nil,
 				}),

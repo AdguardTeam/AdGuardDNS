@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/miekg/dns"
 )
@@ -23,7 +23,7 @@ type Filter struct {
 type Config struct {
 	// Refreshable is the configuration of the refreshable filter-list within
 	// the safe-search filter.
-	Refreshable *internal.RefreshableConfig
+	Refreshable *refreshable.Config
 
 	// CacheTTL is the time to live of the result cache-items.
 	//
@@ -51,10 +51,9 @@ var _ internal.RequestFilter = (*Filter)(nil)
 // It modifies the response if host matches f.
 func (f *Filter) FilterRequest(
 	ctx context.Context,
-	req *dns.Msg,
-	ri *agd.RequestInfo,
+	req *internal.Request,
 ) (r internal.Result, err error) {
-	qt := ri.QType
+	qt := req.QType
 	switch qt {
 	case dns.TypeA, dns.TypeAAAA, dns.TypeHTTPS:
 		// Go on.
@@ -62,11 +61,11 @@ func (f *Filter) FilterRequest(
 		return nil, nil
 	}
 
-	host := ri.Host
-	dr := f.flt.DNSResult(ri.RemoteIP, "", host, qt, false)
+	host := req.Host
+	dr := f.flt.DNSResult(req.RemoteIP, "", host, qt, false)
 	id, _ := f.flt.ID()
 
-	r = rulelist.ProcessDNSRewrites(ri.Messages, req, dr.DNSRewrites(), host, id)
+	r = rulelist.ProcessDNSRewrites(req, dr.DNSRewrites(), id)
 
 	replaceRule(r, host)
 
@@ -76,7 +75,7 @@ func (f *Filter) FilterRequest(
 // replaceRule replaces the r.Rule with host if r is not nil.  r must be nil,
 // [*internal.ResultModifiedRequest], or [*internal.ResultModifiedResponse].
 func replaceRule(r internal.Result, host string) {
-	rule := agd.FilterRuleText(host)
+	rule := internal.RuleText(host)
 	switch r := r.(type) {
 	case nil:
 		// Do nothing.
@@ -90,7 +89,7 @@ func replaceRule(r internal.Result, host string) {
 }
 
 // ID implements the [internal.RequestFilter] interface for *Filter.
-func (f *Filter) ID() (id agd.FilterListID) {
+func (f *Filter) ID() (id internal.ID) {
 	id, _ = f.flt.ID()
 
 	return id

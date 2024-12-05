@@ -65,7 +65,8 @@ func TestRemoteKV_Get(t *testing.T) {
 	t.Cleanup(grpcSrv.GracefulStop)
 
 	kv, err := backendpb.NewRemoteKV(&backendpb.RemoteKVConfig{
-		Metrics: backendpb.EmptyMetrics{},
+		GRPCMetrics: backendpb.EmptyGRPCMetrics{},
+		Metrics:     backendpb.EmptyRemoteKVMetrics{},
 		Endpoint: &url.URL{
 			Scheme: "grpc",
 			Host:   l.Addr().String(),

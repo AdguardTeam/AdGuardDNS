@@ -17,27 +17,27 @@ import (
 
 func TestListenConfig(t *testing.T) {
 	pc := &fakenet.PacketConn{
-		OnClose:            func() (err error) { panic("not implemented") },
-		OnLocalAddr:        func() (laddr net.Addr) { panic("not implemented") },
-		OnReadFrom:         func(b []byte) (n int, addr net.Addr, err error) { panic("not implemented") },
-		OnSetDeadline:      func(t time.Time) (err error) { panic("not implemented") },
-		OnSetReadDeadline:  func(t time.Time) (err error) { panic("not implemented") },
-		OnSetWriteDeadline: func(t time.Time) (err error) { panic("not implemented") },
-		OnWriteTo:          func(b []byte, addr net.Addr) (n int, err error) { panic("not implemented") },
+		OnClose:     func() (_ error) { panic("not implemented") },
+		OnLocalAddr: func() (_ net.Addr) { panic("not implemented") },
+		OnReadFrom: func(_ []byte) (_ int, _ net.Addr, _ error) {
+			panic("not implemented")
+		},
+		OnSetDeadline:      func(_ time.Time) (_ error) { panic("not implemented") },
+		OnSetReadDeadline:  func(_ time.Time) (_ error) { panic("not implemented") },
+		OnSetWriteDeadline: func(_ time.Time) (_ error) { panic("not implemented") },
+		OnWriteTo: func(_ []byte, _ net.Addr) (_ int, _ error) {
+			panic("not implemented")
+		},
 	}
 
 	lsnr := &fakenet.Listener{
-		OnAccept: func() (c net.Conn, err error) { panic("not implemented") },
-		OnAddr:   func() (addr net.Addr) { panic("not implemented") },
-		OnClose:  func() (err error) { return nil },
+		OnAccept: func() (_ net.Conn, _ error) { panic("not implemented") },
+		OnAddr:   func() (_ net.Addr) { panic("not implemented") },
+		OnClose:  func() (_ error) { return nil },
 	}
 
 	c := &agdtest.ListenConfig{
-		OnListen: func(
-			ctx context.Context,
-			network string,
-			address string,
-		) (l net.Listener, err error) {
+		OnListen: func(ctx context.Context, network, address string) (l net.Listener, err error) {
 			return lsnr, nil
 		},
 		OnListenPacket: func(

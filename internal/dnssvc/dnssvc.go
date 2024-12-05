@@ -347,14 +347,15 @@ func NewListener(
 	case agd.ProtoDoH:
 		l = dnsserver.NewServerHTTPS(dnsserver.ConfigHTTPS{
 			ConfigBase:        baseConf,
-			TLSConfig:         s.TLS,
+			TLSConfDefault:    s.TLS.Default,
+			TLSConfH3:         s.TLS.H3,
 			NonDNSHandler:     nonDNS,
 			MaxStreamsPerPeer: quicConf.MaxStreamsPerPeer,
 			QUICLimitsEnabled: quicConf.QUICLimitsEnabled,
 		})
 	case agd.ProtoDoQ:
 		l = dnsserver.NewServerQUIC(dnsserver.ConfigQUIC{
-			TLSConfig:         s.TLS,
+			TLSConfig:         s.TLS.Default,
 			ConfigBase:        baseConf,
 			MaxStreamsPerPeer: quicConf.MaxStreamsPerPeer,
 			QUICLimitsEnabled: quicConf.QUICLimitsEnabled,
@@ -369,7 +370,7 @@ func NewListener(
 				MaxPipelineCount:   tcpConf.MaxPipelineCount,
 				TCPIdleTimeout:     tcpConf.IdleTimeout,
 			},
-			TLSConfig: s.TLS,
+			TLSConfig: s.TLS.Default,
 		})
 	default:
 		return nil, fmt.Errorf("protocol: %w: %d", errors.ErrBadEnumValue, p)

@@ -107,6 +107,7 @@ func TestServerQUIC_integration_ENDS0Padding(t *testing.T) {
 
 func TestServerQUIC_integration_0RTT(t *testing.T) {
 	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
+	tlsConfig.NextProtos = dnsserver.NextProtoDoQ
 	srv, addr, err := dnsservertest.RunLocalQUICServer(
 		dnsservertest.NewDefaultHandler(),
 		tlsConfig,

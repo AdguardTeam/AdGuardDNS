@@ -54,7 +54,9 @@ func newChanPacketConn(
 		sessions:      sessions,
 		writeRequests: writeRequests,
 
-		sessionsGauge:      metrics.BindToDeviceUDPSessionsChanSize.WithLabelValues(subnet.String()),
+		sessionsGauge: metrics.BindToDeviceUDPSessionsChanSize.WithLabelValues(
+			subnet.String(),
+		),
 		writeRequestsGauge: writeRequestsGauge,
 
 		deadlineMu: &sync.RWMutex{},

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/miekg/dns"
 )
@@ -57,9 +58,12 @@ func (mw *Middleware) filterRequest(
 ) {
 	start := time.Now()
 
-	reqRes, err := f.FilterRequest(ctx, fctx.originalRequest, ri)
+	fltReq := mw.reqInfoToFltReq(fctx.originalRequest, ri)
+	defer mw.putFltReq(fltReq)
+
+	reqRes, err := f.FilterRequest(ctx, fltReq)
 	if err != nil {
-		mw.reportf(ctx, "filtering request: %w", err)
+		errcoll.Collect(ctx, mw.errColl, mw.logger, "filtering request", err)
 	}
 
 	if mod, ok := reqRes.(*filter.ResultModifiedRequest); ok {
@@ -68,6 +72,38 @@ func (mw *Middleware) filterRequest(
 
 	fctx.requestResult = reqRes
 	fctx.elapsed += time.Since(start)
+}
+
+// reqInfoToFltReq converts data from a DNS request and request info into a
+// *filter.Request.  The returned request data should be put back into the pool
+// by using [Middleware.putFltReq].
+func (mw *Middleware) reqInfoToFltReq(req *dns.Msg, ri *agd.RequestInfo) (fltReq *filter.Request) {
+	fltReq = mw.fltReqPool.Get()
+
+	// NOTE:  Fill all fields of fltReq since it is reused from the pool.
+	fltReq.DNS = req
+	fltReq.Messages = ri.Messages
+	fltReq.RemoteIP = ri.RemoteIP
+
+	if _, d := ri.DeviceData(); d != nil {
+		fltReq.ClientName = string(d.Name)
+	} else {
+		fltReq.ClientName = ""
+	}
+
+	fltReq.Host = ri.Host
+	fltReq.QType = ri.QType
+	fltReq.QClass = ri.QClass
+
+	return fltReq
+}
+
+// putFltReq sets req.DNS to nil, to prevent the message being contained in the
+// pool, which can lead to conflicts with the cloner of the middleware, and puts
+// req back into the pool.
+func (mw *Middleware) putFltReq(req *filter.Request) {
+	req.DNS = nil
+	mw.fltReqPool.Put(req)
 }
 
 // filterResponse applies f to resp and sets the result of filtering in fctx.
@@ -95,9 +131,12 @@ func (mw *Middleware) filterResponse(
 		var rr dns.RR = ri.Messages.NewAnswerCNAME(origReq, modReq.Question[0].Name)
 		origResp.Answer = slices.Insert(origResp.Answer, 0, rr)
 	} else {
-		respRes, err := f.FilterResponse(ctx, fctx.originalResponse, ri)
+		fltResp := mw.reqInfoToFltResp(fctx.originalResponse, ri)
+		defer mw.putFltResp(fltResp)
+
+		respRes, err := f.FilterResponse(ctx, fltResp)
 		if err != nil {
-			mw.reportf(ctx, "filtering response: %w", err)
+			errcoll.Collect(ctx, mw.errColl, mw.logger, "filtering response", err)
 		}
 
 		fctx.responseResult = respRes
@@ -106,11 +145,41 @@ func (mw *Middleware) filterResponse(
 	fctx.elapsed += time.Since(start)
 }
 
+// reqInfoToFltResp converts data from a DNS response and request info into a
+// *filter.Response.  The returned response data should be put back into
+// the pool by using [Middleware.putFltResp].
+func (mw *Middleware) reqInfoToFltResp(
+	resp *dns.Msg,
+	ri *agd.RequestInfo,
+) (fltResp *filter.Response) {
+	fltResp = mw.fltRespPool.Get()
+
+	// NOTE:  Fill all fields of fltResp since it is reused from the pool.
+	fltResp.DNS = resp
+	fltResp.RemoteIP = ri.RemoteIP
+
+	if _, d := ri.DeviceData(); d != nil {
+		fltResp.ClientName = string(d.Name)
+	} else {
+		fltResp.ClientName = ""
+	}
+
+	return fltResp
+}
+
+// putFltResp sets resp.DNS to nil, to prevent the message being contained in
+// the pool, which can lead to conflicts with the cloner of the middleware, and
+// puts resp back into the pool.
+func (mw *Middleware) putFltResp(resp *filter.Response) {
+	resp.DNS = nil
+	mw.fltRespPool.Put(resp)
+}
+
 // filteringData returns the data necessary for request information recording
 // from the filtering context.
 func filteringData(
 	fctx *filteringContext,
-) (id agd.FilterListID, text agd.FilterRuleText, blocked bool) {
+) (id filter.ID, text filter.RuleText, blocked bool) {
 	if fctx.requestResult != nil {
 		return resultData(fctx.requestResult, "reqRes")
 	}
@@ -123,9 +192,9 @@ func filteringData(
 func resultData(
 	res filter.Result,
 	argName string,
-) (id agd.FilterListID, text agd.FilterRuleText, blocked bool) {
+) (id filter.ID, text filter.RuleText, blocked bool) {
 	if res == nil {
-		return agd.FilterListIDNone, "", false
+		return filter.IDNone, "", false
 	}
 
 	id, text = res.MatchedRule()
@@ -164,7 +233,13 @@ func (mw *Middleware) setFilteredResponse(
 		var err error
 		fctx.filteredResponse, err = ri.Messages.NewBlockedResp(fctx.originalRequest)
 		if err != nil {
-			mw.reportf(ctx, "creating blocked resp for filtered req: %w", err)
+			errcoll.Collect(
+				ctx,
+				mw.errColl,
+				mw.logger,
+				"creating blocked resp for filtered req",
+				err,
+			)
 			fctx.filteredResponse = fctx.originalResponse
 		}
 	case *filter.ResultAllowed, *filter.ResultModifiedRequest:
@@ -201,7 +276,13 @@ func (mw *Middleware) setFilteredResponseNoReq(
 		var err error
 		fctx.filteredResponse, err = ri.Messages.NewBlockedResp(fctx.originalRequest)
 		if err != nil {
-			mw.reportf(ctx, "creating blocked resp for filtered resp: %w", err)
+			errcoll.Collect(
+				ctx,
+				mw.errColl,
+				mw.logger,
+				"creating blocked resp for filtered resp",
+				err,
+			)
 			fctx.filteredResponse = fctx.originalResponse
 		}
 	default:

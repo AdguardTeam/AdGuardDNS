@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/miekg/dns"
 )
 
@@ -36,8 +37,8 @@ const (
 
 // Common filtering-rule list ID for tests.
 const (
-	FilterListID1 agd.FilterListID = FilterListID1Str
-	FilterListID2 agd.FilterListID = FilterListID2Str
+	FilterListID1 filter.ID = FilterListID1Str
+	FilterListID2 filter.ID = FilterListID2Str
 )
 
 // Common domains and FQDNs for tests.
@@ -144,7 +145,9 @@ func NewServer(
 
 	if proto.IsStdEncrypted() {
 		// #nosec G402 -- This is a test helper.
-		srv.TLS = &tls.Config{}
+		srv.TLS = &agd.TLSConfig{
+			Default: &tls.Config{},
+		}
 	}
 
 	switch proto {

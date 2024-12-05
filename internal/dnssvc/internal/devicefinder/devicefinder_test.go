@@ -408,7 +408,12 @@ func BenchmarkDefault(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for range b.N {
-				sinkDevResult = df.Find(ctx, bc.req, dnssvctest.ClientAddrPort, dnssvctest.ServerAddrPort)
+				sinkDevResult = df.Find(
+					ctx,
+					bc.req,
+					dnssvctest.ClientAddrPort,
+					dnssvctest.ServerAddrPort,
+				)
 			}
 
 			_ = testutil.RequireTypeAssert[*agd.DeviceResultOK](b, sinkDevResult)

@@ -221,7 +221,10 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			rw := dnsserver.NewNonWriterResponseWriter(dnssvctest.ServerTCPAddr, dnssvctest.ClientTCPAddr)
+			rw := dnsserver.NewNonWriterResponseWriter(
+				dnssvctest.ServerTCPAddr,
+				dnssvctest.ClientTCPAddr,
+			)
 
 			ctx := agd.ContextWithRequestInfo(context.Background(), tc.reqInfo)
 

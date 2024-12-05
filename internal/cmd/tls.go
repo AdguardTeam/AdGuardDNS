@@ -3,13 +3,9 @@ package cmd
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
@@ -39,27 +35,22 @@ type tlsConfig struct {
 // valid.
 func (c *tlsConfig) toInternal(
 	ctx context.Context,
-	mtrc tlsconfig.Metrics,
-) (conf *agd.TLS, err error) {
+	tlsMgr tlsconfig.Manager,
+) (deviceDomains []string, err error) {
 	if c == nil {
 		return nil, nil
 	}
 
-	tlsConf, err := c.Certificates.toInternal(ctx, mtrc)
+	err = c.Certificates.store(ctx, tlsMgr)
 	if err != nil {
 		return nil, fmt.Errorf("certificates: %w", err)
 	}
 
-	var deviceDomains []string
 	for _, w := range c.DeviceIDWildcards {
 		deviceDomains = append(deviceDomains, strings.TrimPrefix(w, "*."))
 	}
 
-	return &agd.TLS{
-		Conf:          tlsConf,
-		DeviceDomains: deviceDomains,
-		SessionKeys:   c.SessionKeys,
-	}, nil
+	return deviceDomains, nil
 }
 
 // validate returns an error if the TLS configuration is invalid for the given
@@ -101,9 +92,9 @@ func validateDeviceIDWildcards(wildcards []string) (err error) {
 	for i, w := range wildcards {
 		// TODO(e.burkov):  Consider removing this requirement.
 		if !strings.HasPrefix(w, "*.") {
-			return fmt.Errorf("at index %d: not a wildcard", i)
+			return fmt.Errorf("at index %d: not a wildcard: %q", i, w)
 		} else if s.Has(w) {
-			return fmt.Errorf("at index %d: duplicated wildcard", i)
+			return fmt.Errorf("at index %d: wildcard: %w: %q", i, errors.ErrDuplicated, w)
 		}
 
 		s.Add(w)
@@ -125,42 +116,40 @@ type tlsConfigCert struct {
 // no nil items.
 type tlsConfigCerts []*tlsConfigCert
 
-// toInternal converts certs to a TLS configuration.  certs must be valid.
+// store stores the TLS certificates in the TLS manager.  certs must be valid.
+func (certs tlsConfigCerts) store(ctx context.Context, tlsMgr tlsconfig.Manager) (err error) {
+	var errs []error
+	for i, c := range certs {
+		err = tlsMgr.Add(ctx, c.Certificate, c.Key)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("adding certificate at index %d: %w", i, err))
+		}
+	}
+
+	if len(errs) != 0 {
+		return errors.Join(errs...)
+	}
+
+	return nil
+}
+
+// toInternal is like [tlsConfigCerts.store] but it also returns the TLS
+// configuration.  certs must be valid.
 func (certs tlsConfigCerts) toInternal(
 	ctx context.Context,
-	mtrc tlsconfig.Metrics,
+	tlsMgr tlsconfig.Manager,
 ) (conf *tls.Config, err error) {
 	if len(certs) == 0 {
 		return nil, nil
 	}
 
-	tlsCerts := make([]tls.Certificate, len(certs))
-	for i, c := range certs {
-		var cert tls.Certificate
-		cert, err = tls.LoadX509KeyPair(c.Certificate, c.Key)
-		if err != nil {
-			return nil, fmt.Errorf("certificate at index %d: %w", i, err)
-		}
-
-		var leaf *x509.Certificate
-		leaf, err = x509.ParseCertificate(cert.Certificate[0])
-		if err != nil {
-			return nil, fmt.Errorf("invalid leaf, certificate at index %d: %w", i, err)
-		}
-
-		cert.Leaf = leaf
-		tlsCerts[i] = cert
-
-		authAlgo, subj := leaf.PublicKeyAlgorithm.String(), leaf.Subject.String()
-
-		mtrc.SetCertificateInfo(ctx, authAlgo, subj, leaf.NotAfter)
+	err = certs.store(ctx, tlsMgr)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return nil, err
 	}
 
-	return &tls.Config{
-		Certificates: tlsCerts,
-		MinVersion:   tls.VersionTLS12,
-		MaxVersion:   tls.VersionTLS13,
-	}, nil
+	return tlsMgr.Clone(), nil
 }
 
 // type check
@@ -176,27 +165,6 @@ func (certs tlsConfigCerts) validate() (err error) {
 			return fmt.Errorf("at index %d: certificate: %w", i, errors.ErrEmptyValue)
 		case c.Key == "":
 			return fmt.Errorf("at index %d: key: %w", i, errors.ErrEmptyValue)
-		}
-	}
-
-	return nil
-}
-
-// enableTLSKeyLogging enables TLS key logging (use for debug purposes only).
-func enableTLSKeyLogging(grps []*agd.ServerGroup, keyLogFileName string) (err error) {
-	path := filepath.Clean(keyLogFileName)
-
-	// TODO(a.garipov): Consider closing the file when we add SIGHUP support.
-	kl, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return fmt.Errorf("opening SSL_KEY_LOG_FILE: %w", err)
-	}
-
-	for _, g := range grps {
-		for _, s := range g.Servers {
-			if s.TLS != nil {
-				s.TLS.KeyLogWriter = kl
-			}
 		}
 	}
 

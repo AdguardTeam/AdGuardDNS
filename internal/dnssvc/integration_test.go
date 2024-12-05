@@ -57,7 +57,7 @@ func newTestService(
 	querylogCh chan<- *querylog.Entry,
 	geoIPCh chan<- string,
 	dnsDBCh chan<- *agd.RequestInfo,
-	ruleStatCh chan<- agd.FilterRuleText,
+	ruleStatCh chan<- filter.RuleText,
 ) (svc *dnssvc.Service, srvAddr netip.AddrPort) {
 	t.Helper()
 
@@ -73,11 +73,19 @@ func newTestService(
 	}
 
 	prof := &agd.Profile{
+		FilterConfig: &filter.ConfigClient{
+			Custom:   &filter.ConfigCustom{},
+			Parental: &filter.ConfigParental{},
+			RuleList: &filter.ConfigRuleList{
+				IDs:     []filter.ID{dnssvctest.FilterListID1},
+				Enabled: true,
+			},
+			SafeBrowsing: &filter.ConfigSafeBrowsing{},
+		},
 		Access:              access.EmptyProfile{},
 		BlockingMode:        &dnsmsg.BlockingModeNullIP{},
 		ID:                  dnssvctest.ProfileID,
 		DeviceIDs:           []agd.DeviceID{dnssvctest.DeviceID},
-		RuleListIDs:         []agd.FilterListID{dnssvctest.FilterListID1},
 		FilteredResponseTTL: agdtest.FilteredResponseTTL,
 		FilteringEnabled:    true,
 		QueryLogEnabled:     true,
@@ -124,10 +132,10 @@ func newTestService(
 	}
 
 	fltStrg := &agdtest.FilterStorage{
-		OnFilterFromContext: func(_ context.Context, _ *agd.RequestInfo) (f filter.Interface) {
+		OnForConfig: func(_ context.Context, _ filter.Config) (f filter.Interface) {
 			return flt
 		},
-		OnHasListID: func(_ agd.FilterListID) (ok bool) { panic("not implemented") },
+		OnHasListID: func(_ filter.ID) (ok bool) { panic("not implemented") },
 	}
 
 	var ql querylog.Interface = &agdtest.QueryLog{
@@ -164,7 +172,7 @@ func newTestService(
 	}
 
 	ruleStat := &agdtest.RuleStat{
-		OnCollect: func(_ context.Context, _ agd.FilterListID, text agd.FilterRuleText) {
+		OnCollect: func(_ context.Context, _ filter.ID, text filter.RuleText) {
 			testutil.RequireSend(pt, ruleStatCh, text, dnssvctest.Timeout)
 		},
 	}
@@ -182,14 +190,24 @@ func newTestService(
 		DDR: &agd.DDR{
 			Enabled: true,
 		},
-		TLS: &agd.TLS{
-			DeviceDomains: []string{dnssvctest.DomainForDevices},
-		},
+		DeviceDomains:   []string{dnssvctest.DomainForDevices},
 		Name:            dnssvctest.ServerGroupName,
 		FilteringGroup:  dnssvctest.FilteringGroupID,
 		Servers:         []*agd.Server{srv},
 		ProfilesEnabled: true,
 	}}
+
+	fltGrp := &agd.FilteringGroup{
+		FilterConfig: &filter.ConfigGroup{
+			Parental: &filter.ConfigParental{},
+			RuleList: &filter.ConfigRuleList{
+				IDs:     []filter.ID{dnssvctest.FilterListID1},
+				Enabled: true,
+			},
+			SafeBrowsing: &filter.ConfigSafeBrowsing{},
+		},
+		ID: dnssvctest.FilteringGroupID,
+	}
 
 	hdlrConf := &dnssvc.HandlersConfig{
 		BaseLogger: slogutil.NewDiscardLogger(),
@@ -227,11 +245,7 @@ func newTestService(
 		RuleStat:             ruleStat,
 		MetricsNamespace:     path.Base(t.Name()),
 		FilteringGroups: map[agd.FilteringGroupID]*agd.FilteringGroup{
-			dnssvctest.FilteringGroupID: {
-				ID:               dnssvctest.FilteringGroupID,
-				RuleListIDs:      []agd.FilterListID{dnssvctest.FilterListID1},
-				RuleListsEnabled: true,
-			},
+			dnssvctest.FilteringGroupID: fltGrp,
 		},
 		ServerGroups: srvGrps,
 		EDEEnabled:   true,
@@ -271,7 +285,7 @@ func TestService_Wrap(t *testing.T) {
 	querylogCh := make(chan *querylog.Entry, 1)
 	geoIPCh := make(chan string, 2)
 	dnsDBCh := make(chan *agd.RequestInfo, 1)
-	ruleStatCh := make(chan agd.FilterRuleText, 1)
+	ruleStatCh := make(chan filter.RuleText, 1)
 
 	errCollCh := make(chan error, 1)
 	go func() {
@@ -291,21 +305,27 @@ func TestService_Wrap(t *testing.T) {
 	})
 
 	t.Run("simple_success", func(t *testing.T) {
-		noMatch := func(
-			_ context.Context,
-			m *dns.Msg,
-			_ *agd.RequestInfo,
-		) (r filter.Result, err error) {
-			pt := testutil.PanicT{}
-			require.NotEmpty(pt, m.Question)
-			require.Equal(pt, dnssvctest.DomainFQDN, m.Question[0].Name)
-
-			return nil, nil
-		}
-
 		flt := &agdtest.Filter{
-			OnFilterRequest:  noMatch,
-			OnFilterResponse: noMatch,
+			OnFilterRequest: func(
+				_ context.Context,
+				fltReq *filter.Request,
+			) (r filter.Result, err error) {
+				pt := testutil.PanicT{}
+				require.NotEmpty(pt, fltReq.DNS.Question)
+				require.Equal(pt, dnssvctest.DomainFQDN, fltReq.DNS.Question[0].Name)
+
+				return nil, nil
+			},
+			OnFilterResponse: func(
+				_ context.Context,
+				fltResp *filter.Response,
+			) (r filter.Result, err error) {
+				pt := testutil.PanicT{}
+				require.NotEmpty(pt, fltResp.DNS.Question)
+				require.Equal(pt, dnssvctest.DomainFQDN, fltResp.DNS.Question[0].Name)
+
+				return nil, nil
+			},
 		}
 
 		svc, srvAddr := newTestService(
@@ -346,13 +366,13 @@ func TestService_Wrap(t *testing.T) {
 
 		dnsDBReqInfo := <-dnsDBCh
 		assert.NotNil(t, dnsDBReqInfo)
-		assert.Equal(t, agd.FilterRuleText(""), <-ruleStatCh)
+		assert.Equal(t, filter.RuleText(""), <-ruleStatCh)
 	})
 
 	t.Run("request_cname", func(t *testing.T) {
 		const (
-			cname                        = "cname.example.org"
-			cnameRule agd.FilterRuleText = "||" + dnssvctest.Domain + "^$dnsrewrite=" + cname
+			cname                     = "cname.example.org"
+			cnameRule filter.RuleText = "||" + dnssvctest.Domain + "^$dnsrewrite=" + cname
 		)
 
 		cnameFQDN := dns.Fqdn(cname)
@@ -360,11 +380,10 @@ func TestService_Wrap(t *testing.T) {
 		flt := &agdtest.Filter{
 			OnFilterRequest: func(
 				_ context.Context,
-				m *dns.Msg,
-				_ *agd.RequestInfo,
+				fltReq *filter.Request,
 			) (r filter.Result, err error) {
 				// Pretend a CNAME rewrite matched the request.
-				mod := dnsmsg.Clone(m)
+				mod := dnsmsg.Clone(fltReq.DNS)
 				mod.Question[0].Name = cnameFQDN
 
 				return &filter.ResultModifiedRequest{
@@ -373,11 +392,7 @@ func TestService_Wrap(t *testing.T) {
 					Rule: cnameRule,
 				}, nil
 			},
-			OnFilterResponse: func(
-				_ context.Context,
-				_ *dns.Msg,
-				_ *agd.RequestInfo,
-			) (filter.Result, error) {
+			OnFilterResponse: func(_ context.Context, _ *filter.Response) (filter.Result, error) {
 				panic("not implemented")
 			},
 		}

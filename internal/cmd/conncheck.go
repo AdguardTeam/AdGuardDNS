@@ -48,8 +48,8 @@ func connectivityCheck(srvGrps []*agd.ServerGroup, connCheck *connCheckConfig) (
 	}
 
 	defer func() {
-		errClose := errors.Annotate(conn4.Close(), "connectivity check: closing ipv4: %w")
-		err = errors.WithDeferred(err, errClose)
+		closeErr := errors.Annotate(conn4.Close(), "connectivity check: closing ipv4: %w")
+		err = errors.WithDeferred(err, closeErr)
 	}()
 
 	if !requireIPv6ConnCheck(srvGrps) {
@@ -69,8 +69,8 @@ func connectivityCheck(srvGrps []*agd.ServerGroup, connCheck *connCheckConfig) (
 	}
 
 	defer func() {
-		errClose := errors.Annotate(conn6.Close(), "connectivity check: closing ipv6: %w")
-		err = errors.WithDeferred(err, errClose)
+		closeErr := errors.Annotate(conn6.Close(), "connectivity check: closing ipv6: %w")
+		err = errors.WithDeferred(err, closeErr)
 	}()
 
 	return nil

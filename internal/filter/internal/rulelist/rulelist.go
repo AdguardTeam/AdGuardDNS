@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"net/netip"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
@@ -38,15 +37,15 @@ type (
 	ResultCacheEmpty = agdcache.Empty[internal.CacheKey, *CacheItem]
 )
 
-// NewResultCache returns a new initialized cache with the given size.  If
-// useCache is false, it returns a cache implementation that does nothing.
-func NewResultCache(size int, useCache bool) (cache ResultCache) {
+// NewResultCache returns a new initialized cache with the given element count.
+// If useCache is false, it returns a cache implementation that does nothing.
+func NewResultCache(count int, useCache bool) (cache ResultCache) {
 	if !useCache {
 		return ResultCacheEmpty{}
 	}
 
 	return agdcache.NewLRU[internal.CacheKey, *CacheItem](&agdcache.LRUConfig{
-		Size: size,
+		Count: count,
 	})
 }
 
@@ -55,10 +54,10 @@ func NewResultCache(size int, useCache bool) (cache ResultCache) {
 func NewManagedResultCache(
 	m agdcache.Manager,
 	id string,
-	size int,
+	count int,
 	useCache bool,
 ) (cache ResultCache) {
-	cache = NewResultCache(size, useCache)
+	cache = NewResultCache(count, useCache)
 	m.Add(id, cache)
 
 	return cache
@@ -100,8 +99,8 @@ func itemFromCache(
 type filter struct {
 	// engine is the DNS filtering engine.
 	//
-	// NOTE: We do not save the [filterlist.RuleList] used to create the engine
-	// to close it, because we exclusively use [filterlist.StringRuleList],
+	// NOTE:  Do not save the [filterlist.RuleList] used to create the engine to
+	// close it, because filter exclusively uses [filterlist.StringRuleList],
 	// which doesn't require closing.
 	engine *urlfilter.DNSEngine
 
@@ -111,10 +110,10 @@ type filter struct {
 	cache ResultCache
 
 	// id is the filter list ID, if any.
-	id agd.FilterListID
+	id internal.ID
 
 	// svcID is the additional identifier for blocked service lists.  If id is
-	svcID agd.BlockedServiceID
+	svcID internal.BlockedServiceID
 
 	// urlFilterID is the synthetic integer identifier for the urlfilter engine.
 	//
@@ -127,8 +126,8 @@ type filter struct {
 // provided rule text and ID.
 func newFilter(
 	text string,
-	id agd.FilterListID,
-	svcID agd.BlockedServiceID,
+	id internal.ID,
+	svcID internal.BlockedServiceID,
 	cache agdcache.Interface[internal.CacheKey, *CacheItem],
 ) (f *filter, err error) {
 	f = &filter{
@@ -203,7 +202,7 @@ func (f *filter) DNSResult(
 
 // ID returns the filter list ID of this rule list filter, as well as the ID of
 // the blocked service, if any.
-func (f *filter) ID() (id agd.FilterListID, svcID agd.BlockedServiceID) {
+func (f *filter) ID() (id internal.ID, svcID internal.BlockedServiceID) {
 	return f.id, f.svcID
 }
 

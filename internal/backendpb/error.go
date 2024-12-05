@@ -9,30 +9,15 @@ import (
 	status "google.golang.org/grpc/status"
 )
 
-// GRPCError is a type alias for string that contains the gRPC error type.
-//
-// TODO(s.chzhen):  Rewrite as soon as the import cycle is resolved.
-type GRPCError = string
-
-// gRPC errors of [GRPCError] type.
-const (
-	GRPCErrAuthentication GRPCError = "auth"
-	GRPCErrBadRequest     GRPCError = "bad_req"
-	GRPCErrDeviceQuota    GRPCError = "dev_quota"
-	GRPCErrOther          GRPCError = "other"
-	GRPCErrRateLimit      GRPCError = "rate_limit"
-	GRPCErrTimeout        GRPCError = "timeout"
-)
-
 // fixGRPCError converts a gRPC error into an application error, if necessary.
 // That includes gRPC deadlines, which do not match [context.DeadlineExceeded]
 // correctly.
 //
 // It also updates the backend gRPC metrics depending on the type, see
-// [Metrics.IncrementGRPCErrorCount].
-func fixGRPCError(ctx context.Context, mtrc Metrics, err error) (res error) {
+// [GRPCMetrics.IncrementErrorCount].
+func fixGRPCError(ctx context.Context, mtrc GRPCMetrics, err error) (res error) {
 	metricsType := GRPCErrOther
-	defer func() { mtrc.IncrementGRPCErrorCount(ctx, metricsType) }()
+	defer func() { mtrc.IncrementErrorCount(ctx, metricsType) }()
 
 	s, ok := status.FromError(err)
 	if !ok {

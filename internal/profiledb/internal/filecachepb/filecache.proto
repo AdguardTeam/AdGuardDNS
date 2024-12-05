@@ -15,60 +15,82 @@ message FileCache {
 }
 
 message Profile {
-  AccessSettings access = 21;
-  ParentalProtectionSettings parental = 1;
-  SafeBrowsingSettings safe_browsing = 19;
+  FilterConfig filter_config = 1;
+
+  Access access = 2;
   oneof blocking_mode {
-    BlockingModeCustomIP blocking_mode_custom_ip = 2;
-    BlockingModeNXDOMAIN blocking_mode_nxdomain = 3;
-    BlockingModeNullIP blocking_mode_null_ip = 4;
-    BlockingModeREFUSED blocking_mode_refused = 5;
+    BlockingModeCustomIP blocking_mode_custom_ip = 3;
+    BlockingModeNXDOMAIN blocking_mode_nxdomain = 4;
+    BlockingModeNullIP blocking_mode_null_ip = 5;
+    BlockingModeREFUSED blocking_mode_refused = 6;
   }
-  string profile_id = 6;
-  google.protobuf.Timestamp update_time = 7;
-  repeated string device_ids = 8;
-  repeated string rule_list_ids = 9;
-  repeated string custom_rules = 10;
-  google.protobuf.Duration filtered_response_ttl = 11;
-  bool filtering_enabled = 12;
-  bool safe_browsing_enabled = 13 [deprecated = true];
-  bool rule_lists_enabled = 14;
-  bool query_log_enabled = 15;
-  bool deleted = 16;
-  bool block_private_relay = 17;
-  bool block_firefox_canary = 18;
-  bool ip_log_enabled = 20;
-  bool auto_devices_enabled = 22;
-  RateLimitSettings rate_limit = 23;
+  Ratelimiter ratelimiter = 7;
+
+  string profile_id = 8;
+  repeated string device_ids = 9;
+
+  google.protobuf.Duration filtered_response_ttl = 10;
+
+  bool auto_devices_enabled = 11;
+  bool block_chrome_prefetch = 12;
+  bool block_firefox_canary = 13;
+  bool block_private_relay = 14;
+  bool deleted = 15;
+  bool filtering_enabled = 16;
+  bool ip_log_enabled = 17;
+  bool query_log_enabled = 18;
 }
 
-message ParentalProtectionSettings {
-  ParentalProtectionSchedule schedule = 1;
-  repeated string blocked_services = 2;
-  bool enabled = 3;
-  bool block_adult = 4;
-  bool general_safe_search = 5;
-  bool youtube_safe_search = 6;
+message FilterConfig {
+  message Custom {
+    string id = 1;
+    google.protobuf.Timestamp update_time = 2;
+    repeated string rules = 3;
+    bool enabled = 4;
+  }
+
+  message Parental {
+    Schedule pause_schedule = 1;
+    repeated string blocked_services = 2;
+    bool enabled = 3;
+    bool adult_blocking_enabled = 4;
+    bool safe_search_general_enabled = 5;
+    bool safe_search_youtube_enabled = 6;
+  }
+
+  message Schedule {
+    WeeklySchedule week = 1;
+    string time_zone = 2;
+  }
+
+  message WeeklySchedule {
+    DayInterval mon = 1;
+    DayInterval tue = 2;
+    DayInterval wed = 3;
+    DayInterval thu = 4;
+    DayInterval fri = 5;
+    DayInterval sat = 6;
+    DayInterval sun = 7;
+  }
+
+  message RuleList {
+    repeated string ids = 1;
+    bool enabled = 2;
+  }
+
+  message SafeBrowsing {
+    bool enabled = 1;
+    bool dangerous_domains_enabled = 2;
+    bool newly_registered_domains_enabled = 3;
+  }
+
+  Custom custom = 1;
+  Parental parental = 2;
+  RuleList rule_list = 3;
+  SafeBrowsing safe_browsing = 4;
 }
 
-message SafeBrowsingSettings {
-  bool enabled = 1;
-  bool block_dangerous_domains = 2;
-  bool block_newly_registered_domains = 3;
-}
-
-message ParentalProtectionSchedule {
-  string time_zone = 1;
-  DayRange mon = 2;
-  DayRange tue = 3;
-  DayRange wed = 4;
-  DayRange thu = 5;
-  DayRange fri = 6;
-  DayRange sat = 7;
-  DayRange sun = 8;
-}
-
-message DayRange {
+message DayInterval {
   uint32 start = 1;
   uint32 end = 2;
 }
@@ -94,12 +116,12 @@ message Device {
   bool filtering_enabled = 5;
 }
 
-message AccessSettings {
+message Access {
+  repeated uint32 allowlist_asn = 4;
   repeated CidrRange allowlist_cidr = 1;
+  repeated uint32 blocklist_asn = 5;
   repeated CidrRange blocklist_cidr = 2;
-  repeated uint32 allowlist_asn = 3;
-  repeated uint32 blocklist_asn = 4;
-  repeated string blocklist_domain_rules = 5;
+  repeated string blocklist_domain_rules = 3;
 }
 
 message CidrRange {
@@ -114,8 +136,8 @@ message AuthenticationSettings {
   }
 }
 
-message RateLimitSettings {
-  bool enabled = 1;
+message Ratelimiter {
+  repeated CidrRange client_cidr = 1;
   uint32 rps = 2;
-  repeated CidrRange client_cidr = 3;
+  bool enabled = 3;
 }

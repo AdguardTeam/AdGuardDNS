@@ -20,9 +20,9 @@ type serverGroups []*serverGroup
 // service.  srvGrps and other parts of the configuration must be valid.
 func (srvGrps serverGroups) toInternal(
 	ctx context.Context,
-	mtrc tlsconfig.Metrics,
 	messages *dnsmsg.Constructor,
 	btdMgr *bindtodevice.Manager,
+	tlsMgr tlsconfig.Manager,
 	fltGrps map[agd.FilteringGroupID]*agd.FilteringGroup,
 	ratelimitConf *rateLimitConfig,
 	dnsConf *dnsConfig,
@@ -35,26 +35,26 @@ func (srvGrps serverGroups) toInternal(
 			return nil, fmt.Errorf("server group %q: unknown filtering group %q", g.Name, fltGrpID)
 		}
 
-		var tlsConf *agd.TLS
-		tlsConf, err = g.TLS.toInternal(ctx, mtrc)
+		var deviceDomains []string
+		deviceDomains, err = g.TLS.toInternal(ctx, tlsMgr)
 		if err != nil {
-			return nil, fmt.Errorf("tls: %w", err)
+			return nil, fmt.Errorf("tls %q: %w", g.Name, err)
 		}
 
 		svcSrvGrps[i] = &agd.ServerGroup{
 			DDR:             g.DDR.toInternal(messages),
-			TLS:             tlsConf,
+			DeviceDomains:   deviceDomains,
 			Name:            agd.ServerGroupName(g.Name),
 			FilteringGroup:  fltGrpID,
 			ProfilesEnabled: g.ProfilesEnabled,
 		}
 
 		svcSrvGrps[i].Servers, err = g.Servers.toInternal(
-			mtrc,
-			tlsConf,
 			btdMgr,
+			tlsMgr,
 			ratelimitConf,
 			dnsConf,
+			deviceDomains,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("server group %q: %w", g.Name, err)
@@ -81,7 +81,7 @@ func (srvGrps serverGroups) validate() (err error) {
 		}
 
 		if names.Has(g.Name) {
-			return fmt.Errorf("at index %d: duplicate name %q", i, g.Name)
+			return fmt.Errorf("at index %d: name: %w: %q", i, errors.ErrDuplicated, g.Name)
 		}
 
 		names.Add(g.Name)
@@ -147,4 +147,17 @@ func (g *serverGroup) validate() (err error) {
 	}
 
 	return nil
+}
+
+// collectSessTicketPaths returns the list of unique session ticket file paths
+// for all server groups.
+func (srvGrps serverGroups) collectSessTicketPaths() (paths []string) {
+	set := container.NewSortedSliceSet[string]()
+	for _, g := range srvGrps {
+		for _, k := range g.TLS.SessionKeys {
+			set.Add(k)
+		}
+	}
+
+	return set.Values()
 }

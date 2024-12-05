@@ -3,6 +3,7 @@ package backendpb
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/netip"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -19,7 +20,8 @@ func devicesToInternal(
 	ds []*DeviceSettings,
 	bindSet netutil.SubnetSet,
 	errColl errcoll.Interface,
-	mtrc Metrics,
+	logger *slog.Logger,
+	mtrc ProfileDBMetrics,
 ) (out []*agd.Device, ids []agd.DeviceID) {
 	l := len(ds)
 	if l == 0 {
@@ -35,7 +37,8 @@ func devicesToInternal(
 				id = d.Id
 			}
 
-			reportf(ctx, errColl, "bad device settings for device with id %q: %w", id, err)
+			err = fmt.Errorf("bad settings for device with id %q: %w", id, err)
+			errcoll.Collect(ctx, errColl, logger, "converting device", err)
 
 			// TODO(s.chzhen):  Add a return result structure and move the
 			// metrics collection to the layer above.

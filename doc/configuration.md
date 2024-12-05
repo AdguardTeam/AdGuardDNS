@@ -378,13 +378,15 @@ The `check` object has the following properties:
 
 - <a href="#check_kv" id="check_kv" name="check_kv">`kv`</a>: Remote key-value storage settings. It has the following properties:
 
-    - <a href="#check-kv-type" id="check-kv-type" name="check-kv-type">`type`</a>: Type of the remote KV storage. Allowed values are `backend`, `consul`, and `redis`.
+    - <a href="#check-kv-type" id="check-kv-type" name="check-kv-type">`type`</a>: Type of the remote KV storage. Allowed values are `backend`, `cache`, `consul`, and `redis`.
 
         **Example:** `consul`.
 
     - <a href="#check-kv-ttl" id="check-kv-ttl" name="check-kv-ttl">`ttl`</a>: For how long to keep the information about a single user in remote KV, as a human-readable duration.
 
         For `backend`, the TTL must be greater than `0s`.
+
+        For `cache`, the TTL is not used.
 
         For `consul`, the TTL must be between `10s` and `1d`. Note that the actual TTL can be up to twice as long.
 
@@ -662,13 +664,17 @@ The items of the `filtering_groups` array have the following properties:
 
         **Example:** `true`.
 
-- <a href="#fg-*-block_private_relay" id="fg-*-block_private_relay" name="fg-*-block_private_relay">`private_relay`</a>: If true, Apple Private Relay queries are blocked for requests using this filtering group.
+- <a href="#fg-*-block_chrome_prefetch" id="fg-*-block_chrome_prefetch" name="fg-*-block_chrome_prefetch">`block_chrome_prefetch`</a>: If true, Chrome prefetch domain queries are blocked for requests using this filtering group, forcing the preferch proxy into preflight mode.
 
-    **Example:** `false`.
+    **Example:** `true`.
 
 - <a href="#fg-*-block_firefox_canary" id="fg-*-block_firefox_canary" name="fg-*-block_firefox_canary">`block_firefox_canary`</a>: If true, Firefox canary domain queries are blocked for requests using this filtering group.
 
     **Example:** `true`.
+
+- <a href="#fg-*-block_private_relay" id="fg-*-block_private_relay" name="fg-*-block_private_relay">`private_relay`</a>: If true, Apple Private Relay queries are blocked for requests using this filtering group.
+
+    **Example:** `false`.
 
 ## <a href="#interface_listeners" id="interface_listeners" name="interface_listeners">Network interface listeners</a>
 

@@ -1,8 +1,6 @@
 package agd
 
 import (
-	"crypto/tls"
-
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/miekg/dns"
 )
@@ -14,10 +12,11 @@ type ServerGroup struct {
 	// Resolvers (DDR) handlers.  DDR must not be nil.
 	DDR *DDR
 
-	// TLS are the TLS settings for this server group.  If Servers contains at
-	// least one server with a non-plain protocol (see [Protocol.IsPlain]), TLS
-	// must not be nil.
-	TLS *TLS
+	// DeviceDomains is the list of domain names used to detect device IDs from
+	// clients' server names.
+	//
+	// TODO(s.chzhen):  Consider using a custom type.
+	DeviceDomains []string
 
 	// Name is the unique name of the server group.
 	Name ServerGroupName
@@ -35,20 +34,6 @@ type ServerGroup struct {
 
 // ServerGroupName is the name of a server group.
 type ServerGroupName string
-
-// TLS is the TLS configuration of a DNS server group.
-type TLS struct {
-	// Conf is the server's TLS configuration.
-	Conf *tls.Config
-
-	// DeviceDomains are the domain names used to detect device IDs from
-	// clients' server names.
-	DeviceDomains []string
-
-	// SessionKeys are paths to files containing the TLS session keys for this
-	// server.
-	SessionKeys []string
-}
 
 // DDR is the configuration for the server group's Discovery Of Designated
 // Resolvers (DDR) handlers.

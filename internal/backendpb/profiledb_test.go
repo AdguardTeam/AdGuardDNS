@@ -13,7 +13,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/c2h5oh/datasize"
 	"github.com/stretchr/testify/assert"
@@ -67,10 +66,11 @@ func TestProfileStorage_CreateAutoDevice(t *testing.T) {
 	require.NoError(t, err)
 
 	s, err := backendpb.NewProfileStorage(&backendpb.ProfileStorageConfig{
-		BindSet: backendpb.TestBind,
-		ErrColl: agdtest.NewErrorCollector(),
-		Logger:  slogutil.NewDiscardLogger(),
-		Metrics: backendpb.EmptyMetrics{},
+		BindSet:     backendpb.TestBind,
+		ErrColl:     agdtest.NewErrorCollector(),
+		Logger:      backendpb.TestLogger,
+		GRPCMetrics: backendpb.EmptyGRPCMetrics{},
+		Metrics:     backendpb.EmptyProfileDBMetrics{},
 		Endpoint: &url.URL{
 			Scheme: "grpc",
 			Host:   l.Addr().String(),
@@ -157,10 +157,11 @@ func BenchmarkProfileStorage_Profiles(b *testing.B) {
 	require.NoError(b, err)
 
 	s, err := backendpb.NewProfileStorage(&backendpb.ProfileStorageConfig{
-		BindSet: netip.MustParsePrefix("0.0.0.0/0"),
-		ErrColl: agdtest.NewErrorCollector(),
-		Logger:  slogutil.NewDiscardLogger(),
-		Metrics: backendpb.EmptyMetrics{},
+		BindSet:     netip.MustParsePrefix("0.0.0.0/0"),
+		ErrColl:     agdtest.NewErrorCollector(),
+		Logger:      backendpb.TestLogger,
+		GRPCMetrics: backendpb.EmptyGRPCMetrics{},
+		Metrics:     backendpb.EmptyProfileDBMetrics{},
 		Endpoint: &url.URL{
 			Scheme: "grpc",
 			Host:   l.Addr().String(),
@@ -195,8 +196,10 @@ func BenchmarkProfileStorage_Profiles(b *testing.B) {
 	require.NoError(b, errSink)
 	require.NotNil(b, respSink)
 
-	// goos: darwin
-	// goarch: arm64
-	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/backendpb
-	// BenchmarkProfileStorage_Profiles-8         11599            104725 ns/op           18281 B/op        328 allocs/op
+	// Most recent results:
+	//	goos: linux
+	//	goarch: amd64
+	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/backendpb
+	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
+	//	BenchmarkProfileStorage_Profiles-16    	    4501	    258657 ns/op	   20020 B/op	     350 allocs/op
 }

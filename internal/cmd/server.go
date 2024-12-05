@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net/netip"
+	"slices"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
@@ -14,11 +17,11 @@ import (
 // toInternal returns the configuration of DNS servers for a single server
 // group.  srvs and other parts of the configuration must be valid.
 func (srvs servers) toInternal(
-	mtrc tlsconfig.Metrics,
-	tlsConfig *agd.TLS,
 	btdMgr *bindtodevice.Manager,
+	tlsMgr tlsconfig.Manager,
 	ratelimitConf *rateLimitConfig,
 	dnsConf *dnsConfig,
+	deviceDomains []string,
 ) (dnsSrvs []*agd.Server, err error) {
 	dnsSrvs = make([]*agd.Server, 0, len(srvs))
 	for _, srv := range srvs {
@@ -66,18 +69,7 @@ func (srvs servers) toInternal(
 				QUICLimitsEnabled: ratelimitConf.QUIC.Enabled,
 			}
 
-			tlsConf := tlsConfig.Conf.Clone()
-
-			// Attach the functions that will count TLS handshake metrics.
-			tlsConf.GetConfigForClient = mtrc.BeforeHandshake(string(srv.Protocol))
-			tlsConf.VerifyConnection = mtrc.AfterHandshake(
-				string(srv.Protocol),
-				srv.Name,
-				tlsConfig.DeviceDomains,
-				tlsConf.Certificates,
-			)
-
-			dnsSrv.TLS = tlsConf
+			dnsSrv.TLS = newTLSConfig(dnsSrv, tlsMgr, deviceDomains, srv)
 		}
 
 		dnsSrv.SetBindData(bindData)
@@ -86,6 +78,35 @@ func (srvs servers) toInternal(
 	}
 
 	return dnsSrvs, nil
+}
+
+// newTLSConfig returns the TLS configuration with metrics and ALPs set.
+//
+// TODO(s.chzhen):  Consider moving to agd package as soon as the import cycle
+// is resolved.
+func newTLSConfig(
+	dnsSrv *agd.Server,
+	tlsMgr tlsconfig.Manager,
+	deviceDomains []string,
+	srv *server,
+) (c *agd.TLSConfig) {
+	tlsConf := tlsMgr.CloneWithMetrics(string(srv.Protocol), srv.Name, deviceDomains)
+
+	var tlsConfH3 *tls.Config
+	switch dnsSrv.Protocol {
+	case agd.ProtoDoH:
+		tlsConfH3 = tlsMgr.CloneWithMetrics(string(srv.Protocol), srv.Name, deviceDomains)
+
+		tlsConf.NextProtos = slices.Clone(dnsserver.NextProtoDoH)
+		tlsConfH3.NextProtos = slices.Clone(dnsserver.NextProtoDoH3)
+	case agd.ProtoDoQ:
+		tlsConf.NextProtos = slices.Clone(dnsserver.NextProtoDoQ)
+	}
+
+	return &agd.TLSConfig{
+		Default: tlsConf,
+		H3:      tlsConfH3,
+	}
 }
 
 // servers is a slice of server settings.  A valid instance of servers has no
@@ -110,7 +131,7 @@ func (srvs servers) validate() (needsTLS bool, err error) {
 		}
 
 		if names.Has(s.Name) {
-			return false, fmt.Errorf("at index %d: duplicate name %q", i, s.Name)
+			return false, fmt.Errorf("at index %d: name: %w: %q", i, errors.ErrDuplicated, s.Name)
 		}
 
 		names.Add(s.Name)
@@ -337,11 +358,11 @@ func (c *serverBindInterface) validate() (err error) {
 	set := container.NewMapSet[netip.Prefix]()
 	for i, subnet := range c.Subnets {
 		if !subnet.IsValid() {
-			return fmt.Errorf("bad subnet at index %d", i)
+			return fmt.Errorf("subnets: at index %d: bad subnet", i)
 		}
 
 		if set.Has(subnet) {
-			return fmt.Errorf("duplicate subnet %s at index %d", subnet, i)
+			return fmt.Errorf("subnets: at index %d: %w: %s", i, errors.ErrDuplicated, subnet)
 		}
 
 		set.Add(subnet)

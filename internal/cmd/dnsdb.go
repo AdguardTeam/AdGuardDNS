@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"log/slog"
+
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 )
 
 // dnsDBConfig is the configuration of the DNSDB module.
@@ -34,12 +37,16 @@ func (c *dnsDBConfig) validate() (err error) {
 
 // toInternal builds and returns an anonymous statistics collector.  c must be
 // valid.
-func (c *dnsDBConfig) toInternal(errColl errcoll.Interface) (d dnsdb.Interface) {
+func (c *dnsDBConfig) toInternal(
+	baseLogger *slog.Logger,
+	errColl errcoll.Interface,
+) (d dnsdb.Interface) {
 	if !c.Enabled {
 		return dnsdb.Empty{}
 	}
 
 	db := dnsdb.New(&dnsdb.DefaultConfig{
+		Logger:  baseLogger.With(slogutil.KeyPrefix, "dnsdb"),
 		ErrColl: errColl,
 		MaxSize: c.MaxSize,
 	})

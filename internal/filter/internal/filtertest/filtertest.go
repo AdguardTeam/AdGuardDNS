@@ -3,145 +3,149 @@
 package filtertest
 
 import (
-	"io"
-	"net/http"
-	"net/http/httptest"
+	"encoding/json"
 	"net/netip"
-	"net/url"
-	"os"
-	"path/filepath"
-	"testing"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
-	"github.com/AdguardTeam/golibs/httphdr"
-	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/c2h5oh/datasize"
-	"github.com/miekg/dns"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-// BlockRule is the common blocking rule for filtering tests that blocks
-// [ReqHost].
-const BlockRule = "|" + ReqHost + "^"
-
-// Common string representations of IP adddresses.
+// Common rules for tests.
 const (
-	SafeBrowsingReplIPv4Str = "192.0.2.1"
-	PopupReplIPv4Str        = "192.0.2.3"
+	RuleBlockStr                 = "|" + HostBlocked + "^"
+	RuleSafeSearchGeneralHostStr = "|" + HostSafeSearchGeneral + "^$dnsrewrite=NOERROR;CNAME;" +
+		HostSafeSearchGeneralRepl
+	RuleSafeSearchGeneralIPv4Str = "|" + HostSafeSearchGeneralIPv4 + "^$dnsrewrite=NOERROR;A;" +
+		IPv4SafeSearchReplStr
+	RuleSafeSearchGeneralIPv6Str = "|" + HostSafeSearchGeneralIPv6 + "^$dnsrewrite=NOERROR;AAAA;" +
+		IPv6SafeSearchReplStr
+	RuleSafeSearchYouTubeStr = "|" + HostSafeSearchYouTube + "^$dnsrewrite=NOERROR;CNAME;" +
+		HostSafeSearchYouTubeRepl
+
+	RuleBlock internal.RuleText = RuleBlockStr
+)
+
+// Common string representations of IP addresses.
+const (
+	IPv4ClientStr           = "192.0.2.1"
+	IPv4AdultContentReplStr = "192.0.2.2"
+	IPv4SafeSearchReplStr   = "192.0.2.3"
+	IPv6SafeSearchReplStr   = "2001:db8::1"
 )
 
 // Common IP addresses for tests.
 var (
-	SafeBrowsingReplIPv4 = netip.MustParseAddr(SafeBrowsingReplIPv4Str)
-	PopupReplIPv4        = netip.MustParseAddr(PopupReplIPv4Str)
+	IPv4Client           = netip.MustParseAddr(IPv4ClientStr)
+	IPv4AdultContentRepl = netip.MustParseAddr(IPv4AdultContentReplStr)
+	IPv4SafeSearchRepl   = netip.MustParseAddr(IPv4SafeSearchReplStr)
+	IPv6SafeSearchRepl   = netip.MustParseAddr(IPv6SafeSearchReplStr)
 )
 
-// RemoteIP is the common client IP for filtering tests
-var RemoteIP = netip.MustParseAddr("1.2.3.4")
-
+// Common hostnames and FQDNs for tests.
 const (
-	// ReqHost is the common request host for filtering tests.
-	ReqHost = "www.host.example"
+	Host                      = "host.example"
+	HostAdultContent          = "adult-content.example"
+	HostAdultContentSub       = "a.b.c." + HostAdultContent
+	HostAdultContentRepl      = "adult-content-repl.example"
+	HostBlocked               = "blocked.example"
+	HostBlockedService1       = "service-1.example"
+	HostDangerous             = "dangerous-domain.example"
+	HostDangerousRepl         = "dangerous-domain-repl.example"
+	HostNewlyRegistered       = "newly-registered.example"
+	HostNewlyRegisteredRepl   = "newly-registered-repl.example"
+	HostSafeSearchGeneral     = "search-host.example"
+	HostSafeSearchGeneralIPv4 = "search-ipv4.example"
+	HostSafeSearchGeneralIPv6 = "search-ipv6.example"
+	HostSafeSearchGeneralRepl = "safe.search.example"
+	HostSafeSearchYouTube     = "video.example"
+	HostSafeSearchYouTubeRepl = "safe.video.example"
 
-	// ReqFQDN is the FQDN version of ReqHost.
-	ReqFQDN = ReqHost + "."
-
-	// PopupBlockPageHost is the common popup block-page host for tests.
-	PopupBlockPageHost = "ad-block.adguard.example"
-
-	// PopupBlockPageFQDN is the FQDN version of PopupBlockPageHost.
-	PopupBlockPageFQDN = PopupBlockPageHost + "."
+	FQDN                      = Host + "."
+	FQDNAdultContent          = HostAdultContent + "."
+	FQDNAdultContentRepl      = HostAdultContentRepl + "."
+	FQDNBlocked               = HostBlocked + "."
+	FQDNDangerous             = HostDangerous + "."
+	FQDNDangerousRepl         = HostDangerousRepl + "."
+	FQDNNewlyRegistered       = HostNewlyRegistered + "."
+	FQDNNewlyRegisteredRepl   = HostNewlyRegisteredRepl + "."
+	FQDNSafeSearchGeneralRepl = HostSafeSearchGeneralRepl + "."
+	FQDNSafeSearchGeneralIPv4 = HostSafeSearchGeneralIPv4 + "."
+	FQDNSafeSearchGeneralIPv6 = HostSafeSearchGeneralIPv6 + "."
+	FQDNSafeSearchYouTube     = HostSafeSearchYouTube + "."
+	FQDNSafeSearchYouTubeRepl = HostSafeSearchYouTubeRepl + "."
 )
 
-// ServerName is the common server name for filtering tests.
-const ServerName = "testServer/1.0"
+// Common blocked-service IDs for tests.
+const (
+	BlockedServiceID1Str            = "blocked_service_1"
+	BlockedServiceID2Str            = "blocked_service_2"
+	BlockedServiceIDDoesNotExistStr = "blocked_service_none"
+
+	BlockedServiceID1            internal.BlockedServiceID = BlockedServiceID1Str
+	BlockedServiceID2            internal.BlockedServiceID = BlockedServiceID2Str
+	BlockedServiceIDDoesNotExist internal.BlockedServiceID = BlockedServiceIDDoesNotExistStr
+)
+
+// BlockedServiceIndex is a service-index response for tests.
+//
+// See https://github.com/AdguardTeam/HostlistsRegistry/blob/main/assets/services.json.
+const BlockedServiceIndex string = `{
+  "blocked_services": [
+    {
+      "id": "` + BlockedServiceID1Str + `",
+      "name": "Service 1",
+      "rules": [
+        "||` + HostBlockedService1 + `^"
+      ]
+    },
+    {
+      "id": "` + BlockedServiceID2Str + `",
+      "name": "Service 2",
+      "rules": [
+        "||service-2.example^"
+      ]
+    }
+  ]
+}
+`
+
+// Common rule-list IDs for tests.
+const (
+	RuleListID1Str = "rule_list_1"
+	RuleListID2Str = "rule_list_2"
+
+	RuleListID1 internal.ID = RuleListID1Str
+	RuleListID2 internal.ID = RuleListID2Str
+)
+
+// NewRuleListIndex returns a rule-list index containing a record for a filter
+// with [RuleListID1Str] and downloadURL as the download URL.
+func NewRuleListIndex(downloadURL string) (b []byte) {
+	return errors.Must(json.Marshal(map[string]any{
+		"filters": []map[string]any{{
+			"filterKey":   RuleListID1Str,
+			"downloadUrl": downloadURL,
+		}},
+	}))
+}
 
 // CacheTTL is the common long cache-TTL for filtering tests.
 const CacheTTL = 1 * time.Hour
 
-// Staleness is the common long staleness for filtering tests.
-const Staleness = 1 * time.Hour
-
-// Timeout is the common timeout for filtering tests.
-const Timeout = 1 * time.Second
+// CacheCount is the common count of cache items for filtering tests.
+const CacheCount = 100
 
 // FilterMaxSize is the maximum size of the downloadable rule-list for filtering
 // tests.
 const FilterMaxSize = 640 * datasize.KB
 
-// AssertEqualResult is a test helper that compares two results taking
-// [internal.ResultModifiedRequest] and its difference in IDs into account.
-func AssertEqualResult(tb testing.TB, want, got internal.Result) (ok bool) {
-	tb.Helper()
+// ServerName is the common server name for filtering tests.
+const ServerName = "testServer/1.0"
 
-	wantRM, ok := want.(*internal.ResultModifiedRequest)
-	if !ok {
-		return assert.Equal(tb, want, got)
-	}
+// Staleness is the common long staleness files used in filtering tests.
+const Staleness = 1 * time.Hour
 
-	gotRM := testutil.RequireTypeAssert[*internal.ResultModifiedRequest](tb, got)
-
-	return assert.Equal(tb, wantRM.List, gotRM.List) &&
-		assert.Equal(tb, wantRM.Rule, gotRM.Rule) &&
-		assertEqualRequests(tb, wantRM.Msg, gotRM.Msg)
-}
-
-// assertEqualRequests is a test helper that compares two DNS requests ignoring
-// the ID.
-//
-// TODO(a.garipov): Move to golibs?
-func assertEqualRequests(tb testing.TB, want, got *dns.Msg) (ok bool) {
-	tb.Helper()
-
-	if want == nil {
-		return assert.Nil(tb, got)
-	}
-
-	// Use a shallow clone, because this should be enough to fix the ID.
-	gotWithID := &dns.Msg{}
-	*gotWithID = *got
-	gotWithID.Id = want.Id
-
-	return assert.Equal(tb, want, gotWithID)
-}
-
-// PrepareRefreshable launches an HTTP server serving the given text and code,
-// as well as creates a cache file.  If reqCh not nil, a signal is sent every
-// time the server is called.  The server uses [ServerName] as the value of the
-// Server header.
-func PrepareRefreshable(
-	tb testing.TB,
-	reqCh chan<- struct{},
-	text string,
-	code int,
-) (cachePath string, srvURL *url.URL) {
-	tb.Helper()
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		pt := testutil.PanicT{}
-		if reqCh != nil {
-			testutil.RequireSend(pt, reqCh, struct{}{}, Timeout)
-		}
-
-		w.Header().Set(httphdr.Server, ServerName)
-
-		w.WriteHeader(code)
-
-		_, writeErr := io.WriteString(w, text)
-		require.NoError(pt, writeErr)
-	}))
-	tb.Cleanup(srv.Close)
-
-	srvURL, err := agdhttp.ParseHTTPURL(srv.URL)
-	require.NoError(tb, err)
-
-	cacheDir := tb.TempDir()
-	cacheFile, err := os.CreateTemp(cacheDir, filepath.Base(tb.Name()))
-	require.NoError(tb, err)
-	require.NoError(tb, cacheFile.Close())
-
-	return cacheFile.Name(), srvURL
-}
+// Timeout is the common timeout for filtering tests.
+const Timeout = 1 * time.Second

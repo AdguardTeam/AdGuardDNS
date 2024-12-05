@@ -162,7 +162,7 @@ func TestService_Start(t *testing.T) {
 	resp, err = client.Post(ctx, refreshURL, agdhttp.HdrValApplicationJSON, reqBody)
 	require.NoError(t, err)
 
-	assert.Len(t, refreshed, 0)
+	assert.Empty(t, refreshed)
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
 	respBody = readRespBody(t, resp)

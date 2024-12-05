@@ -54,7 +54,7 @@ func (s *profilesCallStats) endDec() {
 }
 
 // report writes the statistics to the log and the metrics.
-func (s *profilesCallStats) report(ctx context.Context, mtrc Metrics) {
+func (s *profilesCallStats) report(ctx context.Context, mtrc ProfileDBMetrics) {
 	lvl := slog.LevelDebug
 	if s.isFullSync {
 		lvl = slog.LevelInfo

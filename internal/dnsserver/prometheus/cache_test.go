@@ -19,7 +19,7 @@ import (
 func TestCacheMetricsListener_integration_cache(t *testing.T) {
 	cacheMiddleware := cache.NewMiddleware(&cache.MiddlewareConfig{
 		MetricsListener: prometheus.NewCacheMetricsListener(testNamespace),
-		Size:            100,
+		Count:           100,
 	})
 
 	handlerWithMiddleware := dnsserver.WithMiddlewares(

@@ -16,6 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
@@ -32,6 +33,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterstorage"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
@@ -57,6 +59,7 @@ const (
 	debugIDProfileDB     = "profiledb"
 	debugIDRuleStat      = "rulestat"
 	debugIDTicketRotator = "ticket_rotator"
+	debugIDTLSConfig     = "tlsconfig"
 	debugIDWebSvc        = "websvc"
 )
 
@@ -76,6 +79,7 @@ type builder struct {
 	cacheManager   *agdcache.DefaultManager
 	cloner         *dnsmsg.Cloner
 	conf           *configuration
+	debugRefrs     debugsvc.Refreshers
 	env            *environment
 	errColl        errcoll.Interface
 	geoIPError     chan error
@@ -91,7 +95,7 @@ type builder struct {
 	access              *access.Global
 	adultBlocking       *hashprefix.Filter
 	adultBlockingHashes *hashprefix.Storage
-	backendGRPCMtrc     *metrics.BackendPB
+	backendGRPCMtrc     *metrics.BackendGRPC
 	billStat            billstat.Recorder
 	bindSet             netutil.SubnetSet
 	btdManager          *bindtodevice.Manager
@@ -100,7 +104,8 @@ type builder struct {
 	dnsCheck            dnscheck.Interface
 	dnsDB               dnsdb.Interface
 	dnsSvc              *dnssvc.Service
-	filterStorage       *filter.DefaultStorage
+	filterMtrc          filter.Metrics
+	filterStorage       *filterstorage.Default
 	filteringGroups     map[agd.FilteringGroupID]*agd.FilteringGroup
 	fwdHandler          *forward.Handler
 	geoIP               *geoip.File
@@ -110,12 +115,11 @@ type builder struct {
 	newRegDomainsHashes *hashprefix.Storage
 	profileDB           profiledb.Interface
 	rateLimit           *ratelimit.Backoff
-	debugRefrs          debugsvc.Refreshers
 	ruleStat            rulestat.Interface
 	safeBrowsing        *hashprefix.Filter
 	safeBrowsingHashes  *hashprefix.Storage
 	sdeConf             *dnsmsg.StructuredDNSErrorsConfig
-	tlsMtrc             tlsconfig.Metrics
+	tlsManager          *tlsconfig.DefaultManager
 	webSvc              *websvc.Service
 
 	// The fields below are initialized later, just like with the fields above,
@@ -201,8 +205,8 @@ func (b *builder) initGeoIP(ctx context.Context) {
 		CacheManager:   b.cacheManager,
 		ASNPath:        asn,
 		CountryPath:    ctry,
-		HostCacheSize:  c.HostCacheSize,
-		IPCacheSize:    c.IPCacheSize,
+		HostCacheCount: c.HostCacheSize,
+		IPCacheCount:   c.IPCacheSize,
 		AllTopASNs:     geoip.DefaultTopASNs,
 		CountryTopASNs: geoip.DefaultCountryTopASNs,
 	})
@@ -224,6 +228,11 @@ func (b *builder) initHashPrefixFilters(ctx context.Context) (err error) {
 	cacheDir := b.env.FilterCachePath
 
 	matchers := map[string]*hashprefix.Storage{}
+
+	b.filterMtrc, err = metrics.NewFilter(b.mtrcNamespace, b.promRegisterer)
+	if err != nil {
+		return fmt.Errorf("registering filter metrics: %w", err)
+	}
 
 	// TODO(a.garipov):  Merge the three functions below together.
 
@@ -251,8 +260,7 @@ func (b *builder) initHashPrefixFilters(ctx context.Context) (err error) {
 
 // initAdultBlocking initializes the adult-blocking filter and hash storage.  It
 // also adds the refresher with ID
-// [hashprefix.IDPrefix]/[agd.FilterListIDAdultBlocking] to the debug
-// refreshers.
+// [hashprefix.IDPrefix]/[filter.IDAdultBlocking] to the debug refreshers.
 //
 // It must be called from [builder.initHashPrefixFilters].
 func (b *builder) initAdultBlocking(
@@ -272,7 +280,7 @@ func (b *builder) initAdultBlocking(
 	}
 
 	c := b.conf.AdultBlocking
-	id := agd.FilterListIDAdultBlocking
+	id := filter.IDAdultBlocking
 	prefix := path.Join(hashprefix.IDPrefix, string(id))
 	b.adultBlocking, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
 		Logger:          b.baseLogger.With(slogutil.KeyPrefix, prefix),
@@ -281,6 +289,7 @@ func (b *builder) initAdultBlocking(
 		Hashes:          b.adultBlockingHashes,
 		URL:             &b.env.AdultBlockingURL.URL,
 		ErrColl:         b.errColl,
+		Metrics:         b.filterMtrc,
 		ID:              id,
 		CachePath:       filepath.Join(cacheDir, string(id)),
 		ReplacementHost: c.BlockHost,
@@ -289,8 +298,8 @@ func (b *builder) initAdultBlocking(
 		CacheTTL:        c.CacheTTL.Duration,
 		// TODO(a.garipov):  Make all sizes [datasize.ByteSize] and rename cache
 		// entity counts to fooCount.
-		CacheSize: c.CacheSize,
-		MaxSize:   maxSize,
+		CacheCount: c.CacheSize,
+		MaxSize:    maxSize,
 	})
 	if err != nil {
 		return fmt.Errorf("creating filter: %w", err)
@@ -327,8 +336,7 @@ func (b *builder) initAdultBlocking(
 
 // initNewRegDomains initializes the newly-registered domain filter and hash
 // storage.  It also adds the refresher with ID
-// [hashprefix.IDPrefix]/[agd.FilterListIDNewRegDomains] to the debug
-// refreshers.
+// [hashprefix.IDPrefix]/[filter.IDNewRegDomains] to the debug refreshers.
 //
 // It must be called from [builder.initHashPrefixFilters].
 func (b *builder) initNewRegDomains(
@@ -349,7 +357,7 @@ func (b *builder) initNewRegDomains(
 	// Reuse the general safe-browsing filter configuration with a new URL and
 	// ID.
 	c := b.conf.SafeBrowsing
-	id := agd.FilterListIDNewRegDomains
+	id := filter.IDNewRegDomains
 	prefix := path.Join(hashprefix.IDPrefix, string(id))
 	b.newRegDomains, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
 		Logger:          b.baseLogger.With(slogutil.KeyPrefix, prefix),
@@ -358,13 +366,14 @@ func (b *builder) initNewRegDomains(
 		Hashes:          b.newRegDomainsHashes,
 		URL:             &b.env.NewRegDomainsURL.URL,
 		ErrColl:         b.errColl,
+		Metrics:         b.filterMtrc,
 		ID:              id,
 		CachePath:       filepath.Join(cacheDir, string(id)),
 		ReplacementHost: c.BlockHost,
 		Staleness:       c.RefreshIvl.Duration,
 		RefreshTimeout:  c.RefreshTimeout.Duration,
 		CacheTTL:        c.CacheTTL.Duration,
-		CacheSize:       c.CacheSize,
+		CacheCount:      c.CacheSize,
 		MaxSize:         maxSize,
 	})
 	if err != nil {
@@ -399,8 +408,8 @@ func (b *builder) initNewRegDomains(
 }
 
 // initSafeBrowsing initializes the safe-browsing filter and hash storage.  It
-// also adds the refresher with ID
-// [hashprefix.IDPrefix]/[agd.FilterListIDSafeBrowsing] to the debug refreshers.
+// also adds the refresher with ID [hashprefix.IDPrefix]/[filter.IDSafeBrowsing]
+// to the debug refreshers.
 //
 // It must be called from [builder.initHashPrefixFilters].
 func (b *builder) initSafeBrowsing(
@@ -420,7 +429,7 @@ func (b *builder) initSafeBrowsing(
 	}
 
 	c := b.conf.SafeBrowsing
-	id := agd.FilterListIDSafeBrowsing
+	id := filter.IDSafeBrowsing
 	prefix := path.Join(hashprefix.IDPrefix, string(id))
 	b.safeBrowsing, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
 		Logger:          b.baseLogger.With(slogutil.KeyPrefix, prefix),
@@ -429,13 +438,14 @@ func (b *builder) initSafeBrowsing(
 		Hashes:          b.safeBrowsingHashes,
 		URL:             &b.env.SafeBrowsingURL.URL,
 		ErrColl:         b.errColl,
+		Metrics:         b.filterMtrc,
 		ID:              id,
 		CachePath:       filepath.Join(cacheDir, string(id)),
 		ReplacementHost: c.BlockHost,
 		Staleness:       c.RefreshIvl.Duration,
 		RefreshTimeout:  c.RefreshTimeout.Duration,
 		CacheTTL:        c.CacheTTL.Duration,
-		CacheSize:       c.CacheSize,
+		CacheCount:      c.CacheSize,
 		MaxSize:         maxSize,
 	})
 	if err != nil {
@@ -477,26 +487,78 @@ func (b *builder) initSafeBrowsing(
 // [builder.initHashPrefixFilters] must be called before this method.
 func (b *builder) initFilterStorage(ctx context.Context) (err error) {
 	c := b.conf.Filters
-	b.filterStorage = filter.NewDefaultStorage(c.toInternal(
-		b.baseLogger,
-		b.errColl,
-		b.cacheManager,
-		b.env,
-		b.safeBrowsing,
-		b.adultBlocking,
-		b.newRegDomains,
-	))
+	refrIvl := c.RefreshIvl.Duration
+	refrTimeout := c.RefreshTimeout.Duration
 
-	err = b.filterStorage.RefreshInitial(ctx)
+	b.filterStorage, err = filterstorage.New(&filterstorage.Config{
+		BaseLogger: b.baseLogger,
+		Logger:     b.baseLogger.With(slogutil.KeyPrefix, filter.StoragePrefix),
+		BlockedServices: &filterstorage.ConfigBlockedServices{
+			IndexURL: &b.env.BlockedServiceIndexURL.URL,
+			// TODO(a.garipov):  Consider adding a separate parameter here.
+			IndexMaxSize: c.MaxSize,
+			// TODO(a.garipov):  Consider making configurable.
+			IndexRefreshTimeout: 3 * time.Minute,
+			// TODO(a.garipov):  Consider adding a separate parameter here.
+			IndexStaleness: refrIvl,
+			// TODO(a.garipov):  Consider adding a separate parameter here.
+			ResultCacheCount: c.RuleListCache.Size,
+			// TODO(a.garipov):  Consider adding a separate parameter here.
+			ResultCacheEnabled: c.RuleListCache.Enabled,
+			Enabled:            bool(b.env.BlockedServiceEnabled),
+		},
+		Custom: &filterstorage.ConfigCustom{
+			CacheCount: c.CustomFilterCacheSize,
+		},
+		HashPrefix: &filterstorage.ConfigHashPrefix{
+			Adult:           b.adultBlocking,
+			Dangerous:       b.safeBrowsing,
+			NewlyRegistered: b.newRegDomains,
+		},
+		RuleLists: &filterstorage.ConfigRuleLists{
+			IndexURL: &b.env.FilterIndexURL.URL,
+			// TODO(a.garipov):  Consider adding a separate parameter here.
+			IndexMaxSize:        c.MaxSize,
+			MaxSize:             c.MaxSize,
+			IndexRefreshTimeout: c.IndexRefreshTimeout.Duration,
+			// TODO(a.garipov):  Consider adding a separate parameter here.
+			IndexStaleness: refrIvl,
+			RefreshTimeout: refrTimeout,
+			// TODO(a.garipov):  Consider adding a separate parameter here.
+			Staleness:          refrIvl,
+			ResultCacheCount:   c.RuleListCache.Size,
+			ResultCacheEnabled: c.RuleListCache.Enabled,
+		},
+		SafeSearchGeneral: b.newSafeSearchConfig(
+			b.env.GeneralSafeSearchURL,
+			filter.IDGeneralSafeSearch,
+			bool(b.env.GeneralSafeSearchEnabled),
+		),
+		SafeSearchYouTube: b.newSafeSearchConfig(
+			b.env.YoutubeSafeSearchURL,
+			filter.IDYoutubeSafeSearch,
+			bool(b.env.YoutubeSafeSearchEnabled),
+		),
+		CacheManager: b.cacheManager,
+		Clock:        agdtime.SystemClock{},
+		ErrColl:      b.errColl,
+		Metrics:      b.filterMtrc,
+		CacheDir:     b.env.FilterCachePath,
+	})
 	if err != nil {
 		return fmt.Errorf("creating default filter storage: %w", err)
 	}
 
+	err = b.filterStorage.RefreshInitial(ctx)
+	if err != nil {
+		return fmt.Errorf("refreshing default filter storage: %w", err)
+	}
+
 	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
-		Context:           newCtxWithTimeoutCons(c.RefreshIvl.Duration),
+		Context:           newCtxWithTimeoutCons(refrTimeout),
 		Refresher:         b.filterStorage,
 		Logger:            b.baseLogger.With(slogutil.KeyPrefix, "filters/storage_refresh"),
-		Interval:          c.RefreshIvl.Duration,
+		Interval:          refrIvl,
 		RefreshOnShutdown: false,
 		RandomizeStart:    false,
 	})
@@ -512,6 +574,35 @@ func (b *builder) initFilterStorage(ctx context.Context) (err error) {
 	b.logger.DebugContext(ctx, "initialized filter storage")
 
 	return nil
+}
+
+// newSafeSearchConfig returns a new safe-search configuration for the given URL
+// and ID if enabled; otherwise, it returns an empty configuration.
+func (b *builder) newSafeSearchConfig(
+	u *urlutil.URL,
+	id filter.ID,
+	enabled bool,
+) (c *filterstorage.ConfigSafeSearch) {
+	if !enabled {
+		return &filterstorage.ConfigSafeSearch{}
+	}
+
+	fltConf := b.conf.Filters
+
+	return &filterstorage.ConfigSafeSearch{
+		URL: &u.URL,
+		ID:  id,
+		// TODO(a.garipov):  Consider adding a separate parameter here.
+		MaxSize: fltConf.MaxSize,
+		// TODO(a.garipov):  Consider making this configurable.
+		ResultCacheTTL: 1 * time.Hour,
+		// TODO(a.garipov):  Consider adding a separate parameter here.
+		RefreshTimeout: fltConf.RefreshTimeout.Duration,
+		// TODO(a.garipov):  Consider adding a separate parameter here.
+		Staleness:        fltConf.RefreshIvl.Duration,
+		ResultCacheCount: fltConf.SafeSearchCacheSize,
+		Enabled:          true,
+	}
 }
 
 // initFilteringGroups initializes the filtering groups.
@@ -606,26 +697,54 @@ func (b *builder) initMsgConstructor(ctx context.Context) (err error) {
 	return nil
 }
 
+// initTLSManager initializes the TLS manager and the TLS-related metrics.  It
+// also adds the refresher with ID [debugIDTLSConfig] to the debug refreshers.
+func (b *builder) initTLSManager(ctx context.Context) (err error) {
+	mtrc, err := metrics.NewTLSConfig(b.mtrcNamespace, b.promRegisterer)
+	if err != nil {
+		return fmt.Errorf("registering tls metrics: %w", err)
+	}
+
+	logFile := b.env.SSLKeyLogFile
+	if logFile != "" {
+		b.logger.WarnContext(ctx, "tls key logging is enabled", "file", logFile)
+	}
+
+	ticketPaths := b.conf.ServerGroups.collectSessTicketPaths()
+
+	mgr, err := tlsconfig.NewDefaultManager(&tlsconfig.DefaultManagerConfig{
+		Logger:             b.baseLogger.With(slogutil.KeyPrefix, "tlsconfig"),
+		ErrColl:            b.errColl,
+		Metrics:            mtrc,
+		KeyLogFilename:     logFile,
+		SessionTicketPaths: ticketPaths,
+	})
+	if err != nil {
+		return fmt.Errorf("initializing tls manager: %w", err)
+	}
+
+	b.tlsManager = mgr
+	b.debugRefrs[debugIDTLSConfig] = mgr
+
+	b.logger.DebugContext(ctx, "initialized tls manager")
+
+	return nil
+}
+
 // initServerGroups initializes the server groups.
 //
 // The following methods must be called before this one:
 //   - [builder.initBindToDevice]
 //   - [builder.initFilteringGroups]
 //   - [builder.initMsgConstructor]
+//   - [builder.initTLSManager]
 func (b *builder) initServerGroups(ctx context.Context) (err error) {
-	mtrc, err := metrics.NewTLSConfig(b.mtrcNamespace, b.promRegisterer)
-	if err != nil {
-		return fmt.Errorf("registering tls metrics: %w", err)
-	}
-
-	b.tlsMtrc = mtrc
-
 	c := b.conf
 	b.serverGroups, err = c.ServerGroups.toInternal(
 		ctx,
-		mtrc,
 		b.messages,
 		b.btdManager,
+		b.tlsManager,
 		b.filteringGroups,
 		c.RateLimit,
 		c.DNS,
@@ -699,22 +818,12 @@ func (b *builder) startBindToDevice(ctx context.Context) (err error) {
 	return nil
 }
 
-// initTLS initializes the optional TLS key logging and session-ticket rotation.
-// It also adds the refresher with ID [debugIDTicketRotator] to the debug
-// refreshers.
+// initTicketRotator initializes the TLS session ticket rotator.  It also adds
+// the refresher with ID [debugIDTicketRotator] to the debug refreshers.
 //
-// [builder.initServerGroups] must be called before this method.
-func (b *builder) initTLS(ctx context.Context) (err error) {
-	if f := b.env.SSLKeyLogFile; f != "" {
-		b.logger.WarnContext(ctx, "IMPORTANT: TLS KEY LOGGING IS ENABLED", "ssl_key_log_file", f)
-
-		err = enableTLSKeyLogging(b.serverGroups, f)
-		if err != nil {
-			return fmt.Errorf("enabling tls key logging: %w", err)
-		}
-	}
-
-	tickRot := newTicketRotator(b.baseLogger, b.errColl, b.tlsMtrc, b.serverGroups)
+// [builder.initTLSManager] must be called before this method.
+func (b *builder) initTicketRotator(ctx context.Context) (err error) {
+	tickRot := agdservice.RefresherFunc(b.tlsManager.RotateTickets)
 	err = tickRot.Refresh(ctx)
 	if err != nil {
 		return fmt.Errorf("initial session ticket refresh: %w", err)
@@ -744,6 +853,7 @@ func (b *builder) initTLS(ctx context.Context) (err error) {
 }
 
 // initGRPCMetrics initializes the gRPC metrics if necessary.
+// [builder.initServerGroups] must be called before this method.
 func (b *builder) initGRPCMetrics(ctx context.Context) (err error) {
 	switch {
 	case
@@ -756,18 +866,19 @@ func (b *builder) initGRPCMetrics(ctx context.Context) (err error) {
 		return nil
 	}
 
-	b.backendGRPCMtrc, err = metrics.NewBackendPB(b.mtrcNamespace, b.promRegisterer)
+	b.backendGRPCMtrc, err = metrics.NewBackendGRPC(b.mtrcNamespace, b.promRegisterer)
 	if err != nil {
-		return fmt.Errorf("registering backendbp metrics: %w", err)
+		return fmt.Errorf("registering backend grpc metrics: %w", err)
 	}
 
-	b.logger.DebugContext(ctx, "initialized grpc metrics")
+	b.logger.DebugContext(ctx, "initialized backend grpc metrics")
 
 	return nil
 }
 
 // initBillStat initializes the billing-statistics recorder if necessary.  It
 // also adds the refresher with ID [debugIDBillStat] to the debug refreshers.
+// [builder.initGRPCMetrics] must be called before this method.
 func (b *builder) initBillStat(ctx context.Context) (err error) {
 	if !b.profilesEnabled {
 		b.billStat = billstat.EmptyRecorder{}
@@ -775,7 +886,7 @@ func (b *builder) initBillStat(ctx context.Context) (err error) {
 		return nil
 	}
 
-	upl, err := newBillStatUploader(b.env, b.errColl, b.backendGRPCMtrc)
+	upl, err := b.newBillStatUploader()
 	if err != nil {
 		return fmt.Errorf("creating billstat uploader: %w", err)
 	}
@@ -819,11 +930,28 @@ func (b *builder) initBillStat(ctx context.Context) (err error) {
 	return nil
 }
 
+// newBillStatUploader creates and returns a billstat uploader depending on the
+// provided API URL.
+func (b *builder) newBillStatUploader() (s billstat.Uploader, err error) {
+	apiURL := netutil.CloneURL(&b.env.BillStatURL.URL)
+	err = urlutil.ValidateGRPCURL(apiURL)
+	if err != nil {
+		return nil, fmt.Errorf("billstat api url: %w", err)
+	}
+
+	return backendpb.NewBillStat(&backendpb.BillStatConfig{
+		Logger:      b.baseLogger.With(slogutil.KeyPrefix, "billstat_uploader"),
+		ErrColl:     b.errColl,
+		GRPCMetrics: b.backendGRPCMtrc,
+		Endpoint:    apiURL,
+		APIKey:      b.env.BillStatAPIKey,
+	})
+}
+
 // initProfileDB initializes the profile database if necessary.
 //
-// [builder.initGRPCMetrics] and [builder.initServerGroups] must be called
-// before this method.  It also adds the refresher with ID [debugIDProfileDB] to
-// the debug refreshers.
+// [builder.initGRPCMetrics] must be called before this method.  It also adds
+// the refresher with ID [debugIDProfileDB] to the debug refreshers.
 func (b *builder) initProfileDB(ctx context.Context) (err error) {
 	if !b.profilesEnabled {
 		b.profileDB = &profiledb.Disabled{}
@@ -837,12 +965,18 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 		return fmt.Errorf("profile api url: %w", err)
 	}
 
+	backendProfileDBMtrc, err := metrics.NewBackendProfileDB(b.mtrcNamespace, b.promRegisterer)
+	if err != nil {
+		return fmt.Errorf("registering backend grpc profile metrics: %w", err)
+	}
+
 	respSzEst := b.conf.RateLimit.ResponseSizeEstimate
 	strg, err := backendpb.NewProfileStorage(&backendpb.ProfileStorageConfig{
 		BindSet:              b.bindSet,
 		ErrColl:              b.errColl,
-		Logger:               b.baseLogger.With(slogutil.KeyPrefix, "backendpb"),
-		Metrics:              b.backendGRPCMtrc,
+		Logger:               b.baseLogger.With(slogutil.KeyPrefix, "profilestorage"),
+		GRPCMetrics:          b.backendGRPCMtrc,
+		Metrics:              backendProfileDBMtrc,
 		Endpoint:             apiURL,
 		APIKey:               b.env.ProfilesAPIKey,
 		ResponseSizeEstimate: respSzEst,
@@ -917,6 +1051,7 @@ func (b *builder) initDNSCheck(ctx context.Context) (err error) {
 	c := b.conf.Check
 
 	checkConf, err := c.toInternal(
+		b.baseLogger,
 		b.env,
 		b.messages,
 		b.errColl,
@@ -1051,12 +1186,10 @@ func (b *builder) initRateLimiter(ctx context.Context) (err error) {
 }
 
 // initWeb initializes the web service, starts it, and registers it in the
-// signal handler.
-//
-// [builder.initServerGroups] must be called before this method.
+// signal handler.  [builder.initDNSCheck] must be call before this method.
 func (b *builder) initWeb(ctx context.Context) (err error) {
 	c := b.conf.Web
-	webConf, err := c.toInternal(ctx, b.env, b.dnsCheck, b.errColl, b.tlsMtrc)
+	webConf, err := c.toInternal(ctx, b.env, b.dnsCheck, b.errColl, b.tlsManager)
 	if err != nil {
 		return fmt.Errorf("converting web configuration: %w", err)
 	}
@@ -1142,7 +1275,6 @@ func (b *builder) waitGeoIP(ctx context.Context) (err error) {
 //   - [builder.initAccess]
 //   - [builder.initBillStat]
 //   - [builder.initBindToDevice]
-//   - [builder.initDNSCheck]
 //   - [builder.initFilterStorage]
 //   - [builder.initFilteringGroups]
 //   - [builder.initMsgConstructor]
@@ -1153,7 +1285,7 @@ func (b *builder) waitGeoIP(ctx context.Context) (err error) {
 //   - [builder.waitGeoIP]
 func (b *builder) initDNS(ctx context.Context) (err error) {
 	b.fwdHandler = forward.NewHandler(b.conf.Upstream.toInternal(b.baseLogger))
-	b.dnsDB = b.conf.DNSDB.toInternal(b.errColl)
+	b.dnsDB = b.conf.DNSDB.toInternal(b.baseLogger, b.errColl)
 
 	dnsHdlrsConf := &dnssvc.HandlersConfig{
 		BaseLogger:           b.baseLogger,

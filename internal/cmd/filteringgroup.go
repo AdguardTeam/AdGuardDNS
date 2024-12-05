@@ -24,13 +24,17 @@ type filteringGroup struct {
 	// ID is a filtering group ID.  Must be unique.
 	ID string `yaml:"id"`
 
-	// BlockPrivateRelay shows if Apple Private Relay queries are blocked for
-	// requests using this filtering group.
-	BlockPrivateRelay bool `yaml:"block_private_relay"`
+	// BlockChromePrefetch shows if the Chrome prefetch proxy feature should be
+	// disabled for requests using this filtering group.
+	BlockChromePrefetch bool `yaml:"block_chrome_prefetch"`
 
 	// BlockFirefoxCanary shows if Firefox canary domain is blocked for
 	// requests using this filtering group.
 	BlockFirefoxCanary bool `yaml:"block_firefox_canary"`
+
+	// BlockPrivateRelay shows if Apple Private Relay queries are blocked for
+	// requests using this filtering group.
+	BlockPrivateRelay bool `yaml:"block_private_relay"`
 }
 
 // fltGrpRuleLists contains filter rule lists configuration for a filtering
@@ -42,6 +46,15 @@ type fltGrpRuleLists struct {
 	// Enabled shows if rule-list based filtering should be enforced.  If it is
 	// false, the rest of the settings are ignored.
 	Enabled bool `yaml:"enabled"`
+}
+
+// toInternal converts c to the rule-list configuration for the filtering group.
+// c must be valid.
+func (c *fltGrpRuleLists) toInternal(ids []filter.ID) (fltConf *filter.ConfigRuleList) {
+	return &filter.ConfigRuleList{
+		IDs:     ids,
+		Enabled: c.Enabled,
+	}
 }
 
 // fltGrpParental contains parental protection configuration for a filtering
@@ -64,6 +77,19 @@ type fltGrpParental struct {
 	YoutubeSafeSearch bool `yaml:"youtube_safe_search"`
 }
 
+// toInternal converts c to the parental-control configuration for the filtering
+// group.  c must be valid.
+func (c *fltGrpParental) toInternal() (fltConf *filter.ConfigParental) {
+	return &filter.ConfigParental{
+		PauseSchedule:            nil,
+		BlockedServices:          nil,
+		Enabled:                  c.Enabled,
+		AdultBlockingEnabled:     c.BlockAdult,
+		SafeSearchGeneralEnabled: c.GeneralSafeSearch,
+		SafeSearchYouTubeEnabled: c.YoutubeSafeSearch,
+	}
+}
+
 // fltGrpSafeBrowsing contains general safe browsing configuration for
 // a filtering group.
 type fltGrpSafeBrowsing struct {
@@ -79,6 +105,16 @@ type fltGrpSafeBrowsing struct {
 	BlockNewlyRegisteredDomains bool `yaml:"block_newly_registered_domains"`
 }
 
+// toInternal converts c to the safe-browsing configuration for the filtering
+// group.  c must be valid.
+func (c *fltGrpSafeBrowsing) toInternal() (fltConf *filter.ConfigSafeBrowsing) {
+	return &filter.ConfigSafeBrowsing{
+		Enabled:                       c.Enabled,
+		DangerousDomainsEnabled:       c.BlockDangerousDomains,
+		NewlyRegisteredDomainsEnabled: c.BlockNewlyRegisteredDomains,
+	}
+}
+
 // type check
 var _ validator = (*filteringGroup)(nil)
 
@@ -87,21 +123,23 @@ func (g *filteringGroup) validate() (err error) {
 	switch {
 	case g == nil:
 		return errors.ErrNoValue
-	case g.RuleLists == nil:
-		return fmt.Errorf("rule_lists: %w", errors.ErrNoValue)
-	case g.ID == "":
-		return fmt.Errorf("id: %w", errors.ErrEmptyValue)
 	case g.Parental == nil:
 		return fmt.Errorf("parental: %w", errors.ErrNoValue)
+	case g.RuleLists == nil:
+		return fmt.Errorf("rule_lists: %w", errors.ErrNoValue)
+	case g.SafeBrowsing == nil:
+		return fmt.Errorf("safe_browsing: %w", errors.ErrNoValue)
+	case g.ID == "":
+		return fmt.Errorf("id: %w", errors.ErrEmptyValue)
 	}
 
 	fltIDs := container.NewMapSet[string]()
 	for i, fltID := range g.RuleLists.IDs {
 		if fltIDs.Has(fltID) {
-			return fmt.Errorf("rule_lists: at index %d: duplicate id %q", i, fltID)
+			return fmt.Errorf("rule_lists: at index %d: id: %w: %q", i, errors.ErrDuplicated, fltID)
 		}
 
-		_, err = agd.NewFilterListID(fltID)
+		_, err = filter.NewID(fltID)
 		if err != nil {
 			return fmt.Errorf("rule_lists: at index %d: %w", i, err)
 		}
@@ -123,32 +161,29 @@ func (groups filteringGroups) toInternal(
 ) (fltGrps map[agd.FilteringGroupID]*agd.FilteringGroup, err error) {
 	fltGrps = make(map[agd.FilteringGroupID]*agd.FilteringGroup, len(groups))
 	for _, g := range groups {
-		filterIDs := make([]agd.FilterListID, len(g.RuleLists.IDs))
+		filterIDs := make([]filter.ID, len(g.RuleLists.IDs))
 		for i, fltID := range g.RuleLists.IDs {
 			// Assume that these have already been validated in
 			// [filteringGroup.validate].
-			id := agd.FilterListID(fltID)
+			id := filter.ID(fltID)
 			if !s.HasListID(id) {
 				return nil, fmt.Errorf("filter list id %q is not in the index", id)
 			}
 
-			filterIDs[i] = agd.FilterListID(fltID)
+			filterIDs[i] = filter.ID(fltID)
 		}
 
 		id := agd.FilteringGroupID(g.ID)
 		fltGrps[id] = &agd.FilteringGroup{
-			ID:                          id,
-			RuleListsEnabled:            g.RuleLists.Enabled,
-			RuleListIDs:                 filterIDs,
-			ParentalEnabled:             g.Parental.Enabled,
-			BlockAdult:                  g.Parental.BlockAdult,
-			SafeBrowsingEnabled:         g.SafeBrowsing.Enabled,
-			BlockDangerousDomains:       g.SafeBrowsing.BlockDangerousDomains,
-			BlockNewlyRegisteredDomains: g.SafeBrowsing.BlockNewlyRegisteredDomains,
-			GeneralSafeSearch:           g.Parental.GeneralSafeSearch,
-			YoutubeSafeSearch:           g.Parental.YoutubeSafeSearch,
-			BlockPrivateRelay:           g.BlockPrivateRelay,
-			BlockFirefoxCanary:          g.BlockFirefoxCanary,
+			FilterConfig: &filter.ConfigGroup{
+				Parental:     g.Parental.toInternal(),
+				RuleList:     g.RuleLists.toInternal(filterIDs),
+				SafeBrowsing: g.SafeBrowsing.toInternal(),
+			},
+			ID:                  id,
+			BlockChromePrefetch: g.BlockChromePrefetch,
+			BlockFirefoxCanary:  g.BlockFirefoxCanary,
+			BlockPrivateRelay:   g.BlockPrivateRelay,
 		}
 	}
 
@@ -172,7 +207,7 @@ func (groups filteringGroups) validate() (err error) {
 		}
 
 		if ids.Has(string(g.ID)) {
-			return fmt.Errorf("at index %d: duplicate id %q", i, g.ID)
+			return fmt.Errorf("at index %d: id: %w: %q", i, errors.ErrDuplicated, g.ID)
 		}
 
 		ids.Add(g.ID)

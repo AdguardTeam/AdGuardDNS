@@ -23,32 +23,37 @@ import (
 func TestMiddleware_Wrap_specialDomain(t *testing.T) {
 	var (
 		profAllowed = &agd.Profile{
-			Access:             access.EmptyProfile{},
-			BlockPrivateRelay:  false,
-			BlockFirefoxCanary: false,
+			Access:              access.EmptyProfile{},
+			BlockChromePrefetch: false,
+			BlockFirefoxCanary:  false,
+			BlockPrivateRelay:   false,
 		}
 
 		profBlocked = &agd.Profile{
-			Access:             access.EmptyProfile{},
-			BlockPrivateRelay:  true,
-			BlockFirefoxCanary: true,
+			Access:              access.EmptyProfile{},
+			BlockChromePrefetch: true,
+			BlockFirefoxCanary:  true,
+			BlockPrivateRelay:   true,
 		}
 	)
 
 	var (
 		fltGrpAllowed = &agd.FilteringGroup{
-			BlockPrivateRelay:  false,
-			BlockFirefoxCanary: false,
+			BlockChromePrefetch: false,
+			BlockFirefoxCanary:  false,
+			BlockPrivateRelay:   false,
 		}
 
 		fltGrpBlocked = &agd.FilteringGroup{
-			BlockPrivateRelay:  true,
-			BlockFirefoxCanary: true,
+			BlockChromePrefetch: true,
+			BlockFirefoxCanary:  true,
+			BlockPrivateRelay:   true,
 		}
 	)
 
 	const (
 		appleHost   = initial.ApplePrivateRelayMaskHost
+		chromeHost  = initial.ChromePrefetchHost
 		firefoxHost = initial.FirefoxCanaryHost
 	)
 
@@ -100,29 +105,27 @@ func TestMiddleware_Wrap_specialDomain(t *testing.T) {
 		reqInfo:   newSpecDomReqInfo(t, nil, fltGrpBlocked, firefoxHost, dns.TypeA),
 		name:      "firefox_canary_blocked_by_fltgrp",
 		wantRCode: dns.RcodeRefused,
+	}, {
+		reqInfo:   newSpecDomReqInfo(t, profAllowed, fltGrpAllowed, chromeHost, dns.TypeA),
+		name:      "chrome_prefetch_allowed_by_both",
+		wantRCode: dns.RcodeSuccess,
+	}, {
+		reqInfo:   newSpecDomReqInfo(t, profBlocked, fltGrpAllowed, chromeHost, dns.TypeA),
+		name:      "chrome_prefetch_blocked_by_prof",
+		wantRCode: dns.RcodeNameError,
+	}, {
+		reqInfo:   newSpecDomReqInfo(t, nil, fltGrpBlocked, chromeHost, dns.TypeA),
+		name:      "chrome_prefetch_blocked_by_fltgrp",
+		wantRCode: dns.RcodeNameError,
 	}}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			var handler dnsserver.Handler = dnsserver.HandlerFunc(func(
-				ctx context.Context,
-				rw dnsserver.ResponseWriter,
-				req *dns.Msg,
-			) (err error) {
-				if tc.wantRCode != dns.RcodeSuccess {
-					return errors.Error("unexpectedly reached handler")
-				}
-
-				resp := (&dns.Msg{}).SetReply(req)
-
-				return rw.WriteMsg(ctx, req, resp)
-			})
-
 			mw := initial.New(&initial.Config{
 				Logger: slogutil.NewDiscardLogger(),
 			})
 
-			h := mw.Wrap(handler)
+			h := mw.Wrap(newSpecDomHandler(tc.wantRCode == dns.RcodeSuccess))
 
 			ctx := testutil.ContextWithTimeout(t, dnssvctest.Timeout)
 			ctx = agd.ContextWithRequestInfo(ctx, tc.reqInfo)
@@ -184,4 +187,22 @@ func newSpecDomReqInfo(
 	}
 
 	return ri
+}
+
+// newSpecDomHandler is a helper that creates a DNS handler for the
+// special-domain tests.  The handler returns an error if wantReach is false.
+func newSpecDomHandler(wantReach bool) (h dnsserver.Handler) {
+	return dnsserver.HandlerFunc(func(
+		ctx context.Context,
+		rw dnsserver.ResponseWriter,
+		req *dns.Msg,
+	) (err error) {
+		if !wantReach {
+			return errors.Error("unexpectedly reached handler")
+		}
+
+		resp := (&dns.Msg{}).SetReply(req)
+
+		return rw.WriteMsg(ctx, req, resp)
+	})
 }

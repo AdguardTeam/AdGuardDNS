@@ -63,7 +63,7 @@ func (GlobalRatelimiter) Config() (_ *RatelimitConfig) { return &RatelimitConfig
 // CountResponses implements the [Ratelimiter] interface for GlobalRatelimiter.
 func (GlobalRatelimiter) CountResponses(_ context.Context, _ *dns.Msg, _ netip.Addr) {}
 
-// DefaultRatelimiter is the default [Ratelimiter] impelentation.
+// DefaultRatelimiter is the default [Ratelimiter] implementation.
 //
 // TODO(a.garipov):  Add tests.
 type DefaultRatelimiter struct {

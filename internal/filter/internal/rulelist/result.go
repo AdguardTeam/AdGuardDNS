@@ -1,7 +1,6 @@
 package rulelist
 
 import (
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/urlfilter"
@@ -39,7 +38,7 @@ func (r *URLFilterResult) ToInternal(m IDMapper, rrType dnsmsg.RRType) (res inte
 
 // IDMapper maps an internal urlfilter ID to AdGuard DNS IDs.
 type IDMapper interface {
-	Map(ufID int) (id agd.FilterListID, svcID agd.BlockedServiceID)
+	Map(ufID int) (id internal.ID, svcID internal.BlockedServiceID)
 }
 
 // hostsRulesToResult converts /etc/hosts-style rules into a filtering result.
@@ -74,11 +73,11 @@ func (r *URLFilterResult) hostsRulesToResult(m IDMapper, rrType dnsmsg.RRType) (
 func ruleDataToResult(m IDMapper, ufID int, ruleText string, isAllowlist bool) (r internal.Result) {
 	fltID, svcID := m.Map(ufID)
 
-	var rule agd.FilterRuleText
-	if fltID == agd.FilterListIDBlockedService {
-		rule = agd.FilterRuleText(svcID)
+	var rule internal.RuleText
+	if fltID == internal.IDBlockedService {
+		rule = internal.RuleText(svcID)
 	} else {
-		rule = agd.FilterRuleText(ruleText)
+		rule = internal.RuleText(ruleText)
 	}
 
 	if isAllowlist {

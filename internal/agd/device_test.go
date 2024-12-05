@@ -32,9 +32,10 @@ func TestNewDeviceName(t *testing.T) {
 		in:         testLongStr,
 		wantErrMsg: `bad device name "` + testLongStr + `": too long: got 200 runes, max 128`,
 	}, {
-		name:       "too_long_unicode",
-		in:         testLongStrUnicode,
-		wantErrMsg: `bad device name "` + testLongStrUnicode + `": too long: got 200 runes, max 128`,
+		name: "too_long_unicode",
+		in:   testLongStrUnicode,
+		wantErrMsg: `bad device name "` + testLongStrUnicode +
+			`": too long: got 200 runes, max 128`,
 	}}
 
 	for _, tc := range testCases {

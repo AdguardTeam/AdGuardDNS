@@ -183,8 +183,9 @@ func newDNSProfile() (dp *backendpb.DNSProfile) {
 		Devices:             devices,
 		CustomRules:         []string{"||example.org^"},
 		FilteredResponseTtl: durationpb.New(10 * time.Second),
-		BlockPrivateRelay:   true,
+		BlockChromePrefetch: true,
 		BlockFirefoxCanary:  true,
+		BlockPrivateRelay:   true,
 		BlockingMode: &backendpb.DNSProfile_BlockingModeCustomIp{
 			BlockingModeCustomIp: &backendpb.BlockingModeCustomIP{
 				Ipv4: []byte{1, 2, 3, 4},

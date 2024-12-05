@@ -31,7 +31,7 @@ func (db *Default) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if err != nil {
 			h.Set(httphdr.XError, err.Error())
-			errcoll.Collectf(ctx, db.errColl, "dnsdb: http handler error: %w", err)
+			errcoll.Collect(ctx, db.errColl, db.logger, "handling http", err)
 		}
 	}()
 

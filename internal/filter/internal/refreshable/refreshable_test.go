@@ -1,4 +1,4 @@
-package internal_test
+package refreshable_test
 
 import (
 	"net/http"
@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil"
@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// refrID is the ID of a [agd.FilterList] used for testing.
+// refrID is the ID of an [filter.ID] used for testing.
 const refrID = "test_id"
 
 // Default texts for tests.
@@ -109,7 +109,7 @@ func TestRefreshable_Refresh(t *testing.T) {
 			realCachePath, srvURL := filtertest.PrepareRefreshable(t, reqCh, tc.srvText, tc.srvCode)
 			cachePath := prepareCachePath(t, realCachePath, tc.useCacheFile)
 
-			c := &internal.RefreshableConfig{
+			c := &refreshable.Config{
 				Logger:    slogutil.NewDiscardLogger(),
 				URL:       srvURL,
 				ID:        refrID,
@@ -119,7 +119,7 @@ func TestRefreshable_Refresh(t *testing.T) {
 				MaxSize:   filtertest.FilterMaxSize,
 			}
 
-			f, err := internal.NewRefreshable(c)
+			f, err := refreshable.New(c)
 			require.NoError(t, err)
 
 			ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
@@ -160,9 +160,14 @@ func TestRefreshable_Refresh_properStaleness(t *testing.T) {
 	const responseDur = time.Second / 5
 
 	reqCh := make(chan struct{})
-	cachePath, addr := filtertest.PrepareRefreshable(t, reqCh, filtertest.BlockRule, http.StatusOK)
+	cachePath, addr := filtertest.PrepareRefreshable(
+		t,
+		reqCh,
+		filtertest.RuleBlockStr,
+		http.StatusOK,
+	)
 
-	c := &internal.RefreshableConfig{
+	c := &refreshable.Config{
 		Logger:    slogutil.NewDiscardLogger(),
 		URL:       addr,
 		ID:        refrID,
@@ -172,7 +177,7 @@ func TestRefreshable_Refresh_properStaleness(t *testing.T) {
 		MaxSize:   filtertest.FilterMaxSize,
 	}
 
-	f, err := internal.NewRefreshable(c)
+	f, err := refreshable.New(c)
 	require.NoError(t, err)
 
 	var now time.Time
@@ -218,7 +223,7 @@ func TestRefreshable_Refresh_fileURL(t *testing.T) {
 
 	require.NoError(t, fltFile.Close())
 
-	c := &internal.RefreshableConfig{
+	c := &refreshable.Config{
 		Logger: slogutil.NewDiscardLogger(),
 		URL: &url.URL{
 			Scheme: urlutil.SchemeFile,
@@ -231,7 +236,7 @@ func TestRefreshable_Refresh_fileURL(t *testing.T) {
 		MaxSize:   filtertest.FilterMaxSize,
 	}
 
-	f, err := internal.NewRefreshable(c)
+	f, err := refreshable.New(c)
 	require.NoError(t, err)
 
 	ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)

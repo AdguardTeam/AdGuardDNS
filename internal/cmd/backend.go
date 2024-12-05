@@ -6,14 +6,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
-	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
-	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
-	"github.com/AdguardTeam/golibs/netutil"
-	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
 
@@ -90,25 +85,4 @@ func initProfDB(
 	}
 
 	return nil
-}
-
-// newBillStatUploader creates and returns a billstat uploader depending on the
-// provided API URL.
-func newBillStatUploader(
-	envs *environment,
-	errColl errcoll.Interface,
-	mtrc backendpb.Metrics,
-) (s billstat.Uploader, err error) {
-	apiURL := netutil.CloneURL(&envs.BillStatURL.URL)
-	err = urlutil.ValidateGRPCURL(apiURL)
-	if err != nil {
-		return nil, fmt.Errorf("billstat api url: %w", err)
-	}
-
-	return backendpb.NewBillStat(&backendpb.BillStatConfig{
-		ErrColl:  errColl,
-		Metrics:  mtrc,
-		Endpoint: apiURL,
-		APIKey:   envs.BillStatAPIKey,
-	})
 }

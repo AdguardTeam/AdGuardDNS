@@ -10,50 +10,62 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 )
 
 // Filter is a service-blocking filter that uses rule lists that it gets from an
 // index.
 type Filter struct {
 	logger *slog.Logger
-
-	// refr is the helper entity containing the refreshable part of the index
-	// refresh and caching logic.
-	refr *internal.Refreshable
+	refr   *refreshable.Refreshable
 
 	// mu protects services.
-	mu *sync.RWMutex
-
-	// services is an ID to filter mapping.
+	mu       *sync.RWMutex
 	services serviceRuleLists
 
-	// errColl used to collect non-critical and rare errors.
 	errColl errcoll.Interface
+	metrics internal.Metrics
 }
 
 // serviceRuleLists is convenient alias for an ID to filter mapping.
-type serviceRuleLists = map[agd.BlockedServiceID]*rulelist.Immutable
+type serviceRuleLists = map[internal.BlockedServiceID]*rulelist.Immutable
 
-// New returns a fully initialized service blocker.
-func New(c *internal.RefreshableConfig, errColl errcoll.Interface) (f *Filter, err error) {
-	refr, err := internal.NewRefreshable(c)
+// Config is the configuration for the service-blocking filter.
+type Config struct {
+	// Refreshable is the configuration of the refreshable index of the
+	// service-blocking filter.  It must not be nil and must be valid.
+	Refreshable *refreshable.Config
+
+	// ErrColl used to collect non-critical and rare errors.  It must not be
+	// nil.
+	ErrColl errcoll.Interface
+
+	// Metrics are the metrics for the service-blocking filter.  It must not be
+	// nil.
+	Metrics internal.Metrics
+}
+
+// New returns a fully initialized service blocker.  c must not be nil and must
+// be valid.
+func New(c *Config) (f *Filter, err error) {
+	refr, err := refreshable.New(c.Refreshable)
 	if err != nil {
 		return nil, fmt.Errorf("creating refreshable for service index: %w", err)
 	}
 
 	return &Filter{
-		logger:   c.Logger,
+		logger:   c.Refreshable.Logger,
 		refr:     refr,
 		mu:       &sync.RWMutex{},
 		services: serviceRuleLists{},
-		errColl:  errColl,
+		errColl:  c.ErrColl,
+		metrics:  c.Metrics,
 	}, nil
 }
 
@@ -61,7 +73,7 @@ func New(c *internal.RefreshableConfig, errColl errcoll.Interface) (f *Filter, e
 // The order of the elements in rls is undefined.
 func (f *Filter) RuleLists(
 	ctx context.Context,
-	ids []agd.BlockedServiceID,
+	ids []internal.BlockedServiceID,
 ) (rls []*rulelist.Immutable) {
 	if len(ids) == 0 {
 		return nil
@@ -86,15 +98,14 @@ func (f *Filter) RuleLists(
 func (f *Filter) Refresh(
 	ctx context.Context,
 	cacheManager agdcache.Manager,
-	cacheSize int,
+	cacheCount int,
 	useCache bool,
 	acceptStale bool,
 ) (err error) {
-	fltIDStr := string(agd.FilterListIDBlockedService)
+	var count int
 	defer func() {
-		if err != nil {
-			metrics.FilterUpdatedStatus.WithLabelValues(fltIDStr).Set(0)
-		}
+		// TODO(a.garipov):  Consider using [agdtime.Clock].
+		f.metrics.SetFilterStatus(ctx, string(internal.IDBlockedService), time.Now(), count, err)
 	}()
 
 	resp, err := f.loadIndex(ctx, acceptStale)
@@ -103,20 +114,15 @@ func (f *Filter) Refresh(
 		return err
 	}
 
-	services, err := resp.toInternal(ctx, f.logger, f.errColl, cacheManager, cacheSize, useCache)
+	services, err := resp.toInternal(ctx, f.logger, f.errColl, cacheManager, cacheCount, useCache)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return err
 	}
 
-	count := 0
 	for _, s := range services {
 		count += s.RulesCount()
 	}
-
-	metrics.FilterRulesTotal.WithLabelValues(fltIDStr).Set(float64(count))
-	metrics.FilterUpdatedTime.WithLabelValues(fltIDStr).SetToCurrentTime()
-	metrics.FilterUpdatedStatus.WithLabelValues(fltIDStr).Set(1)
 
 	f.mu.Lock()
 	defer f.mu.Unlock()

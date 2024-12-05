@@ -107,7 +107,8 @@ func NewProfileDB(namespace string, reg prometheus.Registerer) (m *ProfileDB, er
 			Name:      devicesNewCount,
 			Subsystem: subsystemBackend,
 			Namespace: namespace,
-			Help:      "The number of user devices that were changed or added since the previous sync.",
+			Help: "The number of user devices that were changed or added since " +
+				"the previous sync.",
 		}),
 		profilesCount: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name:      profilesCount,
@@ -119,7 +120,8 @@ func NewProfileDB(namespace string, reg prometheus.Registerer) (m *ProfileDB, er
 			Name:      profilesNewCount,
 			Subsystem: subsystemBackend,
 			Namespace: namespace,
-			Help:      "The number of user profiles that were changed or added since the previous sync.",
+			Help: "The number of user profiles that were changed or added since " +
+				"the previous sync.",
 		}),
 		profilesDeletedTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name:      profilesDeletedTotal,
@@ -250,4 +252,96 @@ func (m *ProfileDB) IncrementSyncTimeouts(_ context.Context, isFullSync bool) {
 // *ProfileDB.
 func (m *ProfileDB) IncrementDeleted(_ context.Context) {
 	m.profilesDeletedTotal.Inc()
+}
+
+// BackendProfileDB is the Prometheus-based implementation of the
+// [backendpb.ProfileDBMetrics] interface.
+type BackendProfileDB struct {
+	// devicesInvalidTotal is a gauge with the number of invalid user devices
+	// loaded from the backend.
+	devicesInvalidTotal prometheus.Counter
+
+	// grpcAvgProfileRecvDuration is a histogram with the average duration of a
+	// receive of a single profile during a backend call.
+	grpcAvgProfileRecvDuration prometheus.Histogram
+
+	// grpcAvgProfileDecDuration is a histogram with the average duration of
+	// decoding a single profile during a backend call.
+	grpcAvgProfileDecDuration prometheus.Histogram
+}
+
+// NewBackendProfileDB registers the protobuf errors metrics in reg and returns
+// a properly initialized [BackendProfileDB].
+func NewBackendProfileDB(
+	namespace string,
+	reg prometheus.Registerer,
+) (m *BackendProfileDB, err error) {
+	const (
+		devicesInvalidTotal        = "devices_invalid_total"
+		grpcAvgProfileRecvDuration = "grpc_avg_profile_recv_duration_seconds"
+		grpcAvgProfileDecDuration  = "grpc_avg_profile_dec_duration_seconds"
+	)
+
+	m = &BackendProfileDB{
+		devicesInvalidTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name:      devicesInvalidTotal,
+			Subsystem: subsystemBackend,
+			Namespace: namespace,
+			Help:      "The total number of invalid user devices loaded from the backend.",
+		}),
+		grpcAvgProfileRecvDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:      grpcAvgProfileRecvDuration,
+			Subsystem: subsystemBackend,
+			Namespace: namespace,
+			Help: "The average duration of a receive of a profile during a call to the backend, " +
+				"in seconds.",
+			Buckets: []float64{0.000_001, 0.000_010, 0.000_100, 0.001},
+		}),
+		grpcAvgProfileDecDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:      grpcAvgProfileDecDuration,
+			Subsystem: subsystemBackend,
+			Namespace: namespace,
+			Help: "The average duration of decoding one profile during a call to the backend, " +
+				"in seconds.",
+			Buckets: []float64{0.000_001, 0.000_01, 0.000_1, 0.001},
+		}),
+	}
+
+	var errs []error
+	collectors := container.KeyValues[string, prometheus.Collector]{{
+		Key:   devicesInvalidTotal,
+		Value: m.devicesInvalidTotal,
+	}, {
+		Key:   grpcAvgProfileRecvDuration,
+		Value: m.grpcAvgProfileRecvDuration,
+	}, {
+		Key:   grpcAvgProfileDecDuration,
+		Value: m.grpcAvgProfileDecDuration,
+	}}
+
+	for _, c := range collectors {
+		err = reg.Register(c.Value)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("registering metrics %q: %w", c.Key, err))
+		}
+	}
+
+	if err = errors.Join(errs...); err != nil {
+		return nil, err
+	}
+
+	return m, nil
+}
+
+// IncrementInvalidDevicesCount implements the [backendpb.ProfileDBMetrics]
+// interface for BackendProfileDB.
+func (m *BackendProfileDB) IncrementInvalidDevicesCount(_ context.Context) {
+	m.devicesInvalidTotal.Inc()
+}
+
+// UpdateStats implements the [backendpb.ProfileDBMetrics] interface for
+// BackendProfileDB.
+func (m *BackendProfileDB) UpdateStats(_ context.Context, avgRecv, avgDec time.Duration) {
+	m.grpcAvgProfileRecvDuration.Observe(avgRecv.Seconds())
+	m.grpcAvgProfileDecDuration.Observe(avgDec.Seconds())
 }

@@ -25,17 +25,19 @@ import (
 
 // Middleware is the main middleware of AdGuard DNS.
 type Middleware struct {
-	cloner     *dnsmsg.Cloner
-	fltCtxPool *syncutil.Pool[filteringContext]
-	logger     *slog.Logger
-	messages   *dnsmsg.Constructor
-	billStat   billstat.Recorder
-	errColl    errcoll.Interface
-	fltStrg    filter.Storage
-	geoIP      geoip.Interface
-	metrics    Metrics
-	queryLog   querylog.Interface
-	ruleStat   rulestat.Interface
+	cloner      *dnsmsg.Cloner
+	fltCtxPool  *syncutil.Pool[filteringContext]
+	fltReqPool  *syncutil.Pool[filter.Request]
+	fltRespPool *syncutil.Pool[filter.Response]
+	logger      *slog.Logger
+	messages    *dnsmsg.Constructor
+	billStat    billstat.Recorder
+	errColl     errcoll.Interface
+	fltStrg     filter.Storage
+	geoIP       geoip.Interface
+	metrics     Metrics
+	queryLog    querylog.Interface
+	ruleStat    rulestat.Interface
 }
 
 // Config is the configuration structure for the main middleware.  All fields
@@ -84,6 +86,12 @@ func New(c *Config) (mw *Middleware) {
 		fltCtxPool: syncutil.NewPool(func() (v *filteringContext) {
 			return &filteringContext{}
 		}),
+		fltReqPool: syncutil.NewPool(func() (v *filter.Request) {
+			return &filter.Request{}
+		}),
+		fltRespPool: syncutil.NewPool(func() (v *filter.Response) {
+			return &filter.Response{}
+		}),
 		logger:   c.Logger,
 		messages: c.Messages,
 		billStat: c.BillStat,
@@ -125,7 +133,7 @@ func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
 			"remote_ip", ri.RemoteIP,
 		)
 
-		flt := mw.fltStrg.FilterFromContext(ctx, ri)
+		flt := mw.filter(ctx, ri)
 		mw.filterRequest(ctx, fctx, flt, ri)
 
 		// Check the context error here, since the context could have already
@@ -169,6 +177,20 @@ func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
 	}
 
 	return dnsserver.HandlerFunc(f)
+}
+
+// filter returns a filter based on the request information.
+func (mw *Middleware) filter(ctx context.Context, ri *agd.RequestInfo) (f filter.Interface) {
+	p, d := ri.DeviceData()
+	if p == nil {
+		return mw.fltStrg.ForConfig(ctx, ri.FilteringGroup.FilterConfig)
+	}
+
+	if p.FilteringEnabled && d.FilteringEnabled {
+		return mw.fltStrg.ForConfig(ctx, p.FilterConfig)
+	}
+
+	return mw.fltStrg.ForConfig(ctx, nil)
 }
 
 // nextParams is a helper that returns the parameters to call the next handler
@@ -238,9 +260,4 @@ func (mw *Middleware) reportMetrics(
 		IsAnonymous:       p == nil,
 		IsBlocked:         isBlocked,
 	})
-}
-
-// reportf is a helper method for reporting non-critical errors.
-func (mw *Middleware) reportf(ctx context.Context, format string, args ...any) {
-	errcoll.Collectf(ctx, mw.errColl, "mainmw: "+format, args...)
 }

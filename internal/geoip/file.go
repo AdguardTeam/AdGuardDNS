@@ -49,12 +49,12 @@ type FileConfig struct {
 	// databases containing subdivisions and cities info are also supported.
 	CountryPath string
 
-	// HostCacheSize is how many lookups are cached by hostname.  Zero means no
+	// HostCacheCount is how many lookups are cached by hostname.  Zero means no
 	// host caching is performed.
-	HostCacheSize int
+	HostCacheCount int
 
-	// IPCacheSize is how many lookups are cached by IP address.
-	IPCacheSize int
+	// IPCacheCount is how many lookups are cached by IP address.
+	IPCacheCount int
 }
 
 // File is a file implementation of [geoip.Interface].  It should be initially
@@ -128,16 +128,16 @@ func newLocationKey(asn ASN, ctry Country, subdiv string) (l locationKey) {
 // manager.
 func NewFile(c *FileConfig) (f *File) {
 	var hostCache agdcache.Interface[string, *Location]
-	if c.HostCacheSize == 0 {
+	if c.HostCacheCount == 0 {
 		hostCache = agdcache.Empty[string, *Location]{}
 	} else {
 		hostCache = agdcache.NewLRU[string, *Location](&agdcache.LRUConfig{
-			Size: c.HostCacheSize,
+			Count: c.HostCacheCount,
 		})
 	}
 
 	ipCache := agdcache.NewLRU[any, *Location](&agdcache.LRUConfig{
-		Size: c.IPCacheSize,
+		Count: c.IPCacheCount,
 	})
 
 	c.CacheManager.Add(cacheIDHost, hostCache)

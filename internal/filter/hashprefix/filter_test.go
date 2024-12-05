@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
@@ -22,72 +22,71 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testTimeout is the common timeout for tests and contexts.
-const testTimeout = 10 * time.Second
-
 func TestFilter_FilterRequest_host(t *testing.T) {
+	t.Parallel()
+
 	msgs := agdtest.NewConstructor(t)
 
 	testCases := []struct {
 		name       string
 		host       string
 		replHost   string
-		wantRule   agd.FilterRuleText
+		wantRule   internal.RuleText
 		qType      dnsmsg.RRType
 		wantResult bool
 	}{{
 		name:       "host_not_a_or_aaaa",
-		host:       testHost,
-		replHost:   testReplHost,
+		host:       filtertest.HostAdultContent,
+		replHost:   filtertest.HostAdultContentRepl,
 		wantRule:   "",
 		qType:      dns.TypeTXT,
 		wantResult: false,
 	}, {
 		name:       "host_success",
-		host:       testHost,
-		replHost:   testReplHost,
-		wantRule:   testHost,
+		host:       filtertest.HostAdultContent,
+		replHost:   filtertest.HostAdultContentRepl,
+		wantRule:   filtertest.HostAdultContent,
 		qType:      dns.TypeA,
 		wantResult: true,
 	}, {
 		name:       "host_success_subdomain",
-		host:       "a.b.c." + testHost,
-		replHost:   testReplHost,
-		wantRule:   testHost,
+		host:       filtertest.HostAdultContentSub,
+		replHost:   filtertest.HostAdultContentRepl,
+		wantRule:   filtertest.HostAdultContent,
 		qType:      dns.TypeA,
 		wantResult: true,
 	}, {
 		name:       "host_no_match",
-		host:       testOtherHost,
-		replHost:   testReplHost,
+		host:       filtertest.Host,
+		replHost:   filtertest.HostAdultContentRepl,
 		wantRule:   "",
 		qType:      dns.TypeA,
 		wantResult: false,
 	}, {
 		name:       "ip_not_a_or_aaaa",
-		host:       testHost,
-		replHost:   filtertest.SafeBrowsingReplIPv4Str,
+		host:       filtertest.HostAdultContent,
+		replHost:   filtertest.IPv4AdultContentReplStr,
 		wantRule:   "",
 		qType:      dns.TypeTXT,
 		wantResult: false,
 	}, {
 		name:       "ip_success",
-		host:       testHost,
-		replHost:   filtertest.SafeBrowsingReplIPv4Str,
-		wantRule:   testHost,
+		host:       filtertest.HostAdultContent,
+		replHost:   filtertest.IPv4AdultContentReplStr,
+		wantRule:   filtertest.HostAdultContent,
 		qType:      dns.TypeA,
 		wantResult: true,
 	}, {
 		name:       "ip_success_subdomain",
-		host:       "a.b.c." + testHost,
-		replHost:   filtertest.SafeBrowsingReplIPv4Str,
-		wantRule:   testHost,
+		host:       filtertest.HostAdultContentSub,
+		replHost:   filtertest.IPv4AdultContentReplStr,
+		wantRule:   filtertest.HostAdultContent,
 		qType:      dns.TypeA,
 		wantResult: true,
 	}, {
 		name:       "ip_no_match",
-		replHost:   filtertest.SafeBrowsingReplIPv4Str,
-		host:       testOtherHost,
+		replHost:   filtertest.IPv4AdultContentReplStr,
+		host:       filtertest.Host,
 		wantRule:   "",
 		qType:      dns.TypeA,
 		wantResult: false,
@@ -95,124 +94,101 @@ func TestFilter_FilterRequest_host(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			f := newFilter(t, tc.replHost)
+			t.Parallel()
 
-			req := dnsservertest.NewReq(
-				dns.Fqdn(tc.host),
-				tc.qType,
-				dns.ClassINET,
-			)
-			ri := &agd.RequestInfo{
+			f := filtertest.NewHashprefixFilterWithRepl(t, filter.IDAdultBlocking, tc.replHost)
+
+			ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
+			req := dnsservertest.NewReq(dns.Fqdn(tc.host), tc.qType, dns.ClassINET)
+
+			r, err := f.FilterRequest(ctx, &internal.Request{
+				DNS:      req,
 				Messages: msgs,
 				Host:     tc.host,
 				QType:    tc.qType,
-			}
-
-			ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
-
-			r, err := f.FilterRequest(ctx, req, ri)
+			})
 			require.NoError(t, err)
 
 			var wantRes internal.Result
 			if tc.wantResult {
-				if tc.replHost == testReplHost {
+				if tc.replHost == filtertest.HostAdultContentRepl {
 					wantRes = newModReqResult(req, tc.wantRule)
 				} else {
-					wantRes = newModRespResult(t, req, ri.Messages, filtertest.SafeBrowsingReplIPv4)
+					wantRes = newModRespResult(t, req, msgs, filtertest.IPv4AdultContentRepl)
 				}
 			}
 
-			assert.Equal(t, wantRes, r)
+			filtertest.AssertEqualResult(t, wantRes, r)
 		})
 	}
 
 	require.True(t, t.Run("cached_success", func(t *testing.T) {
-		f := newFilter(t, testReplHost)
+		f := filtertest.NewHashprefixFilter(t, internal.IDAdultBlocking)
 
-		req := dnsservertest.NewReq(
-			dns.Fqdn(testHost),
-			dns.TypeA,
-			dns.ClassINET,
-		)
-		ri := &agd.RequestInfo{
-			Messages: msgs,
-			Host:     testHost,
-			QType:    dns.TypeA,
-		}
+		req := filtertest.NewARequest(t, filtertest.HostAdultContent)
 
 		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
-
-		original, err := f.FilterRequest(ctx, req, ri)
+		original, err := f.FilterRequest(ctx, req)
 		require.NoError(t, err)
 
-		cached, err := f.FilterRequest(ctx, req, ri)
+		cached, err := f.FilterRequest(ctx, req)
 		require.NoError(t, err)
 
-		// Do not check the ID as it is new for every clone.
-		originalRM := testutil.RequireTypeAssert[*internal.ResultModifiedRequest](t, original)
-		cachedRM := testutil.RequireTypeAssert[*internal.ResultModifiedRequest](t, cached)
-		cachedRM.Msg.Id = originalRM.Msg.Id
-
-		assert.Equal(t, cached, original)
+		filtertest.AssertEqualResult(t, cached, original)
 	}))
 
 	require.True(t, t.Run("cached_no_match", func(t *testing.T) {
-		f := newFilter(t, testReplHost)
+		f := filtertest.NewHashprefixFilter(t, internal.IDAdultBlocking)
 
-		req := dnsservertest.NewReq(
-			dns.Fqdn(testOtherHost),
-			dns.TypeA,
-			dns.ClassINET,
-		)
-		ri := &agd.RequestInfo{
-			Messages: msgs,
-			Host:     testOtherHost,
-			QType:    dns.TypeA,
-		}
+		req := filtertest.NewARequest(t, filtertest.Host)
 
 		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
-
-		r, err := f.FilterRequest(ctx, req, ri)
+		r, err := f.FilterRequest(ctx, req)
 		require.NoError(t, err)
 
-		cached, err := f.FilterRequest(ctx, req, ri)
+		cached, err := f.FilterRequest(ctx, req)
 		require.NoError(t, err)
 
-		assert.Equal(t, cached, r)
+		filtertest.AssertEqualResult(t, cached, r)
 	}))
 
 	require.True(t, t.Run("https", func(t *testing.T) {
-		f := newFilter(t, testReplHost)
+		f := filtertest.NewHashprefixFilter(t, internal.IDAdultBlocking)
 
-		req := dnsservertest.NewReq(dns.Fqdn(testHost), dns.TypeHTTPS, dns.ClassINET)
-		ri := &agd.RequestInfo{
-			Messages: msgs,
-			Host:     testHost,
-			QType:    dns.TypeHTTPS,
-		}
+		req := filtertest.NewRequest(
+			t,
+			"",
+			filtertest.HostAdultContent,
+			filtertest.IPv4Client,
+			dns.TypeHTTPS,
+		)
 
 		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
-
-		r, err := f.FilterRequest(ctx, req, ri)
+		r, err := f.FilterRequest(ctx, req)
 		require.NoError(t, err)
 		require.NotNil(t, r)
 
-		assert.Equal(t, newModReqResult(req, testHost), r)
+		wantRes := newModReqResult(req.DNS, filtertest.HostAdultContent)
+		filtertest.AssertEqualResult(t, wantRes, r)
 	}))
 
 	require.True(t, t.Run("https_ip", func(t *testing.T) {
-		f := newFilter(t, filtertest.SafeBrowsingReplIPv4Str)
+		f := filtertest.NewHashprefixFilterWithRepl(
+			t,
+			internal.IDAdultBlocking,
+			filtertest.IPv4AdultContentReplStr,
+		)
 
-		req := dnsservertest.NewReq(dns.Fqdn(testHost), dns.TypeHTTPS, dns.ClassINET)
-		ri := &agd.RequestInfo{
-			Messages: msgs,
-			Host:     testHost,
-			QType:    dns.TypeHTTPS,
-		}
+		req := filtertest.NewRequest(
+			t,
+			"",
+			filtertest.HostAdultContent,
+			filtertest.IPv4Client,
+			dns.TypeHTTPS,
+		)
 
 		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
-
-		r, err := f.FilterRequest(ctx, req, ri)
+		r, err := f.FilterRequest(ctx, req)
 		require.NoError(t, err)
 		require.NotNil(t, r)
 
@@ -221,7 +197,7 @@ func TestFilter_FilterRequest_host(t *testing.T) {
 		require.Len(t, m.Msg.Question, 1)
 
 		assert.Equal(t, m.Msg.Question[0].Qtype, dns.TypeHTTPS)
-		assert.Len(t, m.Msg.Answer, 0)
+		assert.Empty(t, m.Msg.Answer)
 	}))
 }
 
@@ -239,61 +215,28 @@ func newModRespResult(
 
 	return &internal.ResultModifiedResponse{
 		Msg:  resp,
-		List: testFltListID,
-		Rule: testHost,
+		List: filter.IDAdultBlocking,
+		Rule: filtertest.HostAdultContent,
 	}
 }
 
 // newModReqResult is a helper for creating modified results for tests.
-func newModReqResult(
-	req *dns.Msg,
-	rule agd.FilterRuleText,
-) (r *internal.ResultModifiedRequest) {
+func newModReqResult(req *dns.Msg, rule internal.RuleText) (r *internal.ResultModifiedRequest) {
 	req = dnsmsg.Clone(req)
-	req.Question[0].Name = dns.Fqdn(testReplHost)
+	req.Question[0].Name = filtertest.FQDNAdultContentRepl
 
 	return &internal.ResultModifiedRequest{
 		Msg:  req,
-		List: testFltListID,
+		List: filter.IDAdultBlocking,
 		Rule: rule,
 	}
 }
 
-// newFilter is a helper constructor for tests.
-func newFilter(tb testing.TB, replHost string) (f *hashprefix.Filter) {
-	tb.Helper()
-
-	cachePath, srvURL := filtertest.PrepareRefreshable(tb, nil, testHost, http.StatusOK)
-
-	strg, err := hashprefix.NewStorage("")
-	require.NoError(tb, err)
-
-	f, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
-		Logger:          slogutil.NewDiscardLogger(),
-		Cloner:          agdtest.NewCloner(),
-		CacheManager:    agdcache.EmptyManager{},
-		Hashes:          strg,
-		URL:             srvURL,
-		ErrColl:         agdtest.NewErrorCollector(),
-		ID:              agd.FilterListIDAdultBlocking,
-		CachePath:       cachePath,
-		ReplacementHost: replHost,
-		Staleness:       filtertest.Staleness,
-		CacheTTL:        filtertest.CacheTTL,
-		CacheSize:       1,
-		MaxSize:         filtertest.FilterMaxSize,
-	})
-	require.NoError(tb, err)
-
-	ctx := testutil.ContextWithTimeout(tb, testTimeout)
-	require.NoError(tb, f.RefreshInitial(ctx))
-
-	return f
-}
-
 func TestFilter_Refresh(t *testing.T) {
-	reqCh := make(chan struct{}, 1)
-	cachePath, srvURL := filtertest.PrepareRefreshable(t, reqCh, testHost, http.StatusOK)
+	t.Parallel()
+
+	refrCh := make(chan struct{}, 1)
+	cachePath, srvURL := filtertest.PrepareRefreshable(t, refrCh, testHashes, http.StatusOK)
 
 	strg, err := hashprefix.NewStorage("")
 	require.NoError(t, err)
@@ -305,37 +248,41 @@ func TestFilter_Refresh(t *testing.T) {
 		Hashes:          strg,
 		URL:             srvURL,
 		ErrColl:         agdtest.NewErrorCollector(),
-		ID:              agd.FilterListIDAdultBlocking,
+		Metrics:         filter.EmptyMetrics{},
+		ID:              internal.IDAdultBlocking,
 		CachePath:       cachePath,
-		ReplacementHost: testReplHost,
+		ReplacementHost: filtertest.HostAdultContentRepl,
 		Staleness:       filtertest.Staleness,
 		CacheTTL:        filtertest.CacheTTL,
-		CacheSize:       1,
+		CacheCount:      filtertest.CacheCount,
 		MaxSize:         filtertest.FilterMaxSize,
 	})
 	require.NoError(t, err)
 
-	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 	require.NoError(t, f.RefreshInitial(ctx))
 
-	ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
+	testutil.RequireReceive(t, refrCh, filtertest.Timeout)
 
+	ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 	err = f.Refresh(ctx)
 	assert.NoError(t, err)
 
-	testutil.RequireReceive(t, reqCh, filtertest.Timeout)
+	assert.Empty(t, refrCh)
 }
 
 func TestFilter_FilterRequest_staleCache(t *testing.T) {
+	t.Parallel()
+
 	refrCh := make(chan struct{}, 1)
-	cachePath, srvURL := filtertest.PrepareRefreshable(t, refrCh, testHost, http.StatusOK)
+	cachePath, srvURL := filtertest.PrepareRefreshable(t, refrCh, testHashes, http.StatusOK)
 
 	// Put some initial data into the cache to avoid the first refresh.
 
 	cf, err := os.OpenFile(cachePath, os.O_WRONLY|os.O_APPEND, os.ModeAppend)
 	require.NoError(t, err)
 
-	_, err = cf.WriteString(testOtherHost)
+	_, err = cf.WriteString(filtertest.Host + "\n")
 	require.NoError(t, err)
 	require.NoError(t, cf.Close())
 
@@ -353,28 +300,22 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 		Hashes:          strg,
 		URL:             srvURL,
 		ErrColl:         agdtest.NewErrorCollector(),
-		ID:              agd.FilterListIDAdultBlocking,
+		Metrics:         filter.EmptyMetrics{},
+		ID:              internal.IDAdultBlocking,
 		CachePath:       cachePath,
-		ReplacementHost: testReplHost,
+		ReplacementHost: filtertest.HostAdultContentRepl,
 		Staleness:       filtertest.Staleness,
 		CacheTTL:        filtertest.CacheTTL,
-		CacheSize:       1,
+		CacheCount:      filtertest.CacheCount,
 		MaxSize:         filtertest.FilterMaxSize,
 	}
 	f, err := hashprefix.NewFilter(fconf)
 	require.NoError(t, err)
 
-	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 	require.NoError(t, f.RefreshInitial(ctx))
 
-	msgs, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
-		Cloner:              cloner,
-		BlockingMode:        &dnsmsg.BlockingModeNullIP{},
-		StructuredErrors:    agdtest.NewSDEConfig(true),
-		FilteredResponseTTL: agdtest.FilteredResponseTTL,
-		EDEEnabled:          true,
-	})
-	require.NoError(t, err)
+	assert.Empty(t, refrCh)
 
 	// Test the following:
 	//
@@ -383,20 +324,18 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	//  3. Ensure the result cache is cleared.
 	//  4. Ensure the stale rules aren't used.
 
-	testHostReq := dnsservertest.NewReq(dns.Fqdn(testHost), dns.TypeA, dns.ClassINET)
-	testReqInfo := &agd.RequestInfo{Messages: msgs, Host: testHost, QType: dns.TypeA}
-
-	testOtherHostReq := dnsservertest.NewReq(dns.Fqdn(testOtherHost), dns.TypeA, dns.ClassINET)
-	testOtherReqInfo := &agd.RequestInfo{Messages: msgs, Host: testOtherHost, QType: dns.TypeA}
+	hostReq := filtertest.NewARequest(t, filtertest.HostAdultContent)
+	otherHostReq := filtertest.NewARequest(t, filtertest.Host)
 
 	require.True(t, t.Run("hit_cached_host", func(t *testing.T) {
 		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 
 		var r internal.Result
-		r, err = f.FilterRequest(ctx, testOtherHostReq, testOtherReqInfo)
+		r, err = f.FilterRequest(ctx, otherHostReq)
 		require.NoError(t, err)
 
-		assert.Equal(t, newModReqResult(testOtherHostReq, testOtherHost), r)
+		wantRes := newModReqResult(otherHostReq.DNS, filtertest.Host)
+		filtertest.AssertEqualResult(t, wantRes, r)
 	}))
 
 	require.True(t, t.Run("refresh", func(t *testing.T) {
@@ -417,7 +356,7 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 
 		var r internal.Result
-		r, err = f.FilterRequest(ctx, testOtherHostReq, testOtherReqInfo)
+		r, err = f.FilterRequest(ctx, otherHostReq)
 		require.NoError(t, err)
 
 		assert.Nil(t, r)
@@ -427,10 +366,10 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 
 		var r internal.Result
-		r, err = f.FilterRequest(ctx, testHostReq, testReqInfo)
+		r, err = f.FilterRequest(ctx, hostReq)
 		require.NoError(t, err)
 
-		wantRes := newModReqResult(testHostReq, testHost)
-		assert.Equal(t, wantRes, r)
+		wantRes := newModReqResult(hostReq.DNS, filtertest.HostAdultContent)
+		filtertest.AssertEqualResult(t, wantRes, r)
 	}))
 }

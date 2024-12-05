@@ -43,15 +43,15 @@ const (
 	httpIdleTimeout  = 120 * time.Second
 )
 
-// nextProtoDoH is a list of ALPN that we would add by default to the server's
-// *tls.Config if no NextProto is specified there.  Note, that with this order,
-// we prioritize HTTP/2 over HTTP/1.1.
-var nextProtoDoH = []string{http2.NextProtoTLS, "http/1.1"}
+// NextProtoDoH is a list of ALPN protocols added by default to the server's
+// *tls.Config if no NextProto is specified there.  Note that with this order,
+// HTTP/2 is prioritized over HTTP/1.1.
+var NextProtoDoH = []string{http2.NextProtoTLS, "http/1.1"}
 
-// nextProtoDoH3 is a list of ALPN that we should add by default to the server's
+// NextProtoDoH3 is a list of ALPN protocols added by default to the server's
 // *tls.Config if no NextProto is specified there and DoH3 is supposed to be
-// used.
-var nextProtoDoH3 = []string{http3.NextProtoH3, http2.NextProtoTLS, "http/1.1"}
+// used.  Note that with this order, HTTP/2 is prioritized over HTTP/1.1.
+var NextProtoDoH3 = []string{http3.NextProtoH3, http2.NextProtoTLS, "http/1.1"}
 
 // ConfigHTTPS is a struct that needs to be passed to NewServerHTTPS to
 // initialize a new ServerHTTPS instance.  You can choose whether HTTP/3 is
@@ -59,10 +59,14 @@ var nextProtoDoH3 = []string{http3.NextProtoH3, http2.NextProtoTLS, "http/1.1"}
 // will listen to both HTTP/2 and HTTP/3, but if you set it to NetworkTCP, the
 // server will only use HTTP/2 and NetworkUDP will mean HTTP/3 only.
 type ConfigHTTPS struct {
-	// TLSConfig is the TLS configuration for HTTPS.  If not set and
-	// [ConfigBase.Network] is set to NetworkTCP the server will listen to
-	// plain HTTP.
-	TLSConfig *tls.Config
+	// TLSConfDefault is the TLS configuration for HTTPS.  If not set and
+	// [ConfigBase.Network] is set to NetworkTCP the server will listen to plain
+	// HTTP.  If it is not nil, it must be set to [NextProtoDoH].
+	TLSConfDefault *tls.Config
+
+	// TLSConfH3 is the TLS configuration for DoH3.  If it is not nil, it must
+	// be set to [NextProtoDoH3].
+	TLSConfH3 *tls.Config
 
 	// NonDNSHandler handles requests with the path not equal to /dns-query.
 	// If it is empty, the server will return 404 for requests like that.
@@ -306,7 +310,7 @@ func (s *ServerHTTPS) serveHTTPS(ctx context.Context, hs *http.Server, l net.Lis
 	defer s.handlePanicAndExit(ctx)
 
 	scheme := urlutil.SchemeHTTPS
-	if s.conf.TLSConfig == nil {
+	if s.conf.TLSConfDefault == nil {
 		scheme = urlutil.SchemeHTTP
 	}
 
@@ -516,12 +520,9 @@ func (s *ServerHTTPS) listenTLS(ctx context.Context) (err error) {
 	}
 
 	// Prepare the TLS configuration of the server.
-	tlsConf := s.conf.TLSConfig
+	tlsConf := s.conf.TLSConfDefault
 	if tlsConf == nil {
 		return nil
-	} else if len(tlsConf.NextProtos) == 0 {
-		tlsConf = tlsConf.Clone()
-		tlsConf.NextProtos = nextProtoDoH
 	}
 
 	s.tcpListener = tls.NewListener(s.tcpListener, tlsConf)
@@ -532,11 +533,7 @@ func (s *ServerHTTPS) listenTLS(ctx context.Context) (err error) {
 // listenQUIC starts a QUIC listener that will be used to serve HTTP/3 requests.
 func (s *ServerHTTPS) listenQUIC(ctx context.Context) (err error) {
 	// Prepare the TLS configuration of the server.
-	tlsConf := s.conf.TLSConfig
-	if tlsConf != nil && len(tlsConf.NextProtos) == 0 {
-		tlsConf = tlsConf.Clone()
-		tlsConf.NextProtos = nextProtoDoH3
-	}
+	tlsConf := s.conf.TLSConfH3
 
 	conn, err := s.listenConfig.ListenPacket(ctx, "udp", s.addr)
 	if err != nil {

@@ -1,12 +1,9 @@
 package internal
 
 import (
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/miekg/dns"
 )
-
-// Filtering Results
 
 // Result is a sum type of all possible filtering actions.  See the following
 // types as implementations:
@@ -17,7 +14,7 @@ import (
 //   - [*ResultModifiedRequest]
 type Result interface {
 	// MatchedRule returns data about the matched rule and its rule list.
-	MatchedRule() (id agd.FilterListID, text agd.FilterRuleText)
+	MatchedRule() (id ID, text RuleText)
 
 	// isResult is a marker method.
 	isResult()
@@ -26,15 +23,15 @@ type Result interface {
 // ResultAllowed means that this request or response was allowed by an allowlist
 // rule within the given filter list.
 type ResultAllowed struct {
-	List agd.FilterListID
-	Rule agd.FilterRuleText
+	List ID
+	Rule RuleText
 }
 
 // type check
 var _ Result = (*ResultAllowed)(nil)
 
 // MatchedRule implements the [Result] interface for *ResultAllowed.
-func (a *ResultAllowed) MatchedRule() (id agd.FilterListID, text agd.FilterRuleText) {
+func (a *ResultAllowed) MatchedRule() (id ID, text RuleText) {
 	return a.List, a.Rule
 }
 
@@ -44,15 +41,15 @@ func (*ResultAllowed) isResult() {}
 // ResultBlocked means that this request or response was blocked by a blocklist
 // rule within the given filter list.
 type ResultBlocked struct {
-	List agd.FilterListID
-	Rule agd.FilterRuleText
+	List ID
+	Rule RuleText
 }
 
 // type check
 var _ Result = (*ResultBlocked)(nil)
 
 // MatchedRule implements the [Result] interface for *ResultBlocked.
-func (b *ResultBlocked) MatchedRule() (id agd.FilterListID, text agd.FilterRuleText) {
+func (b *ResultBlocked) MatchedRule() (id ID, text RuleText) {
 	return b.List, b.Rule
 }
 
@@ -66,17 +63,17 @@ type ResultModifiedResponse struct {
 	Msg *dns.Msg
 
 	// List is the ID of the filter list.
-	List agd.FilterListID
+	List ID
 
 	// Rule is the filtering rule that triggered the rewrite.
-	Rule agd.FilterRuleText
+	Rule RuleText
 }
 
 // type check
 var _ Result = (*ResultModifiedResponse)(nil)
 
 // MatchedRule implements the [Result] interface for *ResultModifiedResponse.
-func (m *ResultModifiedResponse) MatchedRule() (id agd.FilterListID, text agd.FilterRuleText) {
+func (m *ResultModifiedResponse) MatchedRule() (id ID, text RuleText) {
 	return m.List, m.Rule
 }
 
@@ -120,17 +117,17 @@ type ResultModifiedRequest struct {
 	Msg *dns.Msg
 
 	// List is the ID of the filter list.
-	List agd.FilterListID
+	List ID
 
 	// Rule is the filtering rule that triggered the rewrite.
-	Rule agd.FilterRuleText
+	Rule RuleText
 }
 
 // type check
 var _ Result = (*ResultModifiedRequest)(nil)
 
 // MatchedRule implements the [Result] interface for *ResultModifiedRequest.
-func (m *ResultModifiedRequest) MatchedRule() (id agd.FilterListID, text agd.FilterRuleText) {
+func (m *ResultModifiedRequest) MatchedRule() (id ID, text RuleText) {
 	return m.List, m.Rule
 }
 

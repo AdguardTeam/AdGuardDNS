@@ -11,7 +11,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/consul"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -83,9 +82,9 @@ func TestRateLimiter_Refresh(t *testing.T) {
 
 	allowlist := ratelimit.NewDynamicAllowlist(nil, nil)
 	l, err := backendpb.NewRateLimiter(&backendpb.RateLimiterConfig{
-		Logger:      slogutil.NewDiscardLogger(),
+		Logger:      backendpb.TestLogger,
 		Metrics:     consul.EmptyMetrics{},
-		GRPCMetrics: backendpb.EmptyMetrics{},
+		GRPCMetrics: backendpb.EmptyGRPCMetrics{},
 		Allowlist:   allowlist,
 		Endpoint: &url.URL{
 			Scheme: "grpc",

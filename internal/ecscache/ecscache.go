@@ -91,10 +91,10 @@ type MiddlewareConfig struct {
 // manager.  c must not be nil.
 func NewMiddleware(c *MiddlewareConfig) (m *Middleware) {
 	cache := agdcache.NewLRU[uint64, *cacheItem](&agdcache.LRUConfig{
-		Size: c.NoECSCount,
+		Count: c.NoECSCount,
 	})
 	ecsCache := agdcache.NewLRU[uint64, *cacheItem](&agdcache.LRUConfig{
-		Size: c.ECSCount,
+		Count: c.ECSCount,
 	})
 
 	c.CacheManager.Add(cacheIDNoECS, cache)

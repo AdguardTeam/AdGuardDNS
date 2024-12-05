@@ -6,6 +6,7 @@ package dnsdb
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -35,6 +36,7 @@ func (Empty) Record(_ context.Context, _ *dns.Msg, _ *agd.RequestInfo) {}
 
 // Default is the default DNSDB implementation.
 type Default struct {
+	logger  *slog.Logger
 	buffer  *atomic.Pointer[buffer]
 	errColl errcoll.Interface
 	maxSize int
@@ -42,6 +44,9 @@ type Default struct {
 
 // DefaultConfig is the default DNS database configuration structure.
 type DefaultConfig struct {
+	// Logger is used to log the operation of the DNS database.
+	Logger *slog.Logger
+
 	// ErrColl is used to collect HTTP errors.
 	ErrColl errcoll.Interface
 
@@ -52,6 +57,7 @@ type DefaultConfig struct {
 // New creates a new default DNS database.  c must not be nil.
 func New(c *DefaultConfig) (db *Default) {
 	db = &Default{
+		logger:  c.Logger,
 		buffer:  &atomic.Pointer[buffer]{},
 		errColl: c.ErrColl,
 		maxSize: c.MaxSize,

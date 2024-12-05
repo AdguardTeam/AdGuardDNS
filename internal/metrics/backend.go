@@ -3,19 +3,18 @@ package metrics
 import (
 	"context"
 	"fmt"
-	"time"
 
-	"github.com/AdguardTeam/golibs/container"
-	"github.com/AdguardTeam/golibs/errors"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 // GRPCError is a type alias for string that contains gGRPC error type.
 //
-// See [backendpb.IncrementGRPCErrorCount.
+// See [backendpb.GRPCMetrics.IncrementErrorCount].
 type GRPCError = string
 
 // gRPC errors of [GRPCError] type.
+//
+// NOTE:  Keep in sync with [backendpb.GRPCError].
 const (
 	GRPCErrAuthentication GRPCError = "auth"
 	GRPCErrBadRequest     GRPCError = "bad_req"
@@ -25,38 +24,21 @@ const (
 	GRPCErrTimeout        GRPCError = "timeout"
 )
 
-// BackendPB is the Prometheus-based implementation of the [backendpb.Metrics]
-// interface.
-type BackendPB struct {
-	// devicesInvalidTotal is a gauge with the number of invalid user devices
-	// loaded from the backend.
-	devicesInvalidTotal prometheus.Counter
-
-	// grpcAvgProfileRecvDuration is a histogram with the average duration of a
-	// receive of a single profile during a backend call.
-	grpcAvgProfileRecvDuration prometheus.Histogram
-
-	// grpcAvgProfileDecDuration is a histogram with the average duration of
-	// decoding a single profile during a backend call.
-	grpcAvgProfileDecDuration prometheus.Histogram
-
-	grpcErrorsTotalAuthentication prometheus.Counter
-	grpcErrorsTotalBadRequest     prometheus.Counter
-	grpcErrorsTotalDeviceQuota    prometheus.Counter
-	grpcErrorsTotalOther          prometheus.Counter
-	grpcErrorsTotalRateLimit      prometheus.Counter
-	grpcErrorsTotalTimeout        prometheus.Counter
+// BackendGRPC is the Prometheus-based implementation of the
+// [backendpb.GRPCMetrics] interface.
+type BackendGRPC struct {
+	errorsTotalAuthentication prometheus.Counter
+	errorsTotalBadRequest     prometheus.Counter
+	errorsTotalDeviceQuota    prometheus.Counter
+	errorsTotalOther          prometheus.Counter
+	errorsTotalRateLimit      prometheus.Counter
+	errorsTotalTimeout        prometheus.Counter
 }
 
-// NewBackendPB registers the protobuf errors metrics in reg and returns a
-// properly initialized [BackendPB].
-func NewBackendPB(namespace string, reg prometheus.Registerer) (m *BackendPB, err error) {
-	const (
-		devicesInvalidTotal        = "devices_invalid_total"
-		grpcAvgProfileRecvDuration = "grpc_avg_profile_recv_duration_seconds"
-		grpcAvgProfileDecDuration  = "grpc_avg_profile_dec_duration_seconds"
-		grpcErrorsTotal            = "grpc_errors_total"
-	)
+// NewBackendGRPC registers the protobuf errors metrics in reg and returns a
+// properly initialized [BackendGRPC].
+func NewBackendGRPC(namespace string, reg prometheus.Registerer) (m *BackendGRPC, err error) {
+	const grpcErrorsTotal = "grpc_errors_total"
 
 	// grpcErrorsTotalCounterVec is a vector of counters of gRPC errors by type.
 	grpcErrorsTotalCounterVec := prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -66,97 +48,43 @@ func NewBackendPB(namespace string, reg prometheus.Registerer) (m *BackendPB, er
 		Help:      "The total number of errors by type.",
 	}, []string{"type"})
 
-	m = &BackendPB{
-		devicesInvalidTotal: prometheus.NewCounter(prometheus.CounterOpts{
-			Name:      devicesInvalidTotal,
-			Subsystem: subsystemBackend,
-			Namespace: namespace,
-			Help:      "The total number of invalid user devices loaded from the backend.",
-		}),
-		grpcAvgProfileRecvDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name:      grpcAvgProfileRecvDuration,
-			Subsystem: subsystemBackend,
-			Namespace: namespace,
-			Help: "The average duration of a receive of a profile during a call to the backend, " +
-				"in seconds.",
-			Buckets: []float64{0.000_001, 0.000_010, 0.000_100, 0.001},
-		}),
-		grpcAvgProfileDecDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name:      grpcAvgProfileDecDuration,
-			Subsystem: subsystemBackend,
-			Namespace: namespace,
-			Help: "The average duration of decoding one profile during a call to the backend, " +
-				"in seconds.",
-			Buckets: []float64{0.000_001, 0.000_01, 0.000_1, 0.001},
-		}),
-		grpcErrorsTotalAuthentication: grpcErrorsTotalCounterVec.WithLabelValues(GRPCErrAuthentication),
-		grpcErrorsTotalBadRequest:     grpcErrorsTotalCounterVec.WithLabelValues(GRPCErrBadRequest),
-		grpcErrorsTotalDeviceQuota:    grpcErrorsTotalCounterVec.WithLabelValues(GRPCErrDeviceQuota),
-		grpcErrorsTotalOther:          grpcErrorsTotalCounterVec.WithLabelValues(GRPCErrOther),
-		grpcErrorsTotalRateLimit:      grpcErrorsTotalCounterVec.WithLabelValues(GRPCErrRateLimit),
-		grpcErrorsTotalTimeout:        grpcErrorsTotalCounterVec.WithLabelValues(GRPCErrTimeout),
+	m = &BackendGRPC{
+		errorsTotalAuthentication: grpcErrorsTotalCounterVec.WithLabelValues(GRPCErrAuthentication),
+		errorsTotalBadRequest:     grpcErrorsTotalCounterVec.WithLabelValues(GRPCErrBadRequest),
+		errorsTotalDeviceQuota:    grpcErrorsTotalCounterVec.WithLabelValues(GRPCErrDeviceQuota),
+		errorsTotalOther:          grpcErrorsTotalCounterVec.WithLabelValues(GRPCErrOther),
+		errorsTotalRateLimit:      grpcErrorsTotalCounterVec.WithLabelValues(GRPCErrRateLimit),
+		errorsTotalTimeout:        grpcErrorsTotalCounterVec.WithLabelValues(GRPCErrTimeout),
 	}
 
-	var errs []error
-	collectors := container.KeyValues[string, prometheus.Collector]{{
-		Key:   devicesInvalidTotal,
-		Value: m.devicesInvalidTotal,
-	}, {
-		Key:   grpcAvgProfileRecvDuration,
-		Value: m.grpcAvgProfileRecvDuration,
-	}, {
-		Key:   grpcAvgProfileDecDuration,
-		Value: m.grpcAvgProfileDecDuration,
-	}, {
-		Key:   grpcErrorsTotal,
-		Value: grpcErrorsTotalCounterVec,
-	}}
-
-	for _, c := range collectors {
-		err = reg.Register(c.Value)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("registering metrics %q: %w", c.Key, err))
-		}
-	}
-
-	if err = errors.Join(errs...); err != nil {
-		return nil, err
+	err = reg.Register(grpcErrorsTotalCounterVec)
+	if err != nil {
+		return nil, fmt.Errorf("registering metrics %q: %w", grpcErrorsTotal, err)
 	}
 
 	return m, nil
 }
 
-// IncrementGRPCErrorCount implements the [Metrics] interface for BackendPB.
-func (m *BackendPB) IncrementGRPCErrorCount(_ context.Context, errType GRPCError) {
+// IncrementErrorCount implements the [backendpb.GRPCMetrics] interface for
+// BackendGRPC.
+func (m *BackendGRPC) IncrementErrorCount(_ context.Context, errType GRPCError) {
 	var ctr prometheus.Counter
 	switch errType {
 	case GRPCErrAuthentication:
-		ctr = m.grpcErrorsTotalAuthentication
+		ctr = m.errorsTotalAuthentication
 	case GRPCErrBadRequest:
-		ctr = m.grpcErrorsTotalBadRequest
+		ctr = m.errorsTotalBadRequest
 	case GRPCErrDeviceQuota:
-		ctr = m.grpcErrorsTotalDeviceQuota
+		ctr = m.errorsTotalDeviceQuota
 	case GRPCErrOther:
-		ctr = m.grpcErrorsTotalOther
+		ctr = m.errorsTotalOther
 	case GRPCErrRateLimit:
-		ctr = m.grpcErrorsTotalRateLimit
+		ctr = m.errorsTotalRateLimit
 	case GRPCErrTimeout:
-		ctr = m.grpcErrorsTotalTimeout
+		ctr = m.errorsTotalTimeout
 	default:
-		panic(fmt.Errorf("BackendPB.IncrementGRPCErrorCount: bad type %q", errType))
+		panic(fmt.Errorf("BackendGRPC.IncrementErrorCount: bad type %q", errType))
 	}
 
 	ctr.Inc()
-}
-
-// IncrementInvalidDevicesCount implements the [Metrics] interface for
-// BackendPB.
-func (m *BackendPB) IncrementInvalidDevicesCount(_ context.Context) {
-	m.devicesInvalidTotal.Inc()
-}
-
-// UpdateStats implements the [Metrics] interface for BackendPB.
-func (m *BackendPB) UpdateStats(_ context.Context, avgRecv, avgDec time.Duration) {
-	m.grpcAvgProfileRecvDuration.Observe(avgRecv.Seconds())
-	m.grpcAvgProfileDecDuration.Observe(avgDec.Seconds())
 }

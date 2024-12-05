@@ -19,8 +19,9 @@ type RateLimiterConfig struct {
 	// not be nil.
 	Logger *slog.Logger
 
-	// GRPCMetrics is used for the collection of the protobuf errors.
-	GRPCMetrics Metrics
+	// GRPCMetrics is used for the collection of the protobuf communication
+	// statistics.
+	GRPCMetrics GRPCMetrics
 
 	// Metrics is used to collect allowlist statistics.
 	Metrics consul.Metrics
@@ -44,7 +45,7 @@ type RateLimiterConfig struct {
 // that retrieves the rate limit settings from the business logic backend.
 type RateLimiter struct {
 	logger      *slog.Logger
-	grpcMetrics Metrics
+	grpcMetrics GRPCMetrics
 	metrics     consul.Metrics
 	allowlist   *ratelimit.DynamicAllowlist
 	errColl     errcoll.Interface
@@ -92,7 +93,7 @@ func (l *RateLimiter) Refresh(ctx context.Context) (err error) {
 	}
 
 	allowedSubnets := backendResp.AllowedSubnets
-	prefixes := cidrRangeToInternal(ctx, l.errColl, allowedSubnets)
+	prefixes := cidrRangeToInternal(ctx, l.errColl, l.logger, allowedSubnets)
 	l.allowlist.Update(prefixes)
 
 	l.logger.InfoContext(ctx, "refresh successful", "num_records", len(prefixes))

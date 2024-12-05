@@ -29,6 +29,12 @@ const (
 	// Resolvers for querying the resolver with unknown or absent name.
 	DDRDomain = DDRLabel + "." + ResolverARPADomain
 
+	// ChromePrefetchHost is the hostname that Chrome uses to check if it should
+	// use the Chrome Private Prefetch Proxy feature.
+	//
+	// See https://developer.chrome.com/docs/privacy-security/private-prefetch-proxy-for-network-admins.
+	ChromePrefetchHost = "dns-tunnel-check.googlezip.net"
+
 	// FirefoxCanaryHost is the hostname that Firefox uses to check if it should
 	// use its own DNS-over-HTTPS settings.
 	//
@@ -251,6 +257,10 @@ func (mw *Middleware) specialDomainHandler(
 		if shouldBlockPrivateRelay(ri, prof) {
 			return mw.handlePrivateRelay, "apple_private_relay"
 		}
+	case ChromePrefetchHost:
+		if shouldBlockChromePrefetch(ri, prof) {
+			return mw.handleChromePrefetch, "chrome_prefetch"
+		}
 	case FirefoxCanaryHost:
 		if shouldBlockFirefoxCanary(ri, prof) {
 			return mw.handleFirefoxCanary, "firefox"
@@ -262,36 +272,34 @@ func (mw *Middleware) specialDomainHandler(
 	return nil, ""
 }
 
-// shouldBlockPrivateRelay returns true if the query is for an Apple Private
-// Relay check domain and the request information or profile indicates that
-// Apple Private Relay should be blocked.
-func shouldBlockPrivateRelay(ri *agd.RequestInfo, prof *agd.Profile) (ok bool) {
+// shouldBlockChromePrefetch returns true request information or profile
+// indicate that the Chrome prefetch domain should be blocked.
+func shouldBlockChromePrefetch(ri *agd.RequestInfo, prof *agd.Profile) (ok bool) {
 	if prof != nil {
-		return prof.BlockPrivateRelay
+		return prof.BlockChromePrefetch
 	}
 
-	return ri.FilteringGroup.BlockPrivateRelay
+	return ri.FilteringGroup.BlockChromePrefetch
 }
 
-// handlePrivateRelay responds to Apple Private Relay queries with an NXDOMAIN
-// response.
-func (mw *Middleware) handlePrivateRelay(
+// handleChromePrefetch responds to Chrome prefetch domain queries with an
+// NXDOMAIN response.
+func (mw *Middleware) handleChromePrefetch(
 	ctx context.Context,
 	rw dnsserver.ResponseWriter,
 	req *dns.Msg,
 	ri *agd.RequestInfo,
 ) (err error) {
-	metrics.DNSSvcApplePrivateRelayRequestsTotal.Inc()
+	metrics.DNSSvcChromePrefetchRequestsTotal.Inc()
 
 	resp := ri.Messages.NewRespRCode(req, dns.RcodeNameError)
 	err = rw.WriteMsg(ctx, req, resp)
 
-	return errors.Annotate(err, "writing private relay resp: %w")
+	return errors.Annotate(err, "writing chrome prefetch resp: %w")
 }
 
-// shouldBlockFirefoxCanary returns true if the query is for a Firefox canary
-// domain and the request information or profile indicates that Firefox canary
-// domain should be blocked.
+// shouldBlockFirefoxCanary returns true request information or profile indicate
+// that the Firefox canary domain should be blocked.
 func shouldBlockFirefoxCanary(ri *agd.RequestInfo, prof *agd.Profile) (ok bool) {
 	if prof != nil {
 		return prof.BlockFirefoxCanary
@@ -314,4 +322,30 @@ func (mw *Middleware) handleFirefoxCanary(
 	err = rw.WriteMsg(ctx, req, resp)
 
 	return errors.Annotate(err, "writing firefox canary resp: %w")
+}
+
+// shouldBlockPrivateRelay returns true request information or profile indicate
+// that the Apple Private Relay domain should be blocked.
+func shouldBlockPrivateRelay(ri *agd.RequestInfo, prof *agd.Profile) (ok bool) {
+	if prof != nil {
+		return prof.BlockPrivateRelay
+	}
+
+	return ri.FilteringGroup.BlockPrivateRelay
+}
+
+// handlePrivateRelay responds to Apple Private Relay queries with an NXDOMAIN
+// response.
+func (mw *Middleware) handlePrivateRelay(
+	ctx context.Context,
+	rw dnsserver.ResponseWriter,
+	req *dns.Msg,
+	ri *agd.RequestInfo,
+) (err error) {
+	metrics.DNSSvcApplePrivateRelayRequestsTotal.Inc()
+
+	resp := ri.Messages.NewRespRCode(req, dns.RcodeNameError)
+	err = rw.WriteMsg(ctx, req, resp)
+
+	return errors.Annotate(err, "writing private relay resp: %w")
 }

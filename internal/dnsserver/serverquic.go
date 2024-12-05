@@ -62,10 +62,16 @@ const (
 // compatProtoDQ are ALPNs for backwards compatibility.
 var compatProtoDQ = []string{"doq-i00", "doq-i02", "doq-i03", "dq"}
 
+// NextProtoDoQ is a list of ALPN protocols added by default to the server's
+// *tls.Config if no NextProto is specified there and DoQ is supposed to be
+// used.
+var NextProtoDoQ = append([]string{nextProtoDoQ}, compatProtoDQ...)
+
 // ConfigQUIC is a struct that needs to be passed to NewServerQUIC to
 // initialize a new ServerQUIC instance.
 type ConfigQUIC struct {
-	// TLSConfig is the TLS configuration for QUIC.
+	// TLSConfig is the TLS configuration for QUIC.  If it is not nil, it must
+	// be set to [NextProtoDoQ].
 	TLSConfig *tls.Config
 
 	ConfigBase
@@ -111,12 +117,6 @@ const quicBytePoolSize = dns.MaxMsgSize
 
 // NewServerQUIC creates a new ServerQUIC instance.
 func NewServerQUIC(conf ConfigQUIC) (s *ServerQUIC) {
-	// Make sure DOQ ALPNs are enabled in the TLS config.
-	tlsConfig := conf.TLSConfig
-	if len(tlsConfig.NextProtos) == 0 {
-		tlsConfig.NextProtos = append([]string{nextProtoDoQ}, compatProtoDQ...)
-	}
-
 	if conf.ListenConfig == nil {
 		// Do not enable OOB here as quic-go will do that on its own.
 		conf.ListenConfig = netext.DefaultListenConfig(nil)

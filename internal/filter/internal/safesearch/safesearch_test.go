@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
@@ -48,9 +48,9 @@ func TestFilter(t *testing.T) {
 
 	f, newErr := safesearch.New(
 		&safesearch.Config{
-			Refreshable: &internal.RefreshableConfig{
+			Refreshable: &refreshable.Config{
 				Logger:    slogutil.NewDiscardLogger(),
-				ID:        agd.FilterListIDGeneralSafeSearch,
+				ID:        internal.IDGeneralSafeSearch,
 				URL:       srvURL,
 				CachePath: cachePath,
 				Staleness: filtertest.Staleness,
@@ -59,7 +59,7 @@ func TestFilter(t *testing.T) {
 			},
 			CacheTTL: 1 * time.Minute,
 		},
-		rulelist.NewResultCache(100, true),
+		rulelist.NewResultCache(filtertest.CacheCount, true),
 	)
 	require.NoError(t, newErr)
 
@@ -70,14 +70,14 @@ func TestFilter(t *testing.T) {
 
 	require.True(t, t.Run("no_match", func(t *testing.T) {
 		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
-		req, ri := newReq(t, testOther, dns.TypeA)
-		res, err := f.FilterRequest(ctx, req, ri)
+		req := newReq(t, testOther, dns.TypeA)
+		res, err := f.FilterRequest(ctx, req)
 		require.NoError(t, err)
 
 		assert.Nil(t, res)
 
 		require.True(t, t.Run("cached", func(t *testing.T) {
-			res, err = f.FilterRequest(ctx, req, ri)
+			res, err = f.FilterRequest(ctx, req)
 			require.NoError(t, err)
 
 			// TODO(a.garipov): Find a way to make caches more inspectable.
@@ -87,8 +87,8 @@ func TestFilter(t *testing.T) {
 
 	require.True(t, t.Run("txt", func(t *testing.T) {
 		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
-		req, ri := newReq(t, testEngineWithIP, dns.TypeTXT)
-		res, err := f.FilterRequest(ctx, req, ri)
+		req := newReq(t, testEngineWithIP, dns.TypeTXT)
+		res, err := f.FilterRequest(ctx, req)
 		require.NoError(t, err)
 
 		assert.Nil(t, res)
@@ -96,23 +96,23 @@ func TestFilter(t *testing.T) {
 
 	require.True(t, t.Run("ip", func(t *testing.T) {
 		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
-		req, ri := newReq(t, testEngineWithIP, dns.TypeA)
-		res, err := f.FilterRequest(ctx, req, ri)
+		req := newReq(t, testEngineWithIP, dns.TypeA)
+		res, err := f.FilterRequest(ctx, req)
 		require.NoError(t, err)
 
 		rm := testutil.RequireTypeAssert[*internal.ResultModifiedResponse](t, res)
 		require.Len(t, rm.Msg.Answer, 1)
 
-		assert.Equal(t, rm.Rule, agd.FilterRuleText(testEngineWithIP))
+		assert.Equal(t, rm.Rule, internal.RuleText(testEngineWithIP))
 
 		a := testutil.RequireTypeAssert[*dns.A](t, rm.Msg.Answer[0])
 		assert.Equal(t, net.IP(testIPOfEngineWithIP.AsSlice()), a.A)
 
 		t.Run("cached", func(t *testing.T) {
-			newReq, newRI := newReq(t, testEngineWithIP, dns.TypeA)
+			newReq := newReq(t, testEngineWithIP, dns.TypeA)
 
 			var cachedRes internal.Result
-			cachedRes, err = f.FilterRequest(ctx, newReq, newRI)
+			cachedRes, err = f.FilterRequest(ctx, newReq)
 			require.NoError(t, err)
 
 			// Do not assert that the results are the same, since a modified
@@ -121,7 +121,7 @@ func TestFilter(t *testing.T) {
 			// fields set properly.
 			cachedMR := testutil.RequireTypeAssert[*internal.ResultModifiedResponse](t, cachedRes)
 			assert.NotSame(t, cachedMR, rm)
-			assert.Equal(t, cachedMR.Msg.Id, newReq.Id)
+			assert.Equal(t, cachedMR.Msg.Id, newReq.DNS.Id)
 			assert.Equal(t, cachedMR.List, rm.List)
 			assert.Equal(t, cachedMR.Rule, rm.Rule)
 		})
@@ -129,8 +129,8 @@ func TestFilter(t *testing.T) {
 
 	require.True(t, t.Run("domain", func(t *testing.T) {
 		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
-		req, ri := newReq(t, testEngineWithDomain, dns.TypeA)
-		res, err := f.FilterRequest(ctx, req, ri)
+		req := newReq(t, testEngineWithDomain, dns.TypeA)
+		res, err := f.FilterRequest(ctx, req)
 		require.NoError(t, err)
 
 		rm := testutil.RequireTypeAssert[*internal.ResultModifiedRequest](t, res)
@@ -138,7 +138,7 @@ func TestFilter(t *testing.T) {
 		require.Len(t, rm.Msg.Question, 1)
 
 		assert.False(t, rm.Msg.Response)
-		assert.Equal(t, rm.Rule, agd.FilterRuleText(testEngineWithDomain))
+		assert.Equal(t, rm.Rule, internal.RuleText(testEngineWithDomain))
 
 		q := rm.Msg.Question[0]
 		assert.Equal(t, dns.TypeA, q.Qtype)
@@ -147,8 +147,8 @@ func TestFilter(t *testing.T) {
 
 	require.True(t, t.Run("https", func(t *testing.T) {
 		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
-		req, ri := newReq(t, testEngineWithDomain, dns.TypeHTTPS)
-		res, err := f.FilterRequest(ctx, req, ri)
+		req := newReq(t, testEngineWithDomain, dns.TypeHTTPS)
+		res, err := f.FilterRequest(ctx, req)
 		require.NoError(t, err)
 
 		rm := testutil.RequireTypeAssert[*internal.ResultModifiedRequest](t, res)
@@ -156,7 +156,7 @@ func TestFilter(t *testing.T) {
 		require.Len(t, rm.Msg.Question, 1)
 
 		assert.False(t, rm.Msg.Response)
-		assert.Equal(t, rm.Rule, agd.FilterRuleText(testEngineWithDomain))
+		assert.Equal(t, rm.Rule, internal.RuleText(testEngineWithDomain))
 
 		q := rm.Msg.Question[0]
 		assert.Equal(t, dns.TypeHTTPS, q.Qtype)
@@ -164,18 +164,16 @@ func TestFilter(t *testing.T) {
 	}))
 }
 
-// newReq is a test helper that returns the DNS request and its accompanying
-// request info with the given data.
-func newReq(tb testing.TB, host string, qt dnsmsg.RRType) (req *dns.Msg, ri *agd.RequestInfo) {
+// newReq is a test helper that returns the filtering request with the given
+// data.
+func newReq(tb testing.TB, host string, qt dnsmsg.RRType) (req *internal.Request) {
 	tb.Helper()
 
-	req = dnsservertest.NewReq(host, qt, dns.ClassINET)
-	ri = &agd.RequestInfo{
+	return &internal.Request{
+		DNS:      dnsservertest.NewReq(host, qt, dns.ClassINET),
 		Messages: agdtest.NewConstructor(tb),
 		Host:     host,
 		QType:    qt,
 		QClass:   dns.ClassINET,
 	}
-
-	return req, ri
 }

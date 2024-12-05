@@ -10,7 +10,11 @@ import (
 
 // LRUConfig is a configuration structure of a cache.
 type LRUConfig struct {
-	Size int
+	// Count is the maximum number of elements to keep in the cache.  It must be
+	// positive.
+	//
+	// TODO(a.garipov):  Make uint64.
+	Count int
 }
 
 // LRU is an [Interface] implementation.
@@ -21,7 +25,7 @@ type LRU[K, T any] struct {
 // NewLRU returns a new initialized LRU cache.
 func NewLRU[K, T any](conf *LRUConfig) (c *LRU[K, T]) {
 	return &LRU[K, T]{
-		cache: gcache.New(conf.Size).LRU().Build(),
+		cache: gcache.New(conf.Count).LRU().Build(),
 	}
 }
 

@@ -42,7 +42,7 @@ type TLSConfig struct {
 	handshakeTotal *prometheus.CounterVec
 }
 
-// NewTLSConfig registers the TLS related metrics in reg and returns a properly
+// NewTLSConfig registers the TLS-related metrics in reg and returns a properly
 // initialized [TLSConfig].
 func NewTLSConfig(namespace string, reg prometheus.Registerer) (m *TLSConfig, err error) {
 	const (
@@ -172,7 +172,7 @@ func (m *TLSConfig) AfterHandshake(
 	proto string,
 	srvName string,
 	devDomains []string,
-	srvCerts []tls.Certificate,
+	srvCerts []*tls.Certificate,
 ) (f func(tls.ConnectionState) error) {
 	return func(state tls.ConnectionState) error {
 		sLabel := serverNameToLabel(state.ServerName, srvName, devDomains, srvCerts)
@@ -245,7 +245,7 @@ func serverNameToLabel(
 	sni string,
 	srvName string,
 	devDomains []string,
-	srvCerts []tls.Certificate,
+	srvCerts []*tls.Certificate,
 ) (label string) {
 	if sni == "" {
 		// SNI is empty, so the request is probably made on the IP address.
@@ -260,7 +260,7 @@ func serverNameToLabel(
 }
 
 // matchServerNames matches sni with known servers.
-func matchServerNames(sni string, devDomains []string, srvCerts []tls.Certificate) (match string) {
+func matchServerNames(sni string, devDomains []string, srvCerts []*tls.Certificate) (match string) {
 	if matchedDomain := matchDeviceDomains(sni, devDomains); matchedDomain != "" {
 		return matchedDomain
 	}
@@ -287,7 +287,7 @@ func matchDeviceDomains(sni string, domains []string) (matchedDomain string) {
 }
 
 // matchSrvCerts matches sni to DNSNames in srvCerts.
-func matchSrvCerts(sni string, srvCerts []tls.Certificate) (match string) {
+func matchSrvCerts(sni string, srvCerts []*tls.Certificate) (match string) {
 	for _, cert := range srvCerts {
 		leaf := cert.Leaf
 		if leaf == nil {

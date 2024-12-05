@@ -1,4 +1,4 @@
-package filter
+package filterstorage
 
 import (
 	"cmp"
@@ -7,15 +7,15 @@ import (
 	"log/slog"
 	"net/url"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/golibs/errors"
 )
 
 // indexResp is the struct for the JSON response from a filter index API.
 //
-// TODO(a.garipov):  Consider validating uniqueness of the keys.
+// TODO(a.garipov):  Consider exporting for tests?
 type indexResp struct {
 	Filters []*indexRespFilter `json:"filters"`
 }
@@ -62,8 +62,8 @@ func (f *indexRespFilter) validate() (err error) {
 		errs = append(errs, fmt.Errorf("downloadUrl: %w", errors.ErrEmptyValue))
 	}
 
-	if f.Key == "" {
-		errs = append(errs, fmt.Errorf("filterKey: %w", errors.ErrEmptyValue))
+	if _, err = filter.NewID(f.Key); err != nil {
+		errs = append(errs, fmt.Errorf("filterKey: %w", err))
 	}
 
 	return errors.Join(errs...)
@@ -72,7 +72,7 @@ func (f *indexRespFilter) validate() (err error) {
 // indexData is the data of a single item in the filtering-rule index response.
 type indexData struct {
 	url *url.URL
-	id  agd.FilterListID
+	id  filter.ID
 }
 
 // toInternal converts the filters from the index to []*indexData.  All errors
@@ -92,14 +92,6 @@ func (r *indexResp) toInternal(
 			continue
 		}
 
-		id, err := agd.NewFilterListID(rf.Key)
-		if err != nil {
-			err = fmt.Errorf("validating id/key: %w", err)
-			errcoll.Collect(ctx, errColl, logger, "index response ids", err)
-
-			continue
-		}
-
 		u, err := agdhttp.ParseHTTPURL(rf.DownloadURL)
 		if err != nil {
 			err = fmt.Errorf("validating url: %w", err)
@@ -110,7 +102,9 @@ func (r *indexResp) toInternal(
 
 		fls = append(fls, &indexData{
 			url: u,
-			id:  id,
+			// Use a simple conversion, since [*indexRespFilter.validate] has
+			// already made sure that the ID is valid.
+			id: filter.ID(rf.Key),
 		})
 	}
 

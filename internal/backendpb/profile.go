@@ -3,6 +3,7 @@ package backendpb
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
@@ -20,20 +22,21 @@ import (
 // toInternal converts the protobuf-encoded data into a profile structure and
 // its device structures.
 //
-// TODO(a.garipov):  Refactor into a method of [*ProfileStorage]?
+// TODO(a.garipov):  Refactor into methods of [*ProfileStorage].
 func (x *DNSProfile) toInternal(
 	ctx context.Context,
 	updTime time.Time,
 	bindSet netutil.SubnetSet,
 	errColl errcoll.Interface,
-	mtrc Metrics,
+	logger *slog.Logger,
+	mtrc ProfileDBMetrics,
 	respSzEst datasize.ByteSize,
 ) (profile *agd.Profile, devices []*agd.Device, err error) {
 	if x == nil {
 		return nil, nil, fmt.Errorf("profile is nil")
 	}
 
-	parental, err := x.Parental.toInternal(ctx, errColl)
+	parental, err := x.Parental.toInternal(ctx, errColl, logger)
 	if err != nil {
 		return nil, nil, fmt.Errorf("parental: %w", err)
 	}
@@ -43,8 +46,7 @@ func (x *DNSProfile) toInternal(
 		return nil, nil, fmt.Errorf("blocking mode: %w", err)
 	}
 
-	devices, deviceIds := devicesToInternal(ctx, x.Devices, bindSet, errColl, mtrc)
-	listsEnabled, listIDs := x.RuleLists.toInternal(ctx, errColl)
+	devices, deviceIds := devicesToInternal(ctx, x.Devices, bindSet, errColl, logger, mtrc)
 
 	profID, err := agd.NewProfileID(x.DnsId)
 	if err != nil {
@@ -56,52 +58,63 @@ func (x *DNSProfile) toInternal(
 		fltRespTTL = respTTL.AsDuration()
 	}
 
+	customRules := rulesToInternal(ctx, x.CustomRules, errColl, logger)
+	custom := &filter.ConfigCustom{
+		ID:         string(x.DnsId),
+		UpdateTime: updTime,
+		Rules:      customRules,
+		// TODO(a.garipov):  Consider adding an explicit flag to the protocol.
+		Enabled: len(customRules) > 0,
+	}
+
 	return &agd.Profile{
-		Parental:            parental,
+		FilterConfig: &filter.ConfigClient{
+			Custom:       custom,
+			Parental:     parental,
+			RuleList:     x.RuleLists.toInternal(ctx, errColl, logger),
+			SafeBrowsing: x.SafeBrowsing.toInternal(),
+		},
+		Access:              x.Access.toInternal(ctx, errColl, logger),
 		BlockingMode:        m,
+		Ratelimiter:         x.RateLimit.toInternal(ctx, errColl, logger, respSzEst),
 		ID:                  profID,
-		UpdateTime:          updTime,
 		DeviceIDs:           deviceIds,
-		RuleListIDs:         listIDs,
-		CustomRules:         rulesToInternal(ctx, x.CustomRules, errColl),
 		FilteredResponseTTL: fltRespTTL,
-		FilteringEnabled:    x.FilteringEnabled,
-		Ratelimiter:         x.RateLimit.toInternal(ctx, errColl, respSzEst),
-		SafeBrowsing:        x.SafeBrowsing.toInternal(),
-		Access:              x.Access.toInternal(ctx, errColl),
-		RuleListsEnabled:    listsEnabled,
-		QueryLogEnabled:     x.QueryLogEnabled,
-		Deleted:             x.Deleted,
-		BlockPrivateRelay:   x.BlockPrivateRelay,
-		BlockFirefoxCanary:  x.BlockFirefoxCanary,
-		IPLogEnabled:        x.IpLogEnabled,
 		AutoDevicesEnabled:  x.AutoDevicesEnabled,
+		BlockChromePrefetch: x.BlockChromePrefetch,
+		BlockFirefoxCanary:  x.BlockFirefoxCanary,
+		BlockPrivateRelay:   x.BlockPrivateRelay,
+		Deleted:             x.Deleted,
+		FilteringEnabled:    x.FilteringEnabled,
+		IPLogEnabled:        x.IpLogEnabled,
+		QueryLogEnabled:     x.QueryLogEnabled,
 	}, devices, nil
 }
 
-// toInternal converts a protobuf parental-settings structure to an internal
-// one.  If x is nil, toInternal returns nil.
+// toInternal converts a protobuf parental-protection settings structure to an
+// internal one.  If x is nil, toInternal returns a disabled configuration.
 func (x *ParentalSettings) toInternal(
 	ctx context.Context,
 	errColl errcoll.Interface,
-) (s *agd.ParentalProtectionSettings, err error) {
+	logger *slog.Logger,
+) (c *filter.ConfigParental, err error) {
+	c = &filter.ConfigParental{}
 	if x == nil {
-		return nil, nil
+		return c, nil
 	}
 
-	schedule, err := x.Schedule.toInternal()
+	c.AdultBlockingEnabled = x.BlockAdult
+	c.BlockedServices = blockedSvcsToInternal(ctx, errColl, logger, x.BlockedServices)
+	c.Enabled = x.Enabled
+	c.SafeSearchGeneralEnabled = x.GeneralSafeSearch
+	c.SafeSearchYouTubeEnabled = x.YoutubeSafeSearch
+
+	c.PauseSchedule, err = x.Schedule.toInternal()
 	if err != nil {
-		return nil, fmt.Errorf("schedule: %w", err)
+		return nil, fmt.Errorf("pause schedule: %w", err)
 	}
 
-	return &agd.ParentalProtectionSettings{
-		Schedule:          schedule,
-		BlockedServices:   blockedSvcsToInternal(ctx, errColl, x.BlockedServices),
-		Enabled:           x.Enabled,
-		BlockAdult:        x.BlockAdult,
-		GeneralSafeSearch: x.GeneralSafeSearch,
-		YoutubeSafeSearch: x.YoutubeSafeSearch,
-	}, nil
+	return c, nil
 }
 
 // toInternal converts protobuf rate-limiting settings to an internal structure.
@@ -109,6 +122,7 @@ func (x *ParentalSettings) toInternal(
 func (x *RateLimitSettings) toInternal(
 	ctx context.Context,
 	errColl errcoll.Interface,
+	logger *slog.Logger,
 	respSzEst datasize.ByteSize,
 ) (r agd.Ratelimiter) {
 	if x == nil || !x.Enabled {
@@ -116,24 +130,26 @@ func (x *RateLimitSettings) toInternal(
 	}
 
 	return agd.NewDefaultRatelimiter(&agd.RatelimitConfig{
-		ClientSubnets: cidrRangeToInternal(ctx, errColl, x.ClientCidr),
+		ClientSubnets: cidrRangeToInternal(ctx, errColl, logger, x.ClientCidr),
 		RPS:           x.Rps,
 		Enabled:       x.Enabled,
 	}, respSzEst)
 }
 
-// toInternal converts protobuf safe-browsing settings to an internal structure.
-// If x is nil, toInternal returns nil.
-func (x *SafeBrowsingSettings) toInternal() (sb *agd.SafeBrowsingSettings) {
+// toInternal converts protobuf safe-browsing settings to an internal
+// safe-browsing configuration.  If x is nil, toInternal returns a disabled
+// configuration.
+func (x *SafeBrowsingSettings) toInternal() (c *filter.ConfigSafeBrowsing) {
+	c = &filter.ConfigSafeBrowsing{}
 	if x == nil {
-		return nil
+		return c
 	}
 
-	return &agd.SafeBrowsingSettings{
-		Enabled:                     x.Enabled,
-		BlockDangerousDomains:       x.BlockDangerousDomains,
-		BlockNewlyRegisteredDomains: x.BlockNrd,
-	}
+	c.Enabled = x.Enabled
+	c.DangerousDomainsEnabled = x.BlockDangerousDomains
+	c.NewlyRegisteredDomainsEnabled = x.BlockNrd
+
+	return c
 }
 
 // toInternal converts protobuf access settings to an internal structure.  If x
@@ -141,14 +157,15 @@ func (x *SafeBrowsingSettings) toInternal() (sb *agd.SafeBrowsingSettings) {
 func (x *AccessSettings) toInternal(
 	ctx context.Context,
 	errColl errcoll.Interface,
+	logger *slog.Logger,
 ) (a access.Profile) {
 	if x == nil || !x.Enabled {
 		return access.EmptyProfile{}
 	}
 
 	return access.NewDefaultProfile(&access.ProfileConfig{
-		AllowedNets:          cidrRangeToInternal(ctx, errColl, x.AllowlistCidr),
-		BlockedNets:          cidrRangeToInternal(ctx, errColl, x.BlocklistCidr),
+		AllowedNets:          cidrRangeToInternal(ctx, errColl, logger, x.AllowlistCidr),
+		BlockedNets:          cidrRangeToInternal(ctx, errColl, logger, x.BlocklistCidr),
 		AllowedASN:           asnToInternal(x.AllowlistAsn),
 		BlockedASN:           asnToInternal(x.BlocklistAsn),
 		BlocklistDomainRules: x.BlocklistDomainRules,
@@ -160,12 +177,14 @@ func (x *AccessSettings) toInternal(
 func cidrRangeToInternal(
 	ctx context.Context,
 	errColl errcoll.Interface,
+	logger *slog.Logger,
 	cidrs []*CidrRange,
 ) (out []netip.Prefix) {
 	for i, c := range cidrs {
 		addr, ok := netip.AddrFromSlice(c.Address)
 		if !ok {
-			reportf(ctx, errColl, "bad cidr at index %d: %v", i, c.Address)
+			err := fmt.Errorf("bad cidr at index %d: %v", i, c.Address)
+			errcoll.Collect(ctx, errColl, logger, "converting cidrs", err)
 
 			continue
 		}
@@ -187,71 +206,71 @@ func asnToInternal(asns []uint32) (out []geoip.ASN) {
 }
 
 // blockedSvcsToInternal is a helper that converts the blocked service IDs from
-// the backend response to AdGuard DNS blocked service IDs.
+// the backend response to AdGuard DNS blocked-service IDs.
 func blockedSvcsToInternal(
 	ctx context.Context,
 	errColl errcoll.Interface,
+	logger *slog.Logger,
 	respSvcs []string,
-) (svcs []agd.BlockedServiceID) {
+) (ids []filter.BlockedServiceID) {
 	l := len(respSvcs)
 	if l == 0 {
 		return nil
 	}
 
-	svcs = make([]agd.BlockedServiceID, 0, l)
-	for i, s := range respSvcs {
-		id, err := agd.NewBlockedServiceID(s)
+	ids = make([]filter.BlockedServiceID, 0, l)
+	for i, idStr := range respSvcs {
+		id, err := filter.NewBlockedServiceID(idStr)
 		if err != nil {
-			reportf(ctx, errColl, "blocked service at index %d: %w", i, err)
+			err = fmt.Errorf("at index %d: %w", i, err)
+			errcoll.Collect(ctx, errColl, logger, "converting blocked services", err)
 
 			continue
 		}
 
-		svcs = append(svcs, id)
+		ids = append(ids, id)
 	}
 
-	return svcs
+	return ids
 }
 
 // toInternal converts a protobuf protection-schedule structure to an internal
 // one.  If x is nil, toInternal returns nil.
-func (x *ScheduleSettings) toInternal() (sch *agd.ParentalProtectionSchedule, err error) {
+func (x *ScheduleSettings) toInternal() (c *filter.ConfigSchedule, err error) {
 	if x == nil {
 		return nil, nil
 	}
 
-	sch = &agd.ParentalProtectionSchedule{}
+	c = &filter.ConfigSchedule{
+		Week: &filter.WeeklySchedule{},
+	}
 
-	sch.TimeZone, err = agdtime.LoadLocation(x.Tmz)
+	c.TimeZone, err = agdtime.LoadLocation(x.Tmz)
 	if err != nil {
 		return nil, fmt.Errorf("loading timezone: %w", err)
 	}
-
-	sch.Week = &agd.WeeklySchedule{}
 
 	w := x.WeeklyRange
 	days := []*DayRange{w.Sun, w.Mon, w.Tue, w.Wed, w.Thu, w.Fri, w.Sat}
 	for i, d := range days {
 		if d == nil {
-			sch.Week[i] = agd.ZeroLengthDayRange()
-
 			continue
 		}
 
-		sch.Week[i] = agd.DayRange{
+		ivl := &filter.DayInterval{
 			Start: uint16(d.Start.AsDuration().Minutes()),
-			End:   uint16(d.End.AsDuration().Minutes()),
+			End:   uint16(d.End.AsDuration().Minutes() + 1),
 		}
-	}
 
-	for i, r := range sch.Week {
-		err = r.Validate()
+		err = ivl.Validate()
 		if err != nil {
 			return nil, fmt.Errorf("weekday %s: %w", time.Weekday(i), err)
 		}
+
+		c.Week[i] = ivl
 	}
 
-	return sch, nil
+	return c, nil
 }
 
 // toInternal converts a protobuf custom blocking-mode to an internal one.
@@ -312,17 +331,19 @@ func rulesToInternal(
 	ctx context.Context,
 	respRules []string,
 	errColl errcoll.Interface,
-) (rules []agd.FilterRuleText) {
+	logger *slog.Logger,
+) (rules []filter.RuleText) {
 	l := len(respRules)
 	if l == 0 {
 		return nil
 	}
 
-	rules = make([]agd.FilterRuleText, 0, l)
+	rules = make([]filter.RuleText, 0, l)
 	for i, r := range respRules {
-		text, err := agd.NewFilterRuleText(r)
+		text, err := filter.NewRuleText(r)
 		if err != nil {
-			reportf(ctx, errColl, "rule at index %d: %w", i, err)
+			err = fmt.Errorf("at index %d: %w", i, err)
+			errcoll.Collect(ctx, errColl, logger, "converting rules", err)
 
 			continue
 		}
@@ -334,32 +355,32 @@ func rulesToInternal(
 }
 
 // toInternal is a helper that converts the filter lists from the backend
-// response to AdGuard DNS filter list ids.  If x is nil, toInternal returns
-// false and nil.
+// response to AdGuard DNS rule-list configuration.  If x is nil, toInternal
+// returns a disabled configuration.
 func (x *RuleListsSettings) toInternal(
 	ctx context.Context,
 	errColl errcoll.Interface,
-) (enabled bool, filterLists []agd.FilterListID) {
+	logger *slog.Logger,
+) (c *filter.ConfigRuleList) {
+	c = &filter.ConfigRuleList{}
 	if x == nil {
-		return false, nil
+		return c
 	}
 
-	l := len(x.Ids)
-	if l == 0 {
-		return x.Enabled, nil
-	}
+	c.Enabled = x.Enabled
+	c.IDs = make([]filter.ID, 0, len(x.Ids))
 
-	filterLists = make([]agd.FilterListID, 0, l)
-	for i, f := range x.Ids {
-		id, err := agd.NewFilterListID(f)
+	for i, idStr := range x.Ids {
+		id, err := filter.NewID(idStr)
 		if err != nil {
-			reportf(ctx, errColl, "filter id: at index %d: %w", i, err)
+			err = fmt.Errorf("at index %d: %w", i, err)
+			errcoll.Collect(ctx, errColl, logger, "converting filter id", err)
 
 			continue
 		}
 
-		filterLists = append(filterLists, id)
+		c.IDs = append(c.IDs, id)
 	}
 
-	return x.Enabled, filterLists
+	return c
 }

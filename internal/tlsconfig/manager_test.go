@@ -98,6 +98,19 @@ func writeSessionKey(tb testing.TB, sessKeyPath string) {
 	require.NoError(tb, err)
 }
 
+// assertCertSerialNumber is a helper function that checks serial number of the
+// TLS certificate.
+func assertCertSerialNumber(tb testing.TB, conf *tls.Config, wantSN int64) {
+	tb.Helper()
+
+	cert, err := conf.GetCertificate(&tls.ClientHelloInfo{
+		SupportedVersions: []uint16{tls.VersionTLS13},
+	})
+	require.NoError(tb, err)
+
+	assert.Equal(tb, wantSN, cert.Leaf.SerialNumber.Int64())
+}
+
 func TestDefaultManager_Refresh(t *testing.T) {
 	t.Parallel()
 
@@ -109,7 +122,7 @@ func TestDefaultManager_Refresh(t *testing.T) {
 	m, err := tlsconfig.NewDefaultManager(&tlsconfig.DefaultManagerConfig{
 		Logger:  slogutil.NewDiscardLogger(),
 		ErrColl: agdtest.NewErrorCollector(),
-		Metrics: tlsconfig.EmptyRefreshMetrics{},
+		Metrics: tlsconfig.EmptyMetrics{},
 	})
 	require.NoError(t, err)
 
@@ -122,13 +135,14 @@ func TestDefaultManager_Refresh(t *testing.T) {
 	writeCertAndKey(t, certDER, certPath, key, keyPath)
 
 	ctx := testutil.ContextWithTimeout(t, testTimeout)
-	conf, err := m.Add(ctx, certPath, keyPath)
+	err = m.Add(ctx, certPath, keyPath)
 	require.NoError(t, err)
 
-	cert, err := conf.GetCertificate(&tls.ClientHelloInfo{})
-	require.NoError(t, err)
+	conf := m.Clone()
+	confWithMetrics := m.CloneWithMetrics("", "", nil)
 
-	assert.Equal(t, snBefore, cert.Leaf.SerialNumber.Int64())
+	assertCertSerialNumber(t, conf, snBefore)
+	assertCertSerialNumber(t, confWithMetrics, snBefore)
 
 	certDER, key = newCertAndKey(t, snAfter)
 	writeCertAndKey(t, certDER, certPath, key, keyPath)
@@ -136,10 +150,8 @@ func TestDefaultManager_Refresh(t *testing.T) {
 	err = m.Refresh(ctx)
 	require.NoError(t, err)
 
-	cert, err = conf.GetCertificate(&tls.ClientHelloInfo{})
-	require.NoError(t, err)
-
-	assert.Equal(t, snAfter, cert.Leaf.SerialNumber.Int64())
+	assertCertSerialNumber(t, conf, snAfter)
+	assertCertSerialNumber(t, confWithMetrics, snAfter)
 }
 
 func TestDefaultManager_RotateTickets(t *testing.T) {
@@ -152,7 +164,7 @@ func TestDefaultManager_RotateTickets(t *testing.T) {
 	m, err := tlsconfig.NewDefaultManager(&tlsconfig.DefaultManagerConfig{
 		Logger:             slogutil.NewDiscardLogger(),
 		ErrColl:            agdtest.NewErrorCollector(),
-		Metrics:            tlsconfig.EmptyRefreshMetrics{},
+		Metrics:            tlsconfig.EmptyMetrics{},
 		SessionTicketPaths: []string{sessKeyPath},
 	})
 	require.NoError(t, err)
@@ -165,7 +177,7 @@ func TestDefaultManager_RotateTickets(t *testing.T) {
 	writeCertAndKey(t, certDER, certPath, key, keyPath)
 
 	ctx := testutil.ContextWithTimeout(t, testTimeout)
-	_, err = m.Add(ctx, certPath, keyPath)
+	err = m.Add(ctx, certPath, keyPath)
 	require.NoError(t, err)
 
 	err = m.RotateTickets(ctx)

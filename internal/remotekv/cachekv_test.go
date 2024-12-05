@@ -21,7 +21,7 @@ func TestNewCache(t *testing.T) {
 
 	cache := remotekv.NewCache(&remotekv.CacheConfig{
 		Cache: agdcache.NewLRU[string, []byte](&agdcache.LRUConfig{
-			Size: 1,
+			Count: 1,
 		}),
 	})
 

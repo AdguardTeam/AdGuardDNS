@@ -42,7 +42,7 @@ func TestMiddleware_Wrap_access(t *testing.T) {
 		blockedClient2Prefix = netip.MustParsePrefix("2001:db8::/120")
 	)
 
-	accessMgr, errAccess := access.NewGlobal(
+	accessMgr, accessErr := access.NewGlobal(
 		[]string{
 			domainBlockedNormal,
 			domainBlockedUppercase,
@@ -53,7 +53,7 @@ func TestMiddleware_Wrap_access(t *testing.T) {
 			blockedClient2Prefix,
 		},
 	)
-	require.NoError(t, errAccess)
+	require.NoError(t, accessErr)
 
 	geoIP := agdtest.NewGeoIP()
 	geoIP.OnData = func(_ string, _ netip.Addr) (l *geoip.Location, err error) {
@@ -154,9 +154,11 @@ func TestMiddleware_Wrap_access(t *testing.T) {
 		qtype:    dns.TypeAAAA,
 	}}
 
-	handler := dnsserver.HandlerFunc(func(ctx context.Context, rw dnsserver.ResponseWriter, req *dns.Msg) (_ error) {
-		return rw.WriteMsg(ctx, req, dnsservertest.NewResp(dns.RcodeSuccess, req))
-	})
+	handler := dnsserver.HandlerFunc(
+		func(ctx context.Context, rw dnsserver.ResponseWriter, req *dns.Msg) (err error) {
+			return rw.WriteMsg(ctx, req, dnsservertest.NewResp(dns.RcodeSuccess, req))
+		},
+	)
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {

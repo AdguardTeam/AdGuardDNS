@@ -12,6 +12,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdprotobuf"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
 	"github.com/c2h5oh/datasize"
@@ -70,72 +71,77 @@ func profilesToInternal(
 
 // toInternal converts a protobuf profile structure to an internal one.
 func (x *Profile) toInternal(respSzEst datasize.ByteSize) (prof *agd.Profile, err error) {
-	parental, err := x.Parental.toInternal()
-	if err != nil {
-		return nil, fmt.Errorf("parental: %w", err)
-	}
-
 	m, err := blockingModeToInternal(x.BlockingMode)
 	if err != nil {
 		return nil, fmt.Errorf("blocking mode: %w", err)
 	}
 
+	pbFltConf := x.FilterConfig
+	schedule, err := pbFltConf.Parental.PauseSchedule.toInternal()
+	if err != nil {
+		return nil, fmt.Errorf("pause schedule: %w", err)
+	}
+
+	fltConf := &filter.ConfigClient{
+		Custom: &filter.ConfigCustom{
+			ID:         pbFltConf.Custom.Id,
+			UpdateTime: pbFltConf.Custom.UpdateTime.AsTime(),
+			// Consider the rules to have been prevalidated.
+			Rules:   unsafelyConvertStrSlice[string, filter.RuleText](pbFltConf.Custom.Rules),
+			Enabled: pbFltConf.Custom.Enabled,
+		},
+		Parental: &filter.ConfigParental{
+			PauseSchedule: schedule,
+			// Consider blocked-service IDs to have been prevalidated.
+			BlockedServices: unsafelyConvertStrSlice[string, filter.BlockedServiceID](
+				pbFltConf.Parental.BlockedServices,
+			),
+			Enabled:                  pbFltConf.Parental.Enabled,
+			AdultBlockingEnabled:     pbFltConf.Parental.AdultBlockingEnabled,
+			SafeSearchGeneralEnabled: pbFltConf.Parental.SafeSearchGeneralEnabled,
+			SafeSearchYouTubeEnabled: pbFltConf.Parental.SafeSearchYoutubeEnabled,
+		},
+		RuleList: &filter.ConfigRuleList{
+			// Consider rule-list IDs to have been prevalidated.
+			IDs:     unsafelyConvertStrSlice[string, filter.ID](pbFltConf.RuleList.Ids),
+			Enabled: pbFltConf.RuleList.Enabled,
+		},
+		SafeBrowsing: &filter.ConfigSafeBrowsing{
+			Enabled:                       pbFltConf.SafeBrowsing.Enabled,
+			DangerousDomainsEnabled:       pbFltConf.SafeBrowsing.DangerousDomainsEnabled,
+			NewlyRegisteredDomainsEnabled: pbFltConf.SafeBrowsing.NewlyRegisteredDomainsEnabled,
+		},
+	}
+
 	return &agd.Profile{
-		Parental:     parental,
-		Ratelimiter:  x.RateLimit.toInternal(respSzEst),
+		FilterConfig: fltConf,
+
+		Access:       x.Access.toInternal(),
 		BlockingMode: m,
-		ID:           agd.ProfileID(x.ProfileId),
-		UpdateTime:   x.UpdateTime.AsTime(),
+		Ratelimiter:  x.Ratelimiter.toInternal(respSzEst),
+
+		ID: agd.ProfileID(x.ProfileId),
+
 		// Consider device IDs to have been prevalidated.
 		DeviceIDs: unsafelyConvertStrSlice[string, agd.DeviceID](x.DeviceIds),
+
 		// Consider rule-list IDs to have been prevalidated.
-		RuleListIDs: unsafelyConvertStrSlice[string, agd.FilterListID](x.RuleListIds),
-		// Consider rule-list IDs to have been prevalidated.
-		CustomRules: unsafelyConvertStrSlice[string, agd.FilterRuleText](
-			x.CustomRules,
-		),
 		FilteredResponseTTL: x.FilteredResponseTtl.AsDuration(),
-		FilteringEnabled:    x.FilteringEnabled,
-		SafeBrowsing:        x.SafeBrowsing.toInternal(),
-		Access:              x.Access.toInternal(),
-		RuleListsEnabled:    x.RuleListsEnabled,
-		QueryLogEnabled:     x.QueryLogEnabled,
-		Deleted:             x.Deleted,
-		BlockPrivateRelay:   x.BlockPrivateRelay,
-		BlockFirefoxCanary:  x.BlockFirefoxCanary,
-		IPLogEnabled:        x.IpLogEnabled,
+
 		AutoDevicesEnabled:  x.AutoDevicesEnabled,
-	}, nil
-}
-
-// toInternal converts a protobuf parental-settings structure to an internal
-// one.
-func (x *ParentalProtectionSettings) toInternal() (s *agd.ParentalProtectionSettings, err error) {
-	if x == nil {
-		return nil, nil
-	}
-
-	schedule, err := x.Schedule.toInternal()
-	if err != nil {
-		return nil, fmt.Errorf("schedule: %w", err)
-	}
-
-	return &agd.ParentalProtectionSettings{
-		Schedule: schedule,
-		// Consider block service IDs to have been prevalidated.
-		BlockedServices: unsafelyConvertStrSlice[string, agd.BlockedServiceID](
-			x.BlockedServices,
-		),
-		Enabled:           x.Enabled,
-		BlockAdult:        x.BlockAdult,
-		GeneralSafeSearch: x.GeneralSafeSearch,
-		YoutubeSafeSearch: x.YoutubeSafeSearch,
+		BlockChromePrefetch: x.BlockChromePrefetch,
+		BlockFirefoxCanary:  x.BlockFirefoxCanary,
+		BlockPrivateRelay:   x.BlockPrivateRelay,
+		Deleted:             x.Deleted,
+		FilteringEnabled:    x.FilteringEnabled,
+		IPLogEnabled:        x.IpLogEnabled,
+		QueryLogEnabled:     x.QueryLogEnabled,
 	}, nil
 }
 
 // toInternal converts a protobuf protection-schedule structure to an internal
-// one.
-func (x *ParentalProtectionSchedule) toInternal() (s *agd.ParentalProtectionSchedule, err error) {
+// one.  If x is nil, c is nil.
+func (x *FilterConfig_Schedule) toInternal() (c *filter.ConfigSchedule, err error) {
 	if x == nil {
 		return nil, nil
 	}
@@ -145,26 +151,34 @@ func (x *ParentalProtectionSchedule) toInternal() (s *agd.ParentalProtectionSche
 		return nil, fmt.Errorf("time zone: %w", err)
 	}
 
-	return &agd.ParentalProtectionSchedule{
+	return &filter.ConfigSchedule{
 		// Consider the lengths to be prevalidated.
-		Week: &agd.WeeklySchedule{
-			// #nosec G115 -- The values put in these are always from uint16s.
-			time.Monday: {Start: uint16(x.Mon.Start), End: uint16(x.Mon.End)},
-			// #nosec G115 -- The values put in these are always from uint16s.
-			time.Tuesday: {Start: uint16(x.Tue.Start), End: uint16(x.Tue.End)},
-			// #nosec G115 -- The values put in these are always from uint16s.
-			time.Wednesday: {Start: uint16(x.Wed.Start), End: uint16(x.Wed.End)},
-			// #nosec G115 -- The values put in these are always from uint16s.
-			time.Thursday: {Start: uint16(x.Thu.Start), End: uint16(x.Thu.End)},
-			// #nosec G115 -- The values put in these are always from uint16s.
-			time.Friday: {Start: uint16(x.Fri.Start), End: uint16(x.Fri.End)},
-			// #nosec G115 -- The values put in these are always from uint16s.
-			time.Saturday: {Start: uint16(x.Sat.Start), End: uint16(x.Sat.End)},
-			// #nosec G115 -- The values put in these are always from uint16s.
-			time.Sunday: {Start: uint16(x.Sun.Start), End: uint16(x.Sun.End)},
+		Week: &filter.WeeklySchedule{
+			time.Monday:    x.Week.Mon.toInternal(),
+			time.Tuesday:   x.Week.Tue.toInternal(),
+			time.Wednesday: x.Week.Wed.toInternal(),
+			time.Thursday:  x.Week.Thu.toInternal(),
+			time.Friday:    x.Week.Fri.toInternal(),
+			time.Saturday:  x.Week.Sat.toInternal(),
+			time.Sunday:    x.Week.Sun.toInternal(),
 		},
 		TimeZone: loc,
 	}, nil
+}
+
+// toInternal converts a protobuf day interval to an internal one.  If x is nil,
+// i is nil.
+func (x *DayInterval) toInternal() (i *filter.DayInterval) {
+	if x == nil {
+		return nil
+	}
+
+	return &filter.DayInterval{
+		// #nosec G115 -- The values put in these are always from uint16s.
+		Start: uint16(x.Start),
+		// #nosec G115 -- The values put in these are always from uint16s.
+		End: uint16(x.End),
+	}
 }
 
 // blockingModeToInternal converts a protobuf blocking-mode sum-type to an
@@ -289,7 +303,7 @@ func dohPasswordToInternal(
 
 // toInternal converts a protobuf rate-limiting settings structure to an
 // internal one.
-func (x *RateLimitSettings) toInternal(respSzEst datasize.ByteSize) (r agd.Ratelimiter) {
+func (x *Ratelimiter) toInternal(respSzEst datasize.ByteSize) (r agd.Ratelimiter) {
 	if x == nil || !x.Enabled {
 		return agd.GlobalRatelimiter{}
 	}
@@ -301,23 +315,9 @@ func (x *RateLimitSettings) toInternal(respSzEst datasize.ByteSize) (r agd.Ratel
 	}, respSzEst)
 }
 
-// toInternal converts a protobuf safe browsing settings structure to an
-// internal one.
-func (x *SafeBrowsingSettings) toInternal() (s *agd.SafeBrowsingSettings) {
-	if x == nil {
-		return nil
-	}
-
-	return &agd.SafeBrowsingSettings{
-		Enabled:                     x.Enabled,
-		BlockDangerousDomains:       x.BlockDangerousDomains,
-		BlockNewlyRegisteredDomains: x.BlockNewlyRegisteredDomains,
-	}
-}
-
 // toInternal converts protobuf access settings to an internal structure.  If x
 // is nil, toInternal returns [access.EmptyProfile].
-func (x *AccessSettings) toInternal() (a access.Profile) {
+func (x *Access) toInternal() (a access.Profile) {
 	if x == nil {
 		return access.EmptyProfile{}
 	}
@@ -362,37 +362,94 @@ func profilesToProtobuf(profiles []*agd.Profile) (pbProfiles []*Profile) {
 	pbProfiles = make([]*Profile, 0, len(profiles))
 	for _, p := range profiles {
 		pbProfiles = append(pbProfiles, &Profile{
-			Parental:     parentalToProtobuf(p.Parental),
-			BlockingMode: blockingModeToProtobuf(p.BlockingMode),
-			Access:       accessToProtobuf(p.Access.Config()),
-			ProfileId:    string(p.ID),
-			UpdateTime:   timestamppb.New(p.UpdateTime),
-			DeviceIds:    unsafelyConvertStrSlice[agd.DeviceID, string](p.DeviceIDs),
-			RuleListIds: unsafelyConvertStrSlice[agd.FilterListID, string](
-				p.RuleListIDs,
-			),
-			CustomRules: unsafelyConvertStrSlice[agd.FilterRuleText, string](
-				p.CustomRules,
-			),
+			FilterConfig:        filterConfigToProtobuf(p.FilterConfig),
+			Access:              accessToProtobuf(p.Access.Config()),
+			BlockingMode:        blockingModeToProtobuf(p.BlockingMode),
+			Ratelimiter:         ratelimiterToProtobuf(p.Ratelimiter.Config()),
+			ProfileId:           string(p.ID),
+			DeviceIds:           unsafelyConvertStrSlice[agd.DeviceID, string](p.DeviceIDs),
 			FilteredResponseTtl: durationpb.New(p.FilteredResponseTTL),
-			FilteringEnabled:    p.FilteringEnabled,
-			SafeBrowsing:        safeBrowsingToProtobuf(p.SafeBrowsing),
-			RuleListsEnabled:    p.RuleListsEnabled,
-			QueryLogEnabled:     p.QueryLogEnabled,
-			Deleted:             p.Deleted,
-			BlockPrivateRelay:   p.BlockPrivateRelay,
-			BlockFirefoxCanary:  p.BlockFirefoxCanary,
-			IpLogEnabled:        p.IPLogEnabled,
 			AutoDevicesEnabled:  p.AutoDevicesEnabled,
-			RateLimit:           rateLimitToProtobuf(p.Ratelimiter.Config()),
+			BlockChromePrefetch: p.BlockChromePrefetch,
+			BlockFirefoxCanary:  p.BlockFirefoxCanary,
+			BlockPrivateRelay:   p.BlockPrivateRelay,
+			Deleted:             p.Deleted,
+			FilteringEnabled:    p.FilteringEnabled,
+			IpLogEnabled:        p.IPLogEnabled,
+			QueryLogEnabled:     p.QueryLogEnabled,
 		})
 	}
 
 	return pbProfiles
 }
 
+// filterConfigToProtobuf converts the filtering configration to protobuf.
+func filterConfigToProtobuf(c *filter.ConfigClient) (fc *FilterConfig) {
+	return &FilterConfig{
+		Custom: &FilterConfig_Custom{
+			Id:         string(c.Custom.ID),
+			UpdateTime: timestamppb.New(c.Custom.UpdateTime),
+			Rules:      unsafelyConvertStrSlice[filter.RuleText, string](c.Custom.Rules),
+			Enabled:    c.Custom.Enabled,
+		},
+		Parental: &FilterConfig_Parental{
+			PauseSchedule: scheduleToProtobuf(c.Parental.PauseSchedule),
+			BlockedServices: unsafelyConvertStrSlice[filter.BlockedServiceID, string](
+				c.Parental.BlockedServices,
+			),
+			Enabled:                  c.Parental.Enabled,
+			AdultBlockingEnabled:     c.Parental.AdultBlockingEnabled,
+			SafeSearchGeneralEnabled: c.Parental.SafeSearchGeneralEnabled,
+			SafeSearchYoutubeEnabled: c.Parental.SafeSearchYouTubeEnabled,
+		},
+		RuleList: &FilterConfig_RuleList{
+			Ids:     unsafelyConvertStrSlice[filter.ID, string](c.RuleList.IDs),
+			Enabled: c.RuleList.Enabled,
+		},
+		SafeBrowsing: &FilterConfig_SafeBrowsing{
+			Enabled:                       c.SafeBrowsing.Enabled,
+			DangerousDomainsEnabled:       c.SafeBrowsing.DangerousDomainsEnabled,
+			NewlyRegisteredDomainsEnabled: c.SafeBrowsing.NewlyRegisteredDomainsEnabled,
+		},
+	}
+}
+
+// scheduleToProtobuf converts schedule configuration to protobuf.  If c is nil,
+// conf is nil.
+func scheduleToProtobuf(c *filter.ConfigSchedule) (conf *FilterConfig_Schedule) {
+	if c == nil {
+		return nil
+	}
+
+	return &FilterConfig_Schedule{
+		Week: &FilterConfig_WeeklySchedule{
+			Mon: dayIntervalToProtobuf(c.Week[time.Monday]),
+			Tue: dayIntervalToProtobuf(c.Week[time.Tuesday]),
+			Wed: dayIntervalToProtobuf(c.Week[time.Wednesday]),
+			Thu: dayIntervalToProtobuf(c.Week[time.Thursday]),
+			Fri: dayIntervalToProtobuf(c.Week[time.Friday]),
+			Sat: dayIntervalToProtobuf(c.Week[time.Saturday]),
+			Sun: dayIntervalToProtobuf(c.Week[time.Sunday]),
+		},
+		TimeZone: c.TimeZone.String(),
+	}
+}
+
+// dayIntervalToProtobuf converts a daily schedule interval to protobuf.  If i
+// is nil, ivl is nil.
+func dayIntervalToProtobuf(i *filter.DayInterval) (ivl *DayInterval) {
+	if i == nil {
+		return nil
+	}
+
+	return &DayInterval{
+		Start: uint32(i.Start),
+		End:   uint32(i.End),
+	}
+}
+
 // accessToProtobuf converts access settings to protobuf structure.
-func accessToProtobuf(c *access.ProfileConfig) (ac *AccessSettings) {
+func accessToProtobuf(c *access.ProfileConfig) (ac *Access) {
 	if c == nil {
 		return nil
 	}
@@ -407,11 +464,11 @@ func accessToProtobuf(c *access.ProfileConfig) (ac *AccessSettings) {
 		blockedASNs = append(blockedASNs, uint32(asn))
 	}
 
-	return &AccessSettings{
-		AllowlistCidr:        prefixesToProtobuf(c.AllowedNets),
-		BlocklistCidr:        prefixesToProtobuf(c.BlockedNets),
+	return &Access{
 		AllowlistAsn:         allowedASNs,
+		AllowlistCidr:        prefixesToProtobuf(c.AllowedNets),
 		BlocklistAsn:         blockedASNs,
+		BlocklistCidr:        prefixesToProtobuf(c.BlockedNets),
 		BlocklistDomainRules: c.BlocklistDomainRules,
 	}
 }
@@ -429,63 +486,6 @@ func prefixesToProtobuf(nets []netip.Prefix) (cidrs []*CidrRange) {
 	}
 
 	return cidrs
-}
-
-// parentalToProtobuf converts parental settings to protobuf structure.
-func parentalToProtobuf(s *agd.ParentalProtectionSettings) (pbSetts *ParentalProtectionSettings) {
-	if s == nil {
-		return nil
-	}
-
-	return &ParentalProtectionSettings{
-		Schedule: scheduleToProtobuf(s.Schedule),
-		BlockedServices: unsafelyConvertStrSlice[agd.BlockedServiceID, string](
-			s.BlockedServices,
-		),
-		Enabled:           s.Enabled,
-		BlockAdult:        s.BlockAdult,
-		GeneralSafeSearch: s.GeneralSafeSearch,
-		YoutubeSafeSearch: s.YoutubeSafeSearch,
-	}
-}
-
-// parentalToProtobuf converts parental-settings schedule to protobuf structure.
-func scheduleToProtobuf(s *agd.ParentalProtectionSchedule) (pbSched *ParentalProtectionSchedule) {
-	if s == nil {
-		return nil
-	}
-
-	return &ParentalProtectionSchedule{
-		TimeZone: s.TimeZone.String(),
-		Mon: &DayRange{
-			Start: uint32(s.Week[time.Monday].Start),
-			End:   uint32(s.Week[time.Monday].End),
-		},
-		Tue: &DayRange{
-			Start: uint32(s.Week[time.Tuesday].Start),
-			End:   uint32(s.Week[time.Tuesday].End),
-		},
-		Wed: &DayRange{
-			Start: uint32(s.Week[time.Wednesday].Start),
-			End:   uint32(s.Week[time.Wednesday].End),
-		},
-		Thu: &DayRange{
-			Start: uint32(s.Week[time.Thursday].Start),
-			End:   uint32(s.Week[time.Thursday].End),
-		},
-		Fri: &DayRange{
-			Start: uint32(s.Week[time.Friday].Start),
-			End:   uint32(s.Week[time.Friday].End),
-		},
-		Sat: &DayRange{
-			Start: uint32(s.Week[time.Saturday].Start),
-			End:   uint32(s.Week[time.Saturday].End),
-		},
-		Sun: &DayRange{
-			Start: uint32(s.Week[time.Sunday].Start),
-			End:   uint32(s.Week[time.Sunday].End),
-		},
-	}
 }
 
 // blockingModeToProtobuf converts a blocking-mode sum-type to a protobuf one.
@@ -515,12 +515,40 @@ func blockingModeToProtobuf(m dnsmsg.BlockingMode) (pbBlockingMode isProfile_Blo
 	}
 }
 
+// ipsToByteSlices is a wrapper around netip.Addr.MarshalBinary that ignores the
+// always-nil errors.
+func ipsToByteSlices(ips []netip.Addr) (data [][]byte) {
+	if ips == nil {
+		return nil
+	}
+
+	data = make([][]byte, 0, len(ips))
+	for _, ip := range ips {
+		data = append(data, ipToBytes(ip))
+	}
+
+	return data
+}
+
 // ipToBytes is a wrapper around netip.Addr.MarshalBinary that ignores the
 // always-nil error.
 func ipToBytes(ip netip.Addr) (b []byte) {
 	b, _ = ip.MarshalBinary()
 
 	return b
+}
+
+// ratelimiterToProtobuf converts the rate-limit settings to protobuf.
+func ratelimiterToProtobuf(c *agd.RatelimitConfig) (r *Ratelimiter) {
+	if c == nil {
+		return nil
+	}
+
+	return &Ratelimiter{
+		ClientCidr: prefixesToProtobuf(c.ClientSubnets),
+		Rps:        c.RPS,
+		Enabled:    c.Enabled,
+	}
 }
 
 // devicesToProtobuf converts a slice of devices to protobuf structures.
@@ -568,46 +596,5 @@ func dohPasswordToProtobuf(
 		}
 	default:
 		panic(fmt.Errorf("bad password hash %T(%[1]v)", p))
-	}
-}
-
-// ipsToByteSlices is a wrapper around netip.Addr.MarshalBinary that ignores the
-// always-nil errors.
-func ipsToByteSlices(ips []netip.Addr) (data [][]byte) {
-	if ips == nil {
-		return nil
-	}
-
-	data = make([][]byte, 0, len(ips))
-	for _, ip := range ips {
-		data = append(data, ipToBytes(ip))
-	}
-
-	return data
-}
-
-// safeBrowsingToProtobuf converts safe browsing settings to protobuf structure.
-func safeBrowsingToProtobuf(s *agd.SafeBrowsingSettings) (sbSetts *SafeBrowsingSettings) {
-	if s == nil {
-		return nil
-	}
-
-	return &SafeBrowsingSettings{
-		Enabled:                     s.Enabled,
-		BlockDangerousDomains:       s.BlockDangerousDomains,
-		BlockNewlyRegisteredDomains: s.BlockNewlyRegisteredDomains,
-	}
-}
-
-// rateLimitToProtobuf converts rate limit settings to protobuf structure.
-func rateLimitToProtobuf(c *agd.RatelimitConfig) (ac *RateLimitSettings) {
-	if c == nil {
-		return nil
-	}
-
-	return &RateLimitSettings{
-		Enabled:    c.Enabled,
-		Rps:        c.RPS,
-		ClientCidr: prefixesToProtobuf(c.ClientSubnets),
 	}
 }

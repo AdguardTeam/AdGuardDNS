@@ -16,6 +16,7 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`CONSUL_ALLOWLIST_URL`](#CONSUL_ALLOWLIST_URL)
 - [`CONSUL_DNSCHECK_KV_URL`](#CONSUL_DNSCHECK_KV_URL)
 - [`CONSUL_DNSCHECK_SESSION_URL`](#CONSUL_DNSCHECK_SESSION_URL)
+- [`DNSCHECK_CACHE_KV_SIZE`](#DNSCHECK_CACHE_KV_SIZE)
 - [`DNSCHECK_REMOTEKV_API_KEY`](#DNSCHECK_REMOTEKV_API_KEY)
 - [`DNSCHECK_REMOTEKV_URL`](#DNSCHECK_REMOTEKV_URL)
 - [`FILTER_CACHE_PATH`](#FILTER_CACHE_PATH)
@@ -141,6 +142,16 @@ The HTTP(S) URL of the session API of the Consul instance used as a key-value da
 **Default:** **Unset.**
 
 **Example:** `http://localhost:8500/v1/session/create`
+
+## <a href="#DNSCHECK_CACHE_KV_SIZE" id="DNSCHECK_CACHE_KV_SIZE" name="DNSCHECK_CACHE_KV_SIZE">`DNSCHECK_CACHE_KV_SIZE`</a>
+
+The maximum number of the local cache key-value database entries for the DNS server checking.
+
+**Default:** No default value, a positive value is required if the [type][conf-dnscheck-type] of the database is set to `cache`.
+
+**Example:** `1000`
+
+[conf-dnscheck-type]: configuration.md#check-kv-type
 
 ## <a href="#DNSCHECK_REMOTEKV_API_KEY" id="DNSCHECK_REMOTEKV_API_KEY" name="DNSCHECK_REMOTEKV_API_KEY">`DNSCHECK_REMOTEKV_API_KEY`</a>
 

@@ -85,18 +85,18 @@ func TestTLSConfig_AfterHandshake(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			x509Cert := x509.Certificate{}
+			x509Cert := &x509.Certificate{}
 			if tc.DNSNames != nil {
 				x509Cert.DNSNames = append(x509Cert.DNSNames, tc.DNSNames...)
 			}
 
-			cert := tls.Certificate{Leaf: &x509Cert}
+			cert := &tls.Certificate{Leaf: x509Cert}
 
 			listener := m.AfterHandshake(
 				"",
 				serverName,
 				tc.devDomains,
-				[]tls.Certificate{cert},
+				[]*tls.Certificate{cert},
 			)
 
 			err = listener(tls.ConnectionState{ServerName: tc.connectionServerName})

@@ -307,7 +307,8 @@ func TestDNSMsgToJSONMsg(t *testing.T) {
 		Type:  dns.TypeHTTPS,
 		Class: dns.ClassINET,
 		TTL:   100,
-		Data:  `0 example.com alpn="h2,h3" ech="AQI=" ipv4hint="127.0.0.1,127.0.0.2" ipv6hint="2000::,2001::"`,
+		Data: `0 example.com alpn="h2,h3" ech="AQI=" ipv4hint="127.0.0.1,127.0.0.2" ` +
+			`ipv6hint="2000::,2001::"`,
 	}}, jsonMsg.Answer)
 	require.Equal(t, []dnsserver.JSONAnswer{{
 		Name:  "example.org",

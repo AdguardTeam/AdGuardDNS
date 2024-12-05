@@ -158,6 +158,14 @@ func RunLocalHTTPSServer(
 		network = dnsserver.NetworkTCP
 	}
 
+	var tlsConfigH3 *tls.Config
+	if tlsConfig != nil {
+		tlsConfigH3 = tlsConfig.Clone()
+
+		tlsConfig.NextProtos = dnsserver.NextProtoDoH
+		tlsConfigH3.NextProtos = dnsserver.NextProtoDoH3
+	}
+
 	conf := dnsserver.ConfigHTTPS{
 		ConfigBase: dnsserver.ConfigBase{
 			Name:    "test",
@@ -165,8 +173,9 @@ func RunLocalHTTPSServer(
 			Handler: h,
 			Network: network,
 		},
-		TLSConfig:     tlsConfig,
-		NonDNSHandler: nonDNSHandler,
+		TLSConfDefault: tlsConfig,
+		TLSConfH3:      tlsConfigH3,
+		NonDNSHandler:  nonDNSHandler,
 	}
 
 	s = dnsserver.NewServerHTTPS(conf)

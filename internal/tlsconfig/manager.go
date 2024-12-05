@@ -1,17 +1,13 @@
 package tlsconfig
 
 import (
-	"cmp"
 	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"os"
 	"path/filepath"
-	"slices"
-	"strings"
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
@@ -21,9 +17,15 @@ import (
 
 // Manager stores and updates TLS configurations.
 type Manager interface {
-	// Add returns an initialized TLS configuration using the provided paths to
-	// a certificate and a key.  certPath and keyPath must not be empty.
-	Add(ctx context.Context, certPath, keyPath string) (c *tls.Config, err error)
+	// Add saves an initialized TLS certificate using the provided paths to a
+	// certificate and a key.  certPath and keyPath must not be empty.
+	Add(ctx context.Context, certPath, keyPath string) (err error)
+
+	// Clone returns the TLS configuration that contains saved TLS certificates.
+	Clone() (c *tls.Config)
+
+	// CloneWithMetrics is like [Manager.Clone] but it also sets metrics.
+	CloneWithMetrics(proto, srvName string, deviceDomains []string) (c *tls.Config)
 }
 
 // DefaultManagerConfig is the configuration structure for [DefaultManager].
@@ -33,11 +35,11 @@ type DefaultManagerConfig struct {
 	// Logger is used for logging the operation of the TLS manager.
 	Logger *slog.Logger
 
-	// ErrColl is used to collect TLS related errors.
+	// ErrColl is used to collect TLS-related errors.
 	ErrColl errcoll.Interface
 
-	// Metrics is used to collect TLS related statistics.
-	Metrics RefreshMetrics
+	// Metrics is used to collect TLS-related statistics.
+	Metrics Metrics
 
 	// KeyLogFilename, if not empty, is the name of the TLS key log file.
 	KeyLogFilename string
@@ -46,33 +48,19 @@ type DefaultManagerConfig struct {
 	SessionTicketPaths []string
 }
 
-// certWithKey contains a certificate path and a key path.
-type certWithKey struct {
-	certPath string
-	keyPath  string
-}
-
-// compare is a comparison function for the certWithKey.  It returns -1 if a
-// sorts before b, 1 if a sorts after b, and 0 if their relative sorting
-// position is the same.  The sorting prioritizes certificate paths first, and
-// then key paths.
-func (a certWithKey) compare(b certWithKey) (r int) {
-	return cmp.Or(
-		strings.Compare(a.certPath, b.certPath),
-		strings.Compare(a.keyPath, b.keyPath),
-	)
-}
-
 // DefaultManager is the default implementation of [Manager].
 type DefaultManager struct {
-	// mu prtotects configs, sessionTickets.
-	mu              *sync.Mutex
-	logger          *slog.Logger
-	errColl         errcoll.Interface
-	metrics         RefreshMetrics
-	keyLogWriter    io.Writer
-	configs         map[certWithKey]*tls.Config
-	sessTicketPaths []string
+	// mu protects fields certStorage, clones, clonesWithMetrics,
+	// sessTicketPaths.
+	mu                *sync.Mutex
+	logger            *slog.Logger
+	errColl           errcoll.Interface
+	metrics           Metrics
+	certStorage       *certStorage
+	original          *tls.Config
+	clones            []*tls.Config
+	clonesWithMetrics []*tls.Config
+	sessTicketPaths   []string
 }
 
 // NewDefaultManager returns a new initialized *DefaultManager.
@@ -86,15 +74,23 @@ func NewDefaultManager(conf *DefaultManagerConfig) (m *DefaultManager, err error
 		}
 	}
 
-	return &DefaultManager{
+	m = &DefaultManager{
 		mu:              &sync.Mutex{},
 		logger:          conf.Logger,
 		errColl:         conf.ErrColl,
 		metrics:         conf.Metrics,
-		keyLogWriter:    kl,
-		configs:         make(map[certWithKey]*tls.Config),
+		certStorage:     &certStorage{},
 		sessTicketPaths: conf.SessionTicketPaths,
-	}, nil
+	}
+
+	m.original = &tls.Config{
+		GetCertificate: m.getCertificate,
+		MinVersion:     tls.VersionTLS12,
+		MaxVersion:     tls.VersionTLS13,
+		KeyLogWriter:   kl,
+	}
+
+	return m, nil
 }
 
 // type check
@@ -105,8 +101,8 @@ func (m *DefaultManager) Add(
 	ctx context.Context,
 	certPath string,
 	keyPath string,
-) (conf *tls.Config, err error) {
-	ck := certWithKey{
+) (err error) {
+	cp := &certPaths{
 		certPath: certPath,
 		keyPath:  keyPath,
 	}
@@ -114,17 +110,36 @@ func (m *DefaultManager) Add(
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if conf = m.configs[ck]; conf != nil {
-		return conf, nil
+	if m.certStorage.contains(cp) {
+		m.logger.InfoContext(
+			ctx,
+			"skipping already added certificate",
+			"cert", cp.certPath,
+			"key", cp.keyPath,
+		)
+
+		return nil
 	}
 
-	return m.add(ctx, ck)
+	cert, err := m.load(ctx, cp)
+	if err != nil {
+		return fmt.Errorf("adding certificate: %w", err)
+	}
+
+	m.certStorage.add(cert, cp)
+
+	m.logger.InfoContext(ctx, "added certificate", "cert", cp.certPath, "key", cp.keyPath)
+
+	return nil
 }
 
-// add returns a new TLS configuration from the provided certificate and key
-// paths.  m.mu must be locked.
-func (m *DefaultManager) add(ctx context.Context, ck certWithKey) (conf *tls.Config, err error) {
-	cert, err := tls.LoadX509KeyPair(ck.certPath, ck.keyPath)
+// load returns a new TLS configuration from the provided certificate and key
+// paths.  m.mu must be locked.  c must not be modified.
+func (m *DefaultManager) load(
+	ctx context.Context,
+	cp *certPaths,
+) (c *tls.Certificate, err error) {
+	cert, err := tls.LoadX509KeyPair(cp.certPath, cp.keyPath)
 	if err != nil {
 		return nil, fmt.Errorf("loading certificate: %w", err)
 	}
@@ -133,30 +148,58 @@ func (m *DefaultManager) add(ctx context.Context, ck certWithKey) (conf *tls.Con
 	subj := cert.Leaf.Subject.String()
 	m.metrics.SetCertificateInfo(ctx, authAlgo, subj, cert.Leaf.NotAfter)
 
-	if conf = m.configs[ck]; conf != nil {
-		conf.GetCertificate = func(h *tls.ClientHelloInfo) (c *tls.Certificate, err error) {
-			return &cert, nil
-		}
+	return &cert, nil
+}
 
-		m.logger.InfoContext(ctx, "refreshed config", "cert", ck.certPath, "key", ck.keyPath)
+// Clone implements the [Manager] interface for *DefaultManager.
+func (m *DefaultManager) Clone() (clone *tls.Config) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-		return conf, nil
+	clone = m.original.Clone()
+	m.clones = append(m.clones, clone)
+
+	return clone
+}
+
+// getCertificate returns the TLS certificate for chi.  See
+// [tls.Config.GetCertificate].  c must not be modified.
+func (m *DefaultManager) getCertificate(chi *tls.ClientHelloInfo) (c *tls.Certificate, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.certStorage.count() == 0 {
+		return nil, errors.Error("no certificates")
 	}
 
-	conf = &tls.Config{
-		GetCertificate: func(clientHello *tls.ClientHelloInfo) (c *tls.Certificate, err error) {
-			return &cert, nil
-		},
-		MinVersion:   tls.VersionTLS12,
-		MaxVersion:   tls.VersionTLS13,
-		KeyLogWriter: m.keyLogWriter,
-	}
+	return m.certStorage.certFor(chi)
+}
 
-	m.configs[ck] = conf
+// CloneWithMetrics implements the [Manager] interface for *DefaultManager.
+func (m *DefaultManager) CloneWithMetrics(
+	proto string,
+	srvName string,
+	deviceDomains []string,
+) (conf *tls.Config) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	m.logger.InfoContext(ctx, "added config", "cert", ck.certPath, "key", ck.keyPath)
+	clone := m.original.Clone()
 
-	return conf, nil
+	clone.GetConfigForClient = m.metrics.BeforeHandshake(proto)
+
+	clone.GetCertificate = m.getCertificate
+
+	clone.VerifyConnection = m.metrics.AfterHandshake(
+		proto,
+		srvName,
+		deviceDomains,
+		m.certStorage.stored(),
+	)
+
+	m.clonesWithMetrics = append(m.clonesWithMetrics, clone)
+
+	return clone
 }
 
 // type check
@@ -177,17 +220,29 @@ func (m *DefaultManager) Refresh(ctx context.Context) (err error) {
 	defer m.mu.Unlock()
 
 	var errs []error
-	for _, ck := range slices.SortedFunc(maps.Keys(m.configs), certWithKey.compare) {
-		_, err = m.add(ctx, ck)
-		errs = append(errs, err)
-	}
+	m.certStorage.rangeFn(func(_ *tls.Certificate, cp *certPaths) (cont bool) {
+		cert, loadErr := m.load(ctx, cp)
+		if err != nil {
+			errs = append(errs, loadErr)
+
+			return true
+		}
+
+		if m.certStorage.update(cp, cert) {
+			m.logger.InfoContext(ctx, "refreshed certificate", "cert", cp.certPath, "key", cp.keyPath)
+		} else {
+			m.logger.WarnContext(ctx, "certificate did not refresh", "cert", cp.certPath, "key", cp.keyPath)
+		}
+
+		return true
+	})
 
 	err = errors.Join(errs...)
 	if err != nil {
 		return fmt.Errorf("refreshing tls certificates: %w", err)
 	}
 
-	m.logger.InfoContext(ctx, "refresh successful", "num_configs", len(m.configs))
+	m.logger.InfoContext(ctx, "refresh successful", "num_configs", m.certStorage.count())
 
 	return nil
 }
@@ -233,14 +288,18 @@ func (m *DefaultManager) RotateTickets(ctx context.Context) (err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for _, conf := range m.configs {
+	for _, conf := range m.clones {
+		conf.SetSessionTicketKeys(tickets)
+	}
+
+	for _, conf := range m.clonesWithMetrics {
 		conf.SetSessionTicketKeys(tickets)
 	}
 
 	m.logger.InfoContext(
 		ctx,
 		"ticket rotation successful",
-		"num_configs", len(m.configs),
+		"num_configs", m.certStorage.count(),
 		"num_tickets", len(tickets),
 	)
 
@@ -259,9 +318,9 @@ func readSessionTicketKey(fn string) (ticket sessionTicket, err error) {
 	}
 
 	tickLen := len(b)
-	if tickLen != sessTickLen {
+	if tickLen < sessTickLen {
 		return ticket, fmt.Errorf(
-			"session ticket in %s: bad len %d, want %d",
+			"session ticket in %q: bad len %d, want no less than %d",
 			fn,
 			tickLen,
 			sessTickLen,

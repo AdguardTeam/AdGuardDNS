@@ -108,6 +108,7 @@ message DNSProfile {
   AccessSettings access = 18;
   bool auto_devices_enabled = 19;
   RateLimitSettings rate_limit = 20;
+  bool block_chrome_prefetch = 21;
 }
 
 message SafeBrowsingSettings {

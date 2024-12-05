@@ -7,6 +7,47 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 [kec]: https://keepachangelog.com/en/1.0.0/
 [sem]: https://semver.org/spec/v2.0.0.html
 
+## AGDNS-2507 / Build 926
+
+- Profile's file cache version was incremented. The file cache structure has been optimized, so messages like the following are to be expected:
+
+    ```none
+    profiledb: warning: error loading fs cache err="decoding protobuf: proto: cannot parse invalid wire-format data"
+    ```
+
+## AGDNS-2327 / Build 916
+
+- Profile's file cache version was incremented. The new field `BlockChromePrefetch` has been added to profile's object.
+
+- The objects within the `filtering_groups` have a new property, `block_chrome_prefetch`. So replace this:
+
+    ```yaml
+    filtering_groups:
+    -
+        id: default
+        # …
+        block_firefox_canary: true
+        block_private_relay: true
+    ```
+
+    with this:
+
+    ```yaml
+    filtering_groups:
+    -
+        id: default
+        # …
+        block_chrome_prefetch: true
+        block_firefox_canary: true
+        block_private_relay: true
+    ```
+
+## AGDNS-2514 / Build 908
+
+- The environment variable `DNSCHECK_CACHE_KV_SIZE` has been added.
+
+- The property `kv.type` within the `check` object now supports the `cache` value.
+
 ## AGDNS-2484/ Build 886
 
 - Property `type` of the `ratelimit` object has been moved to the underlying `allowlist` object. So replace this:

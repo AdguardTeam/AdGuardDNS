@@ -175,8 +175,8 @@ check:
     # Domains to use for DNS checking.
     kv:
         # Defines the type of remote key-value storage.  Allowed values are
-        # "backend", "consul", and "redis".
-        type: 'consul'
+        # "backend", "cache", "consul", and "redis".
+        type: 'cache'
         # For how long to keep the information about the client.
         ttl: 30s
     # Domains to use for DNS checking.
@@ -341,8 +341,9 @@ filtering_groups:
         enabled: true
         block_dangerous_domains: true
         block_newly_registered_domains: false
-    block_private_relay: false
+    block_chrome_prefetch: true
     block_firefox_canary: true
+    block_private_relay: false
   - id: 'family'
     parental:
         enabled: true
@@ -357,8 +358,9 @@ filtering_groups:
         enabled: true
         block_dangerous_domains: true
         block_newly_registered_domains: false
-    block_private_relay: false
+    block_chrome_prefetch: true
     block_firefox_canary: true
+    block_private_relay: false
   - id: 'non_filtering'
     rule_lists:
         enabled: false
@@ -368,8 +370,9 @@ filtering_groups:
         enabled: false
         block_dangerous_domains: true
         block_newly_registered_domains: false
-    block_private_relay: false
+    block_chrome_prefetch: false
     block_firefox_canary: true
+    block_private_relay: false
 
 # The configuration for the device-listening feature.  Works only on Linux with
 # SO_BINDTODEVICE support.

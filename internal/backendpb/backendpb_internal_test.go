@@ -2,17 +2,12 @@ package backendpb
 
 import (
 	"net/netip"
-	"testing"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/c2h5oh/datasize"
 )
-
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
 
 // Common IDs for tests and their string forms.
 //
@@ -36,6 +31,9 @@ var TestUpdTime = time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 //
 // TODO(a.garipov):  Add to golibs/netutil.
 var TestBind = netip.MustParsePrefix("0.0.0.0/0")
+
+// TestLogger is the common logger for tests.
+var TestLogger = slogutil.NewDiscardLogger()
 
 // TestRespSzEst is a response-size estimate for tests.
 const TestRespSzEst datasize.ByteSize = 1 * datasize.KB

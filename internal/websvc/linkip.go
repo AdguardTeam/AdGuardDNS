@@ -78,11 +78,19 @@ func linkedIPHandler(
 	}
 
 	// Collect errors using our own error collector.
-	errHdlr := func(_ http.ResponseWriter, r *http.Request, err error) {
+	handlerWithError := func(_ http.ResponseWriter, r *http.Request, err error) {
 		ctx := r.Context()
 		reqID, _ := agd.RequestIDFromContext(ctx)
-		m, p := r.Method, r.URL.Path
-		errcoll.Collectf(ctx, errColl, "%s: proxying %s %s: req %s: %w", logPrefix, m, p, reqID, err)
+		errcoll.Collectf(
+			ctx,
+			errColl,
+			"%s: proxying %s %s: req %s: %w",
+			logPrefix,
+			r.Method,
+			r.URL.Path,
+			reqID,
+			err,
+		)
 	}
 
 	return &linkedIPProxy{
@@ -91,7 +99,7 @@ func linkedIPHandler(
 			Transport:      transport,
 			ErrorLog:       log.StdLog(logPrefix, log.DEBUG),
 			ModifyResponse: modifyResponse,
-			ErrorHandler:   errHdlr,
+			ErrorHandler:   handlerWithError,
 		},
 		errColl:   errColl,
 		logPrefix: logPrefix,

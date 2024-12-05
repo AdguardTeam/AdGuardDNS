@@ -8,9 +8,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/AdguardTeam/urlfilter/filterlist"
@@ -27,17 +27,20 @@ type Refreshable struct {
 
 	logger *slog.Logger
 
-	// mu protects filter.engine.
+	// mu protects [filter.engine].
+	//
+	// Do not add it to [filter], because the latter is used in [Immutable],
+	// where serialization of access is not required.
 	mu *sync.RWMutex
 
 	// refr contains data for refreshing the filter.
-	refr *internal.Refreshable
+	refr *refreshable.Refreshable
 }
 
 // NewRefreshable returns a new refreshable DNS request and response filter
 // based on the provided rule list.  c must be non-nil.  c.URL should be an
 // HTTP(S) URL.  The initial refresh should be called explicitly if necessary.
-func NewRefreshable(c *internal.RefreshableConfig, cache ResultCache) (f *Refreshable, err error) {
+func NewRefreshable(c *refreshable.Config, cache ResultCache) (f *Refreshable, err error) {
 	f = &Refreshable{
 		logger: c.Logger,
 		mu:     &sync.RWMutex{},
@@ -47,7 +50,7 @@ func NewRefreshable(c *internal.RefreshableConfig, cache ResultCache) (f *Refres
 		return nil, fmt.Errorf("unsupported url %q", c.URL)
 	}
 
-	f.refr, err = internal.NewRefreshable(&internal.RefreshableConfig{
+	f.refr, err = refreshable.New(&refreshable.Config{
 		Logger:    c.Logger,
 		URL:       c.URL,
 		ID:        c.ID,
@@ -75,8 +78,8 @@ func NewRefreshable(c *internal.RefreshableConfig, cache ResultCache) (f *Refres
 // TODO(a.garipov): Only used in tests.  Consider removing later.
 func NewFromString(
 	text string,
-	id agd.FilterListID,
-	svcID agd.BlockedServiceID,
+	id internal.ID,
+	svcID internal.BlockedServiceID,
 	cache ResultCache,
 ) (f *Refreshable, err error) {
 	filter, err := newFilter(text, id, svcID, cache)

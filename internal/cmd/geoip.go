@@ -8,9 +8,13 @@ import (
 // geoIPConfig is the GeoIP database configuration.
 type geoIPConfig struct {
 	// HostCacheSize is the size of the hostname lookup cache, in entries.
+	//
+	// TODO(a.garipov):  Rename to "host_cache_count"?
 	HostCacheSize int `yaml:"host_cache_size"`
 
 	// IPCacheSize is the size of the IP lookup cache, in entries.
+	//
+	// TODO(a.garipov):  Rename to "ip_cache_count"?
 	IPCacheSize int `yaml:"ip_cache_size"`
 
 	// RefreshIvl defines how often AdGuard DNS reopens the GeoIP database

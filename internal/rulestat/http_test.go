@@ -9,9 +9,9 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
@@ -50,19 +50,19 @@ func TestHTTP_Collect(t *testing.T) {
 	testCases := []struct {
 		name  string
 		want  string
-		rules []agd.FilterRuleText
+		rules []filter.RuleText
 	}{{
 		name:  "single",
 		want:  `{"filters":{"15":{"||example.org^":1}}}`,
-		rules: []agd.FilterRuleText{"||example.org^"},
+		rules: []filter.RuleText{"||example.org^"},
 	}, {
 		name:  "several_alike",
 		want:  `{"filters":{"15":{"||example.org^":3}}}`,
-		rules: []agd.FilterRuleText{"||example.org^", "||example.org^", "||example.org^"},
+		rules: []filter.RuleText{"||example.org^", "||example.org^", "||example.org^"},
 	}, {
 		name:  "several_different",
 		want:  `{"filters":{"15":{"||example.org^":1, "||example.com^":1, "||пример.рф^":1}}}`,
-		rules: []agd.FilterRuleText{"||example.org^", "||example.com^", "||пример.рф^"},
+		rules: []filter.RuleText{"||example.org^", "||example.com^", "||пример.рф^"},
 	}}
 
 	for _, tc := range testCases {
@@ -72,7 +72,7 @@ func TestHTTP_Collect(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := testutil.ContextWithTimeout(t, testTimeout)
 			for _, rule := range tc.rules {
-				h.Collect(ctx, agd.FilterListIDAdGuardDNS, rule)
+				h.Collect(ctx, filter.IDAdGuardDNS, rule)
 			}
 
 			// Use the context different from the above one.

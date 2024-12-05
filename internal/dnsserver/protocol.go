@@ -61,7 +61,7 @@ func (p Protocol) ALPN() (alpn []string) {
 	case ProtoDoQ:
 		return []string{nextProtoDoQ}
 	case ProtoDoH:
-		return slices.Clone(nextProtoDoH3)
+		return slices.Clone(NextProtoDoH3)
 	default:
 		return nil
 	}

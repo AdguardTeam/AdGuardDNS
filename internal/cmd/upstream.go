@@ -41,7 +41,10 @@ func (c *upstreamConfig) toInternal(logger *slog.Logger) (fwdConf *forward.Handl
 
 	upsConfs := toUpstreamConfigs(upstreams)
 	fallbackConfs := toUpstreamConfigs(fallbacks)
-	metricsListener := prometheus.NewForwardMetricsListener(metrics.Namespace(), len(upstreams)+len(fallbacks))
+	metricsListener := prometheus.NewForwardMetricsListener(
+		metrics.Namespace(),
+		len(upstreams)+len(fallbacks),
+	)
 
 	var hcInit time.Duration
 	if c.Healthcheck.Enabled {

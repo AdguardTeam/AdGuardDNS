@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/url"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -16,12 +17,17 @@ import (
 // BillStatConfig is the configuration structure for the business logic backend
 // billing statistics uploader.
 type BillStatConfig struct {
+	// Logger is used for logging the operation of the billing statistics
+	// uploader.  It must not be nil.
+	Logger *slog.Logger
+
+	// GRPCMetrics is used for the collection of the protobuf communication
+	// statistics.
+	GRPCMetrics GRPCMetrics
+
 	// ErrColl is the error collector that is used to collect critical and
 	// non-critical errors.
 	ErrColl errcoll.Interface
-
-	// Metrics is used for the collection of the protobuf errors.
-	Metrics Metrics
 
 	// Endpoint is the backend API URL.  The scheme should be either "grpc" or
 	// "grpcs".
@@ -29,6 +35,20 @@ type BillStatConfig struct {
 
 	// APIKey is the API key used for authentication, if any.
 	APIKey string
+}
+
+// BillStat is the implementation of the [billstat.Uploader] interface that
+// uploads the billing statistics to the business logic backend.  It is safe for
+// concurrent use.
+//
+// TODO(a.garipov): Consider uniting with [ProfileStorage] into a single
+// backendpb.Client.
+type BillStat struct {
+	logger      *slog.Logger
+	errColl     errcoll.Interface
+	grpcMetrics GRPCMetrics
+	client      DNSServiceClient
+	apiKey      string
 }
 
 // NewBillStat creates a new billing statistics uploader.  c must not be nil.
@@ -40,24 +60,12 @@ func NewBillStat(c *BillStatConfig) (b *BillStat, err error) {
 	}
 
 	return &BillStat{
-		errColl: c.ErrColl,
-		metrics: c.Metrics,
-		client:  NewDNSServiceClient(client),
-		apiKey:  c.APIKey,
+		logger:      c.Logger,
+		errColl:     c.ErrColl,
+		grpcMetrics: c.GRPCMetrics,
+		client:      NewDNSServiceClient(client),
+		apiKey:      c.APIKey,
 	}, nil
-}
-
-// BillStat is the implementation of the [billstat.Uploader] interface that
-// uploads the billing statistics to the business logic backend.  It is safe for
-// concurrent use.
-//
-// TODO(a.garipov): Consider uniting with [ProfileStorage] into a single
-// backendpb.Client.
-type BillStat struct {
-	errColl errcoll.Interface
-	metrics Metrics
-	client  DNSServiceClient
-	apiKey  string
 }
 
 // type check
@@ -72,12 +80,13 @@ func (b *BillStat) Upload(ctx context.Context, records billstat.Records) (err er
 	ctx = ctxWithAuthentication(ctx, b.apiKey)
 	stream, err := b.client.SaveDevicesBillingStat(ctx)
 	if err != nil {
-		return fmt.Errorf("opening stream: %w", fixGRPCError(ctx, b.metrics, err))
+		return fmt.Errorf("opening stream: %w", fixGRPCError(ctx, b.grpcMetrics, err))
 	}
 
 	for deviceID, record := range records {
 		if record == nil {
-			reportf(ctx, b.errColl, "device %q: null record", deviceID)
+			err = fmt.Errorf("device %q: null record", deviceID)
+			errcoll.Collect(ctx, b.errColl, b.logger, "uploading records", err)
 
 			continue
 		}
@@ -87,7 +96,7 @@ func (b *BillStat) Upload(ctx context.Context, records billstat.Records) (err er
 			return fmt.Errorf(
 				"uploading device %q record: %w",
 				deviceID,
-				fixGRPCError(ctx, b.metrics, sendErr),
+				fixGRPCError(ctx, b.grpcMetrics, sendErr),
 			)
 		}
 	}

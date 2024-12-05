@@ -31,12 +31,16 @@ type ProfileStorageConfig struct {
 	// non-critical errors.  It must not be nil.
 	ErrColl errcoll.Interface
 
-	// Logger is used as the base logger for the profile storage.  It must not
-	// be nil.
+	// Logger is used for logging the operation of the profile storage.  It must
+	// not be nil.
 	Logger *slog.Logger
 
-	// Metrics is used for the collection of the protobuf errors.
-	Metrics Metrics
+	// GRPCMetrics is used for the collection of the protobuf communication
+	// statistics.
+	GRPCMetrics GRPCMetrics
+
+	// Metrics is used for the collection of the profiles storage statistics.
+	Metrics ProfileDBMetrics
 
 	// Endpoint is the backend API URL.  The scheme should be either "grpc" or
 	// "grpcs".  It must not be nil.
@@ -63,7 +67,8 @@ type ProfileStorage struct {
 	errColl     errcoll.Interface
 	client      DNSServiceClient
 	logger      *slog.Logger
-	metrics     Metrics
+	grpcMetrics GRPCMetrics
+	metrics     ProfileDBMetrics
 	apiKey      string
 	respSzEst   datasize.ByteSize
 	maxProfSize datasize.ByteSize
@@ -83,6 +88,7 @@ func NewProfileStorage(c *ProfileStorageConfig) (s *ProfileStorage, err error) {
 		errColl:     c.ErrColl,
 		client:      NewDNSServiceClient(client),
 		logger:      c.Logger,
+		grpcMetrics: c.GRPCMetrics,
 		metrics:     c.Metrics,
 		apiKey:      c.APIKey,
 		respSzEst:   c.ResponseSizeEstimate,
@@ -115,7 +121,7 @@ func (s *ProfileStorage) CreateAutoDevice(
 		DeviceType: DeviceType(req.DeviceType),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("calling backend: %w", fixGRPCError(ctx, s.metrics, err))
+		return nil, fmt.Errorf("calling backend: %w", fixGRPCError(ctx, s.grpcMetrics, err))
 	}
 
 	d, err := backendResp.Device.toInternal(s.bindSet)
@@ -140,7 +146,7 @@ func (s *ProfileStorage) Profiles(
 	respSzOpt := grpc.MaxCallRecvMsgSize(int(s.maxProfSize.Bytes()))
 	stream, err := s.client.GetDNSProfiles(ctx, toProtobuf(req), respSzOpt)
 	if err != nil {
-		return nil, fmt.Errorf("loading profiles: %w", fixGRPCError(ctx, s.metrics, err))
+		return nil, fmt.Errorf("loading profiles: %w", fixGRPCError(ctx, s.grpcMetrics, err))
 	}
 	defer func() { err = errors.WithDeferred(err, stream.CloseSend()) }()
 
@@ -165,7 +171,7 @@ func (s *ProfileStorage) Profiles(
 			return nil, fmt.Errorf(
 				"receiving profile #%d: %w",
 				n,
-				fixGRPCError(ctx, s.metrics, profErr),
+				fixGRPCError(ctx, s.grpcMetrics, profErr),
 			)
 		}
 		stats.endRecv()
@@ -176,11 +182,12 @@ func (s *ProfileStorage) Profiles(
 			time.Now(),
 			s.bindSet,
 			s.errColl,
+			s.logger,
 			s.metrics,
 			s.respSzEst,
 		)
 		if profErr != nil {
-			reportf(ctx, s.errColl, "loading profile: %w", profErr)
+			errcoll.Collect(ctx, s.errColl, s.logger, "loading profile", profErr)
 
 			continue
 		}

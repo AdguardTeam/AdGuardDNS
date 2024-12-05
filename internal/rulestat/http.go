@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
@@ -25,7 +25,7 @@ import (
 // is a temporary restriction.
 //
 // TODO(ameshkov): Consider making the backend accept the current IDs.
-const statFilterListLegacyID agd.FilterListID = "15"
+const statFilterListLegacyID filter.ID = "15"
 
 // HTTP is the filtering rule statistics collector that uploads the statistics
 // to the given URL when it's refreshed.
@@ -44,7 +44,7 @@ type HTTP struct {
 }
 
 // statsSet is an alias for the stats set type.
-type statsSet = map[agd.FilterListID]map[agd.FilterRuleText]uint64
+type statsSet = map[filter.ID]map[filter.RuleText]uint64
 
 // HTTPConfig is the configuration structure for the filtering rule statistics
 // collector that uploads the statistics to a URL.  All fields must not be nil.
@@ -79,8 +79,8 @@ func NewHTTP(c *HTTPConfig) (s *HTTP) {
 var _ Interface = (*HTTP)(nil)
 
 // Collect implements the Interface interface for *HTTP.
-func (s *HTTP) Collect(_ context.Context, id agd.FilterListID, text agd.FilterRuleText) {
-	if id != agd.FilterListIDAdGuardDNS {
+func (s *HTTP) Collect(_ context.Context, id filter.ID, text filter.RuleText) {
+	if id != filter.IDAdGuardDNS {
 		return
 	}
 
@@ -99,7 +99,7 @@ func (s *HTTP) Collect(_ context.Context, id agd.FilterListID, text agd.FilterRu
 		return
 	}
 
-	s.stats[id] = map[agd.FilterRuleText]uint64{
+	s.stats[id] = map[filter.RuleText]uint64{
 		text: 1,
 	}
 }

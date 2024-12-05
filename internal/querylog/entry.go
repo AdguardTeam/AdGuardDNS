@@ -87,7 +87,7 @@ const (
 
 // resultData returns the resultCode, filter list ID, and filtering rule from
 // the request and response filtering results.
-func resultData(req, resp filter.Result) (c resultCode, id agd.FilterListID, r agd.FilterRuleText) {
+func resultData(req, resp filter.Result) (c resultCode, id filter.ID, r filter.RuleText) {
 	if req == nil {
 		c = toResultCode(resp, true)
 		if resp != nil {
@@ -178,14 +178,14 @@ type jsonlEntry struct {
 	// If no rules matched, this field is omitted.
 	//
 	// The short name "l" stands for "list of filter rules".
-	FilterListID agd.FilterListID `json:"l,omitempty"`
+	FilterListID filter.ID `json:"l,omitempty"`
 
 	// FilterRule is the first rule that matched the request or the ID of the
-	// blocked service, if FilterListID is agd.FilterListIDBlockedService.  If
-	// no rules matched, this field is omitted.
+	// blocked service, if FilterListID is [filter.IDBlockedService].  If no
+	// rules matched, this field is omitted.
 	//
 	// The short name "m" stands for "match".
-	FilterRule agd.FilterRuleText `json:"m,omitempty"`
+	FilterRule filter.RuleText `json:"m,omitempty"`
 
 	// Timestamp is the Unix time of receiving the request in milliseconds.
 	//

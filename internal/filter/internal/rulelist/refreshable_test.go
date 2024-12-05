@@ -5,9 +5,9 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
@@ -23,7 +23,7 @@ const testReqHost = "blocked.example"
 var testRemoteIP = netip.MustParseAddr("1.2.3.4")
 
 // testFltListID is the common filter list IDs for tests.
-const testFltListID agd.FilterListID = "fl1"
+const testFltListID internal.ID = "fl1"
 
 // testBlockRule is the common blocking rule for tests.
 const testBlockRule = "||" + testReqHost + "\n"
@@ -41,7 +41,7 @@ func TestRefreshable_RulesCount(t *testing.T) {
 }
 
 func TestRefreshable_DNSResult_cache(t *testing.T) {
-	cache := rulelist.NewResultCache(100, true)
+	cache := rulelist.NewResultCache(filtertest.CacheCount, true)
 	rl, err := rulelist.NewFromString(testBlockRule, testFltListID, "", cache)
 	require.NoError(t, err)
 
@@ -71,7 +71,7 @@ func TestRefreshable_DNSResult_cache(t *testing.T) {
 }
 
 func TestRefreshable_ID(t *testing.T) {
-	const svcID = agd.BlockedServiceID("test_service")
+	const svcID = internal.BlockedServiceID("test_service")
 	rl, err := rulelist.NewFromString(
 		testBlockRule,
 		testFltListID,
@@ -88,7 +88,7 @@ func TestRefreshable_ID(t *testing.T) {
 func TestRefreshable_Refresh(t *testing.T) {
 	cachePath, srvURL := filtertest.PrepareRefreshable(t, nil, testBlockRule, http.StatusOK)
 	rl, err := rulelist.NewRefreshable(
-		&internal.RefreshableConfig{
+		&refreshable.Config{
 			Logger:    slogutil.NewDiscardLogger(),
 			URL:       srvURL,
 			ID:        testFltListID,
@@ -96,7 +96,7 @@ func TestRefreshable_Refresh(t *testing.T) {
 			Staleness: filtertest.Staleness,
 			MaxSize:   filtertest.FilterMaxSize,
 		},
-		rulelist.NewResultCache(100, true),
+		rulelist.NewResultCache(filtertest.CacheCount, true),
 	)
 	require.NoError(t, err)
 

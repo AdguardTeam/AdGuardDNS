@@ -11,6 +11,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
@@ -87,7 +88,7 @@ func (mw *Middleware) recordQueryInfo(
 	err := mw.queryLog.Write(ctx, e)
 	if err != nil {
 		// Consider query logging errors non-critical.
-		mw.reportf(ctx, "writing query log: %w", err)
+		errcoll.Collect(ctx, mw.errColl, mw.logger, "writing query log", err)
 	}
 }
 
@@ -138,7 +139,7 @@ func (mw *Middleware) responseData(
 
 	ip, err := ipFromAnswer(resp.Answer)
 	if err != nil {
-		mw.reportf(ctx, "getting response data: %w", err)
+		errcoll.Collect(ctx, mw.errColl, mw.logger, "getting response data", err)
 	}
 
 	return rcode, ip, dnssec
@@ -228,7 +229,7 @@ func (mw *Middleware) country(ctx context.Context, host string, ip netip.Addr) (
 	l, err := mw.geoIP.Data(host, ip)
 	if err != nil {
 		// Consider GeoIP errors non-critical.
-		mw.reportf(ctx, "getting geoip data: %w", err)
+		errcoll.Collect(ctx, mw.errColl, mw.logger, "getting geoip data", err)
 	}
 
 	if l != nil {

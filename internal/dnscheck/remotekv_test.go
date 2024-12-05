@@ -17,6 +17,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -46,6 +47,7 @@ func TestConsul_ServeHTTP(t *testing.T) {
 	}
 
 	conf := &dnscheck.RemoteKVConfig{
+		Logger:       slogutil.NewDiscardLogger(),
 		Messages:     &dnsmsg.Constructor{},
 		RemoteKV:     remotekv.Empty{},
 		ErrColl:      agdtest.NewErrorCollector(),
@@ -171,6 +173,7 @@ func TestConsul_Check(t *testing.T) {
 	msgs := agdtest.NewConstructorWithTTL(t, ttl*time.Second)
 
 	conf := &dnscheck.RemoteKVConfig{
+		Logger:   slogutil.NewDiscardLogger(),
 		Messages: msgs,
 		RemoteKV: remotekv.Empty{},
 		Domains:  []string{checkDomain},

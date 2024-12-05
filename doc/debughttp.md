@@ -112,6 +112,7 @@ Supported IDs:
 - `profiledb`
 - `rulestat`
 - `ticket_rotator`
+- `tlsconfig`
 
 The special ID `*`, when used alone, causes all available refresh tasks to be performed. Use with caution.
 

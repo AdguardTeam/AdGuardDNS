@@ -3,9 +3,6 @@ package composite
 import (
 	"testing"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
@@ -20,7 +17,7 @@ var (
 
 func BenchmarkFilter_FilterReqWithRuleLists(b *testing.B) {
 	blockingRL, err := rulelist.NewFromString(
-		filtertest.BlockRule+"\n",
+		filtertest.RuleBlockStr+"\n",
 		"test",
 		"",
 		rulelist.ResultCacheEmpty{},
@@ -31,31 +28,13 @@ func BenchmarkFilter_FilterReqWithRuleLists(b *testing.B) {
 		RuleLists: []*rulelist.Refreshable{blockingRL},
 	})
 
-	msgs, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
-		Cloner:       dnsmsg.NewCloner(dnsmsg.EmptyClonerStat{}),
-		BlockingMode: &dnsmsg.BlockingModeNullIP{},
-		StructuredErrors: &dnsmsg.StructuredDNSErrorsConfig{
-			Enabled: false,
-		},
-		FilteredResponseTTL: filtertest.Staleness,
-		EDEEnabled:          false,
-	})
-	require.NoError(b, err)
-
-	req := dnsservertest.NewReq(filtertest.ReqFQDN, dns.TypeA, dns.ClassINET)
-	ri := &agd.RequestInfo{
-		Messages: msgs,
-		RemoteIP: filtertest.RemoteIP,
-		Host:     filtertest.ReqHost,
-		QType:    dns.TypeA,
-		QClass:   dns.ClassINET,
-	}
+	req := filtertest.NewRequest(b, "", filtertest.HostBlocked, filtertest.IPv4Client, dns.TypeA)
 
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	for range b.N {
-		resultSink = f.filterReqWithRuleLists(ri, req)
+		resultSink = f.filterReqWithRuleLists(req)
 	}
 
 	// Most recent results:

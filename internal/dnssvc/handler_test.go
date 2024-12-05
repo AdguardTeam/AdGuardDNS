@@ -60,19 +60,27 @@ func TestNewHandlers(t *testing.T) {
 		},
 	}
 
-	fltGrps := map[agd.FilteringGroupID]*agd.FilteringGroup{
-		dnssvctest.FilteringGroupID: {
-			ID:               dnssvctest.FilteringGroupID,
-			RuleListIDs:      []agd.FilterListID{dnssvctest.FilterListID1},
-			RuleListsEnabled: true,
+	fltGrp := &agd.FilteringGroup{
+		FilterConfig: &filter.ConfigGroup{
+			Parental: &filter.ConfigParental{},
+			RuleList: &filter.ConfigRuleList{
+				IDs:     []filter.ID{dnssvctest.FilterListID1},
+				Enabled: true,
+			},
+			SafeBrowsing: &filter.ConfigSafeBrowsing{},
 		},
+		ID: dnssvctest.FilteringGroupID,
+	}
+
+	fltGrps := map[agd.FilteringGroupID]*agd.FilteringGroup{
+		dnssvctest.FilteringGroupID: fltGrp,
 	}
 
 	fltStrg := &agdtest.FilterStorage{
-		OnFilterFromContext: func(_ context.Context, _ *agd.RequestInfo) (f filter.Interface) {
+		OnForConfig: func(_ context.Context, _ filter.Config) (f filter.Interface) {
 			panic("not implemented")
 		},
-		OnHasListID: func(_ agd.FilterListID) (ok bool) { panic("not implemented") },
+		OnHasListID: func(_ filter.ID) (ok bool) { panic("not implemented") },
 	}
 
 	hashMatcher := &agdtest.HashMatcher{
@@ -91,7 +99,7 @@ func TestNewHandlers(t *testing.T) {
 	}
 
 	ruleStat := &agdtest.RuleStat{
-		OnCollect: func(_ context.Context, _ agd.FilterListID, _ agd.FilterRuleText) {
+		OnCollect: func(_ context.Context, _ filter.ID, _ filter.RuleText) {
 			panic("not implemented")
 		},
 	}
@@ -104,7 +112,6 @@ func TestNewHandlers(t *testing.T) {
 		DDR: &agd.DDR{
 			Enabled: true,
 		},
-		TLS:             &agd.TLS{},
 		Name:            dnssvctest.ServerGroupName,
 		FilteringGroup:  dnssvctest.FilteringGroupID,
 		Servers:         []*agd.Server{srv},

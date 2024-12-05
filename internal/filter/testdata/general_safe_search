@@ -1,6 +1,0 @@
-# CNAME rewrite.
-||duckduckgo.com^$dnsrewrite=NOERROR;CNAME;safe.duckduckgo.com
-# IPv4 rewrite.
-||www.yandex.by^$dnsrewrite=NOERROR;A;213.180.193.56
-# IPv6 rewrite.
-||www.google.com^$dnsrewrite=NOERROR;AAAA;2001:4860:4802:32::78

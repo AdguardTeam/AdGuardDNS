@@ -239,7 +239,7 @@ func New(c *Config) (db *Default, err error) {
 	if c.CacheFilePath == "none" {
 		cacheStorage = internal.EmptyFileCacheStorage{}
 	} else if ext := filepath.Ext(c.CacheFilePath); ext == ".pb" {
-		logger := c.Logger.With("cache", "pb")
+		logger := c.Logger.With("cache_type", "pb")
 		cacheStorage = filecachepb.New(logger, c.CacheFilePath, c.ResponseSizeEstimate)
 	} else {
 		return nil, fmt.Errorf("file %q is not protobuf", c.CacheFilePath)
@@ -427,7 +427,7 @@ func (db *Default) needsFullSync(ctx context.Context) (sinceFull time.Duration, 
 func (db *Default) loadFileCache(ctx context.Context) (err error) {
 	start := time.Now()
 
-	l := db.logger.With("cache", "load")
+	l := db.logger.With("cache_op", "load")
 	l.InfoContext(ctx, "initial loading")
 
 	c, err := db.cache.Load(ctx)

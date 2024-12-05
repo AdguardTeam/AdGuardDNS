@@ -1,4 +1,5 @@
-package internal
+// Package refreshable defines the refreshable part of filters and indexes.
+package refreshable
 
 import (
 	"context"
@@ -13,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/ioutil"
@@ -23,46 +24,45 @@ import (
 	renameio "github.com/google/renameio/v2"
 )
 
-// Refreshable contains entities common to filters that can refresh themselves
-// from a file and a URL.
+// Refreshable contains the logic common to filters and indexes that can refresh
+// themselves from a file and a URL.
 type Refreshable struct {
 	logger    *slog.Logger
 	http      *agdhttp.Client
 	url       *url.URL
-	id        agd.FilterListID
+	id        filter.ID
 	cachePath string
 	staleness time.Duration
 	maxSize   datasize.ByteSize
 }
 
-// RefreshableConfig is the configuration structure for a refreshable filter.
-type RefreshableConfig struct {
+// Config is the configuration structure for a refreshable.
+type Config struct {
 	// Logger is used to log errors during refreshes.
 	Logger *slog.Logger
 
-	// URL is the URL used to refresh the filter.  URL should be either a file
-	// URL or an HTTP(S) URL and should not be nil.
+	// URL is the URL used to refresh the data.  URL should be either a file URL
+	// or an HTTP(S) URL and should not be nil.
 	URL *url.URL
 
 	// ID is the filter list ID for this filter.
-	ID agd.FilterListID
+	ID filter.ID
 
-	// CachePath is the path to the file containing the cached filter rules.
+	// CachePath is the path to the file containing the cached data.
 	CachePath string
 
 	// Staleness is the time after which a file is considered stale.
 	Staleness time.Duration
 
-	// Timeout is the timeout for the HTTP client used by this refreshable
-	// filter.
+	// Timeout is the timeout for the HTTP client used by this refreshable.
 	Timeout time.Duration
 
-	// MaxSize is the maximum size of the downloadable filter content.
+	// MaxSize is the maximum size of the downloadable data.
 	MaxSize datasize.ByteSize
 }
 
-// NewRefreshable returns a new refreshable filter.  c must not be nil.
-func NewRefreshable(c *RefreshableConfig) (f *Refreshable, err error) {
+// New returns a new refreshable.  c must not be nil.
+func New(c *Config) (f *Refreshable, err error) {
 	if c.URL == nil {
 		return nil, fmt.Errorf("internal.NewRefreshable: nil url for refreshable with ID %q", c.ID)
 	} else if s := c.URL.Scheme; !strings.EqualFold(s, urlutil.SchemeFile) &&
@@ -83,9 +83,9 @@ func NewRefreshable(c *RefreshableConfig) (f *Refreshable, err error) {
 	}, nil
 }
 
-// Refresh reloads the filter data.  If acceptStale is true, refresh doesn't try
-// to load the filter data from its URL when there is already a file in the
-// cache directory, regardless of its staleness.
+// Refresh reloads the data.  If acceptStale is true, refresh doesn't try to
+// load the data from its URL when there is already a file in the cache
+// directory, regardless of its staleness.
 //
 // TODO(a.garipov): Consider making refresh return a reader instead of a string.
 func (f *Refreshable) Refresh(ctx context.Context, acceptStale bool) (text string, err error) {
@@ -101,7 +101,7 @@ func (f *Refreshable) Refresh(ctx context.Context, acceptStale bool) (text strin
 }
 
 // refreshFromFileOnly refreshes from the file in the URL.  It must only be
-// called when the URL of this refreshable filter is a file URI.
+// called when the URL of this refreshable is a file URI.
 func (f *Refreshable) refreshFromFileOnly(ctx context.Context) (text string, err error) {
 	filePath := f.url.Path
 	f.logger.InfoContext(ctx, "using data from file", "path", filePath)
@@ -114,11 +114,11 @@ func (f *Refreshable) refreshFromFileOnly(ctx context.Context) (text string, err
 	return text, nil
 }
 
-// useCachedOrRefreshFromURL reloads the filter data from the cache file or the http
-// URL.  If acceptStale is true, refresh doesn't try to load the filter data
-// from its URL when there is already a file in the cache directory, regardless
-// of its staleness.  It must only be called when the URL of this refreshable
-// filter has an HTTP(S) URL.
+// useCachedOrRefreshFromURL reloads the data from the cache file or the http
+// URL.  If acceptStale is true, refresh doesn't try to load the data from its
+// URL when there is already a file in the cache directory, regardless of its
+// staleness.  It must only be called when the URL of this refreshable has an
+// HTTP(S) URL.
 func (f *Refreshable) useCachedOrRefreshFromURL(
 	ctx context.Context,
 	acceptStale bool,
@@ -145,23 +145,23 @@ func (f *Refreshable) useCachedOrRefreshFromURL(
 	return text, nil
 }
 
-// refreshFromFile loads filter data from filePath if the file's mtime shows
-// that it's still fresh relative to updTime.  If acceptStale is true, and the
-// file exists, the data is read from there regardless of its staleness.  If err
-// is nil and text is empty, a refresh from a URL is required.
+// refreshFromFile loads data from filePath if the file's mtime shows that it's
+// still fresh relative to updTime.  If acceptStale is true, and the file
+// exists, the data is read from there regardless of its staleness.  If err is
+// nil and text is empty, a refresh from a URL is required.
 func (f *Refreshable) refreshFromFile(
 	acceptStale bool,
 	filePath string,
 	updTime time.Time,
 ) (text string, err error) {
 	// #nosec G304 -- Assume that filePath is always either cacheDir + a valid,
-	// no-slash filter list ID or a path from the index env.
+	// no-slash ID or a path from the index env.
 	file, err := os.Open(filePath)
 	if errors.Is(err, os.ErrNotExist) {
 		// File does not exist.  Refresh from the URL.
 		return "", nil
 	} else if err != nil {
-		return "", fmt.Errorf("opening filter file: %w", err)
+		return "", fmt.Errorf("opening refreshable file: %w", err)
 	}
 	defer func() { err = errors.WithDeferred(err, file.Close()) }()
 
@@ -169,7 +169,7 @@ func (f *Refreshable) refreshFromFile(
 		var fi fs.FileInfo
 		fi, err = file.Stat()
 		if err != nil {
-			return "", fmt.Errorf("reading filter file stat: %w", err)
+			return "", fmt.Errorf("reading refreshable file stat: %w", err)
 		}
 
 		if mtime := fi.ModTime(); !mtime.Add(f.staleness).After(updTime) {
@@ -180,15 +180,14 @@ func (f *Refreshable) refreshFromFile(
 	b := &strings.Builder{}
 	_, err = io.Copy(b, file)
 	if err != nil {
-		return "", fmt.Errorf("reading filter file: %w", err)
+		return "", fmt.Errorf("reading refreshable file: %w", err)
 	}
 
 	return b.String(), nil
 }
 
-// refreshFromURL loads the filter data from u, puts it into the file specified
-// by cachePath, returns its content, and also sets its atime and mtime to
-// updTime.
+// refreshFromURL loads the data from u, puts it into the file specified by
+// cachePath, returns its content, and also sets its atime and mtime to updTime.
 func (f *Refreshable) refreshFromURL(
 	ctx context.Context,
 	updTime time.Time,
@@ -197,7 +196,7 @@ func (f *Refreshable) refreshFromURL(
 	tmpDir := renameio.TempDir(filepath.Dir(f.cachePath))
 	tmpFile, err := renameio.TempFile(tmpDir, f.cachePath)
 	if err != nil {
-		return "", fmt.Errorf("creating temporary filter file: %w", err)
+		return "", fmt.Errorf("creating temporary refreshable file: %w", err)
 	}
 	defer func() { err = f.withDeferredTmpCleanup(err, tmpFile, updTime) }()
 

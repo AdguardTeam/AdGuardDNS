@@ -101,13 +101,14 @@ func TestBillStat_Upload(t *testing.T) {
 
 	errColl := &agdtest.ErrorCollector{
 		OnCollect: func(_ context.Context, err error) {
-			testutil.AssertErrorMsg(t, `backendpb: device "invalid": null record`, err)
+			testutil.AssertErrorMsg(t, `uploading records: device "invalid": null record`, err)
 		},
 	}
 
 	b, err := backendpb.NewBillStat(&backendpb.BillStatConfig{
-		ErrColl: errColl,
-		Metrics: backendpb.EmptyMetrics{},
+		Logger:      backendpb.TestLogger,
+		ErrColl:     errColl,
+		GRPCMetrics: backendpb.EmptyGRPCMetrics{},
 		Endpoint: &url.URL{
 			Scheme: "grpc",
 			Host:   l.Addr().String(),

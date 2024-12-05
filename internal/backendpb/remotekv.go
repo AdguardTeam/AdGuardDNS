@@ -7,18 +7,20 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv"
+	"github.com/AdguardTeam/golibs/errors"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 // RemoteKVConfig is the configuration for the business logic backend key-value
 // storage.
 type RemoteKVConfig struct {
-	// Metrics is used for the collection of the remote key-value storage
+	// Metrics is used for the collection of the backend remote key-value
+	// storage statistics.
+	Metrics RemoteKVMetrics
+
+	// GRPCMetrics is used for the collection of the protobuf communication
 	// statistics.
-	//
-	// TODO(e.burkov):  Perhaps, it worths of a separate metrics interface,
-	// since it's only used for the collection of the protobuf errors.
-	Metrics Metrics
+	GRPCMetrics GRPCMetrics
 
 	// Endpoint is the backend API URL.  The scheme should be either "grpc" or
 	// "grpcs".
@@ -35,10 +37,11 @@ type RemoteKVConfig struct {
 // uses the business logic backend as the key-value storage.  It is safe for
 // concurrent use.
 type RemoteKV struct {
-	metrics Metrics
-	client  RemoteKVServiceClient
-	apiKey  string
-	ttl     time.Duration
+	grpcMetrics GRPCMetrics
+	metrics     RemoteKVMetrics
+	client      RemoteKVServiceClient
+	apiKey      string
+	ttl         time.Duration
 }
 
 // NewRemoteKV returns a new [RemoteKV] that retrieves information from the
@@ -51,10 +54,11 @@ func NewRemoteKV(c *RemoteKVConfig) (kv *RemoteKV, err error) {
 	}
 
 	return &RemoteKV{
-		metrics: c.Metrics,
-		client:  NewRemoteKVServiceClient(client),
-		apiKey:  c.APIKey,
-		ttl:     c.TTL,
+		grpcMetrics: c.GRPCMetrics,
+		metrics:     c.Metrics,
+		client:      NewRemoteKVServiceClient(client),
+		apiKey:      c.APIKey,
+		ttl:         c.TTL,
 	}, nil
 }
 
@@ -68,14 +72,34 @@ func (kv *RemoteKV) Get(ctx context.Context, key string) (val []byte, ok bool, e
 	}
 
 	ctx = ctxWithAuthentication(ctx, kv.apiKey)
+
+	start := time.Now()
 	resp, err := kv.client.Get(ctx, req)
 	if err != nil {
-		return nil, false, fmt.Errorf("getting %q key: %w", key, fixGRPCError(ctx, kv.metrics, err))
+		err = fmt.Errorf("getting %q key: %w", key, fixGRPCError(ctx, kv.grpcMetrics, err))
+
+		return nil, false, err
 	}
 
-	val = resp.GetData()
+	kv.metrics.ObserveOperation(ctx, RemoteKVOpGet, time.Since(start))
 
-	return val, val != nil, nil
+	defer func() { kv.metrics.IncrementLookups(ctx, ok) }()
+
+	received := resp.GetValue()
+
+	switch received := received.(type) {
+	case *RemoteKVGetResponse_Data:
+		return received.Data, true, nil
+	case *RemoteKVGetResponse_Empty:
+		return nil, false, nil
+	default:
+		return nil, false, fmt.Errorf(
+			"getting %q key: response type: %w: %T(%[3]v)",
+			key,
+			errors.ErrBadEnumValue,
+			received,
+		)
+	}
 }
 
 // Set implements the [remotekv.Interface] interface for *RemoteKV.
@@ -87,10 +111,14 @@ func (kv *RemoteKV) Set(ctx context.Context, key string, val []byte) (err error)
 	}
 
 	ctx = ctxWithAuthentication(ctx, kv.apiKey)
+
+	start := time.Now()
 	_, err = kv.client.Set(ctx, req)
 	if err != nil {
-		return fmt.Errorf("setting %q key: %w", key, fixGRPCError(ctx, kv.metrics, err))
+		return fmt.Errorf("setting %q key: %w", key, fixGRPCError(ctx, kv.grpcMetrics, err))
 	}
+
+	kv.metrics.ObserveOperation(ctx, RemoteKVOpSet, time.Since(start))
 
 	return nil
 }

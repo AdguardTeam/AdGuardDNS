@@ -88,7 +88,7 @@ func wrapPreUpstreamMw(ctx context.Context, c *HandlersConfig) (wrapped dnsserve
 		cacheMw := cache.NewMiddleware(&cache.MiddlewareConfig{
 			// TODO(a.garipov):  Do not use promauto and refactor.
 			MetricsListener: dnssrvprom.NewCacheMetricsListener(metrics.Namespace()),
-			Size:            conf.NoECSCount,
+			Count:           conf.NoECSCount,
 			MinTTL:          conf.MinTTL,
 			OverrideTTL:     conf.OverrideCacheTTL,
 		})
@@ -146,7 +146,10 @@ func newMainMiddlewareMetrics(c *HandlersConfig) (mainMwMtrc MainMiddlewareMetri
 // newHandlersForServers returns a handler map for each server group and each
 // server.
 func newHandlersForServers(c *HandlersConfig, h dnsserver.Handler) (handlers Handlers, err error) {
-	rlMwMtrc, err := metrics.NewDefaultRatelimitMiddleware(c.MetricsNamespace, c.PrometheusRegisterer)
+	rlMwMtrc, err := metrics.NewDefaultRatelimitMiddleware(
+		c.MetricsNamespace,
+		c.PrometheusRegisterer,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("ratelimit middleware metrics: %w", err)
 	}
@@ -206,6 +209,6 @@ func newDeviceFinder(c *HandlersConfig, g *agd.ServerGroup, s *agd.Server) (df a
 		ProfileDB:     c.ProfileDB,
 		HumanIDParser: c.HumanIDParser,
 		Server:        s,
-		DeviceDomains: g.TLS.DeviceDomains,
+		DeviceDomains: g.DeviceDomains,
 	})
 }

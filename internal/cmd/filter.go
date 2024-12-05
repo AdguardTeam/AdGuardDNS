@@ -2,16 +2,8 @@ package cmd
 
 import (
 	"fmt"
-	"log/slog"
-	"net/url"
-	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
-	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 )
@@ -27,9 +19,13 @@ type filtersConfig struct {
 
 	// CustomFilterCacheSize is the size of the LRU cache of compiled filtering
 	// engines for profiles with custom filtering rules.
+	//
+	// TODO(a.garipov):  Rename to "custom_filter_cache_count"?
 	CustomFilterCacheSize int `yaml:"custom_filter_cache_size"`
 
 	// SafeSearchCacheSize is the size of the LRU cache of safe-search results.
+	//
+	// TODO(a.garipov):  Rename to "safe_search_cache_count"?
 	SafeSearchCacheSize int `yaml:"safe_search_cache_size"`
 
 	// ResponseTTL is the TTL to set for DNS responses to requests for filtered
@@ -64,58 +60,6 @@ type filtersConfig struct {
 
 	// SDEEnabled enables the experimental Structured DNS Errors feature.
 	SDEEnabled bool `yaml:"sde_enabled"`
-}
-
-// toInternal converts c to the filter storage configuration for the DNS server.
-// cacheDir must exist.  c must be valid.
-func (c *filtersConfig) toInternal(
-	logger *slog.Logger,
-	errColl errcoll.Interface,
-	cacheManager agdcache.Manager,
-	envs *environment,
-	safeBrowsing *hashprefix.Filter,
-	adultBlocking *hashprefix.Filter,
-	newRegDomains *hashprefix.Filter,
-) (conf *filter.DefaultStorageConfig) {
-	var blockedServiceIndexURL *url.URL
-	if envs.BlockedServiceEnabled {
-		blockedServiceIndexURL = netutil.CloneURL(&envs.BlockedServiceIndexURL.URL)
-	}
-
-	var generalSafeSearchRulesURL *url.URL
-	if envs.GeneralSafeSearchEnabled {
-		generalSafeSearchRulesURL = netutil.CloneURL(&envs.GeneralSafeSearchURL.URL)
-	}
-
-	var youtubeSafeSearchRulesURL *url.URL
-	if envs.YoutubeSafeSearchEnabled {
-		youtubeSafeSearchRulesURL = netutil.CloneURL(&envs.YoutubeSafeSearchURL.URL)
-	}
-
-	return &filter.DefaultStorageConfig{
-		BaseLogger:                logger,
-		FilterIndexURL:            netutil.CloneURL(&envs.FilterIndexURL.URL),
-		BlockedServiceIndexURL:    blockedServiceIndexURL,
-		GeneralSafeSearchRulesURL: generalSafeSearchRulesURL,
-		YoutubeSafeSearchRulesURL: youtubeSafeSearchRulesURL,
-		SafeBrowsing:              safeBrowsing,
-		AdultBlocking:             adultBlocking,
-		NewRegDomains:             newRegDomains,
-		Now:                       time.Now,
-		ErrColl:                   errColl,
-		CacheManager:              cacheManager,
-		CacheDir:                  envs.FilterCachePath,
-		CustomFilterCacheSize:     c.CustomFilterCacheSize,
-		SafeSearchCacheSize:       c.SafeSearchCacheSize,
-		// TODO(a.garipov): Consider making this configurable.
-		SafeSearchCacheTTL:     1 * time.Hour,
-		RuleListCacheSize:      c.RuleListCache.Size,
-		RefreshIvl:             c.RefreshIvl.Duration,
-		IndexRefreshTimeout:    c.IndexRefreshTimeout.Duration,
-		RuleListRefreshTimeout: c.RuleListRefreshTimeout.Duration,
-		UseRuleListCache:       c.RuleListCache.Enabled,
-		MaxRuleListSize:        c.MaxSize,
-	}
 }
 
 // type check
@@ -153,6 +97,8 @@ func (c *filtersConfig) validate() (err error) {
 // fltRuleListCache contains filtering rule-list cache configuration.
 type fltRuleListCache struct {
 	// Size defines the size of the LRU cache of rule-list filtering results.
+	//
+	// TODO(a.garipov):  Rename to "count"?
 	Size int `yaml:"size"`
 
 	// Enabled shows if the rule-list cache is enabled.  If it is false, the

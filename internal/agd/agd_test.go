@@ -2,17 +2,13 @@ package agd_test
 
 import (
 	"strings"
-	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/golibs/testutil"
 )
 
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
-
 // Common long strings for tests.
+//
+// TODO(a.garipov):  Move to a new validation package.
 var (
 	testLongStr        = strings.Repeat("a", 200)
 	testLongStrUnicode = strings.Repeat("ы", 200)

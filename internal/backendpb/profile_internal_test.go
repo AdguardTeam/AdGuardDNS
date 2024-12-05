@@ -12,6 +12,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/c2h5oh/datasize"
@@ -35,7 +36,8 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 			TestUpdTime,
 			TestBind,
 			errColl,
-			EmptyMetrics{},
+			TestLogger,
+			EmptyProfileDBMetrics{},
 			TestRespSzEst,
 		)
 		require.NoError(t, err)
@@ -58,14 +60,15 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 			TestUpdTime,
 			TestBind,
 			savingErrColl,
-			EmptyMetrics{},
+			TestLogger,
+			EmptyProfileDBMetrics{},
 			TestRespSzEst,
 		)
 		require.NoError(t, err)
 		testutil.AssertErrorMsg(
 			t,
-			`backendpb: bad device settings for device with id "inv-d-ip":`+
-				" dedicated ips: ip at index 0: unexpected slice size",
+			`converting device: bad settings for device with id "inv-d-ip":`+
+				` dedicated ips: ip at index 0: unexpected slice size`,
 			errCollErr,
 		)
 
@@ -89,13 +92,14 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 			TestUpdTime,
 			bindSet,
 			savingErrColl,
-			EmptyMetrics{},
+			TestLogger,
+			EmptyProfileDBMetrics{},
 			TestRespSzEst,
 		)
 		require.NoError(t, err)
 		testutil.AssertErrorMsg(
 			t,
-			`backendpb: bad device settings for device with id "`+TestDeviceIDStr+`":`+
+			`converting device: bad settings for device with id "`+TestDeviceIDStr+`":`+
 				" dedicated ips: at index 0: \"1.1.1.2\" is not in bind data",
 			errCollErr,
 		)
@@ -114,7 +118,8 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 			TestUpdTime,
 			TestBind,
 			errColl,
-			EmptyMetrics{},
+			TestLogger,
+			EmptyProfileDBMetrics{},
 			TestRespSzEst,
 		)
 		testutil.AssertErrorMsg(t, "profile is nil", err)
@@ -133,7 +138,8 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 			TestUpdTime,
 			TestBind,
 			errColl,
-			EmptyMetrics{},
+			TestLogger,
+			EmptyProfileDBMetrics{},
 			TestRespSzEst,
 		)
 		require.NoError(t, err)
@@ -155,12 +161,13 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 			TestUpdTime,
 			TestBind,
 			errColl,
-			EmptyMetrics{},
+			TestLogger,
+			EmptyProfileDBMetrics{},
 			TestRespSzEst,
 		)
 		testutil.AssertErrorMsg(
 			t,
-			"parental: schedule: loading timezone: unknown time zone invalid",
+			"parental: pause schedule: loading timezone: unknown time zone invalid",
 			err,
 		)
 	})
@@ -179,12 +186,13 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 			TestUpdTime,
 			TestBind,
 			errColl,
-			EmptyMetrics{},
+			TestLogger,
+			EmptyProfileDBMetrics{},
 			TestRespSzEst,
 		)
 		testutil.AssertErrorMsg(
 			t,
-			"parental: schedule: weekday Sunday: bad day range: end 0 less than start 16",
+			"parental: pause schedule: weekday Sunday: end: out of range: 1 is less than start 16",
 			err,
 		)
 	})
@@ -201,7 +209,8 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 			TestUpdTime,
 			TestBind,
 			errColl,
-			EmptyMetrics{},
+			TestLogger,
+			EmptyProfileDBMetrics{},
 			TestRespSzEst,
 		)
 		testutil.AssertErrorMsg(t, "blocking mode: bad custom ipv4: unexpected slice size", err)
@@ -219,7 +228,8 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 			TestUpdTime,
 			TestBind,
 			errColl,
-			EmptyMetrics{},
+			TestLogger,
+			EmptyProfileDBMetrics{},
 			TestRespSzEst,
 		)
 		testutil.AssertErrorMsg(t, "blocking mode: bad custom ipv6: unexpected slice size", err)
@@ -238,7 +248,8 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 			TestUpdTime,
 			TestBind,
 			errColl,
-			EmptyMetrics{},
+			TestLogger,
+			EmptyProfileDBMetrics{},
 			TestRespSzEst,
 		)
 		testutil.AssertErrorMsg(t, "blocking mode: no valid custom ips found", err)
@@ -255,7 +266,8 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 			TestUpdTime,
 			TestBind,
 			errColl,
-			EmptyMetrics{},
+			TestLogger,
+			EmptyProfileDBMetrics{},
 			TestRespSzEst,
 		)
 		require.NoError(t, err)
@@ -279,7 +291,8 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 			TestUpdTime,
 			TestBind,
 			errColl,
-			EmptyMetrics{},
+			TestLogger,
+			EmptyProfileDBMetrics{},
 			TestRespSzEst,
 		)
 		require.NoError(t, err)
@@ -302,7 +315,8 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 			TestUpdTime,
 			TestBind,
 			errColl,
-			EmptyMetrics{},
+			TestLogger,
+			EmptyProfileDBMetrics{},
 			TestRespSzEst,
 		)
 		require.NoError(t, err)
@@ -464,6 +478,7 @@ func NewTestDNSProfile(tb testing.TB) (dp *DNSProfile) {
 				Prefix:  24,
 			}},
 		},
+		BlockChromePrefetch: true,
 	}
 }
 
@@ -484,35 +499,37 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 	wantLoc, err := agdtime.LoadLocation("GMT")
 	require.NoError(tb, err)
 
-	dayRange := agd.DayRange{
+	dayIvl := &filter.DayInterval{
 		Start: 0,
-		End:   59,
+		End:   60,
 	}
 
-	wantParental := &agd.ParentalProtectionSettings{
-		Schedule: &agd.ParentalProtectionSchedule{
-			Week: &agd.WeeklySchedule{
-				agd.ZeroLengthDayRange(),
-				dayRange,
-				dayRange,
-				dayRange,
-				dayRange,
-				dayRange,
-				agd.ZeroLengthDayRange(),
+	wantParental := &filter.ConfigParental{
+		PauseSchedule: &filter.ConfigSchedule{
+			Week: &filter.WeeklySchedule{
+				nil,
+				dayIvl,
+				dayIvl,
+				dayIvl,
+				dayIvl,
+				dayIvl,
+				nil,
 			},
 			TimeZone: wantLoc,
 		},
-		BlockedServices:   []agd.BlockedServiceID{"youtube"},
-		Enabled:           false,
-		BlockAdult:        false,
-		GeneralSafeSearch: false,
-		YoutubeSafeSearch: false,
+		BlockedServices: []filter.BlockedServiceID{
+			"youtube",
+		},
+		Enabled:                  false,
+		AdultBlockingEnabled:     false,
+		SafeSearchGeneralEnabled: false,
+		SafeSearchYouTubeEnabled: false,
 	}
 
-	wantSafeBrowsing := &agd.SafeBrowsingSettings{
-		Enabled:                     true,
-		BlockDangerousDomains:       true,
-		BlockNewlyRegisteredDomains: false,
+	wantSafeBrowsing := &filter.ConfigSafeBrowsing{
+		Enabled:                       true,
+		DangerousDomainsEnabled:       true,
+		NewlyRegisteredDomainsEnabled: false,
 	}
 
 	wantBlockingMode := &dnsmsg.BlockingModeCustomIP{
@@ -535,30 +552,39 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 	}, 1*datasize.KB)
 
 	return &agd.Profile{
-		Parental:     wantParental,
+		FilterConfig: &filter.ConfigClient{
+			Custom: &filter.ConfigCustom{
+				ID:         TestProfileIDStr,
+				UpdateTime: TestUpdTime,
+				Rules:      []filter.RuleText{"||example.org^"},
+				Enabled:    true,
+			},
+			Parental: wantParental,
+			RuleList: &filter.ConfigRuleList{
+				IDs:     []filter.ID{"1"},
+				Enabled: true,
+			},
+			SafeBrowsing: wantSafeBrowsing,
+		},
+		Access:       wantAccess,
 		BlockingMode: wantBlockingMode,
+		Ratelimiter:  wantRateLimiter,
 		ID:           TestProfileID,
-		UpdateTime:   TestUpdTime,
 		DeviceIDs: []agd.DeviceID{
 			TestDeviceID,
 			"2222bbbb",
 			"3333cccc",
 			"4444dddd",
 		},
-		RuleListIDs:         []agd.FilterListID{"1"},
-		CustomRules:         []agd.FilterRuleText{"||example.org^"},
 		FilteredResponseTTL: 10 * time.Second,
-		Ratelimiter:         wantRateLimiter,
-		SafeBrowsing:        wantSafeBrowsing,
-		Access:              wantAccess,
-		RuleListsEnabled:    true,
-		FilteringEnabled:    true,
-		QueryLogEnabled:     true,
-		Deleted:             false,
-		BlockPrivateRelay:   true,
-		BlockFirefoxCanary:  true,
-		IPLogEnabled:        true,
 		AutoDevicesEnabled:  true,
+		BlockChromePrefetch: true,
+		BlockFirefoxCanary:  true,
+		BlockPrivateRelay:   true,
+		Deleted:             false,
+		FilteringEnabled:    true,
+		IPLogEnabled:        true,
+		QueryLogEnabled:     true,
 	}
 }
 
@@ -631,7 +657,8 @@ func BenchmarkDNSProfile_ToInternal(b *testing.B) {
 			TestUpdTime,
 			TestBind,
 			errColl,
-			EmptyMetrics{},
+			TestLogger,
+			EmptyProfileDBMetrics{},
 			TestRespSzEst,
 		)
 	}
@@ -639,10 +666,10 @@ func BenchmarkDNSProfile_ToInternal(b *testing.B) {
 	require.NotNil(b, profSink)
 	require.NoError(b, errSink)
 
-	// Most recent result, on a ThinkPad X13:
+	// Most recent results:
 	//	goos: linux
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/backendpb
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkDNSProfile_ToInternal-16    	   67160	     22130 ns/op	    3048 B/op	      51 allocs/op
+	//	BenchmarkDNSProfile_ToInternal-16      	   79732	     14686 ns/op	    3160 B/op	      59 allocs/op
 }

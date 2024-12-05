@@ -22,6 +22,18 @@ type Refresher interface {
 	Refresh(ctx context.Context) (err error)
 }
 
+// RefresherFunc is an adapter to allow the use of ordinary functions as
+// [Refresher].
+type RefresherFunc func(ctx context.Context) (err error)
+
+// type check
+var _ Refresher = RefresherFunc(nil)
+
+// Refresh implements the [Refresher] interface for RefresherFunc.
+func (f RefresherFunc) Refresh(ctx context.Context) (err error) {
+	return f(ctx)
+}
+
 // RefreshWorker is an [Interface] implementation that updates its [Refresher]
 // every tick of the provided ticker.
 type RefreshWorker struct {

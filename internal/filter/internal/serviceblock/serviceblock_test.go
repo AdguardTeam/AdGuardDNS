@@ -5,11 +5,12 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/serviceblock"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
@@ -17,48 +18,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Common blocked service IDs for tests.
-const (
-	testSvcID1          agd.BlockedServiceID = "svc_1"
-	testSvcID2          agd.BlockedServiceID = "svc_2"
-	testSvcIDNotPresent agd.BlockedServiceID = "svc_not_present"
-)
-
-// testData is a sample of a service index response.
-//
-// See https://github.com/AdguardTeam/HostlistsRegistry/blob/main/assets/services.json.
-const testData string = `{
-  "blocked_services": [
-    {
-      "id": "` + string(testSvcID1) + `",
-      "name": "Service 1",
-      "rules": [
-        "||service-1.example^"
-      ]
-    },
-    {
-      "id": "` + string(testSvcID2) + `",
-      "name": "Service 2",
-      "rules": [
-        "||service-2.example^"
-      ]
-    }
-  ]
-}`
-
 func TestFilter(t *testing.T) {
 	reqCh := make(chan struct{}, 1)
-	cachePath, srvURL := filtertest.PrepareRefreshable(t, reqCh, testData, http.StatusOK)
+	cachePath, srvURL := filtertest.PrepareRefreshable(
+		t,
+		reqCh,
+		filtertest.BlockedServiceIndex,
+		http.StatusOK,
+	)
 
-	f, err := serviceblock.New(&internal.RefreshableConfig{
-		Logger:    slogutil.NewDiscardLogger(),
-		URL:       srvURL,
-		ID:        agd.FilterListIDBlockedService,
-		CachePath: cachePath,
-		Staleness: filtertest.Staleness,
-		Timeout:   filtertest.Timeout,
-		MaxSize:   filtertest.FilterMaxSize,
-	}, agdtest.NewErrorCollector())
+	f, err := serviceblock.New(&serviceblock.Config{
+		Refreshable: &refreshable.Config{
+			Logger:    slogutil.NewDiscardLogger(),
+			URL:       srvURL,
+			ID:        internal.IDBlockedService,
+			CachePath: cachePath,
+			Staleness: filtertest.Staleness,
+			Timeout:   filtertest.Timeout,
+			MaxSize:   filtertest.FilterMaxSize,
+		},
+		ErrColl: agdtest.NewErrorCollector(),
+		Metrics: filter.EmptyMetrics{},
+	})
 
 	require.NoError(t, err)
 
@@ -68,23 +49,23 @@ func TestFilter(t *testing.T) {
 
 	testutil.RequireReceive(t, reqCh, filtertest.Timeout)
 
-	rls := f.RuleLists(ctx, []agd.BlockedServiceID{
-		testSvcID1,
-		testSvcID2,
-		testSvcIDNotPresent,
+	rls := f.RuleLists(ctx, []internal.BlockedServiceID{
+		filtertest.BlockedServiceID1,
+		filtertest.BlockedServiceID2,
+		filtertest.BlockedServiceIDDoesNotExist,
 	})
 	require.Len(t, rls, 2)
 
-	wantSvcIDs := []agd.BlockedServiceID{
-		testSvcID1,
-		testSvcID2,
+	wantSvcIDs := []internal.BlockedServiceID{
+		filtertest.BlockedServiceID1,
+		filtertest.BlockedServiceID2,
 	}
 
-	gotFltIDs := make([]agd.FilterListID, 2)
-	gotSvcIDs := make([]agd.BlockedServiceID, 2)
+	gotFltIDs := make([]internal.ID, 2)
+	gotSvcIDs := make([]internal.BlockedServiceID, 2)
 	gotFltIDs[0], gotSvcIDs[0] = rls[0].ID()
 	gotFltIDs[1], gotSvcIDs[1] = rls[1].ID()
-	assert.Equal(t, agd.FilterListIDBlockedService, gotFltIDs[0])
-	assert.Equal(t, agd.FilterListIDBlockedService, gotFltIDs[1])
+	assert.Equal(t, internal.IDBlockedService, gotFltIDs[0])
+	assert.Equal(t, internal.IDBlockedService, gotFltIDs[1])
 	assert.ElementsMatch(t, wantSvcIDs, gotSvcIDs)
 }

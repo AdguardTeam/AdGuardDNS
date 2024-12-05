@@ -11,6 +11,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdpasswd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
@@ -109,6 +110,21 @@ type Refresher struct {
 // Refresh implements the [agdservice.Refresher] interface for *Refresher.
 func (r *Refresher) Refresh(ctx context.Context) (err error) {
 	return r.OnRefresh(ctx)
+}
+
+// Package agdtime
+
+// type check
+var _ agdtime.Clock = (*Clock)(nil)
+
+// Clock is a [agdtime.Clock] for tests.
+type Clock struct {
+	OnNow func() (now time.Time)
+}
+
+// Now implements the [agdtime.Clock] interface for *Clock.
+func (c *Clock) Now() (now time.Time) {
+	return c.OnNow()
 }
 
 // Package billstat
@@ -220,34 +236,24 @@ var _ filter.Interface = (*Filter)(nil)
 
 // Filter is a [filter.Interface] for tests.
 type Filter struct {
-	OnFilterRequest func(
-		ctx context.Context,
-		req *dns.Msg,
-		ri *agd.RequestInfo,
-	) (r filter.Result, err error)
-	OnFilterResponse func(
-		ctx context.Context,
-		resp *dns.Msg,
-		ri *agd.RequestInfo,
-	) (r filter.Result, err error)
+	OnFilterRequest  func(ctx context.Context, req *filter.Request) (r filter.Result, err error)
+	OnFilterResponse func(ctx context.Context, resp *filter.Response) (r filter.Result, err error)
 }
 
 // FilterRequest implements the [filter.Interface] interface for *Filter.
 func (f *Filter) FilterRequest(
 	ctx context.Context,
-	req *dns.Msg,
-	ri *agd.RequestInfo,
+	req *filter.Request,
 ) (r filter.Result, err error) {
-	return f.OnFilterRequest(ctx, req, ri)
+	return f.OnFilterRequest(ctx, req)
 }
 
 // FilterResponse implements the [filter.Interface] interface for *Filter.
 func (f *Filter) FilterResponse(
 	ctx context.Context,
-	resp *dns.Msg,
-	ri *agd.RequestInfo,
+	resp *filter.Response,
 ) (r filter.Result, err error) {
-	return f.OnFilterResponse(ctx, resp, ri)
+	return f.OnFilterResponse(ctx, resp)
 }
 
 // type check
@@ -274,21 +280,18 @@ var _ filter.Storage = (*FilterStorage)(nil)
 
 // FilterStorage is a [filter.Storage] for tests.
 type FilterStorage struct {
-	OnFilterFromContext func(ctx context.Context, ri *agd.RequestInfo) (f filter.Interface)
-	OnHasListID         func(id agd.FilterListID) (ok bool)
+	OnForConfig func(ctx context.Context, c filter.Config) (f filter.Interface)
+	OnHasListID func(id filter.ID) (ok bool)
 }
 
-// FilterFromContext implements the [filter.Storage] interface for
+// ForConfig implements the [filter.Storage] interface for
 // *FilterStorage.
-func (s *FilterStorage) FilterFromContext(
-	ctx context.Context,
-	ri *agd.RequestInfo,
-) (f filter.Interface) {
-	return s.OnFilterFromContext(ctx, ri)
+func (s *FilterStorage) ForConfig(ctx context.Context, c filter.Config) (f filter.Interface) {
+	return s.OnForConfig(ctx, c)
 }
 
 // HasListID implements the [filter.Storage] interface for *FilterStorage.
-func (s *FilterStorage) HasListID(id agd.FilterListID) (ok bool) {
+func (s *FilterStorage) HasListID(id filter.ID) (ok bool) {
 	return s.OnHasListID(id)
 }
 
@@ -522,11 +525,11 @@ var _ rulestat.Interface = (*RuleStat)(nil)
 
 // RuleStat is a [rulestat.Interface] for tests.
 type RuleStat struct {
-	OnCollect func(ctx context.Context, id agd.FilterListID, text agd.FilterRuleText)
+	OnCollect func(ctx context.Context, id filter.ID, text filter.RuleText)
 }
 
 // Collect implements the [rulestat.Interface] interface for *RuleStat.
-func (s *RuleStat) Collect(ctx context.Context, id agd.FilterListID, text agd.FilterRuleText) {
+func (s *RuleStat) Collect(ctx context.Context, id filter.ID, text filter.RuleText) {
 	s.OnCollect(ctx, id, text)
 }
 

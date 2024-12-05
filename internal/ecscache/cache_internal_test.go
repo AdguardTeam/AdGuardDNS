@@ -15,10 +15,10 @@ var msgSink *dns.Msg
 func BenchmarkMiddleware_Get(b *testing.B) {
 	mw := &Middleware{
 		cache: agdcache.NewLRU[uint64, *cacheItem](&agdcache.LRUConfig{
-			Size: 10,
+			Count: 10,
 		}),
 		ecsCache: agdcache.NewLRU[uint64, *cacheItem](&agdcache.LRUConfig{
-			Size: 10,
+			Count: 10,
 		}),
 	}
 

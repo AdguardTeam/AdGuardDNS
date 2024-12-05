@@ -70,7 +70,12 @@ func listenControlWithSO(
 			opts,
 			newIntSetSockOptFunc("IP_RECVORIGDSTADDR", unix.IPPROTO_IP, unix.IP_RECVORIGDSTADDR, 1),
 			newIntSetSockOptFunc("IP_FREEBIND", unix.IPPROTO_IP, unix.IP_FREEBIND, 1),
-			newIntSetSockOptFunc("IPV6_RECVORIGDSTADDR", unix.IPPROTO_IPV6, unix.IPV6_RECVORIGDSTADDR, 1),
+			newIntSetSockOptFunc(
+				"IPV6_RECVORIGDSTADDR",
+				unix.IPPROTO_IPV6,
+				unix.IPV6_RECVORIGDSTADDR,
+				1,
+			),
 			newIntSetSockOptFunc("IPV6_FREEBIND", unix.IPPROTO_IPV6, unix.IPV6_FREEBIND, 1),
 		)
 	default:

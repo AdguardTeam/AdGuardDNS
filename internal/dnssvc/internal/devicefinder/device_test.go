@@ -199,7 +199,8 @@ func TestDefault_Find_byHumanID(t *testing.T) {
 
 	// Use uppercase versions to make sure that the device finder recognizes the
 	// device-type and profile data regardless of the case.
-	extIDStr := "OTR-" + strings.ToUpper(dnssvctest.ProfileIDStr) + "-" + dnssvctest.HumanIDStr + "-!!!"
+	extIDStr := "OTR-" + strings.ToUpper(dnssvctest.ProfileIDStr) + "-" +
+		dnssvctest.HumanIDStr + "-!!!"
 
 	profDB := agdtest.NewProfileDB()
 	profDB.OnCreateAutoDevice = func(

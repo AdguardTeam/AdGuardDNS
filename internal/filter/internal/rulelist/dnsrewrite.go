@@ -5,7 +5,6 @@ import (
 	"net/netip"
 	"strings"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/golibs/errors"
@@ -16,13 +15,11 @@ import (
 // ProcessDNSRewrites processes $dnsrewrite rules dnsr and creates a filtering
 // result, if id allows it.  res.List, if any, is set to id.
 func ProcessDNSRewrites(
-	messages *dnsmsg.Constructor,
-	req *dns.Msg,
+	req *internal.Request,
 	dnsr []*rules.NetworkRule,
-	host string,
-	id agd.FilterListID,
+	id internal.ID,
 ) (res internal.Result) {
-	if len(dnsr) == 0 || !id.SupportsDNSRewrite() {
+	if len(dnsr) == 0 {
 		return nil
 	}
 
@@ -30,16 +27,16 @@ func ProcessDNSRewrites(
 
 	if resCanonName := dnsRewriteResult.CanonName; resCanonName != "" {
 		// Rewrite the question name to a matched CNAME.
-		if strings.EqualFold(resCanonName, host) {
+		if strings.EqualFold(resCanonName, req.Host) {
 			// A rewrite of a host to itself.
 			return nil
 		}
 
-		req = dnsmsg.Clone(req)
-		req.Question[0].Name = dns.Fqdn(resCanonName)
+		modReq := dnsmsg.Clone(req.DNS)
+		modReq.Question[0].Name = dns.Fqdn(resCanonName)
 
 		return &internal.ResultModifiedRequest{
-			Msg:  req,
+			Msg:  modReq,
 			List: id,
 			Rule: dnsRewriteResult.ResRuleText,
 		}
@@ -49,7 +46,7 @@ func ProcessDNSRewrites(
 		// #nosec G115 -- The value of dnsRewriteResult.RCode comes from the
 		// urlfilter package, where it either parsed by [dns.StringToRcode] or
 		// defined statically.
-		resp := messages.NewBlockedRespRCode(req, dnsmsg.RCode(dnsRewriteResult.RCode))
+		resp := req.Messages.NewBlockedRespRCode(req.DNS, dnsmsg.RCode(dnsRewriteResult.RCode))
 
 		return &internal.ResultModifiedResponse{
 			Msg:  resp,
@@ -58,7 +55,7 @@ func ProcessDNSRewrites(
 		}
 	}
 
-	resp, err := filterDNSRewrite(messages, req, dnsRewriteResult)
+	resp, err := filterDNSRewrite(req, dnsRewriteResult)
 	if err != nil {
 		return nil
 	}
@@ -73,7 +70,7 @@ func ProcessDNSRewrites(
 type dnsRewriteResult struct {
 	Response    dnsRewriteResultResponse
 	CanonName   string
-	ResRuleText agd.FilterRuleText
+	ResRuleText internal.RuleText
 	Rules       []*rules.NetworkRule
 	RCode       rules.RCode
 }
@@ -94,7 +91,7 @@ func processDNSRewriteRules(dnsr []*rules.NetworkRule) (res *dnsRewriteResult) {
 		if dr.NewCNAME != "" {
 			// NewCNAME rules have a higher priority than other rules.
 			return &dnsRewriteResult{
-				ResRuleText: agd.FilterRuleText(rule.RuleText),
+				ResRuleText: internal.RuleText(rule.RuleText),
 				CanonName:   dr.NewCNAME,
 			}
 		}
@@ -108,7 +105,7 @@ func processDNSRewriteRules(dnsr []*rules.NetworkRule) (res *dnsRewriteResult) {
 			// RcodeRefused and other such codes have higher priority.  Return
 			// immediately.
 			return &dnsRewriteResult{
-				ResRuleText: agd.FilterRuleText(rule.RuleText),
+				ResRuleText: internal.RuleText(rule.RuleText),
 				RCode:       dr.RCode,
 			}
 		}
@@ -120,23 +117,21 @@ func processDNSRewriteRules(dnsr []*rules.NetworkRule) (res *dnsRewriteResult) {
 // filterDNSRewrite handles dnsrewrite filters.  It constructs a DNS response
 // and returns it.  dnsrr.RCode should be [dns.RcodeSuccess] and contain a
 // non-empty dnsrr.Response.
-func filterDNSRewrite(
-	messages *dnsmsg.Constructor,
-	req *dns.Msg,
-	dnsrr *dnsRewriteResult,
-) (resp *dns.Msg, err error) {
+func filterDNSRewrite(req *internal.Request, dnsrr *dnsRewriteResult) (resp *dns.Msg, err error) {
 	if dnsrr.Response == nil {
 		return nil, errors.Error("no dns rewrite rule responses")
 	}
 
-	// TODO(e.burkov):  Use another constructor method for this.
-	resp = messages.NewBlockedRespRCode(req, dns.RcodeSuccess)
+	// TODO(e.burkov):  Use a constructor method that adds a SOA for caching if
+	// necessary.
+	dnsReq := req.DNS
+	resp = req.Messages.NewBlockedRespRCode(dnsReq, dns.RcodeSuccess)
 
-	rr := req.Question[0].Qtype
+	rr := dnsReq.Question[0].Qtype
 	values := dnsrr.Response[rr]
 	for i, v := range values {
 		var ans dns.RR
-		ans, err = filterDNSRewriteResponse(messages, req, rr, v)
+		ans, err = filterDNSRewriteResponse(req, rr, v)
 		if err != nil {
 			return nil, fmt.Errorf("dns rewrite response for %d[%d]: %w", rr, i, err)
 		} else if ans == nil {
@@ -154,8 +149,7 @@ func filterDNSRewrite(
 // filterDNSRewriteResponse handles a single DNS rewrite response entry.
 // It returns the properly constructed answer resource record.
 func filterDNSRewriteResponse(
-	messages *dnsmsg.Constructor,
-	req *dns.Msg,
+	req *internal.Request,
 	rr rules.RRType,
 	v rules.RRValue,
 ) (ans dns.RR, err error) {
@@ -165,41 +159,35 @@ func filterDNSRewriteResponse(
 
 	switch rr {
 	case dns.TypeA, dns.TypeAAAA:
-		return newAnsFromIP(messages, v, rr, req)
+		return newAnsFromIP(req, v, rr)
 	case dns.TypePTR, dns.TypeTXT:
-		return newAnsFromString(messages, v, rr, req)
+		return newAnsFromString(req, v, rr)
 	case dns.TypeMX:
-		return newAnswerMX(messages, v, rr, req)
+		return newAnswerMX(req, v, rr)
 	case dns.TypeHTTPS, dns.TypeSVCB:
-		return newAnsFromSVCB(messages, v, rr, req)
+		return newAnsFromSVCB(req, v, rr)
 	case dns.TypeSRV:
-		return newAnswerSRV(messages, v, rr, req)
+		return newAnswerSRV(req, v, rr)
 	default:
 		return nil, nil
 	}
 }
 
 // newAnswerSRV returns a new resource record created from DNSSRV rules value.
-func newAnswerSRV(
-	messages *dnsmsg.Constructor,
-	v rules.RRValue,
-	rr rules.RRType,
-	req *dns.Msg,
-) (ans dns.RR, err error) {
+func newAnswerSRV(req *internal.Request, v rules.RRValue, rr rules.RRType) (ans dns.RR, err error) {
 	srv, ok := v.(*rules.DNSSRV)
 	if !ok {
 		return nil, fmt.Errorf("value for rr type %d has type %T, not *rules.DNSSRV", rr, v)
 	}
 
-	return messages.NewAnswerSRV(req, srv), nil
+	return req.Messages.NewAnswerSRV(req.DNS, srv), nil
 }
 
 // newAnsFromSVCB returns a new resource record created from DNSSVCB rules value.
 func newAnsFromSVCB(
-	messages *dnsmsg.Constructor,
+	req *internal.Request,
 	v rules.RRValue,
 	rr rules.RRType,
-	req *dns.Msg,
 ) (ans dns.RR, err error) {
 	svcb, ok := v.(*rules.DNSSVCB)
 	if !ok {
@@ -207,18 +195,17 @@ func newAnsFromSVCB(
 	}
 
 	if rr == dns.TypeHTTPS {
-		return messages.NewAnswerHTTPS(req, svcb), nil
+		return req.Messages.NewAnswerHTTPS(req.DNS, svcb), nil
 	}
 
-	return messages.NewAnswerSVCB(req, svcb), nil
+	return req.Messages.NewAnswerSVCB(req.DNS, svcb), nil
 }
 
 // newAnsFromString returns a new resource record created from string value.
 func newAnsFromString(
-	messages *dnsmsg.Constructor,
+	req *internal.Request,
 	v rules.RRValue,
 	rr rules.RRType,
-	req *dns.Msg,
 ) (ans dns.RR, err error) {
 	str, ok := v.(string)
 	if !ok {
@@ -226,45 +213,35 @@ func newAnsFromString(
 	}
 
 	if rr == dns.TypeTXT {
-		return messages.NewAnswerTXT(req, []string{str})
+		return req.Messages.NewAnswerTXT(req.DNS, []string{str})
 	}
 
-	return messages.NewAnswerPTR(req, str), nil
+	return req.Messages.NewAnswerPTR(req.DNS, str), nil
 }
 
 // newAnsFromIP returns a new resource record with an IP address.  ip must be an
 // IPv4 or IPv6 address.
-func newAnsFromIP(
-	messages *dnsmsg.Constructor,
-	v rules.RRValue,
-	rr rules.RRType,
-	req *dns.Msg,
-) (ans dns.RR, err error) {
+func newAnsFromIP(req *internal.Request, v rules.RRValue, rr rules.RRType) (ans dns.RR, err error) {
 	ip, ok := v.(netip.Addr)
 	if !ok {
 		return nil, fmt.Errorf("value for rr type %d has type %T, not net.IP", rr, v)
 	}
 
-	target := req.Question[0].Name
+	target := req.DNS.Question[0].Name
 
 	if rr == dns.TypeA {
-		return messages.NewAnswerA(target, ip)
+		return req.Messages.NewAnswerA(target, ip)
 	}
 
-	return messages.NewAnswerAAAA(target, ip)
+	return req.Messages.NewAnswerAAAA(target, ip)
 }
 
 // newAnswerMX returns a new resource record created from DNSMX rules value.
-func newAnswerMX(
-	messages *dnsmsg.Constructor,
-	v rules.RRValue,
-	rr rules.RRType,
-	req *dns.Msg,
-) (ans dns.RR, err error) {
+func newAnswerMX(req *internal.Request, v, rr rules.RRValue) (ans dns.RR, err error) {
 	mx, ok := v.(*rules.DNSMX)
 	if !ok {
 		return nil, fmt.Errorf("value for rr type %d has type %T, not *rules.DNSMX", rr, v)
 	}
 
-	return messages.NewAnswerMX(req, mx), nil
+	return req.Messages.NewAnswerMX(req.DNS, mx), nil
 }

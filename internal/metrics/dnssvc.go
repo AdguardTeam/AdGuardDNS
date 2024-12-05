@@ -25,6 +25,13 @@ var (
 		"kind": "bad_resolver_arpa",
 	})
 
+	// DNSSvcChromePrefetchRequestsTotal is a counter with total number of
+	// requests for the domain name that Chrome uses to check if it should use
+	// its prefetch proxy.
+	DNSSvcChromePrefetchRequestsTotal = specialRequestsTotal.With(prometheus.Labels{
+		"kind": "chrome_prefetch",
+	})
+
 	// DNSSvcFirefoxRequestsTotal is a counter with total number of requests for
 	// the domain name that Firefox uses to check if it should use its own
 	// DNS-over-HTTPS settings.

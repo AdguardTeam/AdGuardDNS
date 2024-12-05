@@ -1,15 +1,15 @@
-package agd_test
+package internal_test
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNewFilterListID(t *testing.T) {
+func TestNewID(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
@@ -23,22 +23,22 @@ func TestNewFilterListID(t *testing.T) {
 	}, {
 		name:       "too_short",
 		in:         "",
-		wantErrMsg: `bad filter list id "": too short: got 0 bytes, min 1`,
+		wantErrMsg: `bad filter id "": too short: got 0 bytes, min 1`,
 	}, {
 		name:       "too_long",
 		in:         testLongStr,
-		wantErrMsg: `bad filter list id "` + testLongStr + `": too long: got 200 bytes, max 128`,
+		wantErrMsg: `bad filter id "` + testLongStr + `": too long: got 200 bytes, max 128`,
 	}, {
 		name:       "bad",
 		in:         "bad/name",
-		wantErrMsg: `bad filter list id "bad/name": bad rune '/' at index 3`,
+		wantErrMsg: `bad filter id "bad/name": bad rune '/' at index 3`,
 	}}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			id, err := agd.NewFilterListID(tc.in)
+			id, err := internal.NewID(tc.in)
 			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)
 			if tc.wantErrMsg == "" && tc.in != "" {
 				assert.NotEmpty(t, id)
@@ -49,11 +49,11 @@ func TestNewFilterListID(t *testing.T) {
 	}
 }
 
-func TestNewFilterRuleText(t *testing.T) {
+func TestNewRuleText(t *testing.T) {
 	t.Parallel()
 
-	tooLong := strings.Repeat("a", agd.MaxFilterRuleTextRuneLen+1)
-	tooLongUnicode := strings.Repeat("ы", agd.MaxFilterRuleTextRuneLen+1)
+	tooLong := strings.Repeat("a", internal.MaxRuleTextRuneLen+1)
+	tooLongUnicode := strings.Repeat("ы", internal.MaxRuleTextRuneLen+1)
 
 	testCases := []struct {
 		name       string
@@ -86,7 +86,7 @@ func TestNewFilterRuleText(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			txt, err := agd.NewFilterRuleText(tc.in)
+			txt, err := internal.NewRuleText(tc.in)
 			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)
 			if tc.wantErrMsg == "" && tc.in != "" {
 				assert.NotEmpty(t, txt)

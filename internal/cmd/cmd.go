@@ -94,11 +94,13 @@ func Main(plugins *plugin.Registry) {
 
 	errors.Check(b.initMsgConstructor(ctx))
 
+	errors.Check(b.initTLSManager(ctx))
+
 	errors.Check(b.initServerGroups(ctx))
 
 	errors.Check(b.startBindToDevice(ctx))
 
-	errors.Check(b.initTLS(ctx))
+	errors.Check(b.initTicketRotator(ctx))
 
 	errors.Check(b.initGRPCMetrics(ctx))
 

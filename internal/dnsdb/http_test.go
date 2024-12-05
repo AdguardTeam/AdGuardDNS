@@ -18,6 +18,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/golibs/httphdr"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -120,6 +121,7 @@ func TestDefault_ServeHTTP(t *testing.T) {
 
 	for _, tc := range testCases {
 		db := dnsdb.New(&dnsdb.DefaultConfig{
+			Logger:  slogutil.NewDiscardLogger(),
 			ErrColl: agdtest.NewErrorCollector(),
 			MaxSize: 100,
 		})

@@ -34,12 +34,12 @@ const (
 	testRespAddr4Str   = "3.4.5.6"
 	testRewriteAddrStr = "7.8.9.0"
 
-	testRuleAllow     agd.FilterRuleText = "@@||" + dnssvctest.DomainAllowed + "^"
-	testRuleBlockReq  agd.FilterRuleText = "||" + dnssvctest.DomainBlocked + "^"
-	testRuleBlockResp agd.FilterRuleText = "||" + testRespAddr4Str + "^"
-	testRuleRewrite   agd.FilterRuleText = "||" + dnssvctest.DomainRewritten +
+	testRuleAllow     filter.RuleText = "@@||" + dnssvctest.DomainAllowed + "^"
+	testRuleBlockReq  filter.RuleText = "||" + dnssvctest.DomainBlocked + "^"
+	testRuleBlockResp filter.RuleText = "||" + testRespAddr4Str + "^"
+	testRuleRewrite   filter.RuleText = "||" + dnssvctest.DomainRewritten +
 		"^$dnsrewrite=NOERROR;A;" + testRewriteAddrStr
-	testRuleRewriteCNAME agd.FilterRuleText = "||" + dnssvctest.DomainRewritten +
+	testRuleRewriteCNAME filter.RuleText = "||" + dnssvctest.DomainRewritten +
 		"^$dnsrewrite=NOERROR;CNAME;" + dnssvctest.DomainRewrittenCNAME
 )
 
@@ -96,25 +96,23 @@ func TestMiddleware_Wrap(t *testing.T) {
 	flt := &agdtest.Filter{
 		OnFilterRequest: func(
 			_ context.Context,
-			_ *dns.Msg,
-			_ *agd.RequestInfo,
+			_ *filter.Request,
 		) (r filter.Result, err error) {
 			return nil, nil
 		},
 		OnFilterResponse: func(
 			_ context.Context,
-			_ *dns.Msg,
-			_ *agd.RequestInfo,
+			_ *filter.Response,
 		) (r filter.Result, err error) {
 			return nil, nil
 		},
 	}
 
 	fltStrg := &agdtest.FilterStorage{
-		OnFilterFromContext: func(_ context.Context, _ *agd.RequestInfo) (f filter.Interface) {
+		OnForConfig: func(_ context.Context, _ filter.Config) (f filter.Interface) {
 			return flt
 		},
-		OnHasListID: func(_ agd.FilterListID) (ok bool) { panic("not implemented") },
+		OnHasListID: func(_ filter.ID) (ok bool) { panic("not implemented") },
 	}
 
 	geoIP := agdtest.NewGeoIP()
@@ -131,10 +129,10 @@ func TestMiddleware_Wrap(t *testing.T) {
 	}
 
 	ruleStat := &agdtest.RuleStat{
-		OnCollect: func(_ context.Context, id agd.FilterListID, text agd.FilterRuleText) {
+		OnCollect: func(_ context.Context, id filter.ID, text filter.RuleText) {
 			pt := testutil.PanicT{}
-			require.Equal(pt, agd.FilterListID(""), id)
-			require.Equal(pt, agd.FilterRuleText(""), text)
+			require.Equal(pt, filter.ID(""), id)
+			require.Equal(pt, filter.RuleText(""), text)
 		},
 	}
 
@@ -238,7 +236,10 @@ func TestMiddleware_Wrap(t *testing.T) {
 			h := mw.Wrap(newSimpleHandler(t, tc.req, wantResp))
 
 			ctx := newContext(t, tc.device, tc.profile, reqHost, reqQType, reqStart)
-			rw := dnsserver.NewNonWriterResponseWriter(dnssvctest.ServerTCPAddr, dnssvctest.ClientTCPAddr)
+			rw := dnsserver.NewNonWriterResponseWriter(
+				dnssvctest.ServerTCPAddr,
+				dnssvctest.ClientTCPAddr,
+			)
 
 			serveErr := h.ServeDNS(ctx, rw, tc.req)
 			testutil.AssertErrorMsg(t, tc.wantErrMsg, serveErr)
@@ -332,6 +333,19 @@ func newContext(
 	ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
 		StartTime: start,
 	})
+
+	fltConf := &filter.ConfigGroup{
+		Parental: &filter.ConfigParental{},
+		RuleList: &filter.ConfigRuleList{
+			IDs: []filter.ID{
+				dnssvctest.FilterListID1,
+				dnssvctest.FilterListID2,
+			},
+			Enabled: true,
+		},
+		SafeBrowsing: &filter.ConfigSafeBrowsing{},
+	}
+
 	ctx = agd.ContextWithRequestInfo(ctx, &agd.RequestInfo{
 		DeviceResult: &agd.DeviceResultOK{
 			Device:  d,
@@ -342,11 +356,7 @@ func newContext(
 			ASN:     testASN,
 		},
 		FilteringGroup: &agd.FilteringGroup{
-			RuleListIDs: []agd.FilterListID{
-				dnssvctest.FilterListID1,
-				dnssvctest.FilterListID2,
-			},
-			RuleListsEnabled: true,
+			FilterConfig: fltConf,
 		},
 		Messages: agdtest.NewConstructor(tb),
 		RemoteIP: dnssvctest.ClientAddr,
@@ -540,7 +550,7 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 		respRes    filter.Result
 		name       string
 		wantErrMsg string
-		wantRule   agd.FilterRuleText
+		wantRule   filter.RuleText
 	}{{
 		req:        reqAllow,
 		device:     nil,
@@ -641,28 +651,23 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 			flt := &agdtest.Filter{
 				OnFilterRequest: func(
 					_ context.Context,
-					_ *dns.Msg,
-					_ *agd.RequestInfo,
+					_ *filter.Request,
 				) (r filter.Result, err error) {
 					return tc.reqRes, nil
 				},
 				OnFilterResponse: func(
 					_ context.Context,
-					_ *dns.Msg,
-					_ *agd.RequestInfo,
+					_ *filter.Response,
 				) (r filter.Result, err error) {
 					return tc.respRes, nil
 				},
 			}
 
 			fltStrg := &agdtest.FilterStorage{
-				OnFilterFromContext: func(
-					_ context.Context,
-					_ *agd.RequestInfo,
-				) (f filter.Interface) {
+				OnForConfig: func(_ context.Context, _ filter.Config) (f filter.Interface) {
 					return flt
 				},
-				OnHasListID: func(_ agd.FilterListID) (ok bool) { panic("not implemented") },
+				OnHasListID: func(_ filter.ID) (ok bool) { panic("not implemented") },
 			}
 
 			q := tc.req.Question[0]
@@ -680,7 +685,7 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 			}
 
 			ruleStat := &agdtest.RuleStat{
-				OnCollect: func(_ context.Context, id agd.FilterListID, text agd.FilterRuleText) {
+				OnCollect: func(_ context.Context, id filter.ID, text filter.RuleText) {
 					pt := testutil.PanicT{}
 					require.Equal(pt, dnssvctest.FilterListID1, id)
 					require.Equal(pt, tc.wantRule, text)
@@ -705,7 +710,10 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 			h := mw.Wrap(newSimpleHandler(t, tc.wantUpsReq, tc.upsResp))
 
 			ctx := newContext(t, tc.device, tc.profile, reqHost, reqQType, reqStart)
-			rw := dnsserver.NewNonWriterResponseWriter(dnssvctest.ServerTCPAddr, dnssvctest.ClientTCPAddr)
+			rw := dnsserver.NewNonWriterResponseWriter(
+				dnssvctest.ServerTCPAddr,
+				dnssvctest.ClientTCPAddr,
+			)
 
 			serveErr := h.ServeDNS(ctx, rw, tc.req)
 			testutil.AssertErrorMsg(t, tc.wantErrMsg, serveErr)

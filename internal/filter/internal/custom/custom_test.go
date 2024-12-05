@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
@@ -15,34 +15,35 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testProfID is the profile ID for tests.
-const testProfID agd.ProfileID = "prof1234"
+// testClientConfID is the client configuration ID for tests.
+const testClientConfID = "cli1234"
 
 func TestFilters_Get(t *testing.T) {
 	f := custom.New(&custom.Config{
 		Logger:  slogutil.NewDiscardLogger(),
 		ErrColl: agdtest.NewErrorCollector(),
 		CacheConf: &agdcache.LRUConfig{
-			Size: 1,
+			Count: 1,
 		},
 		CacheManager: agdcache.EmptyManager{},
 	})
 
-	p := &agd.Profile{
-		ID:         testProfID,
+	c := &custom.ClientConfig{
+		ID:         testClientConfID,
 		UpdateTime: time.Now(),
-		CustomRules: []agd.FilterRuleText{
+		Rules: []internal.RuleText{
 			"||first.example",
 		},
+		Enabled: true,
 	}
 
 	ctx := context.Background()
 
-	rl := f.Get(ctx, p)
+	rl := f.Get(ctx, c)
 	require.NotNil(t, rl)
 
 	// Recheck cached.
-	cachedRL := f.Get(ctx, p)
+	cachedRL := f.Get(ctx, c)
 	require.NotNil(t, cachedRL)
 
 	assert.Same(t, rl, cachedRL)
@@ -55,19 +56,20 @@ func BenchmarkFilters_Get(b *testing.B) {
 		Logger:  slogutil.NewDiscardLogger(),
 		ErrColl: agdtest.NewErrorCollector(),
 		CacheConf: &agdcache.LRUConfig{
-			Size: 1,
+			Count: 1,
 		},
 		CacheManager: agdcache.EmptyManager{},
 	})
 
-	p := &agd.Profile{
-		ID:         testProfID,
+	c := &custom.ClientConfig{
+		ID:         testClientConfID,
 		UpdateTime: time.Now(),
-		CustomRules: []agd.FilterRuleText{
+		Rules: []internal.RuleText{
 			"||first.example",
 			"||second.example",
 			"||third.example",
 		},
+		Enabled: true,
 	}
 
 	ctx := context.Background()
@@ -76,7 +78,7 @@ func BenchmarkFilters_Get(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for range b.N {
-			ruleListSink = f.Get(ctx, p)
+			ruleListSink = f.Get(ctx, c)
 		}
 	})
 
@@ -86,17 +88,16 @@ func BenchmarkFilters_Get(b *testing.B) {
 		for range b.N {
 			// Update the time on each iteration to make sure that the cache is
 			// never used.
-			p.UpdateTime = p.UpdateTime.Add(1 * time.Millisecond)
-			ruleListSink = f.Get(ctx, p)
+			c.UpdateTime = c.UpdateTime.Add(1 * time.Millisecond)
+			ruleListSink = f.Get(ctx, c)
 		}
 	})
 
-	// Most recent result, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
-	//
+	// Most recent results:
 	//	goos: linux
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/custom
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkFilters_Get/cache-16            7870251               233.4 ns/op            16 B/op          1 allocs/op
-	//	BenchmarkFilters_Get/no_cache-16           53073             23490 ns/op           14610 B/op         93 allocs/op
+	//	BenchmarkFilters_Get/cache-16         	 5702966	       186.7 ns/op	      16 B/op	       1 allocs/op
+	//	BenchmarkFilters_Get/no_cache-16      	   61044	     18373 ns/op	   14488 B/op	      89 allocs/op
 }

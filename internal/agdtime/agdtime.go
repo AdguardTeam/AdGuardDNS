@@ -8,6 +8,24 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 )
 
+// Clock is an interface for time-related operations.
+//
+// TODO(a.garipov):  Expand with operations like After or Tick.
+//
+// TODO(a.garipov):  Move to golibs/timeutil.
+type Clock interface {
+	Now() (now time.Time)
+}
+
+// SystemClock is a [Clock] that uses the functions from package time.
+type SystemClock struct{}
+
+// type check
+var _ Clock = SystemClock{}
+
+// Now implements the [Clock] interface for SystemClock.
+func (SystemClock) Now() (now time.Time) { return time.Now() }
+
 // Location is a wrapper around time.Location that can de/serialize itself from
 // and to JSON.
 //

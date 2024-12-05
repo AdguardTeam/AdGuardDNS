@@ -19,7 +19,7 @@ type Server struct {
 	DNSCrypt *DNSCryptConfig
 
 	// TLS is the TLS configuration for this server, if any.
-	TLS *tls.Config
+	TLS *TLSConfig
 
 	// QUICConf is the QUIC configuration for this server.
 	QUICConf *QUICConfig
@@ -199,4 +199,14 @@ type QUICConfig struct {
 
 	// QUICLimitsEnabled, if true, enables QUIC limiting.
 	QUICLimitsEnabled bool
+}
+
+// TLSConfig is the TLS configuration of a DNS server.  Metrics and ALPs must be
+// set for saved configurations.
+type TLSConfig struct {
+	// Default is the defult TLS configuration.  It must not be nil.
+	Default *tls.Config
+
+	// H3 is the TLS configuration for DoH3.
+	H3 *tls.Config
 }

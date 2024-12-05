@@ -68,8 +68,10 @@ type environment struct {
 
 	RedisIdleTimeout timeutil.Duration `env:"REDIS_IDLE_TIMEOUT" envDefault:"30s"`
 
-	RedisMaxActive int `env:"REDIS_MAX_ACTIVE" envDefault:"10"`
-	RedisMaxIdle   int `env:"REDIS_MAX_IDLE" envDefault:"3"`
+	// TODO(a.garipov):  Rename to DNSCHECK_CACHE_KV_COUNT?
+	DNSCheckCacheKVSize int `env:"DNSCHECK_CACHE_KV_SIZE"`
+	RedisMaxActive      int `env:"REDIS_MAX_ACTIVE" envDefault:"10"`
+	RedisMaxIdle        int `env:"REDIS_MAX_IDLE" envDefault:"3"`
 
 	ListenPort uint16 `env:"LISTEN_PORT" envDefault:"8181"`
 	RedisPort  uint16 `env:"REDIS_PORT" envDefault:"6379"`
@@ -233,10 +235,12 @@ func (envs *environment) validateFromValidConfig(conf *configuration) (err error
 	var errs []error
 
 	switch typ := conf.Check.RemoteKV.Type; typ {
-	case kvModeRedis:
-		errs = envs.validateRedis(errs)
 	case kvModeBackend:
 		errs = envs.validateBackendKV(errs)
+	case kvModeCache:
+		errs = envs.validateCache(errs)
+	case kvModeRedis:
+		errs = envs.validateRedis(errs)
 	default:
 		// Probably consul.
 	}
@@ -259,38 +263,51 @@ func (envs *environment) validateFromValidConfig(conf *configuration) (err error
 	return errors.Join(errs...)
 }
 
+// validateCache appends validation errors to the given errs if environment
+// variables for KV Cache contain errors.
+func (envs *environment) validateCache(errs []error) (res []error) {
+	res = errs
+
+	if envs.DNSCheckCacheKVSize <= 0 {
+		err := newNotPositiveError("DNSCHECK_CACHE_KV_SIZE", envs.DNSCheckCacheKVSize)
+		res = append(res, err)
+	}
+
+	return res
+}
+
 // validateRedis appends validation errors to the given errs if environment
 // variables for Redis contain errors.
-func (envs *environment) validateRedis(errs []error) (withRedis []error) {
-	withRedis = errs
+func (envs *environment) validateRedis(errs []error) (res []error) {
+	res = errs
 
 	if envs.RedisAddr == "" {
-		err := fmt.Errorf("REDIS_ADDR: %q", errors.ErrEmptyValue)
-		withRedis = append(withRedis, err)
+		err := fmt.Errorf("REDIS_ADDR: %w", errors.ErrEmptyValue)
+		res = append(res, err)
 	}
 
 	if envs.RedisIdleTimeout.Duration <= 0 {
 		err := newNotPositiveError("REDIS_IDLE_TIMEOUT", envs.RedisIdleTimeout)
-		withRedis = append(withRedis, err)
+		res = append(res, err)
 	}
 
 	if envs.RedisMaxActive < 0 {
 		err := newNegativeError("REDIS_MAX_ACTIVE", envs.RedisMaxActive)
-		withRedis = append(withRedis, err)
+		res = append(res, err)
 	}
 
 	if envs.RedisMaxIdle < 0 {
 		err := newNegativeError("REDIS_MAX_IDLE", envs.RedisMaxIdle)
-		withRedis = append(withRedis, err)
+		res = append(res, err)
 	}
 
-	return withRedis
+	return res
 }
 
 // validateBackendKV appends validation errors to the given errs if environment
 // variables for a backend key-value store contain errors.
-func (envs *environment) validateBackendKV(errs []error) (withKV []error) {
-	withKV = errs
+func (envs *environment) validateBackendKV(errs []error) (res []error) {
+	res = errs
 
 	var u *url.URL
 	if envs.DNSCheckRemoteKVURL != nil {
@@ -299,16 +316,16 @@ func (envs *environment) validateBackendKV(errs []error) (withKV []error) {
 
 	err := urlutil.ValidateGRPCURL(u)
 	if err != nil {
-		withKV = append(withKV, fmt.Errorf("env DNSCHECK_REMOTEKV_URL: %w", err))
+		res = append(res, fmt.Errorf("env DNSCHECK_REMOTEKV_URL: %w", err))
 	}
 
-	return withKV
+	return res
 }
 
 // validateProfilesURLs appends validation errors to the given errs if profiles
 // URLs in environment variables are invalid.
-func (envs *environment) validateProfilesURLs(errs []error) (withURLs []error) {
-	withURLs = errs
+func (envs *environment) validateProfilesURLs(errs []error) (res []error) {
+	res = errs
 
 	grpcOnlyURLs := []*urlEnvData{{
 		url:        envs.BillStatURL,
@@ -332,11 +349,11 @@ func (envs *environment) validateProfilesURLs(errs []error) (withURLs []error) {
 
 		err := urlutil.ValidateGRPCURL(u)
 		if err != nil {
-			withURLs = append(withURLs, fmt.Errorf("env %s: %w", urlData.name, err))
+			res = append(res, fmt.Errorf("env %s: %w", urlData.name, err))
 		}
 	}
 
-	return withURLs
+	return res
 }
 
 // validateRateLimitURLs appends validation errors to the given errs if rate

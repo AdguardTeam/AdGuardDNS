@@ -16,7 +16,7 @@ func TestLRU(t *testing.T) {
 	)
 
 	cache := agdcache.NewLRU[string, int](&agdcache.LRUConfig{
-		Size: 10,
+		Count: 10,
 	})
 
 	cache.Set(key, val)

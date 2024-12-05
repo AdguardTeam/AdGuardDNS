@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Metrics is an interface that is used for the collection of the TLS related
+// Metrics is an interface that is used for the collection of the TLS-related
 // statistics.
 type Metrics interface {
 	// BeforeHandshake returns a function that needs to be passed to
@@ -19,18 +19,9 @@ type Metrics interface {
 		proto string,
 		srvName string,
 		devDomains []string,
-		srvCerts []tls.Certificate,
+		srvCerts []*tls.Certificate,
 	) (f func(s tls.ConnectionState) (err error))
 
-	// RefreshMetrics gathers statistics during updates.
-	//
-	// TODO(s.chzhen):  Separate it.
-	RefreshMetrics
-}
-
-// RefreshMetrics is an interface that is used to collect statistics during TLS
-// certificate and TLS session ticket updates.
-type RefreshMetrics interface {
 	// SetCertificateInfo sets the TLS certificate information.
 	SetCertificateInfo(ctx context.Context, algo, subj string, notAfter time.Time)
 
@@ -62,7 +53,7 @@ func (EmptyMetrics) AfterHandshake(
 	_ string,
 	_ string,
 	_ []string,
-	_ []tls.Certificate,
+	_ []*tls.Certificate,
 ) (f func(s tls.ConnectionState) (err error)) {
 	return func(tls.ConnectionState) error {
 		return nil
@@ -75,18 +66,3 @@ func (EmptyMetrics) SetCertificateInfo(_ context.Context, _, _ string, _ time.Ti
 // SetSessionTicketRotationStatus implements the [Metrics] interface for
 // EmptyMetrics.
 func (EmptyMetrics) SetSessionTicketRotationStatus(_ context.Context, _ bool) {}
-
-// EmptyRefreshMetrics is the implementation of the [RefreshMetrics] interface
-// that does nothing.
-type EmptyRefreshMetrics struct{}
-
-// type check
-var _ RefreshMetrics = EmptyRefreshMetrics{}
-
-// SetCertificateInfo implements the [RefreshMetrics] interface for
-// EmptyRefreshMetrics.
-func (EmptyRefreshMetrics) SetCertificateInfo(_ context.Context, _, _ string, _ time.Time) {}
-
-// SetSessionTicketRotationStatus implements the [RefreshMetrics] interface for
-// EmptyRefreshMetrics.
-func (EmptyRefreshMetrics) SetSessionTicketRotationStatus(_ context.Context, _ bool) {}

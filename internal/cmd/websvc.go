@@ -68,7 +68,7 @@ func (c *webConfig) toInternal(
 	envs *environment,
 	dnsCk dnscheck.Interface,
 	errColl errcoll.Interface,
-	mtrc tlsconfig.Metrics,
+	tlsMgr tlsconfig.Manager,
 ) (conf *websvc.Config, err error) {
 	if c == nil {
 		return nil, nil
@@ -87,7 +87,7 @@ func (c *webConfig) toInternal(
 		conf.RootRedirectURL = netutil.CloneURL(&c.RootRedirectURL.URL)
 	}
 
-	conf.LinkedIP, err = c.LinkedIP.toInternal(ctx, mtrc, envs.LinkedIPTargetURL)
+	conf.LinkedIP, err = c.LinkedIP.toInternal(ctx, tlsMgr, envs.LinkedIPTargetURL)
 	if err != nil {
 		return nil, fmt.Errorf("converting linked_ip: %w", err)
 	}
@@ -111,7 +111,7 @@ func (c *webConfig) toInternal(
 	}}
 
 	for _, bp := range blockPages {
-		*bp.webConfPtr, err = bp.conf.toInternal(ctx, mtrc)
+		*bp.webConfPtr, err = bp.conf.toInternal(ctx, tlsMgr)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", bp.name, err)
 		}
@@ -123,7 +123,7 @@ func (c *webConfig) toInternal(
 		return nil, err
 	}
 
-	conf.NonDoHBind, err = c.NonDoHBind.toInternal(ctx, mtrc)
+	conf.NonDoHBind, err = c.NonDoHBind.toInternal(ctx, tlsMgr)
 	if err != nil {
 		return nil, fmt.Errorf("converting non_doh_bind: %w", err)
 	}
@@ -230,7 +230,7 @@ type linkedIPServer struct {
 // toInternal converts s to a linkedIP server configuration.  s must be valid.
 func (s *linkedIPServer) toInternal(
 	ctx context.Context,
-	mtrc tlsconfig.Metrics,
+	tlsMgr tlsconfig.Manager,
 	targetURL *urlutil.URL,
 ) (srv *websvc.LinkedIPServer, err error) {
 	if s == nil {
@@ -238,7 +238,7 @@ func (s *linkedIPServer) toInternal(
 	}
 
 	srv = &websvc.LinkedIPServer{}
-	srv.Bind, err = s.Bind.toInternal(ctx, mtrc)
+	srv.Bind, err = s.Bind.toInternal(ctx, tlsMgr)
 	if err != nil {
 		return nil, fmt.Errorf("converting bind: %w", err)
 	}
@@ -288,7 +288,7 @@ type blockPageServer struct {
 // toInternal converts s to a block page server configuration.  s must be valid.
 func (s *blockPageServer) toInternal(
 	ctx context.Context,
-	mtrc tlsconfig.Metrics,
+	tlsMgr tlsconfig.Manager,
 ) (conf *websvc.BlockPageServerConfig, err error) {
 	if s == nil {
 		return nil, nil
@@ -298,7 +298,7 @@ func (s *blockPageServer) toInternal(
 		ContentFilePath: s.BlockPage,
 	}
 
-	conf.Bind, err = s.Bind.toInternal(ctx, mtrc)
+	conf.Bind, err = s.Bind.toInternal(ctx, tlsMgr)
 	if err != nil {
 		return nil, fmt.Errorf("converting bind: %w", err)
 	}
@@ -337,12 +337,12 @@ type bindData []*bindItem
 // be valid.
 func (bd bindData) toInternal(
 	ctx context.Context,
-	mtrc tlsconfig.Metrics,
+	tlsMgr tlsconfig.Manager,
 ) (data []*websvc.BindData, err error) {
 	data = make([]*websvc.BindData, len(bd))
 
 	for i, d := range bd {
-		data[i], err = d.toInternal(ctx, mtrc)
+		data[i], err = d.toInternal(ctx, tlsMgr)
 		if err != nil {
 			return nil, fmt.Errorf("bind data at index %d: %w", i, err)
 		}
@@ -383,9 +383,9 @@ type bindItem struct {
 // be valid.
 func (i *bindItem) toInternal(
 	ctx context.Context,
-	mtrc tlsconfig.Metrics,
+	tlsMgr tlsconfig.Manager,
 ) (data *websvc.BindData, err error) {
-	tlsConf, err := i.Certificates.toInternal(ctx, mtrc)
+	tlsConf, err := i.Certificates.toInternal(ctx, tlsMgr)
 	if err != nil {
 		return nil, fmt.Errorf("certificates: %w", err)
 	}

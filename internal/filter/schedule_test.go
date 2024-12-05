@@ -1,63 +1,78 @@
-package agd_test
+package filter_test
 
 import (
 	"testing"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestDayRange_Validate(t *testing.T) {
+func TestDayInterval_Validate(t *testing.T) {
 	testCases := []struct {
+		ivl        *filter.DayInterval
 		name       string
 		wantErrMsg string
-		rng        agd.DayRange
 	}{{
+		ivl: &filter.DayInterval{
+			Start: 11 * 60,
+			End:   13*60 - 1,
+		},
 		name:       "ok",
 		wantErrMsg: "",
-		rng:        agd.DayRange{Start: 11 * 60, End: 13*60 - 1},
 	}, {
+		ivl: &filter.DayInterval{
+			Start: 0,
+			End:   0,
+		},
 		name:       "ok_zeroes",
 		wantErrMsg: "",
-		rng:        agd.DayRange{Start: 0, End: 0},
 	}, {
+		ivl:        nil,
+		name:       "ok_nil",
+		wantErrMsg: "",
+	}, {
+		ivl: &filter.DayInterval{
+			Start: filter.MaxDayIntervalStartMinutes,
+			End:   filter.MaxDayIntervalEndMinutes,
+		},
 		name:       "ok_max",
 		wantErrMsg: "",
-		rng: agd.DayRange{
-			Start: agd.MaxDayRangeMinutes,
-			End:   agd.MaxDayRangeMinutes,
+	}, {
+		ivl: &filter.DayInterval{
+			Start: 1,
+			End:   0,
 		},
-	}, {
-		name:       "ok_zero_length",
-		wantErrMsg: "",
-		rng:        agd.ZeroLengthDayRange(),
-	}, {
 		name:       "err_before",
-		wantErrMsg: "bad day range: end 0 less than start 1",
-		rng:        agd.DayRange{Start: 1, End: 0},
+		wantErrMsg: "end: out of range: 0 is less than start 1",
 	}, {
+		ivl: &filter.DayInterval{
+			Start: 10_000,
+			End:   10_000,
+		},
 		name:       "err_bad_start",
-		wantErrMsg: "bad day range: start 10000 greater than 1439",
-		rng:        agd.DayRange{Start: 10_000, End: 10_000},
+		wantErrMsg: "start: out of range: 10000 is greater than 1439",
 	}, {
+		ivl: &filter.DayInterval{
+			Start: 0,
+			End:   10_000,
+		},
 		name:       "err_bad_end",
-		wantErrMsg: "bad day range: end 10000 greater than 1439",
-		rng:        agd.DayRange{Start: 0, End: 10_000},
+		wantErrMsg: "end: out of range: 10000 is greater than 1440",
 	}}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.rng.Validate()
+			err := tc.ivl.Validate()
 			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)
 		})
 	}
 }
 
-func TestParentalProtectionSchedule_Contains(t *testing.T) {
+func TestFilterConfigSchedule_Contains(t *testing.T) {
 	baseTime := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 	otherTime := baseTime.Add(1 * timeutil.Day)
 
@@ -66,41 +81,31 @@ func TestParentalProtectionSchedule_Contains(t *testing.T) {
 	otherTZ := time.FixedZone("Etc/GMT-3", 3*60*60)
 
 	// baseSchedule, 12:00:00 to 13:59:59.
-	baseSchedule := &agd.ParentalProtectionSchedule{
-		Week: &agd.WeeklySchedule{
-			time.Sunday:    agd.ZeroLengthDayRange(),
-			time.Monday:    agd.ZeroLengthDayRange(),
-			time.Tuesday:   agd.ZeroLengthDayRange(),
-			time.Wednesday: agd.ZeroLengthDayRange(),
-			time.Thursday:  agd.ZeroLengthDayRange(),
-
+	baseSchedule := &filter.ConfigSchedule{
+		Week: &filter.WeeklySchedule{
 			// baseTime is on Friday.
-			time.Friday: agd.DayRange{12 * 60, 14*60 - 1},
-
-			time.Saturday: agd.ZeroLengthDayRange(),
+			time.Friday: &filter.DayInterval{
+				Start: 12 * 60,
+				End:   14 * 60,
+			},
 		},
 		TimeZone: agdtime.UTC(),
 	}
 
 	// allDaySchedule, 00:00:00 to 23:59:59.
-	allDaySchedule := &agd.ParentalProtectionSchedule{
-		Week: &agd.WeeklySchedule{
-			time.Sunday:    agd.ZeroLengthDayRange(),
-			time.Monday:    agd.ZeroLengthDayRange(),
-			time.Tuesday:   agd.ZeroLengthDayRange(),
-			time.Wednesday: agd.ZeroLengthDayRange(),
-			time.Thursday:  agd.ZeroLengthDayRange(),
-
+	allDaySchedule := &filter.ConfigSchedule{
+		Week: &filter.WeeklySchedule{
 			// baseTime is on Friday.
-			time.Friday: agd.DayRange{0, 24*60 - 1},
-
-			time.Saturday: agd.ZeroLengthDayRange(),
+			time.Friday: &filter.DayInterval{
+				Start: 0,
+				End:   filter.MaxDayIntervalEndMinutes,
+			},
 		},
 		TimeZone: agdtime.UTC(),
 	}
 
 	testCases := []struct {
-		schedule *agd.ParentalProtectionSchedule
+		schedule *filter.ConfigSchedule
 		assert   assert.BoolAssertionFunc
 		t        time.Time
 		name     string
@@ -114,6 +119,21 @@ func TestParentalProtectionSchedule_Contains(t *testing.T) {
 		assert:   assert.True,
 		t:        baseTime.Add(13 * time.Hour),
 		name:     "same_day_inside",
+	}, {
+		schedule: baseSchedule,
+		assert:   assert.True,
+		t:        baseTime.Add(12 * time.Hour),
+		name:     "same_day_start",
+	}, {
+		schedule: baseSchedule,
+		assert:   assert.False,
+		t:        baseTime.Add(14 * time.Hour),
+		name:     "same_day_end",
+	}, {
+		schedule: baseSchedule,
+		assert:   assert.True,
+		t:        baseTime.Add(14 * time.Hour).Add(-1),
+		name:     "same_day_almost_end",
 	}, {
 		schedule: baseSchedule,
 		assert:   assert.False,

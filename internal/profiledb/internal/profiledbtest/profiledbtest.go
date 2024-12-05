@@ -11,6 +11,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdpasswd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/c2h5oh/datasize"
 	"github.com/stretchr/testify/require"
@@ -34,7 +35,9 @@ const (
 // RespSzEst is a response-size estimate for tests.
 const RespSzEst datasize.ByteSize = 1 * datasize.KB
 
-// NewProfile returns the common profile and device for tests.
+// NewProfile returns the common profile and device for tests.  The profile has
+// ID [ProfileID] and the device, [DeviceID].  The response size estimate for
+// the rate limiter is [RespSzEst].
 func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 	tb.Helper()
 
@@ -56,42 +59,42 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 		FilteringEnabled: true,
 	}
 
-	return &agd.Profile{
-		Parental: &agd.ParentalProtectionSettings{
-			Schedule: &agd.ParentalProtectionSchedule{
-				Week: &agd.WeeklySchedule{
-					{Start: 0, End: 700},
-					{Start: 0, End: 700},
-					{Start: 0, End: 700},
-					{Start: 0, End: 700},
-					{Start: 0, End: 700},
-					{Start: 0, End: 700},
-					{Start: 0, End: 700},
-				},
-				TimeZone: loc,
+	const schedEnd = 701
+
+	parental := &filter.ConfigParental{
+		PauseSchedule: &filter.ConfigSchedule{
+			Week: &filter.WeeklySchedule{
+				time.Monday:    {Start: 0, End: schedEnd},
+				time.Tuesday:   {Start: 0, End: schedEnd},
+				time.Wednesday: {Start: 0, End: schedEnd},
+				time.Thursday:  {Start: 0, End: schedEnd},
+				time.Friday:    {Start: 0, End: schedEnd},
+				time.Saturday:  nil,
+				time.Sunday:    nil,
 			},
-			Enabled: true,
+			TimeZone: loc,
 		},
-		BlockingMode: &dnsmsg.BlockingModeNullIP{},
-		ID:           ProfileID,
-		DeviceIDs:    []agd.DeviceID{dev.ID},
-		RuleListIDs: []agd.FilterListID{
-			"adguard_dns_filter",
-		},
-		CustomRules: []agd.FilterRuleText{
-			"|blocked-by-custom.example",
-		},
-		FilteredResponseTTL: 10 * time.Second,
-		FilteringEnabled:    true,
-		Ratelimiter: agd.NewDefaultRatelimiter(&agd.RatelimitConfig{
-			ClientSubnets: []netip.Prefix{netip.MustParsePrefix("5.5.5.0/24")},
-			RPS:           100,
-			Enabled:       true,
-		}, RespSzEst),
-		SafeBrowsing: &agd.SafeBrowsingSettings{
-			Enabled:                     true,
-			BlockDangerousDomains:       true,
-			BlockNewlyRegisteredDomains: false,
+		Enabled: true,
+	}
+
+	return &agd.Profile{
+		FilterConfig: &filter.ConfigClient{
+			Custom: &filter.ConfigCustom{
+				ID:         string(ProfileID),
+				UpdateTime: time.Now().UTC(),
+				Rules:      []filter.RuleText{"|blocked-by-custom.example"},
+				Enabled:    true,
+			},
+			Parental: parental,
+			RuleList: &filter.ConfigRuleList{
+				IDs:     []filter.ID{filter.IDAdGuardDNS},
+				Enabled: true,
+			},
+			SafeBrowsing: &filter.ConfigSafeBrowsing{
+				Enabled:                       true,
+				DangerousDomainsEnabled:       true,
+				NewlyRegisteredDomainsEnabled: false,
+			},
 		},
 		Access: access.NewDefaultProfile(&access.ProfileConfig{
 			AllowedNets:          []netip.Prefix{netip.MustParsePrefix("1.1.1.0/24")},
@@ -100,11 +103,22 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 			BlockedASN:           []geoip.ASN{2},
 			BlocklistDomainRules: []string{"block.test"},
 		}),
-		RuleListsEnabled:   true,
-		QueryLogEnabled:    true,
-		BlockPrivateRelay:  true,
-		BlockFirefoxCanary: true,
-		IPLogEnabled:       true,
-		AutoDevicesEnabled: true,
+		BlockingMode: &dnsmsg.BlockingModeNullIP{},
+		Ratelimiter: agd.NewDefaultRatelimiter(&agd.RatelimitConfig{
+			ClientSubnets: []netip.Prefix{netip.MustParsePrefix("5.5.5.0/24")},
+			RPS:           100,
+			Enabled:       true,
+		}, RespSzEst),
+		ID:                  ProfileID,
+		DeviceIDs:           []agd.DeviceID{dev.ID},
+		FilteredResponseTTL: 10 * time.Second,
+		AutoDevicesEnabled:  true,
+		BlockChromePrefetch: true,
+		BlockFirefoxCanary:  true,
+		BlockPrivateRelay:   true,
+		Deleted:             false,
+		FilteringEnabled:    true,
+		IPLogEnabled:        true,
+		QueryLogEnabled:     true,
 	}, dev
 }

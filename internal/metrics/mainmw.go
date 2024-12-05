@@ -47,7 +47,8 @@ type DefaultMainMiddleware struct {
 	requestPerASNTotal *prometheus.CounterVec
 
 	// requestPerCountryTotal is a counter with the total number of queries
-	// processed labeled by country and continent.
+	// processed labeled by country, continent, and whether any filter has been
+	// applied.
 	requestPerCountryTotal *prometheus.CounterVec
 
 	// requestPerFilterTotal is a counter with the total number of queries
@@ -117,8 +118,9 @@ func NewDefaultMainMiddleware(
 			Name:      requestPerCountryTotal,
 			Namespace: namespace,
 			Subsystem: subsystemDNSSvc,
-			Help:      "The number of processed DNS requests labeled by country and continent.",
-		}, []string{"continent", "country"}),
+			Help: "The number of processed DNS requests labeled by country and continent. " +
+				"filters_applied=0 means that no filter has been applied",
+		}, []string{"continent", "country", "filters_applied"}),
 
 		requestPerFilterTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name:      requestPerFilterTotal,
@@ -181,16 +183,19 @@ func NewDefaultMainMiddleware(
 
 // OnRequest implements the [Metrics] interface for *DefaultMainMiddleware.
 func (m *DefaultMainMiddleware) OnRequest(_ context.Context, rm *MainMiddlewareRequestMetrics) {
-	asnStr := strconv.FormatUint(uint64(rm.ASN), 10)
-
 	m.filteringDuration.Observe(rm.FilteringDuration.Seconds())
+
+	asnStr := strconv.FormatUint(uint64(rm.ASN), 10)
 	m.requestPerASNTotal.WithLabelValues(rm.Country, asnStr).Inc()
-	m.requestPerCountryTotal.WithLabelValues(rm.Continent, rm.Country).Inc()
+
+	// FilterListID is only empty if no filter has been applied.
+	filtersApplied := BoolString(rm.FilterListID != "")
+	m.requestPerCountryTotal.WithLabelValues(rm.Continent, rm.Country, filtersApplied).Inc()
+
 	m.requestPerFilterTotal.WithLabelValues(rm.FilterListID, BoolString(rm.IsAnonymous)).Inc()
 
 	// Assume that ip is the remote IP address, which has already been unmapped
 	// by [netutil.NetAddrToAddrPort].
 	ipArr := rm.RemoteIP.As16()
-
 	m.userCounter.Record(time.Now(), ipArr[:], false)
 }
