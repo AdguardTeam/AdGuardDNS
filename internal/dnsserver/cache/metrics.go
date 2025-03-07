@@ -13,9 +13,11 @@ import (
 type MetricsListener interface {
 	// OnCacheItemAdded is called when an item has been added to the cache.
 	OnCacheItemAdded(ctx context.Context, resp *dns.Msg, cacheLen int)
+
 	// OnCacheHit is called when a response for the specified request has been
 	// found in the cache.
 	OnCacheHit(ctx context.Context, req *dns.Msg)
+
 	// OnCacheMiss is called when a response for the specified request has not
 	// been found in the cache.
 	OnCacheMiss(ctx context.Context, req *dns.Msg)

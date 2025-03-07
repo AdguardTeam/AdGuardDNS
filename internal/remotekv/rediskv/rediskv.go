@@ -144,7 +144,7 @@ func (kv *RedisKV) Get(ctx context.Context, key string) (val []byte, ok bool, er
 
 	defer func() {
 		// #nosec G115 -- Assume that pool.ActiveCount is always non-negative.
-		kv.metrics.UpdateMetrics(ctx, uint(kv.pool.ActiveCount()), err == nil)
+		kv.metrics.UpdateMetrics(ctx, uint(kv.pool.ActiveCount()), err)
 	}()
 
 	c, err := kv.pool.GetContext(ctx)
@@ -170,7 +170,7 @@ func (kv *RedisKV) Set(ctx context.Context, key string, val []byte) (err error) 
 
 	defer func() {
 		// #nosec G115 -- Assume that pool.ActiveCount is always non-negative.
-		kv.metrics.UpdateMetrics(ctx, uint(kv.pool.ActiveCount()), err == nil)
+		kv.metrics.UpdateMetrics(ctx, uint(kv.pool.ActiveCount()), err)
 	}()
 
 	c, err := kv.pool.GetContext(ctx)

@@ -18,7 +18,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/golibs/httphdr"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/quic-go/quic-go"
@@ -140,9 +139,12 @@ func TestServerHTTPS_integration_serveRequests(t *testing.T) {
 }
 
 func TestServerHTTPS_integration_nonDNSHandler(t *testing.T) {
+	errCh := make(chan error, 1)
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("OK"))
+
+		_, err := io.WriteString(w, "OK")
+		errCh <- err
 	})
 
 	srv, err := dnsservertest.RunLocalHTTPSServer(
@@ -156,11 +158,14 @@ func TestServerHTTPS_integration_nonDNSHandler(t *testing.T) {
 		return srv.Shutdown(context.Background())
 	})
 
-	var resp *http.Response
-	resp, err = http.Get(fmt.Sprintf("http://%s/test", srv.LocalTCPAddr()))
-	defer log.OnCloserError(resp.Body, log.DEBUG)
+	resp, err := http.Get(fmt.Sprintf("http://%s/test", srv.LocalTCPAddr()))
 	require.NoError(t, err)
+	testutil.CleanupAndRequireSuccess(t, resp.Body.Close)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	err, ok := testutil.RequireReceive(t, errCh, testTimeout)
+	require.True(t, ok)
+	require.NoError(t, err)
 }
 
 func TestDNSMsgToJSONMsg(t *testing.T) {
@@ -404,7 +409,7 @@ func testDoH3Exchange(
 	// Send the request and check the response.
 	httpResp, err := client.Do(httpReq)
 	require.NoError(t, err)
-	defer log.OnCloserError(httpResp.Body, log.DEBUG)
+	testutil.CleanupAndRequireSuccess(t, httpResp.Body.Close)
 
 	body, err := io.ReadAll(httpResp.Body)
 	require.NoError(t, err)
@@ -447,7 +452,7 @@ func mustDoHReq(
 
 	httpResp, err := client.Do(httpReq)
 	require.NoError(t, err)
-	defer log.OnCloserError(httpResp.Body, log.DEBUG)
+	testutil.CleanupAndRequireSuccess(t, httpResp.Body.Close)
 
 	if tlsConfig != nil && !httpResp.ProtoAtLeast(2, 0) {
 		t.Fatal(fmt.Errorf("protocol is too old: %s", httpResp.Proto))

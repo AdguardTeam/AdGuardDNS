@@ -66,11 +66,12 @@ func TestProfileStorage_CreateAutoDevice(t *testing.T) {
 	require.NoError(t, err)
 
 	s, err := backendpb.NewProfileStorage(&backendpb.ProfileStorageConfig{
-		BindSet:     backendpb.TestBind,
-		ErrColl:     agdtest.NewErrorCollector(),
-		Logger:      backendpb.TestLogger,
-		GRPCMetrics: backendpb.EmptyGRPCMetrics{},
-		Metrics:     backendpb.EmptyProfileDBMetrics{},
+		BindSet:          backendpb.TestBind,
+		ErrColl:          agdtest.NewErrorCollector(),
+		Logger:           backendpb.TestLogger,
+		BaseCustomLogger: backendpb.TestLogger,
+		GRPCMetrics:      backendpb.EmptyGRPCMetrics{},
+		Metrics:          backendpb.EmptyProfileDBMetrics{},
 		Endpoint: &url.URL{
 			Scheme: "grpc",
 			Host:   l.Addr().String(),
@@ -122,7 +123,7 @@ var (
 )
 
 func BenchmarkProfileStorage_Profiles(b *testing.B) {
-	syncTime := strconv.FormatInt(backendpb.TestUpdTime.UnixMilli(), 10)
+	syncTime := strconv.FormatInt(backendpb.TestSyncTime.UnixMilli(), 10)
 	srvProf := backendpb.NewTestDNSProfile(b)
 	trailerMD := metadata.MD{
 		"sync_time": []string{syncTime},
@@ -157,11 +158,12 @@ func BenchmarkProfileStorage_Profiles(b *testing.B) {
 	require.NoError(b, err)
 
 	s, err := backendpb.NewProfileStorage(&backendpb.ProfileStorageConfig{
-		BindSet:     netip.MustParsePrefix("0.0.0.0/0"),
-		ErrColl:     agdtest.NewErrorCollector(),
-		Logger:      backendpb.TestLogger,
-		GRPCMetrics: backendpb.EmptyGRPCMetrics{},
-		Metrics:     backendpb.EmptyProfileDBMetrics{},
+		BindSet:          netip.MustParsePrefix("0.0.0.0/0"),
+		ErrColl:          agdtest.NewErrorCollector(),
+		Logger:           backendpb.TestLogger,
+		BaseCustomLogger: backendpb.TestLogger,
+		GRPCMetrics:      backendpb.EmptyGRPCMetrics{},
+		Metrics:          backendpb.EmptyProfileDBMetrics{},
 		Endpoint: &url.URL{
 			Scheme: "grpc",
 			Host:   l.Addr().String(),

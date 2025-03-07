@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/urlfilter"
@@ -23,7 +23,7 @@ import (
 // for multiple rule lists and using it to optimize the filtering using default
 // filtering groups.
 type Refreshable struct {
-	*filter
+	*baseFilter
 
 	logger *slog.Logger
 
@@ -42,8 +42,9 @@ type Refreshable struct {
 // HTTP(S) URL.  The initial refresh should be called explicitly if necessary.
 func NewRefreshable(c *refreshable.Config, cache ResultCache) (f *Refreshable, err error) {
 	f = &Refreshable{
-		logger: c.Logger,
-		mu:     &sync.RWMutex{},
+		baseFilter: newBaseFilter("", c.ID, "", cache),
+		logger:     c.Logger,
+		mu:         &sync.RWMutex{},
 	}
 
 	if strings.EqualFold(c.URL.Scheme, urlutil.SchemeFile) {
@@ -63,35 +64,23 @@ func NewRefreshable(c *refreshable.Config, cache ResultCache) (f *Refreshable, e
 		return nil, fmt.Errorf("creating refreshable: %w", err)
 	}
 
-	f.filter, err = newFilter("", c.ID, "", cache)
-	if err != nil {
-		// Should never happen, since text is empty.
-		panic(fmt.Errorf("unexpected filter error: %w", err))
-	}
-
 	return f, nil
 }
 
 // NewFromString returns a new DNS request and response filter using the
-// provided rule text and ID.
+// provided rule text and IDs.
 //
-// TODO(a.garipov): Only used in tests.  Consider removing later.
+// TODO(a.garipov):  Only used in tests.  Consider removing later.
 func NewFromString(
 	text string,
-	id internal.ID,
-	svcID internal.BlockedServiceID,
+	id filter.ID,
+	svcID filter.BlockedServiceID,
 	cache ResultCache,
-) (f *Refreshable, err error) {
-	filter, err := newFilter(text, id, svcID, cache)
-	if err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		return nil, err
-	}
-
+) (f *Refreshable) {
 	return &Refreshable{
-		mu:     &sync.RWMutex{},
-		filter: filter,
-	}, nil
+		mu:         &sync.RWMutex{},
+		baseFilter: newBaseFilter(text, id, svcID, cache),
+	}
 }
 
 // DNSResult returns the result of applying the urlfilter DNS filtering engine.
@@ -106,7 +95,7 @@ func (f *Refreshable) DNSResult(
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
-	return f.filter.DNSResult(clientIP, clientName, host, rrType, isAns)
+	return f.baseFilter.DNSResult(clientIP, clientName, host, rrType, isAns)
 }
 
 // Refresh reloads the rule list data.  If acceptStale is true, do not try to
@@ -121,7 +110,6 @@ func (f *Refreshable) Refresh(ctx context.Context, acceptStale bool) (err error)
 
 	// TODO(a.garipov): Add filterlist.BytesRuleList.
 	strList := &filterlist.StringRuleList{
-		ID:             f.urlFilterID,
 		RulesText:      text,
 		IgnoreCosmetic: true,
 	}
@@ -148,5 +136,5 @@ func (f *Refreshable) RulesCount() (n int) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
-	return f.filter.RulesCount()
+	return f.baseFilter.RulesCount()
 }

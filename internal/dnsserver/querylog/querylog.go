@@ -6,23 +6,27 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/miekg/dns"
 )
 
 // LogMiddleware is a simple middleware that prints DNS queries to the log.
 // We keep it here to show an example of a middleware.
 type LogMiddleware struct {
+	logger *slog.Logger
 	output io.Writer
 }
 
-// NewLogMiddleware creates a new LogMiddleware with the specified output.
-func NewLogMiddleware(output io.Writer) *LogMiddleware {
+// NewLogMiddleware creates a new LogMiddleware with the specified output.  All
+// arguments must not be nil.
+func NewLogMiddleware(output io.Writer, logger *slog.Logger) *LogMiddleware {
 	return &LogMiddleware{
+		logger: logger,
 		output: output,
 	}
 }
@@ -30,7 +34,7 @@ func NewLogMiddleware(output io.Writer) *LogMiddleware {
 // type check
 var _ dnsserver.Middleware = (*LogMiddleware)(nil)
 
-// Wrap implements the dnsserver.Middleware interface for *LogMiddleware.
+// Wrap implements the [dnsserver.Middleware] interface for *LogMiddleware.
 func (l *LogMiddleware) Wrap(h dnsserver.Handler) (wrapped dnsserver.Handler) {
 	f := func(ctx context.Context, rw dnsserver.ResponseWriter, req *dns.Msg) error {
 		// Call the next handler and record the response that has been written
@@ -66,14 +70,7 @@ func (l *LogMiddleware) Wrap(h dnsserver.Handler) (wrapped dnsserver.Handler) {
 		if !ok {
 			qTypeStr = fmt.Sprintf("TYPE%d", qType)
 		}
-		sb.WriteString(
-			fmt.Sprintf("%d %s %s %d ",
-				req.Id,
-				qTypeStr,
-				hostname,
-				req.Len(),
-			),
-		)
+		sb.WriteString(fmt.Sprintf("%d %s %s %d ", req.Id, qTypeStr, hostname, req.Len()))
 
 		// Response data: {rcode} {rsize}
 		rcode := 0
@@ -93,7 +90,7 @@ func (l *LogMiddleware) Wrap(h dnsserver.Handler) (wrapped dnsserver.Handler) {
 		// Suppress errors, it's not that important for a query log
 		_, outErr := l.output.Write([]byte(sb.String()))
 		if outErr != nil {
-			log.Debug("failed to write to the query log: %v", outErr)
+			l.logger.DebugContext(ctx, "writing the query log", slogutil.KeyError, outErr)
 		}
 
 		return err

@@ -15,17 +15,40 @@ import (
 
 // Storage is the file-cache storage that encodes data using protobuf.
 type Storage struct {
-	logger    *slog.Logger
-	path      string
-	respSzEst datasize.ByteSize
+	logger           *slog.Logger
+	baseCustomLogger *slog.Logger
+	path             string
+	respSzEst        datasize.ByteSize
 }
 
-// New returns a new protobuf-encoded file-cache storage.
-func New(logger *slog.Logger, cachePath string, respSzEst datasize.ByteSize) (s *Storage) {
+// Config is the configuration structure for the protobuf-encoded file-cache
+// storage.
+type Config struct {
+	// Logger is used for logging the operation of profile database.  It must
+	// not be nil.
+	Logger *slog.Logger
+
+	// BaseCustomLogger is the base logger used for the custom filters.  It must
+	// not be nil.
+	BaseCustomLogger *slog.Logger
+
+	// CacheFilePath is the path to the profile cache file.  It must be set.
+	CacheFilePath string
+
+	// ResponseSizeEstimate is the estimate of the size of one DNS response for
+	// the purposes of custom ratelimiting.  Responses over this estimate are
+	// counted as several responses.  It must be positive.
+	ResponseSizeEstimate datasize.ByteSize
+}
+
+// New returns a new protobuf-encoded file-cache storage.  c must not be nil and
+// must be valid.
+func New(c *Config) (s *Storage) {
 	return &Storage{
-		logger:    logger,
-		path:      cachePath,
-		respSzEst: respSzEst,
+		logger:           c.Logger,
+		baseCustomLogger: c.BaseCustomLogger,
+		path:             c.CacheFilePath,
+		respSzEst:        c.ResponseSizeEstimate,
 	}
 }
 
@@ -63,7 +86,7 @@ func (s *Storage) Load(ctx context.Context) (c *internal.FileCache, err error) {
 		)
 	}
 
-	return toInternal(fc, s.respSzEst)
+	return toInternal(fc, s.baseCustomLogger, s.respSzEst)
 }
 
 // Store implements the [internal.FileCacheStorage] interface for *Storage.

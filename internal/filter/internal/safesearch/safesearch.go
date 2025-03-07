@@ -7,7 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/composite"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/miekg/dns"
@@ -45,14 +46,14 @@ func New(c *Config, cache rulelist.ResultCache) (f *Filter, err error) {
 }
 
 // type check
-var _ internal.RequestFilter = (*Filter)(nil)
+var _ composite.RequestFilter = (*Filter)(nil)
 
-// FilterRequest implements the [internal.RequestFilter] interface for *Filter.
+// FilterRequest implements the [composite.RequestFilter] interface for *Filter.
 // It modifies the response if host matches f.
 func (f *Filter) FilterRequest(
 	ctx context.Context,
-	req *internal.Request,
-) (r internal.Result, err error) {
+	req *filter.Request,
+) (r filter.Result, err error) {
 	qt := req.QType
 	switch qt {
 	case dns.TypeA, dns.TypeAAAA, dns.TypeHTTPS:
@@ -73,26 +74,19 @@ func (f *Filter) FilterRequest(
 }
 
 // replaceRule replaces the r.Rule with host if r is not nil.  r must be nil,
-// [*internal.ResultModifiedRequest], or [*internal.ResultModifiedResponse].
-func replaceRule(r internal.Result, host string) {
-	rule := internal.RuleText(host)
+// [*filter.ResultModifiedRequest], or [*filter.ResultModifiedResponse].
+func replaceRule(r filter.Result, host string) {
+	rule := filter.RuleText(host)
 	switch r := r.(type) {
 	case nil:
 		// Do nothing.
-	case *internal.ResultModifiedRequest:
+	case *filter.ResultModifiedRequest:
 		r.Rule = rule
-	case *internal.ResultModifiedResponse:
+	case *filter.ResultModifiedResponse:
 		r.Rule = rule
 	default:
 		panic(fmt.Errorf("safesearch: unexpected type for result: %T(%[1]v)", r))
 	}
-}
-
-// ID implements the [internal.RequestFilter] interface for *Filter.
-func (f *Filter) ID() (id internal.ID) {
-	id, _ = f.flt.ID()
-
-	return id
 }
 
 // Refresh reloads the rule list data.  If acceptStale is true, and the cache

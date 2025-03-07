@@ -202,7 +202,7 @@ func (kv *KV) Set(ctx context.Context, key string, val []byte) (err error) {
 	sessReq := &consulSessionRequest{
 		Name:     fmt.Sprintf("ad_guard_dns_session_%d", time.Now().UnixNano()),
 		Behavior: consulSessionBehavior,
-		TTL:      timeutil.Duration{Duration: kv.ttl},
+		TTL:      timeutil.Duration(kv.ttl),
 	}
 	b, err := json.Marshal(sessReq)
 	if err != nil {

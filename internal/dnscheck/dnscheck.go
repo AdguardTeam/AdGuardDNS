@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdvalidate"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
@@ -79,7 +80,7 @@ func validateRandomID(id string) (err error) {
 		min = 4
 	)
 
-	if err = agd.ValidateInclusion(len(id), max, min, agd.UnitByte); err != nil {
+	if err = agdvalidate.Inclusion(len(id), min, max, agdvalidate.UnitByte); err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return err
 	}

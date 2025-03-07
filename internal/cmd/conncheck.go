@@ -5,8 +5,9 @@ import (
 	"net"
 	"net/netip"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/validate"
 )
 
 // connCheckConfig is the connectivity check configuration.
@@ -19,18 +20,15 @@ type connCheckConfig struct {
 }
 
 // type check
-var _ validator = (*connCheckConfig)(nil)
+var _ validate.Interface = (*connCheckConfig)(nil)
 
-// validate implements the [validator] interface for *connCheckConfig.
-func (c *connCheckConfig) validate() (err error) {
-	switch {
-	case c == nil:
+// Validate implements the [validate.Interface] interface for *connCheckConfig.
+func (c *connCheckConfig) Validate() (err error) {
+	if c == nil {
 		return errors.ErrNoValue
-	case c.ProbeIPv4 == netip.AddrPort{}:
-		return fmt.Errorf("probe_ipv4: %w", errors.ErrEmptyValue)
 	}
 
-	return nil
+	return validate.NotEmpty("probe_ipv4", c.ProbeIPv4)
 }
 
 // connectivityCheck performs connectivity checks for bind addresses with
@@ -38,7 +36,10 @@ func (c *connCheckConfig) validate() (err error) {
 // server bind addresses looking up for IPv6 addresses.  If an IPv6 address is
 // found, then additionally to a general probe to IPv4 it will perform a check
 // to IPv6 probe address.
-func connectivityCheck(srvGrps []*agd.ServerGroup, connCheck *connCheckConfig) (err error) {
+func connectivityCheck(
+	srvGrps []*dnssvc.ServerGroupConfig,
+	connCheck *connCheckConfig,
+) (err error) {
 	probeIPv4 := net.TCPAddrFromAddrPort(connCheck.ProbeIPv4)
 
 	// General check to IPv4 probe address.
@@ -78,7 +79,7 @@ func connectivityCheck(srvGrps []*agd.ServerGroup, connCheck *connCheckConfig) (
 
 // requireIPv6ConnCheck returns true if provided serverGroups require IPv6
 // connectivity check.
-func requireIPv6ConnCheck(serverGroups []*agd.ServerGroup) (ok bool) {
+func requireIPv6ConnCheck(serverGroups []*dnssvc.ServerGroupConfig) (ok bool) {
 	for _, srvGrp := range serverGroups {
 		for _, s := range srvGrp.Servers {
 			if s.HasIPv6() {

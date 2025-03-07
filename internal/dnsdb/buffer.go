@@ -4,7 +4,6 @@ import (
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/miekg/dns"
 )
@@ -23,15 +22,22 @@ type buffer struct {
 	maxSize int
 }
 
-// add increments the records for all answers.
-func (b *buffer) add(target string, answers []dns.RR, qt dnsmsg.RRType, rc dnsmsg.RCode) {
+// add adds a new record to the buffer or updates the number of hits on the
+// stored record.  count is the total number of records stored, ok is true if
+// the new record was added.
+func (b *buffer) add(
+	target string,
+	answers []dns.RR,
+	qt dnsmsg.RRType,
+	rc dnsmsg.RCode,
+) (count int, ok bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	// Do nothing if the buffer is already full.
-	l := len(b.entries)
-	if l >= b.maxSize {
-		return
+	count = len(b.entries)
+	if count >= b.maxSize {
+		return count, false
 	}
 
 	key := recordKey{
@@ -47,7 +53,7 @@ func (b *buffer) add(target string, answers []dns.RR, qt dnsmsg.RRType, rc dnsms
 		// If a more detailed response is needed, maps.Copy can be used to
 		// achieve that.
 
-		return
+		return count, false
 	}
 
 	b.entries[key] = &recordValue{
@@ -55,7 +61,7 @@ func (b *buffer) add(target string, answers []dns.RR, qt dnsmsg.RRType, rc dnsms
 		hits:    1,
 	}
 
-	metrics.DNSDBBufferSize.Set(float64(l + 1))
+	return count + 1, true
 }
 
 // all returns buffered records.

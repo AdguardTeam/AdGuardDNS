@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"strconv"
@@ -15,7 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
 	"github.com/AdguardTeam/AdGuardDNS/internal/version"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/getsentry/sentry-go"
 	"golang.org/x/sys/unix"
 )
@@ -23,13 +24,15 @@ import (
 // SentryErrorCollector is an [Interface] implementation that sends errors to a
 // Sentry-like HTTP API.
 type SentryErrorCollector struct {
+	logger *slog.Logger
 	sentry *sentry.Client
 }
 
-// NewSentryErrorCollector returns a new SentryErrorCollector.  cli must be
-// non-nil.
-func NewSentryErrorCollector(cli *sentry.Client) (c *SentryErrorCollector) {
+// NewSentryErrorCollector returns a new SentryErrorCollector.  All arguments
+// must not be nil.
+func NewSentryErrorCollector(cli *sentry.Client, l *slog.Logger) (c *SentryErrorCollector) {
 	return &SentryErrorCollector{
+		logger: l,
 		sentry: cli,
 	}
 }
@@ -40,7 +43,7 @@ var _ Interface = (*SentryErrorCollector)(nil)
 // Collect implements the [Interface] interface for *SentryErrorCollector.
 func (c *SentryErrorCollector) Collect(ctx context.Context, err error) {
 	if !isReportable(err) {
-		log.Debug("errcoll: sentry: non-reportable error: %s", err)
+		c.logger.DebugContext(ctx, "non-reportable error", slogutil.KeyError, err)
 
 		return
 	}

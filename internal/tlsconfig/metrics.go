@@ -27,7 +27,7 @@ type Metrics interface {
 
 	// SetSessionTicketRotationStatus sets the TLS session ticket rotation
 	// status.
-	SetSessionTicketRotationStatus(ctx context.Context, enabled bool)
+	SetSessionTicketRotationStatus(ctx context.Context, err error)
 }
 
 // EmptyMetrics is the implementation of the [Metrics] interface that does
@@ -65,4 +65,4 @@ func (EmptyMetrics) SetCertificateInfo(_ context.Context, _, _ string, _ time.Ti
 
 // SetSessionTicketRotationStatus implements the [Metrics] interface for
 // EmptyMetrics.
-func (EmptyMetrics) SetSessionTicketRotationStatus(_ context.Context, _ bool) {}
+func (EmptyMetrics) SetSessionTicketRotationStatus(_ context.Context, _ error) {}

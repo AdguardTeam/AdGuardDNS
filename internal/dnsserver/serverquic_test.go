@@ -14,7 +14,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/quic-go/quic-go"
@@ -219,7 +218,7 @@ func sendQUICMessage(
 		return nil, fmt.Errorf("opening stream: %w", err)
 	}
 
-	defer log.OnCloserError(stream, log.ERROR)
+	defer func() { err = errors.WithDeferred(err, stream.Close()) }()
 
 	data, err := req.Pack()
 	if err != nil {

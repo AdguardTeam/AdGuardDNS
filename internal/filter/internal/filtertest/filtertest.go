@@ -7,7 +7,7 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/c2h5oh/datasize"
 )
@@ -15,6 +15,8 @@ import (
 // Common rules for tests.
 const (
 	RuleBlockStr                 = "|" + HostBlocked + "^"
+	RuleBlockForClientIPStr      = "|" + HostBlockedForClientIP + "^$client=" + IPv4ClientStr
+	RuleBlockForClientNameStr    = "|" + HostBlockedForClientName + "^$client=" + ClientName
 	RuleSafeSearchGeneralHostStr = "|" + HostSafeSearchGeneral + "^$dnsrewrite=NOERROR;CNAME;" +
 		HostSafeSearchGeneralRepl
 	RuleSafeSearchGeneralIPv4Str = "|" + HostSafeSearchGeneralIPv4 + "^$dnsrewrite=NOERROR;A;" +
@@ -24,7 +26,9 @@ const (
 	RuleSafeSearchYouTubeStr = "|" + HostSafeSearchYouTube + "^$dnsrewrite=NOERROR;CNAME;" +
 		HostSafeSearchYouTubeRepl
 
-	RuleBlock internal.RuleText = RuleBlockStr
+	RuleBlock              filter.RuleText = RuleBlockStr
+	RuleBlockForClientIP   filter.RuleText = RuleBlockForClientIPStr
+	RuleBlockForClientName filter.RuleText = RuleBlockForClientNameStr
 )
 
 // Common string representations of IP addresses.
@@ -50,6 +54,8 @@ const (
 	HostAdultContentSub       = "a.b.c." + HostAdultContent
 	HostAdultContentRepl      = "adult-content-repl.example"
 	HostBlocked               = "blocked.example"
+	HostBlockedForClientIP    = "blocked-for-client-ip.example"
+	HostBlockedForClientName  = "blocked-for-client-name.example"
 	HostBlockedService1       = "service-1.example"
 	HostDangerous             = "dangerous-domain.example"
 	HostDangerousRepl         = "dangerous-domain-repl.example"
@@ -66,6 +72,7 @@ const (
 	FQDNAdultContent          = HostAdultContent + "."
 	FQDNAdultContentRepl      = HostAdultContentRepl + "."
 	FQDNBlocked               = HostBlocked + "."
+	FQDNBlockedForClientName  = HostBlockedForClientName + "."
 	FQDNDangerous             = HostDangerous + "."
 	FQDNDangerousRepl         = HostDangerousRepl + "."
 	FQDNNewlyRegistered       = HostNewlyRegistered + "."
@@ -83,9 +90,9 @@ const (
 	BlockedServiceID2Str            = "blocked_service_2"
 	BlockedServiceIDDoesNotExistStr = "blocked_service_none"
 
-	BlockedServiceID1            internal.BlockedServiceID = BlockedServiceID1Str
-	BlockedServiceID2            internal.BlockedServiceID = BlockedServiceID2Str
-	BlockedServiceIDDoesNotExist internal.BlockedServiceID = BlockedServiceIDDoesNotExistStr
+	BlockedServiceID1            filter.BlockedServiceID = BlockedServiceID1Str
+	BlockedServiceID2            filter.BlockedServiceID = BlockedServiceID2Str
+	BlockedServiceIDDoesNotExist filter.BlockedServiceID = BlockedServiceIDDoesNotExistStr
 )
 
 // BlockedServiceIndex is a service-index response for tests.
@@ -116,8 +123,8 @@ const (
 	RuleListID1Str = "rule_list_1"
 	RuleListID2Str = "rule_list_2"
 
-	RuleListID1 internal.ID = RuleListID1Str
-	RuleListID2 internal.ID = RuleListID2Str
+	RuleListID1 filter.ID = RuleListID1Str
+	RuleListID2 filter.ID = RuleListID2Str
 )
 
 // NewRuleListIndex returns a rule-list index containing a record for a filter
@@ -136,6 +143,9 @@ const CacheTTL = 1 * time.Hour
 
 // CacheCount is the common count of cache items for filtering tests.
 const CacheCount = 100
+
+// ClientName is the common client name for tests.
+const ClientName = "MyDevice1"
 
 // FilterMaxSize is the maximum size of the downloadable rule-list for filtering
 // tests.

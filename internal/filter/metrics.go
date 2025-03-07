@@ -1,9 +1,12 @@
-package internal
+package filter
 
 import (
 	"context"
 	"time"
 )
+
+// TODO(a.garipov):  Consider re-adding some metrics for custom filters after
+// AGDNS-1519.
 
 // Metrics is the interface for metrics of filters.
 type Metrics interface {

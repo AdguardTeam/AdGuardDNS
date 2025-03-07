@@ -123,6 +123,7 @@ func TestDefault_ServeHTTP(t *testing.T) {
 		db := dnsdb.New(&dnsdb.DefaultConfig{
 			Logger:  slogutil.NewDiscardLogger(),
 			ErrColl: agdtest.NewErrorCollector(),
+			Metrics: dnsdb.EmptyMetrics{},
 			MaxSize: 100,
 		})
 		rw := httptest.NewRecorder()

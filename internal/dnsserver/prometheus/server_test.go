@@ -7,9 +7,10 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
+	dnssvcprom "github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -17,21 +18,26 @@ import (
 // normal unit test, we run a test DNS server, send a DNS query, and then
 // check that metrics were properly counted.
 func TestServerMetricsListener_integration_requestLifetime(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	mtrcListener, err := dnssvcprom.NewServerMetricsListener(testNamespace, reg)
+	require.NoError(t, err)
+
 	// Initialize the test server and supply the metrics listener.  The
 	// acknowledgment-based protocol TCP is used here to make the test
 	// less flaky.
-	conf := dnsserver.ConfigDNS{
-		ConfigBase: dnsserver.ConfigBase{
-			Name:    "test",
-			Addr:    "127.0.0.1:0",
-			Handler: dnsservertest.NewDefaultHandler(),
-			Metrics: prometheus.NewServerMetricsListener(testNamespace),
+	conf := &dnsserver.ConfigDNS{
+		Base: &dnsserver.ConfigBase{
+			BaseLogger: testLogger,
+			Name:       "test",
+			Addr:       "127.0.0.1:0",
+			Handler:    dnsservertest.NewDefaultHandler(),
+			Metrics:    mtrcListener,
 		},
 	}
 	srv := dnsserver.NewServerDNS(conf)
 
 	// Start the server.
-	err := srv.Start(context.Background())
+	err = srv.Start(context.Background())
 	require.NoError(t, err)
 
 	// Make sure the server shuts down in the end.
@@ -58,6 +64,7 @@ func TestServerMetricsListener_integration_requestLifetime(t *testing.T) {
 	// Now make sure that prometheus metrics were incremented properly.
 	requireMetrics(
 		t,
+		reg,
 		"dns_server_request_total",
 		"dns_server_request_duration_seconds",
 		"dns_server_request_size_bytes",
@@ -67,7 +74,9 @@ func TestServerMetricsListener_integration_requestLifetime(t *testing.T) {
 }
 
 func BenchmarkServerMetricsListener(b *testing.B) {
-	l := prometheus.NewServerMetricsListener(testNamespace)
+	reg := prometheus.NewRegistry()
+	l, err := dnssvcprom.NewServerMetricsListener(testNamespace, reg)
+	require.NoError(b, err)
 
 	ctx := dnsserver.ContextWithServerInfo(context.Background(), testServerInfo)
 	ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{

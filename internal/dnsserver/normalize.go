@@ -1,7 +1,7 @@
 package dnsserver
 
 import (
-	"math/rand"
+	"math/rand/v2"
 
 	"github.com/miekg/dns"
 )
@@ -144,7 +144,7 @@ func padAnswer(reqOpt, respOpt *dns.OPT) {
 
 	// TODO(ameshkov): Consider changing to crypto/rand, need to hold a vote.
 	// #nosec G404 -- We don't need a real random for a simple padding
-	// randomization, pseudo-random is enough.
+	// randomization, pseudorandom is enough.
 	//
 	// Note, that we don't check for whether reqOpt.UDPSize() here is smaller
 	// than resp.Len() + padLen so in theory the padded response may be larger
@@ -152,7 +152,7 @@ func padAnswer(reqOpt, respOpt *dns.OPT) {
 	// avoiding calling resp.Len().
 	//
 	// TODO(ameshkov): Return this check if we optimize resp.Len().
-	padLen := rand.Intn(responsePaddingMaxSize-1) + 1
+	padLen := rand.IntN(responsePaddingMaxSize-1) + 1
 
 	paddingOpt.Padding = respPadBuf[:padLen:padLen]
 }

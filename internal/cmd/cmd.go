@@ -9,32 +9,37 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/cmd/plugin"
+	"github.com/AdguardTeam/AdGuardDNS/internal/experiment"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/version"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/sentryutil"
 )
 
 // Main is the entry point of application.
 func Main(plugins *plugin.Registry) {
 	// TODO(a.garipov, e.burkov):  Consider adding timeouts for initialization.
-	agd.InitRequestID()
 	ctx := context.Background()
 
-	// Log only to stdout and let users decide how to process it.
-	log.SetOutput(os.Stdout)
-
 	envs := errors.Must(parseEnvironment())
+	errors.Check(envs.Validate())
 
-	errors.Check(envs.validate())
+	lvl := errors.Must(slogutil.VerbosityToLevel(envs.Verbosity))
+	baseLogger := slogutil.New(&slogutil.Config{
+		// Don't use [slogutil.NewFormat] here, because the value is validated.
+		Format:       slogutil.Format(envs.LogFormat),
+		AddTimestamp: bool(envs.LogTimestamp),
+		Level:        lvl,
+	})
 
-	// TODO(a.garipov):  Use slog everywhere.
-	logger := envs.configureLogs()
+	sentryutil.SetDefaultLogger(baseLogger, "")
+
+	experiment.Init(baseLogger)
 
 	// TODO(a.garipov):  Consider ways of replacing a prefix and stop passing
 	// the main logger everywhere.
-	mainLogger := logger.With(slogutil.KeyPrefix, "main")
+	mainLogger := baseLogger.With(slogutil.KeyPrefix, "main")
 
 	// Signal service startup now that we have the logs set up.
 	branch := version.Branch()
@@ -56,13 +61,13 @@ func Main(plugins *plugin.Registry) {
 	// TODO(a.garipov): Consider parsing SENTRY_DSN separately to set sentry up
 	// first and collect panics from the readEnvs call above as well.
 
-	errColl := errors.Must(envs.buildErrColl())
+	errColl := errors.Must(envs.buildErrColl(baseLogger))
 
 	defer reportPanics(ctx, errColl, mainLogger)
 
 	c := errors.Must(parseConfig(envs.ConfPath))
 
-	errors.Check(c.validate())
+	errors.Check(c.Validate())
 
 	errors.Check(envs.validateFromValidConfig(c))
 
@@ -73,7 +78,7 @@ func Main(plugins *plugin.Registry) {
 	b := newBuilder(&builderConfig{
 		envs:       envs,
 		conf:       c,
-		baseLogger: logger,
+		baseLogger: baseLogger,
 		plugins:    plugins,
 		errColl:    errColl,
 	})
@@ -91,6 +96,10 @@ func Main(plugins *plugin.Registry) {
 	errors.Check(b.initAccess(ctx))
 
 	errors.Check(b.initBindToDevice(ctx))
+
+	errors.Check(b.initDNSDB(ctx))
+
+	errors.Check(b.initQueryLog(ctx))
 
 	errors.Check(b.initMsgConstructor(ctx))
 

@@ -1,10 +1,9 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/timeutil"
+	"github.com/AdguardTeam/golibs/validate"
 )
 
 // safeBrowsingConfig is the configuration for one of the safe browsing filters.
@@ -30,24 +29,20 @@ type safeBrowsingConfig struct {
 }
 
 // type check
-var _ validator = (*safeBrowsingConfig)(nil)
+var _ validate.Interface = (*safeBrowsingConfig)(nil)
 
-// validate implements the [validator] interface for *safeBrowsingConfig.
-func (c *safeBrowsingConfig) validate() (err error) {
-	switch {
-	case c == nil:
+// Validate implements the [validate.Interface] interface for
+// *safeBrowsingConfig.
+func (c *safeBrowsingConfig) Validate() (err error) {
+	if c == nil {
 		return errors.ErrNoValue
-	case c.BlockHost == "":
-		return fmt.Errorf("block_host: %w", errors.ErrEmptyValue)
-	case c.CacheSize <= 0:
-		return newNotPositiveError("cache_size", c.CacheSize)
-	case c.CacheTTL.Duration <= 0:
-		return newNotPositiveError("cache_ttl", c.CacheTTL)
-	case c.RefreshIvl.Duration <= 0:
-		return newNotPositiveError("refresh_interval", c.RefreshIvl)
-	case c.RefreshTimeout.Duration <= 0:
-		return newNotPositiveError("refresh_timeout", c.RefreshTimeout)
-	default:
-		return nil
 	}
+
+	return errors.Join(
+		validate.NotEmpty("block_host", c.BlockHost),
+		validate.Positive("cache_size", c.CacheSize),
+		validate.Positive("cache_ttl", c.CacheTTL),
+		validate.Positive("refresh_interval", c.RefreshIvl),
+		validate.Positive("refresh_timeout", c.RefreshTimeout),
+	)
 }

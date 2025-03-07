@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/service"
 )
 
 // Manager stores and updates TLS configurations.
@@ -203,9 +203,9 @@ func (m *DefaultManager) CloneWithMetrics(
 }
 
 // type check
-var _ agdservice.Refresher = (*DefaultManager)(nil)
+var _ service.Refresher = (*DefaultManager)(nil)
 
-// Refresh implements the [agdservice.Refresher] interface for *DefaultManager.
+// Refresh implements the [service.Refresher] interface for *DefaultManager.
 func (m *DefaultManager) Refresh(ctx context.Context) (err error) {
 	m.logger.DebugContext(ctx, "refresh started")
 	defer m.logger.DebugContext(ctx, "refresh finished")
@@ -228,11 +228,12 @@ func (m *DefaultManager) Refresh(ctx context.Context) (err error) {
 			return true
 		}
 
-		if m.certStorage.update(cp, cert) {
-			m.logger.InfoContext(ctx, "refreshed certificate", "cert", cp.certPath, "key", cp.keyPath)
-		} else {
-			m.logger.WarnContext(ctx, "certificate did not refresh", "cert", cp.certPath, "key", cp.keyPath)
+		msg, lvl := "refreshed certificate", slog.LevelInfo
+		if !m.certStorage.update(cp, cert) {
+			msg, lvl = "certificate did not refresh", slog.LevelWarn
 		}
+
+		m.logger.Log(ctx, lvl, msg, "cert", cp.certPath, "key", cp.keyPath)
 
 		return true
 	})
@@ -268,8 +269,9 @@ func (m *DefaultManager) RotateTickets(ctx context.Context) (err error) {
 	}
 
 	defer func() {
+		m.metrics.SetSessionTicketRotationStatus(ctx, err)
+
 		if err != nil {
-			m.metrics.SetSessionTicketRotationStatus(ctx, false)
 			errcoll.Collect(ctx, m.errColl, m.logger, "ticket rotation failed", err)
 		}
 	}()
@@ -302,8 +304,6 @@ func (m *DefaultManager) RotateTickets(ctx context.Context) (err error) {
 		"num_configs", m.certStorage.count(),
 		"num_tickets", len(tickets),
 	)
-
-	m.metrics.SetSessionTicketRotationStatus(ctx, true)
 
 	return nil
 }

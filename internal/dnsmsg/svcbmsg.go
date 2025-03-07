@@ -8,7 +8,6 @@ import (
 	"strconv"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/urlfilter/rules"
 	"github.com/miekg/dns"
 )
@@ -64,8 +63,6 @@ var svcbKeyHandlers = map[string]svcbKeyHandler{
 	"ech": func(valStr string) (val dns.SVCBKeyValue) {
 		ech, err := base64.StdEncoding.DecodeString(valStr)
 		if err != nil {
-			log.Debug("can't parse svcb/https ech: %s; ignoring", err)
-
 			return nil
 		}
 
@@ -77,8 +74,6 @@ var svcbKeyHandlers = map[string]svcbKeyHandler{
 	"ipv4hint": func(valStr string) (val dns.SVCBKeyValue) {
 		ip := net.ParseIP(valStr)
 		if ip4 := ip.To4(); ip == nil || ip4 == nil {
-			log.Debug("can't parse svcb/https ipv4 hint %q; ignoring", valStr)
-
 			return nil
 		}
 
@@ -90,8 +85,6 @@ var svcbKeyHandlers = map[string]svcbKeyHandler{
 	"ipv6hint": func(valStr string) (val dns.SVCBKeyValue) {
 		ip := net.ParseIP(valStr)
 		if ip == nil {
-			log.Debug("can't parse svcb/https ipv6 hint %q; ignoring", valStr)
-
 			return nil
 		}
 
@@ -103,8 +96,6 @@ var svcbKeyHandlers = map[string]svcbKeyHandler{
 	"mandatory": func(valStr string) (val dns.SVCBKeyValue) {
 		code, ok := strToSVCBKey[valStr]
 		if !ok {
-			log.Debug("unknown svcb/https mandatory key %q, ignoring", valStr)
-
 			return nil
 		}
 
@@ -120,8 +111,6 @@ var svcbKeyHandlers = map[string]svcbKeyHandler{
 	"port": func(valStr string) (val dns.SVCBKeyValue) {
 		port64, err := strconv.ParseUint(valStr, 10, 16)
 		if err != nil {
-			log.Debug("can't parse svcb/https port: %s; ignoring", err)
-
 			return nil
 		}
 
@@ -142,7 +131,9 @@ var svcbKeyHandlers = map[string]svcbKeyHandler{
 //	ipv4hint=127.0.0.1,127.0.0.2   // Unsupported.
 //	ipv4hint="127.0.0.1,127.0.0.2" // Unsupported.
 //
-// TODO(a.garipov): Support all of these.
+// TODO(a.garipov):  Support all of these.
+//
+// TODO(a.garipov):  Consider re-adding debug logging for SVCB handlers.
 func (c *Constructor) NewAnswerSVCB(req *dns.Msg, svcb *rules.DNSSVCB) (ans *dns.SVCB) {
 	ans = &dns.SVCB{
 		Hdr:      c.newHdr(req, dns.TypeSVCB),
@@ -157,8 +148,6 @@ func (c *Constructor) NewAnswerSVCB(req *dns.Msg, svcb *rules.DNSSVCB) (ans *dns
 	for k, valStr := range svcb.Params {
 		handler, ok := svcbKeyHandlers[k]
 		if !ok {
-			log.Debug("unknown svcb/https key %q, ignoring", k)
-
 			continue
 		}
 

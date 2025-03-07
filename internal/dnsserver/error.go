@@ -1,11 +1,15 @@
 package dnsserver
 
 import (
+	"context"
 	"fmt"
+	"io"
+	"log/slog"
 	"net"
 	"os"
 
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 )
 
 // Common Errors And Error Helpers
@@ -66,4 +70,16 @@ func isNonCriticalNetError(err error) (ok bool) {
 	var netErr net.Error
 
 	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+// closeWithLog closes c and logs a debug message if c.Close returns an error
+// that isn't [net.ErrClosed].
+//
+// TODO(a.garipov):  Unify error handling with regards to [io.EOF],
+// net.ErrClosed, etc.
+func closeWithLog(ctx context.Context, l *slog.Logger, msg string, c io.Closer) {
+	err := c.Close()
+	if err != nil && !errors.Is(err, net.ErrClosed) {
+		l.DebugContext(ctx, msg, slogutil.KeyError, err)
+	}
 }

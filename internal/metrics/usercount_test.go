@@ -1,6 +1,8 @@
 package metrics_test
 
 import (
+	"context"
+	"math/rand/v2"
 	"net"
 	"net/netip"
 	"strconv"
@@ -8,15 +10,15 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/exp/rand"
 )
 
-// Use a constant seed to make the test reproducible.
-const randSeed = 1234
+// Use the same seed to make the test reproducible.
+var randSeed = [32]byte([]byte("01234567890123456789012345678901"))
 
 // Gauges for tests.
 var (
@@ -24,10 +26,13 @@ var (
 	testLastDay  = prometheus.NewGauge(prometheus.GaugeOpts{})
 )
 
+// testLogger is the common logger for tests.
+var testLogger = slogutil.NewDiscardLogger()
+
 // randIPBytes is a test helper that returns a pseudorandomly generated
 // IP-address bytes.  fam must be either [netutil.AddrFamilyIPv4] or
 // [netutil.AddrFamilyIPv6].
-func randIPBytes(t testing.TB, r *rand.Rand, fam netutil.AddrFamily) (ipBytes []byte) {
+func randIPBytes(t testing.TB, src *rand.ChaCha8, fam netutil.AddrFamily) (ipBytes []byte) {
 	t.Helper()
 
 	switch fam {
@@ -39,7 +44,7 @@ func randIPBytes(t testing.TB, r *rand.Rand, fam netutil.AddrFamily) (ipBytes []
 		t.Fatalf("unexpected address family %q", fam)
 	}
 
-	n, err := r.Read(ipBytes)
+	n, err := src.Read(ipBytes)
 	require.NoError(t, err)
 	require.Equal(t, len(ipBytes), n)
 
@@ -166,11 +171,12 @@ func TestUserCounter_Estimate(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			r := rand.New(rand.NewSource(randSeed))
-			c := metrics.NewUserCounter(testLastHour, testLastDay)
+			src := rand.NewChaCha8(randSeed)
+			c := metrics.NewUserCounter(testLogger, testLastHour, testLastDay)
 
+			ctx := context.Background()
 			for _, now := range tc.nows {
-				c.Record(now, randIPBytes(t, r, netutil.AddrFamilyIPv6), true)
+				c.Record(ctx, now, randIPBytes(t, src, netutil.AddrFamilyIPv6), true)
 			}
 
 			hourly, daily := c.Estimate()
@@ -183,17 +189,17 @@ func TestUserCounter_Estimate(t *testing.T) {
 func TestUserCounter_simple(t *testing.T) {
 	const ipsPerMinute = 2
 
-	src := rand.NewSource(randSeed)
-	r := rand.New(src)
+	src := rand.NewChaCha8(randSeed)
 
-	c := metrics.NewUserCounter(testLastHour, testLastDay)
+	c := metrics.NewUserCounter(testLogger, testLastHour, testLastDay)
 
 	now := time.Unix(0, 0).UTC()
 	for d, h := now.Day(), now.Hour(); now.Day() == d; h = now.Hour() {
 		t.Run(strconv.Itoa(now.Hour()), func(t *testing.T) {
+			ctx := context.Background()
 			for ; now.Hour() == h; now = now.Add(1 * time.Minute) {
 				for range ipsPerMinute {
-					c.Record(now, randIPBytes(t, r, netutil.AddrFamilyIPv4), true)
+					c.Record(ctx, now, randIPBytes(t, src, netutil.AddrFamilyIPv4), true)
 				}
 			}
 
@@ -212,23 +218,24 @@ var uint64Sink uint64
 func BenchmarkUserCounter_Estimate(b *testing.B) {
 	const n = 100
 
+	ctx := context.Background()
 	zeroTime := time.Unix(0, 0).UTC()
 
-	sparseCounter := metrics.NewUserCounter(testLastHour, testLastDay)
+	sparseCounter := metrics.NewUserCounter(testLogger, testLastHour, testLastDay)
 	for d, now := zeroTime.Day(), zeroTime; d == now.Day(); now = now.Add(time.Minute) {
-		r := rand.New(rand.NewSource(randSeed))
+		src := rand.NewChaCha8(randSeed)
 		for range n {
-			sparseCounter.Record(now, randIPBytes(b, r, netutil.AddrFamilyIPv6), true)
+			sparseCounter.Record(ctx, now, randIPBytes(b, src, netutil.AddrFamilyIPv6), true)
 		}
 	}
 
-	seqCounter := metrics.NewUserCounter(testLastHour, testLastDay)
+	seqCounter := metrics.NewUserCounter(testLogger, testLastHour, testLastDay)
 	for d, now := zeroTime.Day(), zeroTime; d == now.Day(); now = now.Add(time.Minute) {
 		addr := netip.AddrFrom16([16]byte{})
 		for range n {
 			addr = addr.Next()
 			addrArr := addr.As16()
-			seqCounter.Record(now, addrArr[:], true)
+			seqCounter.Record(ctx, now, addrArr[:], true)
 		}
 	}
 

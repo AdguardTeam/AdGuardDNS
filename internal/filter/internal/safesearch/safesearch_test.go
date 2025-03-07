@@ -10,7 +10,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
@@ -50,7 +50,7 @@ func TestFilter(t *testing.T) {
 		&safesearch.Config{
 			Refreshable: &refreshable.Config{
 				Logger:    slogutil.NewDiscardLogger(),
-				ID:        internal.IDGeneralSafeSearch,
+				ID:        filter.IDGeneralSafeSearch,
 				URL:       srvURL,
 				CachePath: cachePath,
 				Staleness: filtertest.Staleness,
@@ -100,10 +100,10 @@ func TestFilter(t *testing.T) {
 		res, err := f.FilterRequest(ctx, req)
 		require.NoError(t, err)
 
-		rm := testutil.RequireTypeAssert[*internal.ResultModifiedResponse](t, res)
+		rm := testutil.RequireTypeAssert[*filter.ResultModifiedResponse](t, res)
 		require.Len(t, rm.Msg.Answer, 1)
 
-		assert.Equal(t, rm.Rule, internal.RuleText(testEngineWithIP))
+		assert.Equal(t, rm.Rule, filter.RuleText(testEngineWithIP))
 
 		a := testutil.RequireTypeAssert[*dns.A](t, rm.Msg.Answer[0])
 		assert.Equal(t, net.IP(testIPOfEngineWithIP.AsSlice()), a.A)
@@ -111,7 +111,7 @@ func TestFilter(t *testing.T) {
 		t.Run("cached", func(t *testing.T) {
 			newReq := newReq(t, testEngineWithIP, dns.TypeA)
 
-			var cachedRes internal.Result
+			var cachedRes filter.Result
 			cachedRes, err = f.FilterRequest(ctx, newReq)
 			require.NoError(t, err)
 
@@ -119,7 +119,7 @@ func TestFilter(t *testing.T) {
 			// result of a safe search is always cloned.  But assert that the
 			// non-clonable fields are equal and that the message has reply
 			// fields set properly.
-			cachedMR := testutil.RequireTypeAssert[*internal.ResultModifiedResponse](t, cachedRes)
+			cachedMR := testutil.RequireTypeAssert[*filter.ResultModifiedResponse](t, cachedRes)
 			assert.NotSame(t, cachedMR, rm)
 			assert.Equal(t, cachedMR.Msg.Id, newReq.DNS.Id)
 			assert.Equal(t, cachedMR.List, rm.List)
@@ -133,12 +133,12 @@ func TestFilter(t *testing.T) {
 		res, err := f.FilterRequest(ctx, req)
 		require.NoError(t, err)
 
-		rm := testutil.RequireTypeAssert[*internal.ResultModifiedRequest](t, res)
+		rm := testutil.RequireTypeAssert[*filter.ResultModifiedRequest](t, res)
 		require.NotNil(t, rm.Msg)
 		require.Len(t, rm.Msg.Question, 1)
 
 		assert.False(t, rm.Msg.Response)
-		assert.Equal(t, rm.Rule, internal.RuleText(testEngineWithDomain))
+		assert.Equal(t, rm.Rule, filter.RuleText(testEngineWithDomain))
 
 		q := rm.Msg.Question[0]
 		assert.Equal(t, dns.TypeA, q.Qtype)
@@ -151,12 +151,12 @@ func TestFilter(t *testing.T) {
 		res, err := f.FilterRequest(ctx, req)
 		require.NoError(t, err)
 
-		rm := testutil.RequireTypeAssert[*internal.ResultModifiedRequest](t, res)
+		rm := testutil.RequireTypeAssert[*filter.ResultModifiedRequest](t, res)
 		require.NotNil(t, rm.Msg)
 		require.Len(t, rm.Msg.Question, 1)
 
 		assert.False(t, rm.Msg.Response)
-		assert.Equal(t, rm.Rule, internal.RuleText(testEngineWithDomain))
+		assert.Equal(t, rm.Rule, filter.RuleText(testEngineWithDomain))
 
 		q := rm.Msg.Question[0]
 		assert.Equal(t, dns.TypeHTTPS, q.Qtype)
@@ -166,10 +166,10 @@ func TestFilter(t *testing.T) {
 
 // newReq is a test helper that returns the filtering request with the given
 // data.
-func newReq(tb testing.TB, host string, qt dnsmsg.RRType) (req *internal.Request) {
+func newReq(tb testing.TB, host string, qt dnsmsg.RRType) (req *filter.Request) {
 	tb.Helper()
 
-	return &internal.Request{
+	return &filter.Request{
 		DNS:      dnsservertest.NewReq(host, qt, dns.ClassINET),
 		Messages: agdtest.NewConstructor(tb),
 		Host:     host,

@@ -1,40 +1,40 @@
 package composite
 
 import (
+	"context"
 	"testing"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/miekg/dns"
-	"github.com/stretchr/testify/require"
 )
 
 // Sinks for benchmarks.
 var (
-	resultSink internal.Result
+	resultSink filter.Result
 )
 
 func BenchmarkFilter_FilterReqWithRuleLists(b *testing.B) {
-	blockingRL, err := rulelist.NewFromString(
+	blockingRL := rulelist.NewFromString(
 		filtertest.RuleBlockStr+"\n",
 		"test",
 		"",
-		rulelist.ResultCacheEmpty{},
+		rulelist.EmptyResultCache{},
 	)
-	require.NoError(b, err)
 
 	f := New(&Config{
 		RuleLists: []*rulelist.Refreshable{blockingRL},
 	})
 
+	ctx := context.Background()
 	req := filtertest.NewRequest(b, "", filtertest.HostBlocked, filtertest.IPv4Client, dns.TypeA)
 
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	for range b.N {
-		resultSink = f.filterReqWithRuleLists(req)
+		resultSink = f.filterReqWithRuleLists(ctx, req)
 	}
 
 	// Most recent results:

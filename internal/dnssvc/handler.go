@@ -15,15 +15,21 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/preupstream"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/ratelimitmw"
 	"github.com/AdguardTeam/AdGuardDNS/internal/ecscache"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+
+	// TODO(e.burkov):  Move registering of the metrics to another package to
+	// avoid dependency on the metrics package.
+	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 )
 
 // NewHandlers returns the main DNS handlers wrapped in all necessary
 // middlewares.  c must not be nil.
 func NewHandlers(ctx context.Context, c *HandlersConfig) (handlers Handlers, err error) {
-	handler := wrapPreUpstreamMw(ctx, c)
+	handler, err := wrapPreUpstreamMw(ctx, c)
+	if err != nil {
+		return nil, fmt.Errorf("wrapping pre-upstream middleware: %w", err)
+	}
 
 	mainMwMtrc, err := newMainMiddlewareMetrics(c)
 	if err != nil {
@@ -60,12 +66,6 @@ func NewHandlers(ctx context.Context, c *HandlersConfig) (handlers Handlers, err
 		handler = postInitMw.Wrap(handler)
 	}
 
-	initMw := initial.New(&initial.Config{
-		Logger: c.BaseLogger.With(slogutil.KeyPrefix, "initmw"),
-	})
-
-	handler = initMw.Wrap(handler)
-
 	return newHandlersForServers(c, handler)
 }
 
@@ -74,7 +74,10 @@ func NewHandlers(ctx context.Context, c *HandlersConfig) (handlers Handlers, err
 //
 // TODO(a.garipov):  Adapt the cache tests that previously were in package
 // preupstream.
-func wrapPreUpstreamMw(ctx context.Context, c *HandlersConfig) (wrapped dnsserver.Handler) {
+func wrapPreUpstreamMw(
+	ctx context.Context,
+	c *HandlersConfig,
+) (wrapped dnsserver.Handler, err error) {
 	// TODO(a.garipov):  Use in other places if necessary.
 	l := c.BaseLogger.With(slogutil.KeyPrefix, "dnssvc")
 
@@ -85,9 +88,18 @@ func wrapPreUpstreamMw(ctx context.Context, c *HandlersConfig) (wrapped dnsserve
 	case CacheTypeSimple:
 		l.InfoContext(ctx, "plain cache enabled", "count", conf.NoECSCount)
 
+		var mtrcListener *dnssrvprom.CacheMetricsListener
+		mtrcListener, err = dnssrvprom.NewCacheMetricsListener(
+			c.MetricsNamespace,
+			c.PrometheusRegisterer,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("registering cache metrics: %w", err)
+		}
+
 		cacheMw := cache.NewMiddleware(&cache.MiddlewareConfig{
-			// TODO(a.garipov):  Do not use promauto and refactor.
-			MetricsListener: dnssrvprom.NewCacheMetricsListener(metrics.Namespace()),
+			Logger:          c.BaseLogger.With(slogutil.KeyPrefix, "cache"),
+			MetricsListener: mtrcListener,
 			Count:           conf.NoECSCount,
 			MinTTL:          conf.MinTTL,
 			OverrideTTL:     conf.OverrideCacheTTL,
@@ -102,7 +114,14 @@ func wrapPreUpstreamMw(ctx context.Context, c *HandlersConfig) (wrapped dnsserve
 			"no_ecs_count", conf.NoECSCount,
 		)
 
+		var mtrc ecscache.Metrics
+		mtrc, err = metrics.NewECSCache(c.MetricsNamespace, c.PrometheusRegisterer)
+		if err != nil {
+			return nil, fmt.Errorf("registering ecs cache metrics: %w", err)
+		}
+
 		cacheMw := ecscache.NewMiddleware(&ecscache.MiddlewareConfig{
+			Metrics:      mtrc,
 			Cloner:       c.Cloner,
 			Logger:       c.BaseLogger.With(slogutil.KeyPrefix, "ecscache"),
 			CacheManager: c.CacheManager,
@@ -124,7 +143,7 @@ func wrapPreUpstreamMw(ctx context.Context, c *HandlersConfig) (wrapped dnsserve
 
 	wrapped = preUps.Wrap(wrapped)
 
-	return wrapped
+	return wrapped, nil
 }
 
 // newMainMiddlewareMetrics returns a filtering-middleware metrics
@@ -135,7 +154,11 @@ func newMainMiddlewareMetrics(c *HandlersConfig) (mainMwMtrc MainMiddlewareMetri
 		return mainMwMtrc, nil
 	}
 
-	mainMwMtrc, err = metrics.NewDefaultMainMiddleware(c.MetricsNamespace, c.PrometheusRegisterer)
+	mainMwMtrc, err = metrics.NewDefaultMainMiddleware(
+		c.BaseLogger.With(slogutil.KeyPrefix, "mainmw_metrics"),
+		c.MetricsNamespace,
+		c.PrometheusRegisterer,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("mainmw metrics: %w", err)
 	}
@@ -145,7 +168,7 @@ func newMainMiddlewareMetrics(c *HandlersConfig) (mainMwMtrc MainMiddlewareMetri
 
 // newHandlersForServers returns a handler map for each server group and each
 // server.
-func newHandlersForServers(c *HandlersConfig, h dnsserver.Handler) (handlers Handlers, err error) {
+func newHandlersForServers(c *HandlersConfig, handler dnsserver.Handler) (handlers Handlers, err error) {
 	rlMwMtrc, err := metrics.NewDefaultRatelimitMiddleware(
 		c.MetricsNamespace,
 		c.PrometheusRegisterer,
@@ -167,13 +190,27 @@ func newHandlersForServers(c *HandlersConfig, h dnsserver.Handler) (handlers Han
 			)
 		}
 
+		initMw := initial.New(&initial.Config{
+			Logger: c.BaseLogger.With(slogutil.KeyPrefix, "initmw"),
+			DDR:    srvGrp.DDR,
+		})
+
+		srvGrpHandler := initMw.Wrap(handler)
+
 		for _, srv := range srvGrp.Servers {
+			srvInfo := &agd.RequestServerInfo{
+				GroupName:       srvGrp.Name,
+				Name:            srv.Name,
+				DeviceDomains:   srvGrp.DeviceDomains,
+				Protocol:        srv.Protocol,
+				ProfilesEnabled: srvGrp.ProfilesEnabled,
+			}
+
 			rlMw := ratelimitmw.New(&ratelimitmw.Config{
 				Logger:           rlMwLogger,
 				Messages:         c.Messages,
 				FilteringGroup:   fltGrp,
-				ServerGroup:      srvGrp,
-				Server:           srv,
+				ServerInfo:       srvInfo,
 				StructuredErrors: c.StructuredErrors,
 				AccessManager:    c.AccessManager,
 				DeviceFinder:     newDeviceFinder(c, srvGrp, srv),
@@ -190,7 +227,7 @@ func newHandlersForServers(c *HandlersConfig, h dnsserver.Handler) (handlers Han
 				ServerGroup: srvGrp,
 			}
 
-			handlers[k] = rlMw.Wrap(h)
+			handlers[k] = rlMw.Wrap(srvGrpHandler)
 		}
 	}
 
@@ -199,7 +236,7 @@ func newHandlersForServers(c *HandlersConfig, h dnsserver.Handler) (handlers Han
 
 // newDeviceFinder returns a new agd.DeviceFinder for a server based on the
 // configuration.  All arguments must not be nil.
-func newDeviceFinder(c *HandlersConfig, g *agd.ServerGroup, s *agd.Server) (df agd.DeviceFinder) {
+func newDeviceFinder(c *HandlersConfig, g *ServerGroupConfig, s *agd.Server) (df agd.DeviceFinder) {
 	if !g.ProfilesEnabled {
 		return agd.EmptyDeviceFinder{}
 	}

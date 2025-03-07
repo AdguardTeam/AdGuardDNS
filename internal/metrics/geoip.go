@@ -1,67 +1,148 @@
 package metrics
 
 import (
+	"context"
+	"fmt"
+
+	"github.com/AdguardTeam/golibs/container"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-var (
-	// GeoIPUpdateTime is a gauge with the timestamp of the last GeoIP database
-	// update.
-	GeoIPUpdateTime = promauto.NewGaugeVec(prometheus.GaugeOpts{
-		Name:      "update_time",
-		Subsystem: subsystemGeoIP,
-		Namespace: namespace,
-		Help:      "The time when the GeoIP was loaded last time.",
-	}, []string{"path"})
+// GeoIP is the Prometheus-based implementation of the [geoip.Metrics]
+// interface.
+type GeoIP struct {
+	updateASNTimestamp prometheus.Gauge
+	updateASNStatus    prometheus.Gauge
 
-	// GeoIPUpdateStatus is a gauge with the last GeoIP database update status.
-	// 1 means success, 0 means an error occurred.
-	GeoIPUpdateStatus = promauto.NewGaugeVec(prometheus.GaugeOpts{
-		Name:      "update_status",
-		Subsystem: subsystemGeoIP,
-		Namespace: namespace,
-		Help:      "Status of the last GeoIP update. 1 is okay, 0 means that something went wrong.",
-	}, []string{"path"})
-)
+	updateCountryTimestamp prometheus.Gauge
+	updateCountryStatus    prometheus.Gauge
 
-var (
-	// geoIPCacheLookups is a counter with the total number of the GeoIP IP
-	// cache lookups.  "hit" is either "1" (item found) or "0" (item not found).
-	geoIPCacheLookups = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name:      "cache_lookups",
+	hostHits   prometheus.Counter
+	hostMisses prometheus.Counter
+
+	ipHits   prometheus.Counter
+	ipMisses prometheus.Counter
+}
+
+// NewGeoIP registers the GeoIP metrics in reg and returns a properly
+// initialized GeoIP.
+func NewGeoIP(
+	namespace string,
+	reg prometheus.Registerer,
+	asnPath string,
+	ctryPath string,
+) (m *GeoIP, err error) {
+	const (
+		updateStatus     = "update_status"
+		updateTime       = "update_time"
+		ipCacheLookups   = "cache_lookups"
+		hostCacheLookups = "host_cache_lookups"
+	)
+
+	ipCacheLookupsCount := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name:      ipCacheLookups,
 		Subsystem: subsystemGeoIP,
 		Namespace: namespace,
 		Help: "The number of GeoIP IP cache lookups. " +
 			"hit=1 means that a cached item was found.",
 	}, []string{"hit"})
-
-	// GeoIPCacheLookupsHits is a counter with the total number of the GeoIP IP
-	// cache hits.
-	GeoIPCacheLookupsHits = geoIPCacheLookups.With(prometheus.Labels{"hit": "1"})
-
-	// GeoIPCacheLookupsMisses is a counter with the total number of the GeoIP
-	// IP cache misses.
-	GeoIPCacheLookupsMisses = geoIPCacheLookups.With(prometheus.Labels{"hit": "0"})
-)
-
-var (
-	// geoIPHostCacheLookups is a counter with the total number of the GeoIP
-	// hostname cache lookups.  "hit" is either "1" (item found) or "0" (item
-	// not found).
-	geoIPHostCacheLookups = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name:      "host_cache_lookups",
+	hostCacheLookupsCount := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name:      hostCacheLookups,
 		Subsystem: subsystemGeoIP,
 		Namespace: namespace,
 		Help: "The number of GeoIP hostname cache lookups. " +
 			"hit=1 means that a cached item was found.",
 	}, []string{"hit"})
+	updateTimestampGauge := prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name:      updateTime,
+		Subsystem: subsystemGeoIP,
+		Namespace: namespace,
+		Help:      "The time when the GeoIP was loaded last time.",
+	}, []string{"path"})
+	updateStatusGauge := prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name:      updateStatus,
+		Subsystem: subsystemGeoIP,
+		Namespace: namespace,
+		Help: "Status of the last GeoIP update. " +
+			"1 is okay, 0 means that something went wrong.",
+	}, []string{"path"})
 
-	// GeoIPHostCacheLookupsHits is a counter with the total number of the GeoIP
-	// hostname cache hits.
-	GeoIPHostCacheLookupsHits = geoIPHostCacheLookups.With(prometheus.Labels{"hit": "1"})
+	m = &GeoIP{
+		updateASNTimestamp: updateTimestampGauge.WithLabelValues(asnPath),
+		updateASNStatus:    updateStatusGauge.WithLabelValues(asnPath),
 
-	// GeoIPHostCacheLookupsMisses is a counter with the total number of the
-	// GeoIP hostname cache misses.
-	GeoIPHostCacheLookupsMisses = geoIPHostCacheLookups.With(prometheus.Labels{"hit": "0"})
-)
+		updateCountryTimestamp: updateTimestampGauge.WithLabelValues(ctryPath),
+		updateCountryStatus:    updateStatusGauge.WithLabelValues(ctryPath),
+
+		hostHits:   hostCacheLookupsCount.WithLabelValues("1"),
+		hostMisses: hostCacheLookupsCount.WithLabelValues("0"),
+
+		ipHits:   ipCacheLookupsCount.WithLabelValues("1"),
+		ipMisses: ipCacheLookupsCount.WithLabelValues("0"),
+	}
+
+	var errs []error
+	collectors := container.KeyValues[string, prometheus.Collector]{{
+		Key:   updateStatus,
+		Value: updateStatusGauge,
+	}, {
+		Key:   updateTime,
+		Value: updateTimestampGauge,
+	}, {
+		Key:   ipCacheLookups,
+		Value: ipCacheLookupsCount,
+	}, {
+		Key:   hostCacheLookups,
+		Value: hostCacheLookupsCount,
+	}}
+
+	for _, c := range collectors {
+		err = reg.Register(c.Value)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("registering metrics %q: %w", c.Key, err))
+		}
+	}
+
+	if err = errors.Join(errs...); err != nil {
+		return nil, err
+	}
+
+	return m, nil
+}
+
+// HandleASNUpdateStatus implements the [geoip.Metrics] interface for *GeoIP.
+func (m *GeoIP) HandleASNUpdateStatus(_ context.Context, err error) {
+	if err != nil {
+		m.updateASNStatus.Set(0)
+
+		return
+	}
+
+	m.updateASNStatus.Set(1)
+	m.updateASNTimestamp.SetToCurrentTime()
+}
+
+// HandleCountryUpdateStatus implements the [geoip.Metrics] interface for
+// *GeoIP.
+func (m *GeoIP) HandleCountryUpdateStatus(_ context.Context, err error) {
+	if err != nil {
+		m.updateCountryStatus.Set(0)
+
+		return
+	}
+
+	m.updateCountryStatus.Set(1)
+	m.updateCountryTimestamp.SetToCurrentTime()
+}
+
+// IncrementHostCacheLookups implements the [geoip.Metrics] interface for
+// *GeoIP.
+func (m *GeoIP) IncrementHostCacheLookups(_ context.Context, hit bool) {
+	IncrementCond(hit, m.hostHits, m.hostMisses)
+}
+
+// IncrementIPCacheLookups implements the [geoip.Metrics] interface for *GeoIP.
+func (m *GeoIP) IncrementIPCacheLookups(_ context.Context, hit bool) {
+	IncrementCond(hit, m.ipHits, m.ipMisses)
+}

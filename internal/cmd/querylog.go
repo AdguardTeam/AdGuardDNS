@@ -1,9 +1,8 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/validate"
 )
 
 // queryLogConfig is the query log configuration.
@@ -13,18 +12,15 @@ type queryLogConfig struct {
 }
 
 // type check
-var _ validator = (*queryLogConfig)(nil)
+var _ validate.Interface = (*queryLogConfig)(nil)
 
-// validate implements the [validator] interface for *queryLogConfig.
-func (c *queryLogConfig) validate() (err error) {
-	switch {
-	case c == nil:
+// Validate implements the [validate.Interface] interface for *queryLogConfig.
+func (c *queryLogConfig) Validate() (err error) {
+	if c == nil {
 		return errors.ErrNoValue
-	case c.File == nil:
-		return fmt.Errorf("file: %w", errors.ErrNoValue)
-	default:
-		return nil
 	}
+
+	return validate.NotNil("file", c.File)
 }
 
 // queryLogFileConfig is the JSONL file query log configuration.

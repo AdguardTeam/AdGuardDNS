@@ -55,7 +55,6 @@ Supported IDs:
 - `dns/ecscache_no_ecs`
 - `dns/ecscache_with_ecs`
 - `filters/blocked_service/*`
-- `filters/custom`
 - `filters/hashprefix/adult_blocking`
 - `filters/hashprefix/newly_registered_domains`
 - `filters/hashprefix/safe_browsing`

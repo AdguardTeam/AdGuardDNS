@@ -13,6 +13,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
@@ -25,10 +26,10 @@ import (
 // TODO(a.garipov):  Refactor into methods of [*ProfileStorage].
 func (x *DNSProfile) toInternal(
 	ctx context.Context,
-	updTime time.Time,
 	bindSet netutil.SubnetSet,
 	errColl errcoll.Interface,
 	logger *slog.Logger,
+	baseCustomLogger *slog.Logger,
 	mtrc ProfileDBMetrics,
 	respSzEst datasize.ByteSize,
 ) (profile *agd.Profile, devices []*agd.Device, err error) {
@@ -59,12 +60,20 @@ func (x *DNSProfile) toInternal(
 	}
 
 	customRules := rulesToInternal(ctx, x.CustomRules, errColl, logger)
+	customEnabled := len(customRules) > 0
+
+	var customFilter filter.Custom
+	if customEnabled {
+		customFilter = custom.New(&custom.Config{
+			Logger: baseCustomLogger.With("client_id", string(profID)),
+			Rules:  customRules,
+		})
+	}
+
 	custom := &filter.ConfigCustom{
-		ID:         string(x.DnsId),
-		UpdateTime: updTime,
-		Rules:      customRules,
+		Filter: customFilter,
 		// TODO(a.garipov):  Consider adding an explicit flag to the protocol.
-		Enabled: len(customRules) > 0,
+		Enabled: customEnabled,
 	}
 
 	return &agd.Profile{

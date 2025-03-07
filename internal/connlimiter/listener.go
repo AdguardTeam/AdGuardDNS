@@ -9,9 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 // limitListener is a wrapper that uses a counter to limit the number of active
@@ -23,9 +21,13 @@ type limitListener struct {
 
 	logger *slog.Logger
 
-	// serverInfo is used for logging and metrics in both the listener itself
-	// and in its conns.  It's never nil.
-	serverInfo *dnsserver.ServerInfo
+	// metrics is used for the collection of the stream connections statistics.
+	// It must not be nil.
+	metrics Metrics
+
+	// connInfo is used for metrics in both the listener itself and in its
+	// conns.  It's never nil.
+	connInfo *ConnMetricsData
 
 	// counterCond is the condition variable that protects counter and isClosed
 	// through its locker, as well as signals when connections can be accepted
@@ -34,13 +36,6 @@ type limitListener struct {
 
 	// counter is the shared counter for all listeners.
 	counter *counter
-
-	// activeGauge is the metrics gauge of currently active stream-connections.
-	activeGauge prometheus.Gauge
-
-	// waitingHist is the metrics histogram of how much a connection spends
-	// waiting for an accept.
-	waitingHist prometheus.Observer
 
 	// isClosed shows whether this listener has been closed.
 	isClosed bool
@@ -60,12 +55,12 @@ func (l *limitListener) Accept() (conn net.Conn, err error) {
 		return nil, net.ErrClosed
 	}
 
-	l.waitingHist.Observe(time.Since(waitStart).Seconds())
-	l.activeGauge.Inc()
+	l.metrics.ObserveWaitingDuration(ctx, l.connInfo, time.Since(waitStart))
+	l.metrics.IncrementActive(ctx, l.connInfo)
 
 	conn, err = l.Listener.Accept()
 	if err != nil {
-		l.decrement()
+		l.decrement(ctx)
 
 		return nil, err
 	}
@@ -73,10 +68,11 @@ func (l *limitListener) Accept() (conn net.Conn, err error) {
 	return &limitConn{
 		Conn: conn,
 
-		logger:     l.logger,
-		decrement:  l.decrement,
-		start:      time.Now(),
-		serverInfo: l.serverInfo,
+		connInfo:  l.connInfo,
+		metrics:   l.metrics,
+		logger:    l.logger,
+		decrement: l.decrement,
+		start:     time.Now(),
 	}, nil
 }
 
@@ -110,14 +106,13 @@ func (l *limitListener) increment(ctx context.Context) (isClosed bool) {
 
 // decrement decreases the number of active connections in the counter and
 // broadcasts the change.
-func (l *limitListener) decrement() {
+func (l *limitListener) decrement(ctx context.Context) {
+	defer l.metrics.DecrementActive(ctx, l.connInfo)
+
 	l.counterCond.L.Lock()
 	defer l.counterCond.L.Unlock()
 
-	l.activeGauge.Dec()
-
 	l.counter.decrement()
-
 	l.counterCond.Signal()
 }
 

@@ -49,7 +49,7 @@ is specified in the configuration.  Here's how to create a simple plain
 DNS server:
 
 	conf := dnsserver.ConfigDNS{
-		ConfigBase: dnsserver.ConfigBase{
+		Base: &dnsserver.ConfigBase{
 			// server name
 			Name: "test",
 			// listen address
@@ -70,8 +70,8 @@ In order to use a DoT server, you also need to supply a [*tls.Config] with the
 certificate and its private key.
 
 	conf := dnsserver.ConfigTLS{
-		ConfigDNS: dnsserver.ConfigDNS{
-			ConfigBase: dnsserver.ConfigBase{
+		DNS: &dnsserver.ConfigDNS{
+			Base: &dnsserver.ConfigBase{
 				Name:    "test",
 				Addr:    "127.0.0.1:0",
 				Handler: h,
@@ -87,11 +87,11 @@ certificate and its private key.
 DoH server uses an [*http.Server] and/or [*http3.Server] internally. There are
 a couple of things to note:
 
- 1. tls.Config can be omitted, but you must set [ConfigBase.Network] to
-    NetworkTCP.  In this case the server will work simply as a plain HTTP
-    server. This might be useful if you're running a reverse proxy like Nginx
-    in front of your DoH server.  If you do specify it, the server will listen
-    to both DoH2 and DoH3 by default.
+ 1. tls.Config can be omitted, but you must set [Base.Network] to NetworkTCP.
+    In this case the server will work simply as a plain HTTP server. This might
+    be useful if you're running a reverse proxy like Nginx in front of your DoH
+    server.  If you do specify it, the server will listen to both DoH2 and DoH3
+    by default.
 
  2. In the constructor you can specify an optional [http.HandlerFunc] that
     processes non-DNS requests, e.g. requests to paths different from
@@ -100,7 +100,7 @@ a couple of things to note:
 Example:
 
 	conf := dnsserver.ConfigHTTPS{
-		ConfigBase: dnsserver.ConfigBase{
+		Base: &dnsserver.ConfigBase{
 			Name:    "test",
 			Addr:    "127.0.0.1:0",
 			Handler: h,
@@ -117,7 +117,7 @@ DoQ server uses the [quic-go module].  Just like DoH and DoT, it requires a
 [*tls.Config] to encrypt the data.
 
 	conf := dnsserver.ConfigQUIC{
-		ConfigBase: dnsserver.ConfigBase{
+		Base: &dnsserver.ConfigBase{
 			Name:    "test",
 			Addr:    "127.0.0.1:0",
 			Handler: h,
@@ -134,7 +134,7 @@ server you need to supply DNSCrypt configuration.  Read the [module
 documentation] about how to initialize it.
 
 	conf := dnsserver.ConfigDNSCrypt{
-		ConfigBase: dnsserver.ConfigBase{
+		Base: &dnsserver.ConfigBase{
 			Name:    "test",
 			Addr:    "127.0.0.1:0",
 			Handler: h,

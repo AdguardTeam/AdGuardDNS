@@ -3,6 +3,7 @@ package filecachepb
 
 import (
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
 	"github.com/c2h5oh/datasize"
@@ -21,8 +23,12 @@ import (
 )
 
 // toInternal converts the protobuf-encoded data into a cache structure.
-func toInternal(fc *FileCache, respSzEst datasize.ByteSize) (c *internal.FileCache, err error) {
-	profiles, err := profilesToInternal(fc.Profiles, respSzEst)
+func toInternal(
+	fc *FileCache,
+	baseCustomLogger *slog.Logger,
+	respSzEst datasize.ByteSize,
+) (c *internal.FileCache, err error) {
+	profiles, err := profilesToInternal(fc.Profiles, baseCustomLogger, respSzEst)
 	if err != nil {
 		return nil, fmt.Errorf("converting profiles: %w", err)
 	}
@@ -53,12 +59,13 @@ func toProtobuf(c *internal.FileCache) (pbFileCache *FileCache) {
 // profilesToInternal converts protobuf profile structures into internal ones.
 func profilesToInternal(
 	pbProfiles []*Profile,
+	baseCustomLogger *slog.Logger,
 	respSzEst datasize.ByteSize,
 ) (profiles []*agd.Profile, err error) {
 	profiles = make([]*agd.Profile, 0, len(pbProfiles))
 	for i, pbProf := range pbProfiles {
 		var prof *agd.Profile
-		prof, err = pbProf.toInternal(respSzEst)
+		prof, err = pbProf.toInternal(baseCustomLogger, respSzEst)
 		if err != nil {
 			return nil, fmt.Errorf("profile at index %d: %w", i, err)
 		}
@@ -70,7 +77,10 @@ func profilesToInternal(
 }
 
 // toInternal converts a protobuf profile structure to an internal one.
-func (x *Profile) toInternal(respSzEst datasize.ByteSize) (prof *agd.Profile, err error) {
+func (x *Profile) toInternal(
+	baseCustomLogger *slog.Logger,
+	respSzEst datasize.ByteSize,
+) (prof *agd.Profile, err error) {
 	m, err := blockingModeToInternal(x.BlockingMode)
 	if err != nil {
 		return nil, fmt.Errorf("blocking mode: %w", err)
@@ -82,12 +92,20 @@ func (x *Profile) toInternal(respSzEst datasize.ByteSize) (prof *agd.Profile, er
 		return nil, fmt.Errorf("pause schedule: %w", err)
 	}
 
+	// Consider the rules to have been prevalidated.
+	rules := unsafelyConvertStrSlice[string, filter.RuleText](pbFltConf.Custom.Rules)
+
+	var flt filter.Custom
+	if len(rules) > 0 {
+		flt = custom.New(&custom.Config{
+			Logger: baseCustomLogger.With("client_id", x.ProfileId),
+			Rules:  rules,
+		})
+	}
+
 	fltConf := &filter.ConfigClient{
 		Custom: &filter.ConfigCustom{
-			ID:         pbFltConf.Custom.Id,
-			UpdateTime: pbFltConf.Custom.UpdateTime.AsTime(),
-			// Consider the rules to have been prevalidated.
-			Rules:   unsafelyConvertStrSlice[string, filter.RuleText](pbFltConf.Custom.Rules),
+			Filter:  flt,
 			Enabled: pbFltConf.Custom.Enabled,
 		},
 		Parental: &filter.ConfigParental{
@@ -385,12 +403,15 @@ func profilesToProtobuf(profiles []*agd.Profile) (pbProfiles []*Profile) {
 
 // filterConfigToProtobuf converts the filtering configration to protobuf.
 func filterConfigToProtobuf(c *filter.ConfigClient) (fc *FilterConfig) {
+	var rules []string
+	if c.Custom.Enabled {
+		rules = unsafelyConvertStrSlice[filter.RuleText, string](c.Custom.Filter.Rules())
+	}
+
 	return &FilterConfig{
 		Custom: &FilterConfig_Custom{
-			Id:         string(c.Custom.ID),
-			UpdateTime: timestamppb.New(c.Custom.UpdateTime),
-			Rules:      unsafelyConvertStrSlice[filter.RuleText, string](c.Custom.Rules),
-			Enabled:    c.Custom.Enabled,
+			Rules:   rules,
+			Enabled: c.Custom.Enabled,
 		},
 		Parental: &FilterConfig_Parental{
 			PauseSchedule: scheduleToProtobuf(c.Parental.PauseSchedule),

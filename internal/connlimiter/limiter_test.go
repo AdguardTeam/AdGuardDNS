@@ -27,12 +27,12 @@ var testServerInfo = &dnsserver.ServerInfo{
 }
 
 func TestLimiter(t *testing.T) {
-	l, err := connlimiter.New(&connlimiter.Config{
-		Logger: slogutil.NewDiscardLogger(),
-		Stop:   1,
-		Resume: 1,
+	l := connlimiter.New(&connlimiter.Config{
+		Metrics: connlimiter.EmptyMetrics{},
+		Logger:  slogutil.NewDiscardLogger(),
+		Stop:    1,
+		Resume:  1,
 	})
-	require.NoError(t, err)
 
 	conn := &fakenet.Conn{
 		OnClose:     func() (err error) { return nil },
@@ -108,14 +108,4 @@ func TestLimiter(t *testing.T) {
 
 	// Check that double close causes an error.
 	assert.ErrorIs(t, limited.Close(), net.ErrClosed)
-}
-
-func TestLimiter_badConf(t *testing.T) {
-	l, err := connlimiter.New(&connlimiter.Config{
-		Logger: slogutil.NewDiscardLogger(),
-		Stop:   1,
-		Resume: 2,
-	})
-	assert.Nil(t, l)
-	assert.Error(t, err)
 }

@@ -45,7 +45,7 @@ func (mw *Middleware) recordQueryInfo(
 
 	reqInfo := dnsserver.MustRequestInfoFromContext(ctx)
 	start := reqInfo.StartTime
-	mw.billStat.Record(ctx, devID, reqCtry, reqASN, start, ri.Proto)
+	mw.billStat.Record(ctx, devID, reqCtry, reqASN, start, ri.ServerInfo.Protocol)
 
 	if !prof.QueryLogEnabled {
 		return
@@ -80,7 +80,7 @@ func (mw *Middleware) recordQueryInfo(
 		ClientASN:       reqASN,
 		RequestType:     ri.QType,
 		ResponseCode:    rcode,
-		Protocol:        ri.Proto,
+		Protocol:        ri.ServerInfo.Protocol,
 		DNSSEC:          respDNSSEC,
 		RemoteIP:        clientIP,
 	}

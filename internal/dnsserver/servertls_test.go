@@ -10,7 +10,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 )
@@ -100,7 +100,7 @@ func TestServerTLS_integration_msgIgnore(t *testing.T) {
 			conn, err := tls.Dial("tcp", addr.String(), tlsConfig)
 			require.Nil(t, err)
 
-			defer log.OnCloserError(conn, log.DEBUG)
+			testutil.CleanupAndRequireSuccess(t, conn.Close)
 
 			// Write the invalid request
 			_, err = conn.Write(tc.buf)
@@ -161,7 +161,7 @@ func TestServerTLS_integration_queriesPipelining(t *testing.T) {
 	conn, err := tls.Dial("tcp", addr.String(), tlsConfig)
 	require.Nil(t, err)
 
-	defer log.OnCloserError(conn, log.DEBUG)
+	testutil.CleanupAndRequireSuccess(t, conn.Close)
 
 	// Second - write multiple queries (let's say 100) and save
 	// those queries IDs

@@ -7,11 +7,11 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/golibs/httphdr"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
@@ -19,6 +19,14 @@ import (
 )
 
 func TestLinkedIPProxy_ServeHTTP(t *testing.T) {
+	const (
+		badRemoteIP = "192.0.2.2"
+
+		realRemoteIP   = "192.0.2.1"
+		realRemoteAddr = realRemoteIP + ":12345"
+		realHost       = "link-ip.example"
+	)
+
 	var (
 		apiURL *url.URL
 		numReq atomic.Uint64
@@ -30,18 +38,18 @@ func TestLinkedIPProxy_ServeHTTP(t *testing.T) {
 		hdr := r.Header
 
 		require.Equal(pt, agdhttp.UserAgent(), hdr.Get(httphdr.UserAgent))
-		require.NotEmpty(pt, hdr.Get(httphdr.XConnectingIP))
 		require.NotEmpty(pt, hdr.Get(httphdr.XRequestID))
+
+		require.Equal(pt, apiURL.Host, r.Host)
+		require.Equal(pt, realRemoteIP, hdr.Get(httphdr.XForwardedFor))
+		require.Equal(pt, realRemoteIP, hdr.Get(httphdr.XConnectingIP))
+		require.Equal(pt, realHost, hdr.Get(httphdr.XForwardedHost))
+		require.Equal(pt, urlutil.SchemeHTTP, hdr.Get(httphdr.XForwardedProto))
 
 		require.Empty(pt, hdr.Get(httphdr.CFConnectingIP))
 		require.Empty(pt, hdr.Get(httphdr.Forwarded))
 		require.Empty(pt, hdr.Get(httphdr.TrueClientIP))
-		require.Empty(pt, hdr.Get(httphdr.XForwardedFor))
-		require.Empty(pt, hdr.Get(httphdr.XForwardedHost))
-		require.Empty(pt, hdr.Get(httphdr.XForwardedProto))
 		require.Empty(pt, hdr.Get(httphdr.XRealIP))
-
-		require.Equal(pt, apiURL.Host, r.Host)
 
 		numReq.Add(1)
 	})
@@ -52,7 +60,7 @@ func TestLinkedIPProxy_ServeHTTP(t *testing.T) {
 	apiURL, err := url.Parse(srv.URL)
 	require.NoError(t, err)
 
-	h := linkedIPHandler(apiURL, agdtest.NewErrorCollector(), "test", 2*time.Second)
+	h := newLinkedIPHandler(apiURL, agdtest.NewErrorCollector(), testLogger, testTimeout)
 
 	testCases := []struct {
 		name                    string
@@ -107,20 +115,26 @@ func TestLinkedIPProxy_ServeHTTP(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			r := httptest.NewRequest(tc.method, (&url.URL{
+			ctx := testutil.ContextWithTimeout(t, testTimeout)
+			ctx = slogutil.ContextWithLogger(ctx, testLogger)
+
+			r := httptest.NewRequestWithContext(ctx, tc.method, (&url.URL{
 				Scheme: urlutil.SchemeHTTP,
-				Host:   "link-ip.example",
+				Host:   realHost,
 				Path:   tc.path,
 			}).String(), strings.NewReader(""))
 
-			// Set some test headers.
-			r.Header.Set(httphdr.CFConnectingIP, "1.1.1.1")
-			r.Header.Set(httphdr.Forwarded, "1.1.1.1")
-			r.Header.Set(httphdr.TrueClientIP, "1.1.1.1")
-			r.Header.Set(httphdr.XForwardedFor, "1.1.1.1")
-			r.Header.Set(httphdr.XForwardedHost, "forward.example")
-			r.Header.Set(httphdr.XForwardedProto, "https")
-			r.Header.Set(httphdr.XRealIP, "1.1.1.1")
+			// Set the IP address that should be proxied.
+			r.RemoteAddr = realRemoteAddr
+
+			// Set some test headers to make sure they're not proxied.
+			r.Header.Set(httphdr.CFConnectingIP, badRemoteIP)
+			r.Header.Set(httphdr.Forwarded, badRemoteIP)
+			r.Header.Set(httphdr.TrueClientIP, badRemoteIP)
+			r.Header.Set(httphdr.XForwardedFor, badRemoteIP)
+			r.Header.Set(httphdr.XForwardedHost, "bad.example")
+			r.Header.Set(httphdr.XForwardedProto, "foo")
+			r.Header.Set(httphdr.XRealIP, badRemoteIP)
 
 			rw := httptest.NewRecorder()
 

@@ -12,46 +12,26 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/version"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/testutil/sentrytest"
 	"github.com/getsentry/sentry-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// testSentryTransport is a sentry.Transport for tests.
-type testSentryTransport struct {
-	onConfigure func(opts sentry.ClientOptions)
-	onFlush     func(timeout time.Duration) (ok bool)
-	onSend      func(e *sentry.Event)
-}
-
-// type check
-var _ sentry.Transport = (*testSentryTransport)(nil)
-
-// Configure implements the sentry.Transport interface for *testSentryTransport.
-func (t *testSentryTransport) Configure(ops sentry.ClientOptions) {
-	t.onConfigure(ops)
-}
-
-// Flush implements the sentry.Transport interface for *testSentryTransport.
-func (t *testSentryTransport) Flush(timeout time.Duration) (ok bool) {
-	return t.onFlush(timeout)
-}
-
-// Send implements the sentry.Transport interface for *testSentryTransport.
-func (t *testSentryTransport) SendEvent(e *sentry.Event) {
-	t.onSend(e)
-}
-
 func TestSentryErrorCollector(t *testing.T) {
 	gotEventCh := make(chan *sentry.Event, 1)
-	tr := &testSentryTransport{
-		onConfigure: func(_ sentry.ClientOptions) {
+	tr := &sentrytest.Transport{
+		OnClose: func() {
 			// Do nothing.
 		},
-		onFlush: func(_ time.Duration) (ok bool) {
+		OnConfigure: func(_ sentry.ClientOptions) {
+			// Do nothing.
+		},
+		OnFlush: func(_ time.Duration) (ok bool) {
 			return true
 		},
-		onSend: func(e *sentry.Event) {
+		OnSendEvent: func(e *sentry.Event) {
 			gotEventCh <- e
 		},
 	}
@@ -63,7 +43,7 @@ func TestSentryErrorCollector(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	c := errcoll.NewSentryErrorCollector(sentryClient)
+	c := errcoll.NewSentryErrorCollector(sentryClient, slogutil.NewDiscardLogger())
 
 	const devID = "dev1234"
 	const fltGrpID = "fg1234"

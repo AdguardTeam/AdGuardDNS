@@ -3,6 +3,7 @@ package cmd
 import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/validate"
 )
 
 // accessConfig is the configuration that controls IP and hosts blocking.
@@ -15,10 +16,10 @@ type accessConfig struct {
 }
 
 // type check
-var _ validator = (*accessConfig)(nil)
+var _ validate.Interface = (*accessConfig)(nil)
 
-// validate implements the [validator] interface for *accessConfig.
-func (c *accessConfig) validate() (err error) {
+// Validate implements the [validate.Interface] interface for *accessConfig.
+func (c *accessConfig) Validate() (err error) {
 	if c == nil {
 		return errors.ErrNoValue
 	}

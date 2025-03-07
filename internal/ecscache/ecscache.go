@@ -13,7 +13,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
@@ -21,42 +20,12 @@ import (
 	"github.com/miekg/dns"
 )
 
-// Constants that define cache identifiers for the cache manager.
-const (
-	cachePrefix    = "dns/"
-	cacheIDWithECS = cachePrefix + "ecscache_with_ecs"
-	cacheIDNoECS   = cachePrefix + "ecscache_no_ecs"
-)
-
-// Middleware is a dnsserver.Middleware with ECS-aware caching.
-type Middleware struct {
-	// cloner is the memory-efficient cloner of DNS messages.
-	cloner *dnsmsg.Cloner
-
-	// cacheReqPool is a pool of cache requests.
-	cacheReqPool *syncutil.Pool[cacheRequest]
-
-	// logger is used to log the operation of the middleware.
-	logger *slog.Logger
-
-	// cache is the LRU cache for results indicating no support for ECS.
-	cache agdcache.Interface[uint64, *cacheItem]
-
-	// ecsCache is the LRU cache for results indicating ECS support.
-	ecsCache agdcache.Interface[uint64, *cacheItem]
-
-	// geoIP is used to get subnets for countries.
-	geoIP geoip.Interface
-
-	// cacheMinTTL is the minimum supported TTL for cache items.
-	cacheMinTTL time.Duration
-
-	// overrideTTL shows if the TTL overrides logic should be used.
-	overrideTTL bool
-}
-
 // MiddlewareConfig is the configuration structure for [NewMiddleware].
 type MiddlewareConfig struct {
+	// Metrics is used for the collection of the ECS cache middleware
+	// statistics.  It must not be nil.
+	Metrics Metrics
+
 	// Cloner is used to clone messages taken from cache.  It must not be nil.
 	Cloner *dnsmsg.Cloner
 
@@ -86,6 +55,43 @@ type MiddlewareConfig struct {
 	OverrideTTL bool
 }
 
+// Middleware is a dnsserver.Middleware with ECS-aware caching.
+type Middleware struct {
+	// metrics is used for the collection of the ECS cache statistics.
+	metrics Metrics
+
+	// cloner is the memory-efficient cloner of DNS messages.
+	cloner *dnsmsg.Cloner
+
+	// cacheReqPool is a pool of cache requests.
+	cacheReqPool *syncutil.Pool[cacheRequest]
+
+	// logger is used to log the operation of the middleware.
+	logger *slog.Logger
+
+	// cache is the LRU cache for results indicating no support for ECS.
+	cache agdcache.Interface[uint64, *cacheItem]
+
+	// ecsCache is the LRU cache for results indicating ECS support.
+	ecsCache agdcache.Interface[uint64, *cacheItem]
+
+	// geoIP is used to get subnets for countries.
+	geoIP geoip.Interface
+
+	// cacheMinTTL is the minimum supported TTL for cache items.
+	cacheMinTTL time.Duration
+
+	// overrideTTL shows if the TTL overrides logic should be used.
+	overrideTTL bool
+}
+
+// Constants that define cache identifiers for the cache manager.
+const (
+	cachePrefix    = "dns/"
+	cacheIDWithECS = cachePrefix + "ecscache_with_ecs"
+	cacheIDNoECS   = cachePrefix + "ecscache_no_ecs"
+)
+
 // NewMiddleware initializes a new ECS-aware LRU caching middleware.  It also
 // adds the caches with IDs [CacheIDNoECS] and [CacheIDWithECS] to the cache
 // manager.  c must not be nil.
@@ -101,8 +107,9 @@ func NewMiddleware(c *MiddlewareConfig) (m *Middleware) {
 	c.CacheManager.Add(cacheIDWithECS, ecsCache)
 
 	return &Middleware{
-		cloner: c.Cloner,
-		logger: c.Logger,
+		metrics: c.Metrics,
+		cloner:  c.Cloner,
+		logger:  c.Logger,
 		cacheReqPool: syncutil.NewPool(func() (req *cacheRequest) {
 			return &cacheRequest{}
 		}),
@@ -134,19 +141,7 @@ func writeCachedResponse(
 	resp *dns.Msg,
 	ecs *dnsmsg.ECS,
 	ecsFam netutil.AddrFamily,
-	respIsECSDependent bool,
 ) (err error) {
-	// Increment the hits metrics here, since we already know if the domain name
-	// supports ECS or not from the cache data.  Increment the misses metrics in
-	// writeResponse, where this information is retrieved from the upstream
-	metrics.ECSCacheLookupTotalHits.Inc()
-
-	metrics.IncrementCond(
-		respIsECSDependent,
-		metrics.ECSCacheLookupHasSupportHits,
-		metrics.ECSCacheLookupNoSupportHits,
-	)
-
 	// If the client query did include the ECS option, the server MUST include
 	// one in its response.
 	//
@@ -237,18 +232,18 @@ func (mw *Middleware) writeUpstreamResponse(
 	reqDO := cr.reqDO
 	rmHopToHopData(resp, ri.QType, reqDO)
 
-	metrics.ECSCacheLookupTotalMisses.Inc()
-
 	respIsECS := respIsECSDependent(scope, req.Question[0].Name)
-	if respIsECS {
-		metrics.ECSCacheLookupHasSupportMisses.Inc()
-		metrics.ECSHasSupportCacheSize.Set(float64(mw.ecsCache.Len()))
-	} else {
-		metrics.ECSCacheLookupNoSupportMisses.Inc()
-		metrics.ECSNoSupportCacheSize.Set(float64(mw.cache.Len()))
 
+	var cache agdcache.Interface[uint64, *cacheItem]
+	if respIsECS {
+		cache = mw.ecsCache
+	} else {
+		cache = mw.cache
 		cr.subnet = netutil.ZeroPrefix(ecsFam)
 	}
+
+	mw.metrics.SetElementsCount(ctx, respIsECS, cache.Len())
+	mw.metrics.IncrementLookups(ctx, respIsECS, false)
 
 	mw.set(resp, cr, respIsECS)
 
@@ -343,8 +338,14 @@ func (mh *mwHandler) ServeDNS(
 	if resp != nil {
 		optslog.Debug1(ctx, mw.logger, "using cached response", "ecs_aware", respIsECS)
 
+		// Increment the hits metrics here, since we already know if the domain
+		// name supports ECS or not from the cache data.  Increment the misses
+		// metrics in writeUpstreamResponse, where this information is retrieved
+		// from the upstream.
+		mw.metrics.IncrementLookups(ctx, respIsECS, true)
+
 		// Don't wrap the error, because it's informative enough as is.
-		return writeCachedResponse(ctx, rw, req, resp, ri.ECS, ecsFam, respIsECS)
+		return writeCachedResponse(ctx, rw, req, resp, ri.ECS, ecsFam)
 	}
 
 	mw.logger.DebugContext(ctx, "no cached response")

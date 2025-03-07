@@ -5,11 +5,11 @@ import "context"
 // Metrics is an interface that is used for the collection of the billing
 // statistics.
 type Metrics interface {
-	// BufferSizeSet sets the number of stored records to n.
-	BufferSizeSet(ctx context.Context, n float64)
+	// SetRecordCount sets the total number of records stored.
+	SetRecordCount(ctx context.Context, count int)
 
 	// HandleUploadDuration handles the upload duration of billing statistics.
-	HandleUploadDuration(ctx context.Context, dur float64, isSuccess bool)
+	HandleUploadDuration(ctx context.Context, dur float64, err error)
 }
 
 // EmptyMetrics is the implementation of the [Metrics] interface that does
@@ -19,8 +19,8 @@ type EmptyMetrics struct{}
 // type check
 var _ Metrics = EmptyMetrics{}
 
-// BufferSizeSet implements the [Metrics] interface for EmptyMetrics.
-func (EmptyMetrics) BufferSizeSet(_ context.Context, _ float64) {}
+// SetRecordCount implements the [Metrics] interface for EmptyMetrics.
+func (EmptyMetrics) SetRecordCount(_ context.Context, _ int) {}
 
 // HandleUploadDuration implements the [Metrics] interface for EmptyMetrics.
-func (EmptyMetrics) HandleUploadDuration(_ context.Context, _ float64, _ bool) {}
+func (EmptyMetrics) HandleUploadDuration(_ context.Context, _ float64, _ error) {}

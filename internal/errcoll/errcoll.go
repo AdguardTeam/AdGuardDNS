@@ -7,22 +7,14 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/service"
 )
 
 // Interface is the interface for error collectors that process information
 // about errors, possibly sending them to a remote location.
 type Interface interface {
 	Collect(ctx context.Context, err error)
-}
-
-// Collectf is a helper method for reporting non-critical errors.  It writes the
-// resulting error into the log and also into errColl.
-func Collectf(ctx context.Context, errColl Interface, format string, args ...any) {
-	err := fmt.Errorf(format, args...)
-	log.Error("%s", err)
-	errColl.Collect(ctx, err)
 }
 
 // Collect is a helper method for reporting non-critical errors.  It writes the
@@ -32,4 +24,29 @@ func Collectf(ctx context.Context, errColl Interface, format string, args ...any
 func Collect(ctx context.Context, errColl Interface, l *slog.Logger, msg string, err error) {
 	l.ErrorContext(ctx, msg, slogutil.KeyError, err)
 	errColl.Collect(ctx, fmt.Errorf("%s: %w", msg, err))
+}
+
+// RefreshErrorHandler is a [service.ErrorHandler] that can be used whenever a
+// [service.Refresher] cannot report its own errors for some reason.
+type RefreshErrorHandler struct {
+	logger  *slog.Logger
+	errColl Interface
+}
+
+// NewRefreshErrorHandler returns a properly initialized *RefreshErrorHandler.
+// All arguments must not be nil.
+func NewRefreshErrorHandler(logger *slog.Logger, errColl Interface) (h *RefreshErrorHandler) {
+	return &RefreshErrorHandler{
+		logger:  logger,
+		errColl: errColl,
+	}
+}
+
+// type check
+var _ service.ErrorHandler = (*RefreshErrorHandler)(nil)
+
+// Handle implements the [service.ErrorHandler] interface for
+// *RefreshErrorHandler.
+func (h *RefreshErrorHandler) Handle(ctx context.Context, err error) {
+	Collect(ctx, h.errColl, h.logger, "refreshing", err)
 }

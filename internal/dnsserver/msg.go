@@ -18,21 +18,6 @@ func genErrorResponse(req *dns.Msg, code int) (m *dns.Msg) {
 	return m
 }
 
-// questionData extracts DNS Question data in a safe manner.
-func questionData(m *dns.Msg) (hostname, qType string) {
-	if len(m.Question) > 0 {
-		q := m.Question[0]
-		hostname = q.Name
-		if v, ok := dns.TypeToString[q.Qtype]; ok {
-			qType = v
-		} else {
-			qType = fmt.Sprintf("TYPE%d", q.Qtype)
-		}
-	}
-
-	return hostname, qType
-}
-
 // packWithPrefix packs a DNS message with a 2-byte prefix with the message
 // length by appending it into buf and returns it.
 func packWithPrefix(m *dns.Msg, buf []byte) (packed []byte, err error) {

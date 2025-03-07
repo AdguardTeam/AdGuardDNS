@@ -9,19 +9,19 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/service"
 )
 
 // type check
-var _ agdservice.Refresher = (*Default)(nil)
+var _ service.Refresher = (*Default)(nil)
 
-// Refresh implements the [agdservice.Refresher] interface for *Default.
+// Refresh implements the [service.Refresher] interface for *Default.
 func (s *Default) Refresh(ctx context.Context) (err error) {
 	s.logger.InfoContext(ctx, "refresh started")
 	defer s.logger.InfoContext(ctx, "refresh finished")

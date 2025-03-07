@@ -10,31 +10,28 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/composite"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/serviceblock"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 )
 
 // Default is the default filter storage that assembles filters based on rule
-// lists, custom filters of profiles, safe browsing, and safe search ones.  It
-// should be initially refreshed with [Default.RefreshInitial].
+// lists, safe browsing, and safe search ones.  It should be initially refreshed
+// with [Default.RefreshInitial].
 type Default struct {
 	baseLogger *slog.Logger
 	logger     *slog.Logger
 
 	services *serviceblock.Filter
-
-	custom *custom.Filters
 
 	adult           *hashprefix.Filter
 	dangerous       *hashprefix.Filter
@@ -50,7 +47,7 @@ type Default struct {
 	ruleListIdxRefr *refreshable.Refreshable
 
 	cacheManager agdcache.Manager
-	clock        agdtime.Clock
+	clock        timeutil.Clock
 	errColl      errcoll.Interface
 	metrics      filter.Metrics
 
@@ -82,9 +79,6 @@ func New(c *Config) (s *Default, err error) {
 
 		// Initialized in [Default.initBlockedServices].
 		services: nil,
-
-		// Initialized in [Default.initCustom].
-		custom: nil,
 
 		adult:           c.HashPrefix.Adult,
 		dangerous:       c.HashPrefix.Dangerous,
@@ -132,8 +126,6 @@ func New(c *Config) (s *Default, err error) {
 
 // init finishes the initialization of a storage.  c must not be nil.
 func (s *Default) init(c *Config) (err error) {
-	s.initCustom(c.Custom)
-
 	var errs []error
 	err = s.initBlockedServices(c.BlockedServices)
 	if err != nil {
@@ -154,21 +146,6 @@ func (s *Default) init(c *Config) (err error) {
 	}
 
 	return errors.Join(errs...)
-}
-
-// initCustom initializes the custom-filter storage in s.  c must not be nil.
-func (s *Default) initCustom(c *ConfigCustom) {
-	s.custom = custom.New(&custom.Config{
-		Logger: s.baseLogger.With(
-			slogutil.KeyPrefix,
-			path.Join("filters", string(filter.IDCustom)),
-		),
-		ErrColl: s.errColl,
-		CacheConf: &agdcache.LRUConfig{
-			Count: c.CacheCount,
-		},
-		CacheManager: s.cacheManager,
-	})
 }
 
 // initBlockedServices initializes the blocked-service filter in s.  c must not
@@ -298,13 +275,15 @@ func (s *Default) forClient(ctx context.Context, c *filter.ConfigClient) (f filt
 	s.setRuleLists(compConf, c.RuleList)
 	s.setSafeBrowsing(compConf, c.SafeBrowsing)
 
-	compConf.Custom = s.custom.Get(ctx, c.Custom)
+	if c.Custom.Enabled {
+		compConf.Custom = c.Custom.Filter
+	}
 
 	return composite.New(compConf)
 }
 
-// setParental sets the parental-control filters in compConf from c.  c must not
-// be nil.
+// setParental checks if the parental-control filters are enabled and, if they
+// are, sets them in compConf from c.  c must not be nil.
 func (s *Default) setParental(
 	ctx context.Context,
 	compConf *composite.Config,
@@ -319,15 +298,27 @@ func (s *Default) setParental(
 		return
 	}
 
-	if c.AdultBlockingEnabled {
+	s.setEnabledParental(ctx, compConf, c)
+}
+
+// setEnabledParental sets the parental-control filters in compConf from c.  c
+// must not be nil.
+func (s *Default) setEnabledParental(
+	ctx context.Context,
+	compConf *composite.Config,
+	c *filter.ConfigParental,
+) {
+	// NOTE:  Here and below always check the pointer for nil to avoid non-nil
+	// interface values containing nil pointers.
+	if c.AdultBlockingEnabled && s.adult != nil {
 		compConf.AdultBlocking = s.adult
 	}
 
-	if c.SafeSearchGeneralEnabled {
+	if c.SafeSearchGeneralEnabled && s.safeSearchGeneral != nil {
 		compConf.GeneralSafeSearch = s.safeSearchGeneral
 	}
 
-	if c.SafeSearchYouTubeEnabled {
+	if c.SafeSearchYouTubeEnabled && s.safeSearchYouTube != nil {
 		compConf.YouTubeSafeSearch = s.safeSearchYouTube
 	}
 
@@ -361,11 +352,11 @@ func (s *Default) setSafeBrowsing(compConf *composite.Config, c *filter.ConfigSa
 		return
 	}
 
-	if c.DangerousDomainsEnabled {
+	if c.DangerousDomainsEnabled && s.dangerous != nil {
 		compConf.SafeBrowsing = s.dangerous
 	}
 
-	if c.NewlyRegisteredDomainsEnabled {
+	if c.NewlyRegisteredDomainsEnabled && s.newlyRegistered != nil {
 		compConf.NewRegisteredDomains = s.newlyRegistered
 	}
 }

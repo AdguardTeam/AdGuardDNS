@@ -116,18 +116,17 @@ func (mw *Middleware) isDDRRequest(ri *agd.RequestInfo) (ok bool) {
 		return true
 	}
 
-	return isDDRDomain(ri, host)
+	return mw.isDDRDomain(ri, host)
 }
 
 // isDDRDomain returns true if host is a DDR domain.
-func isDDRDomain(ri *agd.RequestInfo, host string) (ok bool) {
+func (mw *Middleware) isDDRDomain(ri *agd.RequestInfo, host string) (ok bool) {
 	firstLabel, resolverDomain, cut := strings.Cut(host, ".")
 	if !cut || firstLabel != DDRLabel {
 		return false
 	}
 
-	ddr := ri.ServerGroup.DDR
-	if ddr.PublicTargets.Has(resolverDomain) {
+	if mw.ddr.PublicTargets.Has(resolverDomain) {
 		// The client may simply send a DNS SVCB query using the known name of
 		// the resolver.  This query can be issued to the named Encrypted
 		// Resolver itself or to any other resolver.  Unlike the case of
@@ -144,7 +143,7 @@ func isDDRDomain(ri *agd.RequestInfo, host string) (ok bool) {
 	firstLabel, resolverDomain, cut = strings.Cut(resolverDomain, ".")
 	if cut && firstLabel == string(dev.ID) {
 		// A request for the device ID resolver domain.
-		return ddr.DeviceTargets.Has(resolverDomain)
+		return mw.ddr.DeviceTargets.Has(resolverDomain)
 	}
 
 	return false
@@ -162,7 +161,7 @@ func (mw *Middleware) handleDDR(
 
 	metrics.DNSSvcDDRRequestsTotal.Inc()
 
-	if ri.ServerGroup.DDR.Enabled {
+	if mw.ddr.Enabled {
 		return rw.WriteMsg(ctx, req, mw.newRespDDR(req, ri))
 	}
 
@@ -181,7 +180,7 @@ func (mw *Middleware) handleDDRNoData(
 
 	metrics.DNSSvcDDRRequestsTotal.Inc()
 
-	if ri.ServerGroup.DDR.Enabled {
+	if mw.ddr.Enabled {
 		return rw.WriteMsg(ctx, req, ri.Messages.NewRespRCode(req, dns.RcodeSuccess))
 	}
 
@@ -194,11 +193,10 @@ func (mw *Middleware) handleDDRNoData(
 func (mw *Middleware) newRespDDR(req *dns.Msg, ri *agd.RequestInfo) (resp *dns.Msg) {
 	resp = ri.Messages.NewResp(req)
 	name := req.Question[0].Name
-	ddr := ri.ServerGroup.DDR
 
 	// TODO(a.garipov):  Optimize calls to ri.DeviceData.
 	if _, dev := ri.DeviceData(); dev != nil {
-		for _, rr := range ddr.DeviceRecordTemplates {
+		for _, rr := range mw.ddr.DeviceRecordTemplates {
 			rr = dns.Copy(rr).(*dns.SVCB)
 			rr.Hdr.Name = name
 			rr.Target = string(dev.ID) + "." + rr.Target
@@ -209,7 +207,7 @@ func (mw *Middleware) newRespDDR(req *dns.Msg, ri *agd.RequestInfo) (resp *dns.M
 		return resp
 	}
 
-	for _, rr := range ddr.PublicRecordTemplates {
+	for _, rr := range mw.ddr.PublicRecordTemplates {
 		rr = dns.Copy(rr).(*dns.SVCB)
 		rr.Hdr.Name = name
 

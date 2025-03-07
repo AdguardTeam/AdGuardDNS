@@ -14,7 +14,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 )
@@ -30,11 +30,11 @@ type Filter struct {
 	services serviceRuleLists
 
 	errColl errcoll.Interface
-	metrics internal.Metrics
+	metrics filter.Metrics
 }
 
 // serviceRuleLists is convenient alias for an ID to filter mapping.
-type serviceRuleLists = map[internal.BlockedServiceID]*rulelist.Immutable
+type serviceRuleLists = map[filter.BlockedServiceID]*rulelist.Immutable
 
 // Config is the configuration for the service-blocking filter.
 type Config struct {
@@ -48,7 +48,7 @@ type Config struct {
 
 	// Metrics are the metrics for the service-blocking filter.  It must not be
 	// nil.
-	Metrics internal.Metrics
+	Metrics filter.Metrics
 }
 
 // New returns a fully initialized service blocker.  c must not be nil and must
@@ -73,7 +73,7 @@ func New(c *Config) (f *Filter, err error) {
 // The order of the elements in rls is undefined.
 func (f *Filter) RuleLists(
 	ctx context.Context,
-	ids []internal.BlockedServiceID,
+	ids []filter.BlockedServiceID,
 ) (rls []*rulelist.Immutable) {
 	if len(ids) == 0 {
 		return nil
@@ -105,7 +105,7 @@ func (f *Filter) Refresh(
 	var count int
 	defer func() {
 		// TODO(a.garipov):  Consider using [agdtime.Clock].
-		f.metrics.SetFilterStatus(ctx, string(internal.IDBlockedService), time.Now(), count, err)
+		f.metrics.SetFilterStatus(ctx, string(filter.IDBlockedService), time.Now(), count, err)
 	}()
 
 	resp, err := f.loadIndex(ctx, acceptStale)

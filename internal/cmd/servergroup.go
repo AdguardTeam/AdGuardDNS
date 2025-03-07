@@ -7,9 +7,11 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/validate"
 )
 
 // serverGroups are the DNS server groups.  A valid instance of serverGroups has
@@ -26,8 +28,8 @@ func (srvGrps serverGroups) toInternal(
 	fltGrps map[agd.FilteringGroupID]*agd.FilteringGroup,
 	ratelimitConf *rateLimitConfig,
 	dnsConf *dnsConfig,
-) (svcSrvGrps []*agd.ServerGroup, err error) {
-	svcSrvGrps = make([]*agd.ServerGroup, len(srvGrps))
+) (svcSrvGrps []*dnssvc.ServerGroupConfig, err error) {
+	svcSrvGrps = make([]*dnssvc.ServerGroupConfig, len(srvGrps))
 	for i, g := range srvGrps {
 		fltGrpID := agd.FilteringGroupID(g.FilteringGroup)
 		_, ok := fltGrps[fltGrpID]
@@ -41,7 +43,7 @@ func (srvGrps serverGroups) toInternal(
 			return nil, fmt.Errorf("tls %q: %w", g.Name, err)
 		}
 
-		svcSrvGrps[i] = &agd.ServerGroup{
+		svcSrvGrps[i] = &dnssvc.ServerGroupConfig{
 			DDR:             g.DDR.toInternal(messages),
 			DeviceDomains:   deviceDomains,
 			Name:            agd.ServerGroupName(g.Name),
@@ -65,29 +67,34 @@ func (srvGrps serverGroups) toInternal(
 }
 
 // type check
-var _ validator = serverGroups(nil)
+var _ validate.Interface = serverGroups(nil)
 
-// validate implements the [validator] interface for serverGroups.
-func (srvGrps serverGroups) validate() (err error) {
+// Validate implements the [validate.Interface] interface for serverGroups.
+func (srvGrps serverGroups) Validate() (err error) {
 	if len(srvGrps) == 0 {
 		return errors.ErrEmptyValue
 	}
 
+	var errs []error
 	names := container.NewMapSet[string]()
 	for i, g := range srvGrps {
-		err = g.validate()
+		err = g.Validate()
 		if err != nil {
-			return fmt.Errorf("at index %d: %w", i, err)
+			errs = append(errs, fmt.Errorf("at index %d: %w", i, err))
+
+			continue
 		}
 
 		if names.Has(g.Name) {
-			return fmt.Errorf("at index %d: name: %w: %q", i, errors.ErrDuplicated, g.Name)
+			errs = append(errs, fmt.Errorf("at index %d: %w: %q", i, errors.ErrDuplicated, g.Name))
+
+			continue
 		}
 
 		names.Add(g.Name)
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // serverGroup defines a group of DNS servers all of which use the same
@@ -118,35 +125,32 @@ type serverGroup struct {
 }
 
 // type check
-var _ validator = (*serverGroup)(nil)
+var _ validate.Interface = (*serverGroup)(nil)
 
-// validate implements the [validator] interface for *serverGroup.
-func (g *serverGroup) validate() (err error) {
-	switch {
-	case g == nil:
+// Validate implements the [validate.Interface] interface for *serverGroup.
+func (g *serverGroup) Validate() (err error) {
+	if g == nil {
 		return errors.ErrNoValue
-	case g.Name == "":
-		return fmt.Errorf("name: %w", errors.ErrEmptyValue)
-	case g.FilteringGroup == "":
-		return fmt.Errorf("filtering_group: %w", errors.ErrEmptyValue)
 	}
 
-	err = g.DDR.validate()
+	errs := []error{
+		validate.NotEmpty("name", g.Name),
+		validate.NotEmpty("filtering_group", g.FilteringGroup),
+	}
+
+	errs = validate.Append(errs, "ddr", g.DDR)
+
+	needsTLS, err := g.Servers.validateWithTLS()
 	if err != nil {
-		return fmt.Errorf("ddr: %w", err)
+		errs = append(errs, fmt.Errorf("servers: %w", err))
 	}
 
-	needsTLS, err := g.Servers.validate()
+	err = g.TLS.validateIfNecessary(needsTLS)
 	if err != nil {
-		return fmt.Errorf("servers: %w", err)
+		errs = append(errs, fmt.Errorf("tls: %w", err))
 	}
 
-	err = g.TLS.validate(needsTLS)
-	if err != nil {
-		return fmt.Errorf("tls: %w", err)
-	}
-
-	return nil
+	return errors.Join(errs...)
 }
 
 // collectSessTicketPaths returns the list of unique session ticket file paths
@@ -154,7 +158,12 @@ func (g *serverGroup) validate() (err error) {
 func (srvGrps serverGroups) collectSessTicketPaths() (paths []string) {
 	set := container.NewSortedSliceSet[string]()
 	for _, g := range srvGrps {
-		for _, k := range g.TLS.SessionKeys {
+		grpTLS := g.TLS
+		if grpTLS == nil {
+			continue
+		}
+
+		for _, k := range grpTLS.SessionKeys {
 			set.Add(k)
 		}
 	}

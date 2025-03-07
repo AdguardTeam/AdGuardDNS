@@ -2,14 +2,22 @@
 
 All notable environment, configuration file, and other changes to this project will be documented in this file.
 
-The format is **not** based on [Keep a Changelog][kec], since the project **doesn't** currently adhere to [Semantic Versioning][sem].
+The format is **not** based on [Keep a Changelog][kec], since the project **doesn’t** currently adhere to [Semantic Versioning][sem].
 
 [kec]: https://keepachangelog.com/en/1.0.0/
 [sem]: https://semver.org/spec/v2.0.0.html
 
+## AGDNS-2360 / Build 969
+
+- The environment variable `LOG_FORMAT` has been added.
+
+## AGDNS-1519 / Build 944
+
+- Profiles’ file cache version was incremented.
+
 ## AGDNS-2507 / Build 926
 
-- Profile's file cache version was incremented. The file cache structure has been optimized, so messages like the following are to be expected:
+- Profiles’ file cache version was incremented. The file cache structure has been optimized, so messages like the following are to be expected:
 
     ```none
     profiledb: warning: error loading fs cache err="decoding protobuf: proto: cannot parse invalid wire-format data"
@@ -17,7 +25,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
 ## AGDNS-2327 / Build 916
 
-- Profile's file cache version was incremented. The new field `BlockChromePrefetch` has been added to profile's object.
+- Profiles’ file cache version was incremented. The new field `BlockChromePrefetch` has been added to profile’s object.
 
 - The objects within the `filtering_groups` have a new property, `block_chrome_prefetch`. So replace this:
 
@@ -164,7 +172,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
 ## AGDNS-2331 / Build 818
 
-- Profile's file cache version was incremented. The new field `RateLimit` has been added to profile's object.
+- Profiles’ file cache version was incremented. The new field `RateLimit` has been added to profile’s object.
 
 ## AGDNS-2008 / Build 809
 
@@ -238,7 +246,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
 - The objects within the `server_groups` array had a change in their `block_page_redirect` configuration, it now supports arrays of IP addresses in `ipv4` and `ipv6` fields.
 
-- Profile's file cache version was incremented. In case of `BlockingModeCustomIP` the `profile.blocking_mode` IPv4/IPv6 fields are now arrays of IP addresses.
+- Profiles’ file cache version was incremented. In case of `BlockingModeCustomIP` the `profile.blocking_mode` IPv4/IPv6 fields are now arrays of IP addresses.
 
 ## AGDNS-2012 / Build 732
 
@@ -246,7 +254,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
 ## AGDNS-1879 / Build 729
 
-- Profile's file cache version was incremented. The new field `authentication` has been added to profile's device object.
+- Profiles’ file cache version was incremented. The new field `authentication` has been added to profile’s device object.
 
 ## AGDNS-1934 / Build 728
 
@@ -333,7 +341,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
 ## AGDNS-1761 / Build 702
 
-- The property `upstream` has been modified. Its property `timeout` has been replaced with the new property `servers.timeout` for each server in the `servers` list. Concomitantly the `fallback.timeout` has been replaced with `fallback.servers.timeout` for each fallback server. The `fallback.servers` now supports not only the addresses of the servers, but URLs in the `[scheme://]ip:port` format like it's done with the main servers. So replace this:
+- The property `upstream` has been modified. Its property `timeout` has been replaced with the new property `servers.timeout` for each server in the `servers` list. Concomitantly the `fallback.timeout` has been replaced with `fallback.servers.timeout` for each fallback server. The `fallback.servers` now supports not only the addresses of the servers, but URLs in the `[scheme://]ip:port` format like it’s done with the main servers. So replace this:
 
     ```yaml
     upstream:
@@ -494,7 +502,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
 ## AGDNS-1684 / Build 661
 
-- Profile's file cache version was incremented. The new field `access` has been added.
+- Profiles’ file cache version was incremented. The new field `access` has been added.
 
 ## AGDNS-1664 / Build 636
 
@@ -665,7 +673,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
 ## AGDNS-1556 / Build 547
 
-- The object `cache` has a new property `ttl_override`. It describes the TTL override settings, such as the minimum TTL for cache items and the `enabled` switch. It overwrites the TTL from DNS response in case it's less than this minimum value. So replace this:
+- The object `cache` has a new property `ttl_override`. It describes the TTL override settings, such as the minimum TTL for cache items and the `enabled` switch. It overwrites the TTL from DNS response in case it’s less than this minimum value. So replace this:
 
     ```yaml
     cache:
@@ -1137,7 +1145,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
         # …
     ```
 
-    Adjust the values, if necessary. Make sure to synchronize and keep in sync the addresses and ports with the values of the server groups' servers.
+    Adjust the values, if necessary. Make sure to synchronize and keep in sync the addresses and ports with the values of the server groups’ servers.
 
 ## AGDNS-624 / Build 317
 
@@ -1334,7 +1342,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
 ## AGDNS-344 / Build 226
 
-- The environment variables `CONSUL_DNSCHECK_KV_URL` and `CONSUL_DNSCHECK_SESSION_URL` are now unset by default. Which means that by default HTTP key-value database isn't used.
+- The environment variables `CONSUL_DNSCHECK_KV_URL` and `CONSUL_DNSCHECK_SESSION_URL` are now unset by default. Which means that by default HTTP key-value database isn’t used.
 
 ## AGDNS-431 / Build 211
 
@@ -1455,7 +1463,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
 ## AGDNS-305 / Build 114
 
-- The new required environment variable `BLOCKED_SERVICE_INDEX_URL` has been added. It has no default value, so it's necessary to set it.
+- The new required environment variable `BLOCKED_SERVICE_INDEX_URL` has been added. It has no default value, so it’s necessary to set it.
 
 ## AGDNS-319 / Build 113
 
@@ -1479,7 +1487,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
 - The environment variable `CONSUL_URL` has been renamed to `CONSUL_ALLOWLIST_URL`.
 
-- The new required environment variables `CONSUL_DNSCHECK_KV_URL` and `CONSUL_DNSCHECK_SESSION_URL` are added. They have no default value, so it's necessary to set them.
+- The new required environment variables `CONSUL_DNSCHECK_KV_URL` and `CONSUL_DNSCHECK_SESSION_URL` are added. They have no default value, so it’s necessary to set them.
 
 - The object `check` has a new property, `ttl`. Set it to a human-readable duration, for example `1m`.
 
@@ -1499,7 +1507,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
     The default value is `1`, adjust the value, if necessary.
 
-- The environment variable `VERBOSE` doesn't support a set but empty value. Unset the value or replace it with a `0`.
+- The environment variable `VERBOSE` doesn’t support a set but empty value. Unset the value or replace it with a `0`.
 
 ## AGDNS-295 / Build 105
 
@@ -1702,7 +1710,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
 ## AGDNS-139 / Build 73
 
-- The new required environment variable `CONSUL_URL` has been added. It has no default value, so it's necessary to set it.
+- The new required environment variable `CONSUL_URL` has been added. It has no default value, so it’s necessary to set it.
 
 - The ratelimit configuration for a server has changed from this:
 
@@ -1741,7 +1749,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
 ## AGDNS-230 / Build 67
 
-- The new required environment variable `FILTER_INDEX_URL` has been added. It has no default value, so it's necessary to set it.
+- The new required environment variable `FILTER_INDEX_URL` has been added. It has no default value, so it’s necessary to set it.
 
 - The environment variable `BACKEND_ENDPOINT` is now required and has no default value.
 
@@ -1951,7 +1959,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
             key: /test/cert.key
     ```
 
-    The domains to be used in device ID detection are now expected to be contained in the certificate's DNS Names section of SAN.
+    The domains to be used in device ID detection are now expected to be contained in the certificate’s DNS Names section of SAN.
 
 ## AGDNS-167 / Build 39
 

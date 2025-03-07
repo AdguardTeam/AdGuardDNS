@@ -23,10 +23,10 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -186,8 +186,8 @@ func newTestService(
 		return true, false, nil
 	}
 
-	srvGrps := []*agd.ServerGroup{{
-		DDR: &agd.DDR{
+	srvGrps := []*dnssvc.ServerGroupConfig{{
+		DDR: &dnssvc.DDRConfig{
 			Enabled: true,
 		},
 		DeviceDomains:   []string{dnssvctest.DomainForDevices},
@@ -210,7 +210,7 @@ func newTestService(
 	}
 
 	hdlrConf := &dnssvc.HandlersConfig{
-		BaseLogger: slogutil.NewDiscardLogger(),
+		BaseLogger: testLogger,
 		Cache: &dnssvc.CacheConfig{
 			Type: dnssvc.CacheTypeNone,
 		},
@@ -256,14 +256,16 @@ func newTestService(
 	require.NoError(t, err)
 
 	c := &dnssvc.Config{
-		Handlers:         handlers,
-		NewListener:      newTestListenerFunc(tl),
-		Cloner:           agdtest.NewCloner(),
-		ErrColl:          errColl,
-		NonDNS:           http.NotFoundHandler(),
-		MetricsNamespace: path.Base(t.Name()),
-		ServerGroups:     srvGrps,
-		HandleTimeout:    dnssvctest.Timeout,
+		BaseLogger:           testLogger,
+		Handlers:             handlers,
+		NewListener:          newTestListenerFunc(tl),
+		Cloner:               agdtest.NewCloner(),
+		ErrColl:              errColl,
+		NonDNS:               http.NotFoundHandler(),
+		PrometheusRegisterer: prometheus.NewRegistry(),
+		MetricsNamespace:     path.Base(t.Name()),
+		ServerGroups:         srvGrps,
+		HandleTimeout:        dnssvctest.Timeout,
 	}
 
 	svc, err = dnssvc.New(c)

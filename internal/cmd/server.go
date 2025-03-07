@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/netip"
 	"slices"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
@@ -12,6 +13,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/validate"
 )
 
 // toInternal returns the configuration of DNS servers for a single server
@@ -34,14 +36,14 @@ func (srvs servers) toInternal(
 		name := agd.ServerName(srv.Name)
 		dnsSrv := &agd.Server{
 			Name:            name,
-			ReadTimeout:     dnsConf.ReadTimeout.Duration,
-			WriteTimeout:    dnsConf.WriteTimeout.Duration,
+			ReadTimeout:     time.Duration(dnsConf.ReadTimeout),
+			WriteTimeout:    time.Duration(dnsConf.WriteTimeout),
 			LinkedIPEnabled: srv.LinkedIPEnabled,
 			Protocol:        srv.Protocol.toInternal(),
 		}
 
 		tcpConf := &agd.TCPConfig{
-			IdleTimeout:        dnsConf.TCPIdleTimeout.Duration,
+			IdleTimeout:        time.Duration(dnsConf.TCPIdleTimeout),
 			MaxPipelineCount:   ratelimitConf.TCP.MaxPipelineCount,
 			MaxPipelineEnabled: ratelimitConf.TCP.Enabled,
 		}
@@ -113,25 +115,31 @@ func newTLSConfig(
 // nil items.
 type servers []*server
 
-// validate returns an error if the configuration is invalid.
-func (srvs servers) validate() (needsTLS bool, err error) {
+// validateWithTLS returns an error if the configuration is invalid.
+func (srvs servers) validateWithTLS() (needsTLS bool, err error) {
 	if len(srvs) == 0 {
-		return false, errors.Error("no servers")
+		return false, errors.ErrEmptyValue
 	}
 
+	var errs []error
 	names := container.NewMapSet[string]()
 	for i, s := range srvs {
-		if s == nil {
-			return false, fmt.Errorf("at index %d: no server", i)
-		}
-
-		err = s.validate()
+		err = s.Validate()
 		if err != nil {
-			return false, fmt.Errorf("at index %d: %w", i, err)
+			errs = append(errs, fmt.Errorf("at index %d: %w", i, err))
+
+			continue
 		}
 
 		if names.Has(s.Name) {
-			return false, fmt.Errorf("at index %d: name: %w: %q", i, errors.ErrDuplicated, s.Name)
+			errs = append(errs, fmt.Errorf(
+				"at index %d: name: %w: %q",
+				i,
+				errors.ErrDuplicated,
+				s.Name,
+			))
+
+			continue
 		}
 
 		names.Add(s.Name)
@@ -139,7 +147,7 @@ func (srvs servers) validate() (needsTLS bool, err error) {
 		needsTLS = needsTLS || s.Protocol.needsTLS()
 	}
 
-	return needsTLS, nil
+	return needsTLS, errors.Join(errs...)
 }
 
 // serverProto is the type for the server protocols in the on-disk
@@ -181,10 +189,10 @@ func (p serverProto) toInternal() (sp agd.Protocol) {
 }
 
 // type check
-var _ validator = serverProto("")
+var _ validate.Interface = serverProto("")
 
-// validate implements the [validator] interface for serverProto.
-func (p serverProto) validate() (err error) {
+// Validate implements the [validate.Interface] interface for serverProto.
+func (p serverProto) Validate() (err error) {
 	switch p {
 	case srvProtoDNS,
 		srvProtoDNSCrypt,
@@ -265,34 +273,35 @@ func (s *server) bindData(
 }
 
 // type check
-var _ validator = (*server)(nil)
+var _ validate.Interface = (*server)(nil)
 
-// validate implements the [validator] interface for *server.
-func (s *server) validate() (err error) {
-	switch {
-	case s == nil:
+// Validate implements the [validate.Interface] interface for *server.
+func (s *server) Validate() (err error) {
+	if s == nil {
 		return errors.ErrNoValue
-	case s.Name == "":
-		return fmt.Errorf("name: %w", errors.ErrEmptyValue)
+	}
+
+	errs := []error{
+		validate.NotEmpty("name", s.Name),
 	}
 
 	err = s.validateBindData()
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
-		return err
+		errs = append(errs, err)
 	}
 
-	err = s.Protocol.validate()
+	err = s.Protocol.Validate()
 	if err != nil {
-		return fmt.Errorf("protocol: %w", err)
+		errs = append(errs, fmt.Errorf("protocol: %w", err))
 	}
 
-	err = s.DNSCrypt.validate(s.Protocol)
+	err = s.DNSCrypt.validateForProtocol(s.Protocol)
 	if err != nil {
-		return fmt.Errorf("dnscrypt: %w", err)
+		errs = append(errs, fmt.Errorf("dnscrypt: %w", err))
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // validateBindData returns an error if the server's binding data aren't valid.
@@ -303,12 +312,8 @@ func (s *server) validateBindData() (err error) {
 			return errors.Error("bind_addresses and bind_interfaces cannot both be set")
 		}
 
-		err = validateAddrs(s.BindAddresses)
-		if err != nil {
-			return fmt.Errorf("bind_addresses: %w", err)
-		}
-
-		return nil
+		// Don't wrap the error, because it's informative enough as is.
+		return validateBindAddrs(s.BindAddresses)
 	}
 
 	if !bindIfacesSet {
@@ -323,14 +328,21 @@ func (s *server) validateBindData() (err error) {
 		)
 	}
 
-	for i, bindIface := range s.BindInterfaces {
-		err = bindIface.validate()
-		if err != nil {
-			return fmt.Errorf("bind_interfaces: at index %d: %w", i, err)
+	return validate.Slice("bind_interfaces", s.BindInterfaces)
+}
+
+// validateBindAddrs returns an error if any of addrs isn't valid.
+//
+// TODO(a.garipov): Merge with [validateNonNilIPs].
+func validateBindAddrs(addrs []netip.AddrPort) (err error) {
+	var errs []error
+	for i, a := range addrs {
+		if !a.IsValid() {
+			errs = append(errs, fmt.Errorf("bind_addresses: at index %d: invalid addr", i))
 		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // serverBindInterface contains the data for a network interface binding.
@@ -340,33 +352,40 @@ type serverBindInterface struct {
 }
 
 // type check
-var _ validator = (*serverBindInterface)(nil)
+var _ validate.Interface = (*serverBindInterface)(nil)
 
-// validate implements the [validator] interface for *serverBindInterface.
-func (c *serverBindInterface) validate() (err error) {
-	switch {
-	case c == nil:
+// Validate implements the [validate.Interface] interface for *serverBindInterface.
+func (c *serverBindInterface) Validate() (err error) {
+	if c == nil {
 		return errors.ErrNoValue
-	case c.ID == "":
-		return fmt.Errorf("id: %w", errors.ErrEmptyValue)
-	case len(c.Subnets) == 0:
-		return fmt.Errorf("subnets: %w", errors.ErrEmptyValue)
-	default:
-		// Go on.
+	}
+
+	errs := []error{
+		validate.NotEmpty("id", c.ID),
+		validate.NotEmptySlice("subnets", c.Subnets),
 	}
 
 	set := container.NewMapSet[netip.Prefix]()
 	for i, subnet := range c.Subnets {
 		if !subnet.IsValid() {
-			return fmt.Errorf("subnets: at index %d: bad subnet", i)
+			errs = append(errs, fmt.Errorf("subnets: at index %d: bad subnet", i))
+
+			continue
 		}
 
 		if set.Has(subnet) {
-			return fmt.Errorf("subnets: at index %d: %w: %s", i, errors.ErrDuplicated, subnet)
+			errs = append(errs, fmt.Errorf(
+				"subnets: at index %d: %w: %s",
+				i,
+				errors.ErrDuplicated,
+				subnet,
+			))
+
+			continue
 		}
 
 		set.Add(subnet)
 	}
 
-	return nil
+	return errors.Join(errs...)
 }

@@ -6,10 +6,10 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/require"
@@ -17,16 +17,16 @@ import (
 
 // NewHashprefixFilter is like [NewHashprefixFilterWithRepl], but the
 // replacement host is also set in accordance with id.
-func NewHashprefixFilter(tb testing.TB, id internal.ID) (f *hashprefix.Filter) {
+func NewHashprefixFilter(tb testing.TB, id filter.ID) (f *hashprefix.Filter) {
 	tb.Helper()
 
 	var replHost string
 	switch id {
-	case internal.IDAdultBlocking:
+	case filter.IDAdultBlocking:
 		replHost = HostAdultContentRepl
-	case internal.IDNewRegDomains:
+	case filter.IDNewRegDomains:
 		replHost = HostNewlyRegisteredRepl
-	case internal.IDSafeBrowsing:
+	case filter.IDSafeBrowsing:
 		replHost = HostDangerousRepl
 	default:
 		tb.Fatalf("bad id: %q", id)
@@ -39,18 +39,18 @@ func NewHashprefixFilter(tb testing.TB, id internal.ID) (f *hashprefix.Filter) {
 // tests.  The hash data is set in accordance with id.
 func NewHashprefixFilterWithRepl(
 	tb testing.TB,
-	id internal.ID,
+	id filter.ID,
 	replHost string,
 ) (f *hashprefix.Filter) {
 	tb.Helper()
 
 	var data string
 	switch id {
-	case internal.IDAdultBlocking:
+	case filter.IDAdultBlocking:
 		data = HostAdultContent + "\n"
-	case internal.IDNewRegDomains:
+	case filter.IDNewRegDomains:
 		data = HostNewlyRegistered + "\n"
-	case internal.IDSafeBrowsing:
+	case filter.IDSafeBrowsing:
 		data = HostDangerous + "\n"
 	default:
 		tb.Fatalf("bad id: %q", id)
@@ -62,17 +62,14 @@ func NewHashprefixFilterWithRepl(
 	require.NoError(tb, err)
 
 	f, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
-		Logger: slogutil.NewDiscardLogger(),
-		// TODO(a.garipov):  Use [agdtest.NewCloner] when the import cycle is
-		// resolved.
-		Cloner:       dnsmsg.NewCloner(dnsmsg.EmptyClonerStat{}),
-		CacheManager: agdcache.EmptyManager{},
-		Hashes:       strg,
-		URL:          srvURL,
-		// TODO(a.garipov):  Use [agdtest.NewErrorCollector] when the import
-		// cycle is resolved.
-		ErrColl:         errColl{},
-		Metrics:         internal.EmptyMetrics{},
+		Logger:          slogutil.NewDiscardLogger(),
+		Cloner:          agdtest.NewCloner(),
+		CacheManager:    agdcache.EmptyManager{},
+		Hashes:          strg,
+		URL:             srvURL,
+		ErrColl:         agdtest.NewErrorCollector(),
+		HashPrefixMtcs:  hashprefix.EmptyMetrics{},
+		Metrics:         filter.EmptyMetrics{},
 		ID:              id,
 		CachePath:       cachePath,
 		ReplacementHost: replHost,

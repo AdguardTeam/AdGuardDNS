@@ -15,7 +15,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv"
 	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv/consulkv"
 	"github.com/AdguardTeam/golibs/errors"
@@ -24,12 +23,12 @@ import (
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 	cache "github.com/patrickmn/go-cache"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 // RemoteKV is the RemoteKV KV based DNS checker.
 type RemoteKV struct {
-	logger *slog.Logger
+	logger  *slog.Logger
+	metrics Metrics
 
 	// mu protects cache.  Don't use an RWMutex here, since it is expected that
 	// there are about as many reads as there are writes.
@@ -58,6 +57,9 @@ type RemoteKVConfig struct {
 	// Messages is the message constructor used to create DNS responses with
 	// IPv4 and IPv6 IPs.
 	Messages *dnsmsg.Constructor
+
+	// Metrics is used for the collection of the DNSCheck service statistics.
+	Metrics Metrics
 
 	// RemoteKV for DNS server checking.
 	RemoteKV remotekv.Interface
@@ -94,6 +96,7 @@ const (
 func NewRemoteKV(c *RemoteKVConfig) (dc *RemoteKV) {
 	return &RemoteKV{
 		logger:       c.Logger,
+		metrics:      c.Metrics,
 		mu:           &sync.Mutex{},
 		cache:        cache.New(defaultCacheExp, defaultCacheGC),
 		kv:           c.RemoteKV,
@@ -118,16 +121,13 @@ func (dc *RemoteKV) Check(
 ) (resp *dns.Msg, err error) {
 	var matched bool
 	defer func() {
-		incErrMetrics("dns", err)
+		dc.metrics.HandleError(ctx, reqMtrcTypeDNS, errMetricsType(err))
 
 		if !matched {
 			return
 		}
 
-		metrics.DNSCheckRequestTotal.With(prometheus.Labels{
-			"type":  "dns",
-			"valid": metrics.BoolString(err == nil),
-		}).Inc()
+		dc.metrics.HandleRequest(ctx, reqMtrcTypeDNS, err == nil)
 	}()
 
 	var randomID string
@@ -180,19 +180,19 @@ const (
 // newInfo returns an information record with all available data about the
 // server and the request.  ri must not be nil.
 func (dc *RemoteKV) newInfo(ri *agd.RequestInfo) (inf *info) {
-	g := ri.ServerGroup
+	srvInfo := ri.ServerInfo
 
 	srvType := serverTypePublic
-	if g.ProfilesEnabled {
+	if srvInfo.ProfilesEnabled {
 		srvType = serverTypePrivate
 	}
 
 	inf = &info{
-		ServerGroupName: g.Name,
-		ServerName:      ri.Server,
+		ServerGroupName: srvInfo.GroupName,
+		ServerName:      srvInfo.Name,
 		ServerType:      srvType,
 
-		Protocol:     ri.Proto.String(),
+		Protocol:     srvInfo.Protocol.String(),
 		NodeLocation: dc.nodeLocation,
 		NodeName:     dc.nodeName,
 
@@ -230,10 +230,10 @@ var _ http.Handler = (*RemoteKV)(nil)
 
 // ServeHTTP implements the http.Handler interface for *RemoteKV.
 //
-// TODO(a.garipov):  Consider using the websvc logger once it switches to
-// log/slog.
+// TODO(a.garipov):  Find ways of merging the attributes of [RemoteKV.logger]
+// and the logger that websvc adds.
 func (dc *RemoteKV) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// TODO(a.garipov): Put this into constant here and in package dnssvc.
+	// TODO(a.garipov): Put this into constant here and in package websvc.
 	if r.URL.Path == "/dnscheck/test" {
 		dc.serveCheckTest(r.Context(), w, r)
 
@@ -308,12 +308,8 @@ func (dc *RemoteKV) serveCheckTest(ctx context.Context, w http.ResponseWriter, r
 // info returns an information record by the random request ID.
 func (dc *RemoteKV) info(ctx context.Context, randomID string) (inf []byte, ok bool, err error) {
 	defer func() {
-		metrics.DNSCheckRequestTotal.With(prometheus.Labels{
-			"type":  "http",
-			"valid": metrics.BoolString(err == nil),
-		}).Inc()
-
-		incErrMetrics("http", err)
+		dc.metrics.HandleError(ctx, reqMtrcTypeHTTP, errMetricsType(err))
+		dc.metrics.HandleRequest(ctx, reqMtrcTypeHTTP, err == nil)
 	}()
 
 	defer func() { err = errors.Annotate(err, "getting from remote kv: %w") }()

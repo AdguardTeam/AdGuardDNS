@@ -10,10 +10,10 @@ import (
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/service"
 	"github.com/oschwald/maxminddb-golang"
 )
 
@@ -33,6 +33,9 @@ type FileConfig struct {
 
 	// CacheManager is the global cache manager.  CacheManager must not be nil.
 	CacheManager agdcache.Manager
+
+	// Metrics is used for the collection of the Geo IP database statistics.
+	Metrics Metrics
 
 	// AllTopASNs contains all subnets from CountryTopASNs.  While scanning the
 	// statistics data file this set is used to check if the current ASN
@@ -71,6 +74,8 @@ type File struct {
 
 	asn     *maxminddb.Reader
 	country *maxminddb.Reader
+
+	metrics Metrics
 
 	// TODO(a.garipov): Consider switching fully to the country ASN method and
 	// removing these.
@@ -144,7 +149,8 @@ func NewFile(c *FileConfig) (f *File) {
 	c.CacheManager.Add(cacheIDIP, ipCache)
 
 	return &File{
-		logger: c.Logger,
+		logger:  c.Logger,
+		metrics: c.Metrics,
 
 		mu: &sync.RWMutex{},
 
@@ -242,8 +248,11 @@ func (f *File) SubnetByLocation(l *Location, fam netutil.AddrFamily) (n netip.Pr
 // Data implements the Interface interface for *File.  If ip is netip.Addr{},
 // Data tries to lookup and return the data based on host, unless it's empty.
 func (f *File) Data(host string, ip netip.Addr) (l *Location, err error) {
+	// TODO(e.burkov):  Add context to the [Interface] methods.
+	ctx := context.TODO()
+
 	if ip == (netip.Addr{}) {
-		return f.dataByHost(host), nil
+		return f.dataByHost(ctx, host), nil
 	} else if ip.Is4In6() {
 		// This can really only happen when querying data for ECS addresses,
 		// since the remote IP address is normalized in dnssvc.ipFromNetAddr.
@@ -254,12 +263,12 @@ func (f *File) Data(host string, ip netip.Addr) (l *Location, err error) {
 	cacheKey := ipToCacheKey(ip)
 	item, ok := f.ipCache.Get(cacheKey)
 	if ok {
-		metrics.GeoIPCacheLookupsHits.Inc()
+		f.metrics.IncrementIPCacheLookups(ctx, true)
 
 		return item, nil
 	}
 
-	metrics.GeoIPCacheLookupsMisses.Inc()
+	f.metrics.IncrementIPCacheLookups(ctx, false)
 
 	f.mu.RLock()
 	defer f.mu.RUnlock()
@@ -285,16 +294,17 @@ func (f *File) Data(host string, ip netip.Addr) (l *Location, err error) {
 }
 
 // dataByHost returns GeoIP data that has been cached previously.
-func (f *File) dataByHost(host string) (l *Location) {
+func (f *File) dataByHost(ctx context.Context, host string) (l *Location) {
 	item, ok := f.hostCache.Get(host)
+	if ok {
+		f.metrics.IncrementHostCacheLookups(ctx, true)
 
-	metrics.IncrementCond(
-		ok,
-		metrics.GeoIPHostCacheLookupsHits,
-		metrics.GeoIPHostCacheLookupsMisses,
-	)
+		return item
+	}
 
-	return item
+	f.metrics.IncrementHostCacheLookups(ctx, false)
+
+	return nil
 }
 
 // asnResult is used to retrieve autonomous system number data from a GeoIP
@@ -368,35 +378,35 @@ func (f *File) setCaches(host string, ipCacheKey any, l *Location) {
 	f.hostCache.Set(host, l)
 }
 
-// Refresh implements the [agdservice.Refresher] interface for *File.  It
-// reopens the GeoIP database files.
+// type check
+var _ service.Refresher = (*File)(nil)
+
+// Refresh implements the [service.Refresher] interface for *File.  It reopens
+// the GeoIP database files.
 func (f *File) Refresh(ctx context.Context) (err error) {
 	f.logger.InfoContext(ctx, "refresh started")
 	defer f.logger.InfoContext(ctx, "refresh finished")
 
-	asn, err := geoIPFromFile(f.asnPath)
-	if err != nil {
-		metrics.GeoIPUpdateStatus.WithLabelValues(f.asnPath).Set(0)
+	var asnErr, ctryErr error
+	defer func() {
+		f.metrics.HandleASNUpdateStatus(ctx, asnErr)
+		f.metrics.HandleCountryUpdateStatus(ctx, ctryErr)
+	}()
 
-		return fmt.Errorf("reading asn geoip: %w", err)
-	}
+	asn, asnErr := geoIPFromFile(f.asnPath)
+	country, ctryErr := geoIPFromFile(f.countryPath)
 
-	country, err := geoIPFromFile(f.countryPath)
-	if err != nil {
-		metrics.GeoIPUpdateStatus.WithLabelValues(f.countryPath).Set(0)
-
-		return fmt.Errorf("reading country geoip: %w", err)
+	if asnErr != nil || ctryErr != nil {
+		return errors.Join(
+			errors.Annotate(asnErr, "reading asn geoip: %w"),
+			errors.Annotate(ctryErr, "reading country geoip: %w"),
+		)
 	}
 
 	err = f.resetSubnetMappings(ctx, asn, country)
 	if err != nil {
 		return fmt.Errorf("resetting geoip: %w", err)
 	}
-
-	metrics.GeoIPUpdateTime.WithLabelValues(f.asnPath).SetToCurrentTime()
-	metrics.GeoIPUpdateStatus.WithLabelValues(f.asnPath).Set(1)
-	metrics.GeoIPUpdateTime.WithLabelValues(f.countryPath).SetToCurrentTime()
-	metrics.GeoIPUpdateStatus.WithLabelValues(f.countryPath).Set(1)
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -427,7 +437,9 @@ func (f *File) resetSubnetMappings(
 		ipv4, ipv6, locErr = f.resetLocationSubnets(ctx, asn, country)
 
 		if locErr != nil {
-			metrics.GeoIPUpdateStatus.WithLabelValues(f.countryPath).Set(0)
+			// TODO(a.garipov):  Clarify which metrics should be updated in case
+			// of location.
+			f.metrics.HandleCountryUpdateStatus(ctx, locErr)
 
 			locErr = fmt.Errorf("location subnet data: %w", locErr)
 		}
@@ -445,7 +457,7 @@ func (f *File) resetSubnetMappings(
 		ipv4, ipv6, ctryErr = resetCountrySubnets(ctx, f.logger, country)
 
 		if ctryErr != nil {
-			metrics.GeoIPUpdateStatus.WithLabelValues(f.countryPath).Set(0)
+			f.metrics.HandleCountryUpdateStatus(ctx, ctryErr)
 
 			ctryErr = fmt.Errorf("country subnet data: %w", ctryErr)
 		}

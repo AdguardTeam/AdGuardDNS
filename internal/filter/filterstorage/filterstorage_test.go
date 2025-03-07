@@ -7,13 +7,13 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterstorage"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 )
@@ -162,7 +162,7 @@ func newDisabledConfig(
 			Enabled: false,
 		},
 		CacheManager: agdcache.EmptyManager{},
-		Clock:        agdtime.SystemClock{},
+		Clock:        timeutil.SystemClock{},
 		ErrColl:      agdtest.NewErrorCollector(),
 		Metrics:      filter.EmptyMetrics{},
 		CacheDir:     tb.TempDir(),

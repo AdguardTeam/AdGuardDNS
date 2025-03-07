@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/golibs/service"
 )
 
 // RuntimeRecorderConfig is the configuration structure for a runtime billing
@@ -88,7 +88,7 @@ func (r *RuntimeRecorder) Record(
 			Proto:   proto,
 		}
 
-		r.metrics.BufferSizeSet(ctx, float64(len(r.records)))
+		r.metrics.SetRecordCount(ctx, len(r.records))
 	} else {
 		rec.Time = start
 		rec.Country = ctry
@@ -99,9 +99,9 @@ func (r *RuntimeRecorder) Record(
 }
 
 // type check
-var _ agdservice.Refresher = (*RuntimeRecorder)(nil)
+var _ service.Refresher = (*RuntimeRecorder)(nil)
 
-// Refresh implements the [agdserivce.Refresher] interface for *RuntimeRecorder.
+// Refresh implements the [service.Refresher] interface for *RuntimeRecorder.
 // It uploads the currently available data and resets it.
 func (r *RuntimeRecorder) Refresh(ctx context.Context) (err error) {
 	r.logger.DebugContext(ctx, "refresh started")
@@ -112,14 +112,12 @@ func (r *RuntimeRecorder) Refresh(ctx context.Context) (err error) {
 	startTime := time.Now()
 	defer func() {
 		dur := time.Since(startTime).Seconds()
+		r.metrics.HandleUploadDuration(ctx, dur, err)
 
-		isSuccess := err == nil
-		if !isSuccess {
+		if err != nil {
 			r.remergeRecords(ctx, records)
 			r.logger.WarnContext(ctx, "refresh failed, records remerged")
 		}
-
-		r.metrics.HandleUploadDuration(ctx, dur, isSuccess)
 	}()
 
 	err = r.uploader.Upload(ctx, records)
@@ -138,7 +136,7 @@ func (r *RuntimeRecorder) resetRecords(ctx context.Context) (records Records) {
 
 	records, r.records = r.records, Records{}
 
-	r.metrics.BufferSizeSet(ctx, 0)
+	r.metrics.SetRecordCount(ctx, 0)
 
 	return records
 }
@@ -157,5 +155,5 @@ func (r *RuntimeRecorder) remergeRecords(ctx context.Context, records Records) {
 		}
 	}
 
-	r.metrics.BufferSizeSet(ctx, float64(len(r.records)))
+	r.metrics.SetRecordCount(ctx, len(r.records))
 }

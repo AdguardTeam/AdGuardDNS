@@ -27,6 +27,7 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`LINKED_IP_TARGET_URL`](#LINKED_IP_TARGET_URL)
 - [`LISTEN_ADDR`](#LISTEN_ADDR)
 - [`LISTEN_PORT`](#LISTEN_PORT)
+- [`LOG_FORMAT`](#LOG_FORMAT)
 - [`LOG_TIMESTAMP`](#LOG_TIMESTAMP)
 - [`METRICS_NAMESPACE`](#METRICS_NAMESPACE)
 - [`NEW_REG_DOMAINS_ENABLED`](#NEW_REG_DOMAINS_ENABLED)
@@ -223,6 +224,18 @@ The IP address on which to bind the [debug HTTP API][debughttp].
 The port on which to bind the [debug HTTP API][debughttp], which includes the health check, Prometheus, `pprof`, and other endpoints.
 
 **Default:** `8181`.
+
+## <a href="#LOG_FORMAT" id="LOG_FORMAT" name="LOG_FORMAT">`LOG_FORMAT`</a>
+
+The format for the server logs:
+
+- `text`: Structured text format, it is the default value.
+
+- `default`: Simple and human-readable plain-text format.
+
+- `json`: JSON format.
+
+- `jsonhybrid`: JSON with a schema consisting of `level`, `msg`, and `time` properties.
 
 ## <a href="#LOG_TIMESTAMP" id="LOG_TIMESTAMP" name="LOG_TIMESTAMP">`LOG_TIMESTAMP`</a>
 

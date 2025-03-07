@@ -5,7 +5,7 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
@@ -23,27 +23,20 @@ const testReqHost = "blocked.example"
 var testRemoteIP = netip.MustParseAddr("1.2.3.4")
 
 // testFltListID is the common filter list IDs for tests.
-const testFltListID internal.ID = "fl1"
+const testFltListID filter.ID = "fl1"
 
 // testBlockRule is the common blocking rule for tests.
 const testBlockRule = "||" + testReqHost + "\n"
 
 func TestRefreshable_RulesCount(t *testing.T) {
-	rl, err := rulelist.NewFromString(
-		testBlockRule,
-		testFltListID,
-		"",
-		rulelist.ResultCacheEmpty{},
-	)
-	require.NoError(t, err)
+	rl := rulelist.NewFromString(testBlockRule, testFltListID, "", rulelist.EmptyResultCache{})
 
 	assert.Equal(t, 1, rl.RulesCount())
 }
 
 func TestRefreshable_DNSResult_cache(t *testing.T) {
 	cache := rulelist.NewResultCache(filtertest.CacheCount, true)
-	rl, err := rulelist.NewFromString(testBlockRule, testFltListID, "", cache)
-	require.NoError(t, err)
+	rl := rulelist.NewFromString(testBlockRule, testFltListID, "", cache)
 
 	const qt = dns.TypeA
 
@@ -71,14 +64,8 @@ func TestRefreshable_DNSResult_cache(t *testing.T) {
 }
 
 func TestRefreshable_ID(t *testing.T) {
-	const svcID = internal.BlockedServiceID("test_service")
-	rl, err := rulelist.NewFromString(
-		testBlockRule,
-		testFltListID,
-		svcID,
-		rulelist.ResultCacheEmpty{},
-	)
-	require.NoError(t, err)
+	const svcID = filter.BlockedServiceID("test_service")
+	rl := rulelist.NewFromString(testBlockRule, testFltListID, svcID, rulelist.EmptyResultCache{})
 
 	gotID, gotSvcID := rl.ID()
 	assert.Equal(t, testFltListID, gotID)

@@ -23,6 +23,13 @@ import (
 // ProfileStorageConfig is the configuration for the business logic backend
 // profile storage.
 type ProfileStorageConfig struct {
+	// Logger is used for logging the operation of the profile storage.  It must
+	// not be nil.
+	Logger *slog.Logger
+
+	// BaseCustomLogger is the base logger used for the custom filters.
+	BaseCustomLogger *slog.Logger
+
 	// BindSet is the subnet set created from DNS servers listening addresses.
 	// It must not be nil.
 	BindSet netutil.SubnetSet
@@ -30,10 +37,6 @@ type ProfileStorageConfig struct {
 	// ErrColl is the error collector that is used to collect critical and
 	// non-critical errors.  It must not be nil.
 	ErrColl errcoll.Interface
-
-	// Logger is used for logging the operation of the profile storage.  It must
-	// not be nil.
-	Logger *slog.Logger
 
 	// GRPCMetrics is used for the collection of the protobuf communication
 	// statistics.
@@ -63,15 +66,16 @@ type ProfileStorageConfig struct {
 // that retrieves the profile and device information from the business logic
 // backend.  It is safe for concurrent use.
 type ProfileStorage struct {
-	bindSet     netutil.SubnetSet
-	errColl     errcoll.Interface
-	client      DNSServiceClient
-	logger      *slog.Logger
-	grpcMetrics GRPCMetrics
-	metrics     ProfileDBMetrics
-	apiKey      string
-	respSzEst   datasize.ByteSize
-	maxProfSize datasize.ByteSize
+	logger           *slog.Logger
+	baseCustomLogger *slog.Logger
+	bindSet          netutil.SubnetSet
+	errColl          errcoll.Interface
+	client           DNSServiceClient
+	grpcMetrics      GRPCMetrics
+	metrics          ProfileDBMetrics
+	apiKey           string
+	respSzEst        datasize.ByteSize
+	maxProfSize      datasize.ByteSize
 }
 
 // NewProfileStorage returns a new [ProfileStorage] that retrieves information
@@ -84,15 +88,16 @@ func NewProfileStorage(c *ProfileStorageConfig) (s *ProfileStorage, err error) {
 	}
 
 	return &ProfileStorage{
-		bindSet:     c.BindSet,
-		errColl:     c.ErrColl,
-		client:      NewDNSServiceClient(client),
-		logger:      c.Logger,
-		grpcMetrics: c.GRPCMetrics,
-		metrics:     c.Metrics,
-		apiKey:      c.APIKey,
-		respSzEst:   c.ResponseSizeEstimate,
-		maxProfSize: c.MaxProfilesSize,
+		logger:           c.Logger,
+		baseCustomLogger: c.BaseCustomLogger,
+		bindSet:          c.BindSet,
+		errColl:          c.ErrColl,
+		client:           NewDNSServiceClient(client),
+		grpcMetrics:      c.GRPCMetrics,
+		metrics:          c.Metrics,
+		apiKey:           c.APIKey,
+		respSzEst:        c.ResponseSizeEstimate,
+		maxProfSize:      c.MaxProfilesSize,
 	}, nil
 }
 
@@ -179,10 +184,10 @@ func (s *ProfileStorage) Profiles(
 		stats.startDec()
 		prof, devices, profErr := profile.toInternal(
 			ctx,
-			time.Now(),
 			s.bindSet,
 			s.errColl,
 			s.logger,
+			s.baseCustomLogger,
 			s.metrics,
 			s.respSzEst,
 		)

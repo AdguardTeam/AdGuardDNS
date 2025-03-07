@@ -9,6 +9,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/validate"
 )
 
 // tlsConfig are the TLS settings of a DNS server, if any.
@@ -53,9 +54,9 @@ func (c *tlsConfig) toInternal(
 	return deviceDomains, nil
 }
 
-// validate returns an error if the TLS configuration is invalid for the given
-// protocol.
-func (c *tlsConfig) validate(needsTLS bool) (err error) {
+// validateIfNecessary returns an error if the TLS configuration is invalid
+// depending on whether it is necessary or not.
+func (c *tlsConfig) validateIfNecessary(needsTLS bool) (err error) {
 	switch {
 	case c == nil:
 		if needsTLS {
@@ -68,21 +69,20 @@ func (c *tlsConfig) validate(needsTLS bool) (err error) {
 		return errors.Error("server group does not require tls")
 	}
 
-	if len(c.Certificates) == 0 {
-		return fmt.Errorf("certificates: %w", errors.ErrEmptyValue)
+	var errs []error
+	if err = validate.NotEmptySlice("certificates", c.Certificates); err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		errs = append(errs, err)
 	}
 
-	err = c.Certificates.validate()
-	if err != nil {
-		return fmt.Errorf("certificates: %w", err)
-	}
+	errs = validate.Append(errs, "certificates", c.Certificates)
 
 	err = validateDeviceIDWildcards(c.DeviceIDWildcards)
 	if err != nil {
-		return fmt.Errorf("device_id_wildcards: %w", err)
+		errs = append(errs, fmt.Errorf("device_id_wildcards: %w", err))
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // validateDeviceIDWildcards returns an error if the device ID domain wildcards
@@ -126,11 +126,7 @@ func (certs tlsConfigCerts) store(ctx context.Context, tlsMgr tlsconfig.Manager)
 		}
 	}
 
-	if len(errs) != 0 {
-		return errors.Join(errs...)
-	}
-
-	return nil
+	return errors.Join(errs...)
 }
 
 // toInternal is like [tlsConfigCerts.store] but it also returns the TLS
@@ -153,20 +149,31 @@ func (certs tlsConfigCerts) toInternal(
 }
 
 // type check
-var _ validator = tlsConfigCerts(nil)
+var _ validate.Interface = tlsConfigCerts(nil)
 
-// validate implements the [validator] interface for tlsConfigCerts.
-func (certs tlsConfigCerts) validate() (err error) {
+// Validate implements the [validate.Interface] interface for tlsConfigCerts.
+// certs may be nil.
+func (certs tlsConfigCerts) Validate() (err error) {
+	if len(certs) == 0 {
+		return nil
+	}
+
+	var errs []error
 	for i, c := range certs {
-		switch {
-		case c == nil:
-			return fmt.Errorf("at index %d: %w", i, errors.ErrNoValue)
-		case c.Certificate == "":
-			return fmt.Errorf("at index %d: certificate: %w", i, errors.ErrEmptyValue)
-		case c.Key == "":
-			return fmt.Errorf("at index %d: key: %w", i, errors.ErrEmptyValue)
+		if c == nil {
+			errs = append(errs, fmt.Errorf("at index %d: %w", i, errors.ErrNoValue))
+
+			continue
+		}
+
+		if err = validate.NotEmpty("certificate", c.Certificate); err != nil {
+			errs = append(errs, fmt.Errorf("at index %d: %w", i, err))
+		}
+
+		if err = validate.NotEmpty("key", c.Key); err != nil {
+			errs = append(errs, fmt.Errorf("at index %d: %w", i, err))
 		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }

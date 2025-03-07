@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -12,35 +13,20 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/netutil/httputil"
+	"github.com/AdguardTeam/golibs/service"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// blockPageName is a type alias for strings that contain a block-page name for
-// logging and metrics.
-type blockPageName = string
-
-// blockPageName values.
-const (
-	adultBlockingName   blockPageName = "adult blocking"
-	generalBlockingName blockPageName = "general blocking"
-	safeBrowsingName    blockPageName = "safe browsing"
-)
-
-// BlockPageServerConfig is the blocking page server configuration.
-type BlockPageServerConfig struct {
-	// ContentFilePath is the path to HTML block page content file.
-	ContentFilePath string
-
-	// Bind are the addresses on which to serve the block page.
-	Bind []*BindData
-}
-
 // blockPageServer serves the blocking page contents.
 type blockPageServer struct {
+	// logger is used to log the refreshes.
+	logger *slog.Logger
+
 	// mu protects content and gzipContent.
 	mu *sync.RWMutex
 
@@ -53,45 +39,54 @@ type blockPageServer struct {
 	// contentFilePath is the path to HTML block page content file.
 	contentFilePath string
 
-	// name is the server identification used for logging and metrics.
-	name blockPageName
+	// group is the server group used for logging and metrics.
+	group serverGroup
 
 	// bind are the addresses on which to serve the block page.
 	bind []*BindData
 }
 
-// newBlockPageServer initializes a new instance of blockPageServer.  The server
-// must be refreshed with [blockPageServer.Refresh] before use.
-func newBlockPageServer(conf *BlockPageServerConfig, srvName blockPageName) (srv *blockPageServer) {
+// newBlockPageServer initializes a new instance of blockPageServer.  If conf is
+// nil, srv is nil.  The server must be refreshed with [blockPageServer.Refresh]
+// before use.
+func newBlockPageServer(
+	conf *BlockPageServerConfig,
+	baseLogger *slog.Logger,
+	g serverGroup,
+) (srv *blockPageServer) {
 	if conf == nil {
 		return nil
 	}
 
 	return &blockPageServer{
+		logger:          baseLogger.With(loggerKeyGroup, g),
 		mu:              &sync.RWMutex{},
 		contentFilePath: conf.ContentFilePath,
-		name:            srvName,
+		group:           g,
 		bind:            conf.Bind,
 	}
 }
 
 // type check
-var _ agdservice.Refresher = (*blockPageServer)(nil)
+var _ service.Refresher = (*blockPageServer)(nil)
 
-// Refresh implements the [agdservice.Refresher] interface for *blockPageServer.
+// Refresh implements the [service.Refresher] interface for *blockPageServer.
 // srv may be nil.
-func (srv *blockPageServer) Refresh(_ context.Context) (err error) {
+func (srv *blockPageServer) Refresh(ctx context.Context) (err error) {
 	if srv == nil {
 		return nil
 	}
 
+	srv.logger.InfoContext(ctx, "refresh started")
+	defer srv.logger.InfoContext(ctx, "refresh finished")
+
 	// TODO(d.kolyshev): Compare with current srv content before updating.
 	content, err := os.ReadFile(srv.contentFilePath)
 	if err != nil {
-		return fmt.Errorf("block page server %q: reading block page file: %w", srv.name, err)
+		return fmt.Errorf("block page server %q: reading block page file: %w", srv.group, err)
 	}
 
-	gzipContent := mustGzip(srv.name, content)
+	gzipContent := mustGzip(srv.group, content)
 
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
@@ -102,40 +97,43 @@ func (srv *blockPageServer) Refresh(_ context.Context) (err error) {
 	return nil
 }
 
-// blockPageServers is a helper function that converts a *blockPageServer into
-// HTTP servers.
-func blockPageServers(srv *blockPageServer, timeout time.Duration) (srvs []*http.Server) {
+// newBlockPageServers is a helper function that converts a *blockPageServer
+// into HTTP servers.
+func newBlockPageServers(
+	baseLogger *slog.Logger,
+	srv *blockPageServer,
+	timeout time.Duration,
+) (srvs []*server) {
 	if srv == nil {
 		return nil
 	}
 
-	h := srv.blockPageHandler()
+	srvHdrMw := httputil.ServerHeaderMiddleware(agdhttp.UserAgent())
+	handler := srv.blockPageHandler()
+
 	for _, b := range srv.bind {
-		addr := b.Address.String()
-		errLog := log.StdLog(fmt.Sprintf("websvc: %s: %s", srv.name, addr), log.DEBUG)
-		srvs = append(srvs, &http.Server{
-			Addr:              addr,
-			Handler:           h,
-			TLSConfig:         b.TLS,
-			ErrorLog:          errLog,
-			ReadTimeout:       timeout,
-			WriteTimeout:      timeout,
-			IdleTimeout:       timeout,
-			ReadHeaderTimeout: timeout,
-		})
+		logger := baseLogger.With(loggerKeyGroup, srv.group)
+		h := httputil.Wrap(
+			handler,
+			srvHdrMw,
+			httputil.NewLogMiddleware(logger, slog.LevelDebug),
+		)
+
+		srvs = append(srvs, newServer(&serverConfig{
+			BaseLogger:     logger,
+			TLSConf:        b.TLS,
+			Handler:        h,
+			InitialAddress: b.Address,
+			Timeout:        timeout,
+		}))
 	}
 
 	return srvs
 }
 
 // blockPageHandler returns an HTTP handler serving the block page content.
-// name is used for logging and metrics and must be one of blockPageName values.
 func (srv *blockPageServer) blockPageHandler() (h http.Handler) {
 	f := func(w http.ResponseWriter, r *http.Request) {
-		// Set the Server header here, so that all responses carry it.
-		respHdr := w.Header()
-		respHdr.Set(httphdr.Server, agdhttp.UserAgent())
-
 		switch r.URL.Path {
 		case "/favicon.ico":
 			// Don't serve the HTML page to the favicon requests.
@@ -143,12 +141,12 @@ func (srv *blockPageServer) blockPageHandler() (h http.Handler) {
 		case "/robots.txt":
 			// Don't serve the HTML page to the robots.txt requests.  Serve the
 			// predefined response instead.
-			serveRobotsDisallow(respHdr, w, srv.name)
+			serveRobotsDisallow(r.Context(), w.Header(), w)
 		default:
 			srv.mu.RLock()
 			defer srv.mu.RUnlock()
 
-			serveBlockPage(w, r, srv.name, srv.content, srv.gzipContent)
+			serveBlockPage(w, r, srv.group, srv.content, srv.gzipContent)
 		}
 	}
 
@@ -182,17 +180,11 @@ func mustGzip(name string, b []byte) (compressed []byte) {
 
 // serveBlockPage serves the block-page content taking compression headers into
 // account.
-func serveBlockPage(
-	w http.ResponseWriter,
-	r *http.Request,
-	name string,
-	blockPage []byte,
-	gzipped []byte,
-) {
+func serveBlockPage(w http.ResponseWriter, r *http.Request, g serverGroup, orig, gzipped []byte) {
 	respHdr := w.Header()
 	respHdr.Set(httphdr.ContentType, agdhttp.HdrValTextHTML)
 
-	content := blockPage
+	content := orig
 
 	// TODO(a.garipov): Parse the quality value.
 	//
@@ -203,31 +195,33 @@ func serveBlockPage(
 		content = gzipped
 	}
 
-	// Use HTTP 500 status code to signal that this is a block page.
-	// See AGDNS-1952.
+	// Use HTTP 500 status code to signal that this is a block page.  See
+	// AGDNS-1952.
 	w.WriteHeader(http.StatusInternalServerError)
 
 	_, err := w.Write(content)
 	if err != nil {
-		logErrorByType(err, "websvc: %s: writing response: %s", name, err)
+		ctx := r.Context()
+		l := slogutil.MustLoggerFromContext(ctx)
+		l.Log(ctx, levelForError(err), "writing block page", slogutil.KeyError, err)
 	}
 
-	incBlockPageMetrics(name)
+	incBlockPageMetrics(g)
 }
 
-// incBlockPageMetrics increments the metrics for the block-page view
-// counts depending on the name of the block page.
-func incBlockPageMetrics(name blockPageName) {
+// incBlockPageMetrics increments the metrics for the block-page view counts
+// depending on the server group.
+func incBlockPageMetrics(g serverGroup) {
 	var totalCtr prometheus.Counter
-	switch name {
-	case adultBlockingName:
+	switch g {
+	case srvGrpAdultBlockingPage:
 		totalCtr = metrics.WebSvcAdultBlockingPageRequestsTotal
-	case generalBlockingName:
+	case srvGrpGeneralBlockingPage:
 		totalCtr = metrics.WebSvcGeneralBlockingPageRequestsTotal
-	case safeBrowsingName:
+	case srvGrpSafeBrowsingPage:
 		totalCtr = metrics.WebSvcSafeBrowsingPageRequestsTotal
 	default:
-		panic(fmt.Errorf("metrics: bad websvc block-page metric name %q", name))
+		panic(fmt.Errorf("metrics: block-page server group: %w: %q", errors.ErrBadEnumValue, g))
 	}
 
 	totalCtr.Inc()

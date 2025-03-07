@@ -16,6 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/miekg/dns"
 )
@@ -25,6 +26,7 @@ import (
 // middleware.
 type Middleware struct {
 	logger *slog.Logger
+	ddr    *DDRConfig
 }
 
 // Config is the configuration structure for the initial middleware.  All fields
@@ -32,6 +34,34 @@ type Middleware struct {
 type Config struct {
 	// Logger is used to log the operation of the middleware.
 	Logger *slog.Logger
+
+	// DDR is the configuration for the server group's Discovery Of Designated
+	// Resolvers (DDR) handlers.  It must not be nil.
+	DDR *DDRConfig
+}
+
+// DDRConfig is the configuration for the server group's Discovery Of Designated
+// Resolvers (DDR) handlers.
+type DDRConfig struct {
+	// DeviceTargets is the set of all domain names, subdomains of which should
+	// be checked for DDR queries with device IDs.
+	DeviceTargets *container.MapSet[string]
+
+	// PublicTargets is the set of all public domain names, DDR queries for
+	// which should be processed.
+	PublicTargets *container.MapSet[string]
+
+	// DeviceRecordTemplates are used to respond to DDR queries from recognized
+	// devices.
+	DeviceRecordTemplates []*dns.SVCB
+
+	// PubilcRecordTemplates are used to respond to DDR queries from
+	// unrecognized devices.
+	PublicRecordTemplates []*dns.SVCB
+
+	// Enabled shows if DDR queries are processed.  If it is false, DDR domain
+	// name queries receive an NXDOMAIN response.
+	Enabled bool
 }
 
 // New returns a new initial middleware.  c must not be nil, and all its fields
@@ -39,6 +69,7 @@ type Config struct {
 func New(c *Config) (mw *Middleware) {
 	return &Middleware{
 		logger: c.Logger,
+		ddr:    c.DDR,
 	}
 }
 

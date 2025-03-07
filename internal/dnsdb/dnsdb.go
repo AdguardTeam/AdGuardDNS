@@ -15,7 +15,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/miekg/dns"
 )
 
@@ -39,18 +38,25 @@ type Default struct {
 	logger  *slog.Logger
 	buffer  *atomic.Pointer[buffer]
 	errColl errcoll.Interface
+	metrics Metrics
 	maxSize int
 }
 
 // DefaultConfig is the default DNS database configuration structure.
 type DefaultConfig struct {
-	// Logger is used to log the operation of the DNS database.
+	// Logger is used to log the operation of the DNS database.  It must not be
+	// nil.
 	Logger *slog.Logger
 
-	// ErrColl is used to collect HTTP errors.
+	// ErrColl is used to collect HTTP errors.  It must not be nil.
 	ErrColl errcoll.Interface
 
-	// MaxSize is the maximum amount of records in the memory buffer.
+	// Metrics is used for the collection of the DNS database statistics.  It
+	// must not be nil.
+	Metrics Metrics
+
+	// MaxSize is the maximum amount of records in the memory buffer.  It must
+	// be positive.
 	MaxSize int
 }
 
@@ -60,6 +66,7 @@ func New(c *DefaultConfig) (db *Default) {
 		logger:  c.Logger,
 		buffer:  &atomic.Pointer[buffer]{},
 		errColl: c.ErrColl,
+		metrics: c.Metrics,
 		maxSize: c.MaxSize,
 	}
 
@@ -88,11 +95,14 @@ func (db *Default) Record(ctx context.Context, m *dns.Msg, ri *agd.RequestInfo) 
 	}
 
 	// #nosec G115 -- RCODE is currently defined to be 16 bit or less.
-	db.buffer.Load().add(ri.Host, m.Answer, q.Qtype, dnsmsg.RCode(m.Rcode))
+	count, ok := db.buffer.Load().add(ri.Host, m.Answer, q.Qtype, dnsmsg.RCode(m.Rcode))
+	if ok {
+		db.metrics.SetRecordCount(ctx, count)
+	}
 }
 
 // reset returns buffered records and resets the database.
-func (db *Default) reset() (records []*record) {
+func (db *Default) reset(ctx context.Context) (records []*record) {
 	start := time.Now()
 
 	prevBuf := db.buffer.Swap(&buffer{
@@ -103,9 +113,8 @@ func (db *Default) reset() (records []*record) {
 
 	records = prevBuf.all()
 
-	metrics.DNSDBBufferSize.Set(0)
-	metrics.DNSDBRotateTime.SetToCurrentTime()
-	metrics.DNSDBSaveDuration.Observe(time.Since(start).Seconds())
+	db.metrics.SetRecordCount(ctx, 0)
+	db.metrics.ObserveRotation(ctx, time.Since(start))
 
 	return records
 }

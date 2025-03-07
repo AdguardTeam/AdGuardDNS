@@ -5,35 +5,40 @@ import (
 	"crypto/tls"
 
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 )
 
 // ConfigTLS is a struct that needs to be passed to NewServerTLS to
 // initialize a new ServerTLS instance.
 type ConfigTLS struct {
-	// TLSConfig is the TLS configuration for TLS.
+	// TLSConfig is the TLS configuration for TLS.  It must not be nil.
 	TLSConfig *tls.Config
 
-	ConfigDNS
+	// DNS is the configuration for the underlying DNS server.  It must not be
+	// nil and must be valid.
+	DNS *ConfigDNS
 }
 
-// ServerTLS implements a DNS-over-TLS server.
-// Note that it heavily relies on ServerDNS.
+// ServerTLS implements a DNS-over-TLS server.  Note that it heavily relies on
+// ServerDNS.
+//
+// TODO(a.garipov):  Consider unembedding ServerDNS.
 type ServerTLS struct {
 	*ServerDNS
 
-	conf ConfigTLS
+	tlsConf *tls.Config
 }
 
 // type check
 var _ Server = (*ServerTLS)(nil)
 
-// NewServerTLS creates a new ServerTLS instance.
-func NewServerTLS(conf ConfigTLS) (s *ServerTLS) {
-	srv := newServerDNS(ProtoDoT, conf.ConfigDNS)
+// NewServerTLS creates a new ServerTLS instance.  c must not be nil and must be
+// valid.
+func NewServerTLS(c *ConfigTLS) (s *ServerTLS) {
+	srv := newServerDNS(ProtoDoT, c.DNS)
 	s = &ServerTLS{
 		ServerDNS: srv,
-		conf:      conf,
+		tlsConf:   c.TLSConfig,
 	}
 
 	return s
@@ -46,15 +51,11 @@ func (s *ServerTLS) Start(ctx context.Context) (err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.conf.TLSConfig == nil {
-		return errors.Error("tls config is required")
-	}
-
 	if s.started {
 		return ErrServerAlreadyStarted
 	}
 
-	log.Info("[%s]: Starting the server", s.name)
+	s.baseLogger.InfoContext(ctx, "starting server")
 
 	ctx = ContextWithServerInfo(ctx, &ServerInfo{
 		Name:  s.name,
@@ -77,7 +78,7 @@ func (s *ServerTLS) Start(ctx context.Context) (err error) {
 	// listeners are up.
 	s.started = true
 
-	log.Info("[%s]: Server has been started", s.Name())
+	s.baseLogger.InfoContext(ctx, "server has been started")
 
 	return nil
 }
@@ -95,10 +96,11 @@ func (s *ServerTLS) startServeTCP(ctx context.Context) {
 	// the application won't be able to continue listening to DoT
 	defer s.handlePanicAndExit(ctx)
 
-	log.Info("[%s]: Start listening to tls://%s", s.Name(), s.Addr())
+	s.baseLogger.InfoContext(ctx, "starting listening tls")
+
 	err := s.serveTCP(ctx, s.tcpListener)
 	if err != nil {
-		log.Info("[%s]: Finished listening to tls://%s due to %v", s.Name(), s.Addr(), err)
+		s.baseLogger.WarnContext(ctx, "listening tls failed", slogutil.KeyError, err)
 	}
 }
 
@@ -109,7 +111,7 @@ func (s *ServerTLS) listenTLS(ctx context.Context) (err error) {
 		return err
 	}
 
-	s.tcpListener = newTLSListener(l, s.conf.TLSConfig)
+	s.tcpListener = newTLSListener(l, s.tlsConf)
 
 	return nil
 }

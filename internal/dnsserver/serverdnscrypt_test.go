@@ -6,11 +6,18 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/ameshkov/dnscrypt/v2"
 	"github.com/ameshkov/dnsstamps"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 )
+
+// TODO(a.garipov):  Remove when https://github.com/ameshkov/dnscrypt/issues/26
+// is fixed.
+func TestMain(m *testing.M) {
+	testutil.DiscardLogOutput(m)
+}
 
 func TestServerDNSCrypt_integration_query(t *testing.T) {
 	testCases := []struct {

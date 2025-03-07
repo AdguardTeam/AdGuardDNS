@@ -3,27 +3,26 @@ package filtertest
 import (
 	"net/netip"
 	"testing"
-	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // AssertEqualResult is a test helper that compares two results taking
-// [internal.ResultModifiedRequest] and its difference in IDs into account.
-func AssertEqualResult(tb testing.TB, want, got internal.Result) (ok bool) {
+// [filter.ResultModifiedRequest] and its difference in IDs into account.
+func AssertEqualResult(tb testing.TB, want, got filter.Result) (ok bool) {
 	tb.Helper()
 
-	wantRM, ok := want.(*internal.ResultModifiedRequest)
+	wantRM, ok := want.(*filter.ResultModifiedRequest)
 	if !ok {
 		return assert.Equal(tb, want, got)
 	}
 
-	gotRM := testutil.RequireTypeAssert[*internal.ResultModifiedRequest](tb, got)
+	gotRM := testutil.RequireTypeAssert[*filter.ResultModifiedRequest](tb, got)
 
 	return assert.Equal(tb, wantRM.List, gotRM.List) &&
 		assert.Equal(tb, wantRM.Rule, gotRM.Rule) &&
@@ -56,7 +55,7 @@ func NewRequest(
 	host string,
 	ip netip.Addr,
 	qt dnsmsg.RRType,
-) (req *internal.Request) {
+) (req *filter.Request) {
 	tb.Helper()
 
 	dnsReq := &dns.Msg{
@@ -67,22 +66,9 @@ func NewRequest(
 		}},
 	}
 
-	// TODO(a.garipov):  Use [agdtest.NewConstructor] when the import cycle is
-	// resolved.
-	msgs, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
-		Cloner:       dnsmsg.NewCloner(dnsmsg.EmptyClonerStat{}),
-		BlockingMode: &dnsmsg.BlockingModeNullIP{},
-		StructuredErrors: &dnsmsg.StructuredDNSErrorsConfig{
-			Enabled: false,
-		},
-		FilteredResponseTTL: 10 * time.Second,
-		EDEEnabled:          false,
-	})
-	require.NoError(tb, err)
-
-	return &internal.Request{
+	return &filter.Request{
 		DNS:        dnsReq,
-		Messages:   msgs,
+		Messages:   agdtest.NewConstructor(tb),
 		RemoteIP:   ip,
 		ClientName: cliName,
 		Host:       host,
@@ -93,7 +79,7 @@ func NewRequest(
 
 // NewARequest is like [NewRequest] but cliName is always empty, ip is always
 // [IPv4Client], and qt is always [dns.TypeA].
-func NewARequest(tb testing.TB, host string) (req *internal.Request) {
+func NewARequest(tb testing.TB, host string) (req *filter.Request) {
 	tb.Helper()
 
 	return NewRequest(tb, "", host, IPv4Client, dns.TypeA)

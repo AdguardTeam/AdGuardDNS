@@ -7,6 +7,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/validate"
 )
 
 // filteringGroup represents a set of filtering settings.
@@ -55,6 +56,38 @@ func (c *fltGrpRuleLists) toInternal(ids []filter.ID) (fltConf *filter.ConfigRul
 		IDs:     ids,
 		Enabled: c.Enabled,
 	}
+}
+
+// type check
+var _ validate.Interface = (*fltGrpRuleLists)(nil)
+
+// Validate implements the [validate.Interface] interface for *fltGrpRuleLists.
+func (c *fltGrpRuleLists) Validate() (err error) {
+	if c == nil {
+		return errors.ErrNoValue
+	}
+
+	var errs []error
+	fltIDs := container.NewMapSet[string]()
+	for i, fltID := range c.IDs {
+		if fltIDs.Has(fltID) {
+			err = fmt.Errorf("at index %d: id: %w: %q", i, errors.ErrDuplicated, fltID)
+			errs = append(errs, err)
+
+			continue
+		}
+
+		_, err = filter.NewID(fltID)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("rule_lists: at index %d: id: %w", i, err))
+
+			continue
+		}
+
+		fltIDs.Add(fltID)
+	}
+
+	return errors.Join(errs...)
 }
 
 // fltGrpParental contains parental protection configuration for a filtering
@@ -116,42 +149,26 @@ func (c *fltGrpSafeBrowsing) toInternal() (fltConf *filter.ConfigSafeBrowsing) {
 }
 
 // type check
-var _ validator = (*filteringGroup)(nil)
+var _ validate.Interface = (*filteringGroup)(nil)
 
-// validate implements the [validator] interface for *filteringGroup.
-func (g *filteringGroup) validate() (err error) {
-	switch {
-	case g == nil:
+// Validate implements the [validate.Interface] interface for *filteringGroup.
+func (g *filteringGroup) Validate() (err error) {
+	if g == nil {
 		return errors.ErrNoValue
-	case g.Parental == nil:
-		return fmt.Errorf("parental: %w", errors.ErrNoValue)
-	case g.RuleLists == nil:
-		return fmt.Errorf("rule_lists: %w", errors.ErrNoValue)
-	case g.SafeBrowsing == nil:
-		return fmt.Errorf("safe_browsing: %w", errors.ErrNoValue)
-	case g.ID == "":
-		return fmt.Errorf("id: %w", errors.ErrEmptyValue)
 	}
 
-	fltIDs := container.NewMapSet[string]()
-	for i, fltID := range g.RuleLists.IDs {
-		if fltIDs.Has(fltID) {
-			return fmt.Errorf("rule_lists: at index %d: id: %w: %q", i, errors.ErrDuplicated, fltID)
-		}
-
-		_, err = filter.NewID(fltID)
-		if err != nil {
-			return fmt.Errorf("rule_lists: at index %d: %w", i, err)
-		}
-
-		fltIDs.Add(fltID)
+	errs := []error{
+		validate.NotEmpty("id", g.ID),
+		validate.NotNil("parental", g.Parental),
+		validate.NotNil("safe_browsing", g.SafeBrowsing),
 	}
 
-	return nil
+	errs = validate.Append(errs, "rule_lists", g.RuleLists)
+
+	return errors.Join(errs...)
 }
 
-// filteringGroups are the filtering settings.  A valid instance of
-// filteringGroups has no nil items.
+// filteringGroups are the filtering settings.  All items must not be nil.
 type filteringGroups []*filteringGroup
 
 // toInternal converts groups to the filtering groups for the DNS server.
@@ -191,27 +208,32 @@ func (groups filteringGroups) toInternal(
 }
 
 // type check
-var _ validator = filteringGroups(nil)
+var _ validate.Interface = filteringGroups(nil)
 
-// validate implements the [validator] interface for filteringGroups.
-func (groups filteringGroups) validate() (err error) {
+// Validate implements the [validate.Interface] interface for filteringGroups.
+func (groups filteringGroups) Validate() (err error) {
 	if len(groups) == 0 {
-		return fmt.Errorf("filtering_groups: %w", errors.ErrEmptyValue)
+		return errors.ErrEmptyValue
 	}
 
+	var errs []error
 	ids := container.NewMapSet[string]()
 	for i, g := range groups {
-		err = g.validate()
+		err = g.Validate()
 		if err != nil {
-			return fmt.Errorf("at index %d: %w", i, err)
+			errs = append(errs, fmt.Errorf("at index %d: %w", i, err))
+
+			continue
 		}
 
 		if ids.Has(string(g.ID)) {
-			return fmt.Errorf("at index %d: id: %w: %q", i, errors.ErrDuplicated, g.ID)
+			errs = append(errs, fmt.Errorf("at index %d: %w: %q", i, errors.ErrDuplicated, g.ID))
+
+			continue
 		}
 
 		ids.Add(g.ID)
 	}
 
-	return nil
+	return errors.Join(errs...)
 }

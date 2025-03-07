@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"net/url"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/consul"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+	"github.com/AdguardTeam/golibs/service"
 )
 
 // RateLimiterConfig is the configuration structure for the business logic
@@ -41,8 +41,8 @@ type RateLimiterConfig struct {
 	APIKey string
 }
 
-// RateLimiter is the implementation of the [agdservice.Refresher] interface
-// that retrieves the rate limit settings from the business logic backend.
+// RateLimiter is the implementation of the [service.Refresher] interface that
+// retrieves the rate limit settings from the business logic backend.
 type RateLimiter struct {
 	logger      *slog.Logger
 	grpcMetrics GRPCMetrics
@@ -74,9 +74,9 @@ func NewRateLimiter(c *RateLimiterConfig) (l *RateLimiter, err error) {
 }
 
 // type check
-var _ agdservice.Refresher = (*RateLimiter)(nil)
+var _ service.Refresher = (*RateLimiter)(nil)
 
-// Refresh implements the [agdservice.Refresher] interface for *RateLimiter.
+// Refresh implements the [service.Refresher] interface for *RateLimiter.
 func (l *RateLimiter) Refresh(ctx context.Context) (err error) {
 	l.logger.InfoContext(ctx, "refresh started")
 	defer l.logger.InfoContext(ctx, "refresh finished")

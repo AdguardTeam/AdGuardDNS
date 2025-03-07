@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdvalidate"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 )
@@ -15,6 +16,9 @@ import (
 //
 // NOTE: Do not change fields of this structure without incrementing
 // [internal/profiledb/internal.FileCacheVersion].
+//
+// TODO(a.garipov):  Extract the pre-filtering booleans and logic into a new
+// package.
 type Profile struct {
 	// FilterConfig is the configuration of the filters used for this profile
 	// and all its devices that don't have filtering disabled.  It must not be
@@ -85,14 +89,14 @@ const MaxProfileIDLen = 8
 // NewProfileID converts a simple string into a ProfileID and makes sure that
 // it's valid.  This should be preferred to a simple type conversion.
 func NewProfileID(s string) (id ProfileID, err error) {
-	if err = ValidateInclusion(len(s), MaxProfileIDLen, 0, UnitByte); err != nil {
+	if err = agdvalidate.Inclusion(len(s), 0, MaxProfileIDLen, agdvalidate.UnitByte); err != nil {
 		return "", fmt.Errorf("bad profile id %q: %w", s, err)
 	}
 
 	// For now, allow only the printable, non-whitespace ASCII characters.
 	// Technically we only need to exclude carriage return and line feed
 	// characters, but let's be more strict just in case.
-	if i, r := firstNonIDRune(s, false); i != -1 {
+	if i, r := agdvalidate.FirstNonIDRune(s, false); i != -1 {
 		return "", fmt.Errorf("bad profile id: bad char %q at index %d", r, i)
 	}
 

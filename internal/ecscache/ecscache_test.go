@@ -680,6 +680,7 @@ func newWithCache(
 	return dnsserver.WithMiddlewares(
 		h,
 		ecscache.NewMiddleware(&ecscache.MiddlewareConfig{
+			Metrics:      ecscache.EmptyMetrics{},
 			Cloner:       agdtest.NewCloner(),
 			Logger:       slogutil.NewDiscardLogger(),
 			CacheManager: agdcache.EmptyManager{},

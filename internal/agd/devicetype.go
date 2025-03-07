@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdvalidate"
 	"github.com/AdguardTeam/golibs/errors"
 )
 
@@ -54,7 +55,7 @@ func DeviceTypeFromDNS(s string) (dt DeviceType, err error) {
 		}
 	}()
 
-	err = ValidateInclusion(len(s), 3, 3, UnitByte)
+	err = agdvalidate.Inclusion(len(s), 3, 3, agdvalidate.UnitByte)
 	if err != nil {
 		// The error will be wrapped by the deferred helper.
 		return DeviceTypeNone, err

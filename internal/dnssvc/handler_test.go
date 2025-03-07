@@ -16,7 +16,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -108,8 +107,8 @@ func TestNewHandlers(t *testing.T) {
 		AddrPort: dnssvctest.ServerAddrPort,
 	})
 
-	srvGrp := &agd.ServerGroup{
-		DDR: &agd.DDR{
+	srvGrp := &dnssvc.ServerGroupConfig{
+		DDR: &dnssvc.DDRConfig{
 			Enabled: true,
 		},
 		Name:            dnssvctest.ServerGroupName,
@@ -151,7 +150,7 @@ func TestNewHandlers(t *testing.T) {
 
 			ctx := testutil.ContextWithTimeout(t, dnssvctest.Timeout)
 			handlers, err := dnssvc.NewHandlers(ctx, &dnssvc.HandlersConfig{
-				BaseLogger:       slogutil.NewDiscardLogger(),
+				BaseLogger:       testLogger,
 				Cloner:           agdtest.NewCloner(),
 				Cache:            tc.cacheConf,
 				HumanIDParser:    agd.NewHumanIDParser(),
@@ -176,7 +175,7 @@ func TestNewHandlers(t *testing.T) {
 				RuleStat:             ruleStat,
 				MetricsNamespace:     path.Base(t.Name()),
 				FilteringGroups:      fltGrps,
-				ServerGroups:         []*agd.ServerGroup{srvGrp},
+				ServerGroups:         []*dnssvc.ServerGroupConfig{srvGrp},
 				EDEEnabled:           true,
 			})
 			require.NoError(t, err)

@@ -24,8 +24,8 @@ const (
 	TestProfileID    agd.ProfileID    = TestProfileIDStr
 )
 
-// TestUpdTime is the common update time for tests.
-var TestUpdTime = time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
+// TestSyncTime is the common update time for tests.
+var TestSyncTime = time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // TestBind includes any IPv4 address.
 //

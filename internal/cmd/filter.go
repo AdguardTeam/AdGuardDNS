@@ -1,10 +1,9 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/timeutil"
+	"github.com/AdguardTeam/golibs/validate"
 	"github.com/c2h5oh/datasize"
 )
 
@@ -63,33 +62,30 @@ type filtersConfig struct {
 }
 
 // type check
-var _ validator = (*filtersConfig)(nil)
+var _ validate.Interface = (*filtersConfig)(nil)
 
-// validate implements the [validator] interface for *filtersConfig.
-func (c *filtersConfig) validate() (err error) {
+// Validate implements the [validate.Interface] interface for *filtersConfig.
+func (c *filtersConfig) Validate() (err error) {
 	if c == nil {
 		return errors.ErrNoValue
 	}
 
 	errs := []error{
-		validatePositive("custom_filter_cache_size", c.CustomFilterCacheSize),
-		validatePositive("safe_search_cache_size", c.SafeSearchCacheSize),
-		validatePositive("response_ttl", c.ResponseTTL),
-		validatePositive("refresh_interval", c.RefreshIvl),
-		validatePositive("refresh_timeout", c.RefreshTimeout),
-		validatePositive("index_refresh_timeout", c.IndexRefreshTimeout),
-		validatePositive("rule_list_refresh_timeout", c.RuleListRefreshTimeout),
-		validatePositive("max_size", c.MaxSize),
+		validate.Positive("custom_filter_cache_size", c.CustomFilterCacheSize),
+		validate.Positive("safe_search_cache_size", c.SafeSearchCacheSize),
+		validate.Positive("response_ttl", c.ResponseTTL),
+		validate.Positive("refresh_interval", c.RefreshIvl),
+		validate.Positive("refresh_timeout", c.RefreshTimeout),
+		validate.Positive("index_refresh_timeout", c.IndexRefreshTimeout),
+		validate.Positive("rule_list_refresh_timeout", c.RuleListRefreshTimeout),
+		validate.Positive("max_size", c.MaxSize),
 	}
 
 	if !c.EDEEnabled && c.SDEEnabled {
 		errs = append(errs, errors.Error("ede must be enabled to enable sde"))
 	}
 
-	err = c.RuleListCache.validate()
-	if err != nil {
-		errs = append(errs, fmt.Errorf("rule_list_cache: %w", err))
-	}
+	errs = validate.Append(errs, "rule_list_cache", c.RuleListCache)
 
 	return errors.Join(errs...)
 }
@@ -107,16 +103,13 @@ type fltRuleListCache struct {
 }
 
 // type check
-var _ validator = (*fltRuleListCache)(nil)
+var _ validate.Interface = (*fltRuleListCache)(nil)
 
-// validate implements the [validator] interface for *fltRuleListCache.
-func (c *fltRuleListCache) validate() (err error) {
-	switch {
-	case c == nil:
+// Validate implements the [validate.Interface] interface for *fltRuleListCache.
+func (c *fltRuleListCache) Validate() (err error) {
+	if c == nil {
 		return errors.ErrNoValue
-	case c.Size <= 0:
-		return newNotPositiveError("size", c.Size)
-	default:
-		return nil
 	}
+
+	return validate.Positive("size", c.Size)
 }

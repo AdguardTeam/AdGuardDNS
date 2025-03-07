@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
@@ -36,7 +37,7 @@ func TestBlockPageServers(t *testing.T) {
 		robotsStatus  = http.StatusOK
 	)
 
-	// TODO(a.garipov): Do not use hardcoded ports.
+	// TODO(a.garipov):  Do not use hardcoded ports.
 	testCases := []struct {
 		updateConfig func(c *websvc.Config, bps *websvc.BlockPageServerConfig)
 		addr         netip.AddrPort
@@ -74,7 +75,11 @@ func TestBlockPageServers(t *testing.T) {
 			}
 
 			conf := &websvc.Config{
-				Timeout: testTimeout,
+				Logger:        testLogger,
+				StaticContent: http.NotFoundHandler(),
+				DNSCheck:      http.NotFoundHandler(),
+				ErrColl:       agdtest.NewErrorCollector(),
+				Timeout:       testTimeout,
 			}
 			tc.updateConfig(conf, bps)
 
@@ -89,7 +94,11 @@ func TestBlockPageServers(t *testing.T) {
 
 func TestBlockPageServers_noBlockPages(t *testing.T) {
 	conf := &websvc.Config{
-		Timeout: testTimeout,
+		Logger:        testLogger,
+		StaticContent: http.NotFoundHandler(),
+		DNSCheck:      http.NotFoundHandler(),
+		ErrColl:       agdtest.NewErrorCollector(),
+		Timeout:       testTimeout,
 	}
 
 	svc := websvc.New(conf)
@@ -102,7 +111,7 @@ func TestBlockPageServers_noBlockPages(t *testing.T) {
 }
 
 func TestBlockPageServers_gzip(t *testing.T) {
-	// TODO(a.garipov): Do not use hardcoded ports.
+	// TODO(a.garipov):  Do not use hardcoded ports.
 	addr := netip.MustParseAddrPort("127.0.0.1:3001")
 	bps := &websvc.BlockPageServerConfig{
 		ContentFilePath: filepath.Join("testdata", blockPageFileName),
@@ -113,7 +122,12 @@ func TestBlockPageServers_gzip(t *testing.T) {
 	}
 
 	conf := &websvc.Config{
+		Logger:          testLogger,
 		GeneralBlocking: bps,
+		StaticContent:   http.NotFoundHandler(),
+		DNSCheck:        http.NotFoundHandler(),
+		ErrColl:         agdtest.NewErrorCollector(),
+		Timeout:         testTimeout,
 	}
 
 	startService(t, conf)

@@ -8,9 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
-	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
@@ -32,9 +31,12 @@ func TestService_ServeHTTP(t *testing.T) {
 	}
 
 	c := &websvc.Config{
+		Logger:          testLogger,
 		RootRedirectURL: rootRedirectURL,
 		StaticContent:   http.NotFoundHandler(),
 		DNSCheck:        mockHandler,
+		ErrColl:         agdtest.NewErrorCollector(),
+		Timeout:         testTimeout,
 	}
 
 	svc := websvc.New(c)
@@ -83,23 +85,6 @@ func assertResponse(
 	svc.ServeHTTP(rw, r)
 
 	assert.Equal(t, statusCode, rw.Code)
-	assert.Equal(t, agdhttp.UserAgent(), rw.Header().Get(httphdr.Server))
 
 	return rw
-}
-
-// assertResponseWithHeaders is a helper function that checks status code and
-// headers of HTTP response.
-func assertResponseWithHeaders(
-	t *testing.T,
-	svc *websvc.Service,
-	path string,
-	statusCode int,
-	respHdr http.Header,
-) {
-	t.Helper()
-
-	rw := assertResponse(t, svc, path, statusCode)
-
-	assert.Equal(t, respHdr, rw.Header())
 }

@@ -21,7 +21,7 @@ func (mw *Middleware) serveWithRatelimiting(
 	ri *agd.RequestInfo,
 	next dnsserver.Handler,
 ) (err error) {
-	if !slices.Contains(mw.protos, ri.Proto) {
+	if !slices.Contains(mw.protos, ri.ServerInfo.Protocol) {
 		return next.ServeDNS(ctx, rw, req)
 	}
 

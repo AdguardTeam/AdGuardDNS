@@ -184,6 +184,13 @@ func TestMiddleware_recordQueryInfo_respCtry(t *testing.T) {
 						QueryLogEnabled: true,
 					},
 				},
+				ServerInfo: &agd.RequestServerInfo{
+					GroupName:       dnssvctest.ServerGroupName,
+					Name:            dnssvctest.ServerName,
+					DeviceDomains:   []string{dnssvctest.DomainForDevices},
+					Protocol:        agd.ProtoDoT,
+					ProfilesEnabled: true,
+				},
 				QType:  tc.req.Question[0].Qtype,
 				QClass: class,
 			}

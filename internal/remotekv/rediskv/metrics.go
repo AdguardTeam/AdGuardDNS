@@ -7,7 +7,7 @@ import "context"
 type Metrics interface {
 	// UpdateMetrics updates the total number of active connections and
 	// increments the total number of errors if necessary.
-	UpdateMetrics(ctx context.Context, val uint, isSuccess bool)
+	UpdateMetrics(ctx context.Context, val uint, err error)
 }
 
 // EmptyMetrics is the implementation of the [Metrics] interface that does
@@ -18,4 +18,4 @@ type EmptyMetrics struct{}
 var _ Metrics = EmptyMetrics{}
 
 // UpdateMetrics implements the [Metrics] interface for EmptyMetrics.
-func (EmptyMetrics) UpdateMetrics(_ context.Context, _ uint, _ bool) {}
+func (EmptyMetrics) UpdateMetrics(_ context.Context, _ uint, _ error) {}

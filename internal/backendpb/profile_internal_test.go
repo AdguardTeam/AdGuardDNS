@@ -13,7 +13,9 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/c2h5oh/datasize"
 	"github.com/stretchr/testify/assert"
@@ -33,9 +35,9 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 
 		got, gotDevices, err := NewTestDNSProfile(t).toInternal(
 			ctx,
-			TestUpdTime,
 			TestBind,
 			errColl,
+			TestLogger,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
@@ -57,9 +59,9 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		}
 		got, gotDevices, err := newDNSProfileWithBadData(t).toInternal(
 			ctx,
-			TestUpdTime,
 			TestBind,
 			savingErrColl,
+			TestLogger,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
@@ -89,9 +91,9 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		bindSet := netip.MustParsePrefix("2.2.2.2/32")
 		got, gotDevices, err := NewTestDNSProfile(t).toInternal(
 			ctx,
-			TestUpdTime,
 			bindSet,
 			savingErrColl,
+			TestLogger,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
@@ -115,9 +117,9 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		var emptyDNSProfile *DNSProfile
 		_, _, err := emptyDNSProfile.toInternal(
 			ctx,
-			TestUpdTime,
 			TestBind,
 			errColl,
+			TestLogger,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
@@ -135,9 +137,9 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 
 		got, gotDevices, err := dp.toInternal(
 			ctx,
-			TestUpdTime,
 			TestBind,
 			errColl,
+			TestLogger,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
@@ -158,9 +160,9 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 
 		_, _, err := dp.toInternal(
 			ctx,
-			TestUpdTime,
 			TestBind,
 			errColl,
+			TestLogger,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
@@ -183,9 +185,9 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 
 		_, _, err := dp.toInternal(
 			ctx,
-			TestUpdTime,
 			TestBind,
 			errColl,
+			TestLogger,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
@@ -206,9 +208,9 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 
 		_, _, err := dp.toInternal(
 			ctx,
-			TestUpdTime,
 			TestBind,
 			errColl,
+			TestLogger,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
@@ -225,9 +227,9 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 
 		_, _, err := dp.toInternal(
 			ctx,
-			TestUpdTime,
 			TestBind,
 			errColl,
+			TestLogger,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
@@ -245,9 +247,9 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 
 		_, _, err := dp.toInternal(
 			ctx,
-			TestUpdTime,
 			TestBind,
 			errColl,
+			TestLogger,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
@@ -263,9 +265,9 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 
 		got, gotDevices, err := dp.toInternal(
 			ctx,
-			TestUpdTime,
 			TestBind,
 			errColl,
+			TestLogger,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
@@ -288,9 +290,9 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 
 		got, _, err := dp.toInternal(
 			ctx,
-			TestUpdTime,
 			TestBind,
 			errColl,
+			TestLogger,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
@@ -312,9 +314,9 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 
 		got, _, err := dp.toInternal(
 			ctx,
-			TestUpdTime,
 			TestBind,
 			errColl,
+			TestLogger,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
@@ -504,6 +506,14 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 		End:   60,
 	}
 
+	wantCustom := &filter.ConfigCustom{
+		Filter: custom.New(&custom.Config{
+			Logger: slogutil.NewDiscardLogger(),
+			Rules:  []filter.RuleText{"||example.org^"},
+		}),
+		Enabled: true,
+	}
+
 	wantParental := &filter.ConfigParental{
 		PauseSchedule: &filter.ConfigSchedule{
 			Week: &filter.WeeklySchedule{
@@ -524,6 +534,11 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 		AdultBlockingEnabled:     false,
 		SafeSearchGeneralEnabled: false,
 		SafeSearchYouTubeEnabled: false,
+	}
+
+	wantRuleList := &filter.ConfigRuleList{
+		IDs:     []filter.ID{"1"},
+		Enabled: true,
 	}
 
 	wantSafeBrowsing := &filter.ConfigSafeBrowsing{
@@ -553,17 +568,9 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 
 	return &agd.Profile{
 		FilterConfig: &filter.ConfigClient{
-			Custom: &filter.ConfigCustom{
-				ID:         TestProfileIDStr,
-				UpdateTime: TestUpdTime,
-				Rules:      []filter.RuleText{"||example.org^"},
-				Enabled:    true,
-			},
-			Parental: wantParental,
-			RuleList: &filter.ConfigRuleList{
-				IDs:     []filter.ID{"1"},
-				Enabled: true,
-			},
+			Custom:       wantCustom,
+			Parental:     wantParental,
+			RuleList:     wantRuleList,
 			SafeBrowsing: wantSafeBrowsing,
 		},
 		Access:       wantAccess,
@@ -654,9 +661,9 @@ func BenchmarkDNSProfile_ToInternal(b *testing.B) {
 	for range b.N {
 		profSink, _, errSink = dp.toInternal(
 			ctx,
-			TestUpdTime,
 			TestBind,
 			errColl,
+			TestLogger,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,

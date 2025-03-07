@@ -358,11 +358,13 @@ func newContext(
 		FilteringGroup: &agd.FilteringGroup{
 			FilterConfig: fltConf,
 		},
+		ServerInfo: &agd.RequestServerInfo{
+			Protocol: testProto,
+		},
 		Messages: agdtest.NewConstructor(tb),
 		RemoteIP: dnssvctest.ClientAddr,
 		Host:     host,
 		QType:    qType,
-		Proto:    testProto,
 	})
 
 	return ctx

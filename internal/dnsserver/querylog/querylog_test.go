@@ -10,6 +10,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/querylog"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 )
@@ -31,7 +32,7 @@ func TestLogMiddleware_Wrap(t *testing.T) {
 	w := new(bytes.Buffer)
 	handlerWithMiddlewares := dnsserver.WithMiddlewares(
 		handler,
-		querylog.NewLogMiddleware(w),
+		querylog.NewLogMiddleware(w, slogutil.NewDiscardLogger()),
 	)
 
 	// Create a test DNS request

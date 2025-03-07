@@ -1,18 +1,20 @@
 package dnsserver
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/bluele/gcache"
 	"github.com/miekg/dns"
@@ -74,10 +76,12 @@ type ConfigQUIC struct {
 	// be set to [NextProtoDoQ].
 	TLSConfig *tls.Config
 
-	ConfigBase
+	// Base is the base configuration for this server.  It must not be nil and
+	// must be valid.
+	Base *ConfigBase
 
 	// MaxStreamsPerPeer is the maximum number of concurrent streams that a peer
-	// is allowed to open.
+	// is allowed to open.  If not set, 100 is used.
 	MaxStreamsPerPeer int
 
 	// QUICLimitsEnabled, if true, enables QUIC limiting.
@@ -85,6 +89,8 @@ type ConfigQUIC struct {
 }
 
 // ServerQUIC is a DNS-over-QUIC server implementation.
+//
+// TODO(a.garipov):  Consider unembedding ServerBase.
 type ServerQUIC struct {
 	*ServerBase
 
@@ -107,28 +113,34 @@ type ServerQUIC struct {
 	// transport is the QUIC transport saved here to close it later.
 	transport *quic.Transport
 
-	// TODO(a.garipov): Remove this and only save the values a server actually
-	// uses.
-	conf ConfigQUIC
+	tlsConf *tls.Config
+
+	maxStreamsPerPeer int
+
+	quicLimitsEnabled bool
 }
 
 // quicBytePoolSize is the size for the QUIC byte pools.
 const quicBytePoolSize = dns.MaxMsgSize
 
-// NewServerQUIC creates a new ServerQUIC instance.
-func NewServerQUIC(conf ConfigQUIC) (s *ServerQUIC) {
-	if conf.ListenConfig == nil {
-		// Do not enable OOB here as quic-go will do that on its own.
-		conf.ListenConfig = netext.DefaultListenConfig(nil)
-	}
+// NewServerQUIC creates a new ServerQUIC instance.  c must not be nil and must
+// be valid.
+func NewServerQUIC(c *ConfigQUIC) (s *ServerQUIC) {
+	// Do not enable OOB here as quic-go will do that on its own.
+	c.Base.ListenConfig = cmp.Or(c.Base.ListenConfig, netext.DefaultListenConfig(nil))
 
 	s = &ServerQUIC{
-		ServerBase: newServerBase(ProtoDoQ, conf.ConfigBase),
-		pool:       newPoolNonblocking(),
+		ServerBase: newServerBase(ProtoDoQ, c.Base),
 		reqPool:    syncutil.NewSlicePool[byte](quicBytePoolSize),
 		respPool:   syncutil.NewSlicePool[byte](quicBytePoolSize),
-		conf:       conf,
+		tlsConf:    c.TLSConfig,
+		// NOTE:  100 is the current default in package quic, but set it
+		// explicitly in case that changes in the future.
+		maxStreamsPerPeer: cmp.Or(c.MaxStreamsPerPeer, 100),
+		quicLimitsEnabled: c.QUICLimitsEnabled,
 	}
+
+	s.pool = mustNewPoolNonblocking(s.baseLogger)
 
 	return s
 }
@@ -143,15 +155,11 @@ func (s *ServerQUIC) Start(ctx context.Context) (err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.conf.TLSConfig == nil {
-		return errors.Error("tls config is required")
-	}
-
 	if s.started {
 		return ErrServerAlreadyStarted
 	}
 
-	log.Info("[%s]: Starting the server", s.name)
+	s.baseLogger.InfoContext(ctx, "starting server")
 
 	ctx = ContextWithServerInfo(ctx, &ServerInfo{
 		Name:  s.name,
@@ -171,7 +179,7 @@ func (s *ServerQUIC) Start(ctx context.Context) (err error) {
 
 	s.started = true
 
-	log.Info("[%s]: Server has been started", s.Name())
+	s.baseLogger.InfoContext(ctx, "server has been started")
 
 	return nil
 }
@@ -180,11 +188,11 @@ func (s *ServerQUIC) Start(ctx context.Context) (err error) {
 func (s *ServerQUIC) Shutdown(ctx context.Context) (err error) {
 	defer func() { err = errors.Annotate(err, "shutting down doq server: %w") }()
 
-	log.Info("[%s]: Stopping the server", s.Name())
+	s.baseLogger.InfoContext(ctx, "shutting down server")
 
-	err = s.shutdown()
+	err = s.shutdown(ctx)
 	if err != nil {
-		log.Info("[%s]: Failed to shutdown: %v", s.Name(), err)
+		s.baseLogger.WarnContext(ctx, "error while shutting down", slogutil.KeyError, err)
 
 		return err
 	}
@@ -194,13 +202,13 @@ func (s *ServerQUIC) Shutdown(ctx context.Context) (err error) {
 	// Close the workerPool and releases all workers.
 	s.pool.Release()
 
-	log.Info("[%s]: Finished stopping the server", s.Name())
+	s.baseLogger.InfoContext(ctx, "server has been shut down")
 
 	return err
 }
 
 // shutdown marks the server as stopped and closes active listeners.
-func (s *ServerQUIC) shutdown() (err error) {
+func (s *ServerQUIC) shutdown(ctx context.Context) (err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -214,13 +222,13 @@ func (s *ServerQUIC) shutdown() (err error) {
 	// Now close all listeners.
 	err = s.quicListener.Close()
 	if err != nil {
-		log.Debug("[%s]: closing quic listener: %s", s.Name(), err)
+		s.baseLogger.DebugContext(ctx, "closing quic listener", slogutil.KeyError, err)
 	}
 
 	// And the transport.
 	err = s.transport.Close()
 	if err != nil {
-		log.Debug("[%s]: closing quic transport: %s", s.Name(), err)
+		s.baseLogger.DebugContext(ctx, "closing quic transport", slogutil.KeyError, err)
 	}
 
 	return nil
@@ -233,15 +241,11 @@ func (s *ServerQUIC) startServeQUIC(ctx context.Context) {
 	defer s.handlePanicAndExit(ctx)
 	defer s.wg.Done()
 
-	log.Info("[%s]: Start listening to quic://%s", s.Name(), s.LocalUDPAddr())
+	s.baseLogger.InfoContext(ctx, "starting listening quic")
+
 	err := s.serveQUIC(ctx, s.quicListener)
 	if err != nil {
-		log.Info(
-			"[%s]: Finished listening to quic://%s due to %v",
-			s.Name(),
-			s.LocalUDPAddr(),
-			err,
-		)
+		s.baseLogger.WarnContext(ctx, "listening quic failed", slogutil.KeyError, err)
 	}
 }
 
@@ -299,7 +303,7 @@ func (s *ServerQUIC) acceptQUICConn(
 	if err != nil {
 		// Most likely the workerPool is closed, and we can exit right away.
 		// Make sure that the connection is closed just in case.
-		closeQUICConn(conn, DOQCodeNoError)
+		s.closeQUICConn(ctx, conn, DOQCodeNoError)
 
 		return err
 	}
@@ -321,7 +325,7 @@ func (s *ServerQUIC) serveQUICConnAsync(
 	err := s.serveQUICConn(ctx, conn)
 	if !isExpectedQUICErr(err) {
 		s.metrics.OnError(ctx, err)
-		log.Debug("[%s] Error while serving a QUIC conn: %v", s.Name(), err)
+		s.baseLogger.DebugContext(ctx, "serving quic conn", slogutil.KeyError, err)
 	}
 }
 
@@ -334,7 +338,7 @@ func (s *ServerQUIC) serveQUICConn(ctx context.Context, conn quic.Connection) (e
 		streamWg.Wait()
 
 		// Close the connection to make sure resources are freed.
-		closeQUICConn(conn, DOQCodeNoError)
+		s.closeQUICConn(ctx, conn, DOQCodeNoError)
 	}()
 
 	for s.isStarted() {
@@ -372,7 +376,7 @@ func (s *ServerQUIC) serveQUICConn(ctx context.Context, conn quic.Connection) (e
 			TLSServerName: conn.ConnectionState().TLS.ServerName,
 		}
 
-		reqCtx, reqCancel := s.requestContext()
+		reqCtx, reqCancel := s.requestContext(context.Background())
 		reqCtx = ContextWithRequestInfo(reqCtx, ri)
 
 		streamWg.Add(1)
@@ -409,7 +413,7 @@ func (s *ServerQUIC) serveQUICStreamAsync(
 	err := s.serveQUICStream(ctx, stream, conn)
 	if !isExpectedQUICErr(err) {
 		s.metrics.OnError(ctx, err)
-		log.Debug("[%s] Failed to process a QUIC stream: %v", s.Name(), err)
+		s.baseLogger.DebugContext(ctx, "serving quic stream", slogutil.KeyError, err)
 	}
 }
 
@@ -423,11 +427,11 @@ func (s *ServerQUIC) serveQUICStream(
 	// The server MUST send the response on the same stream, and MUST indicate
 	// through the STREAM FIN mechanism that no further data will be sent on
 	// that stream.
-	defer log.OnCloserError(stream, log.DEBUG)
+	defer slogutil.CloseAndLog(ctx, s.baseLogger, stream, slog.LevelDebug)
 
 	msg, err := s.readQUICMsg(ctx, stream)
 	if err != nil {
-		closeQUICConn(conn, DOQCodeProtocolError)
+		s.closeQUICConn(ctx, conn, DOQCodeProtocolError)
 
 		return err
 	}
@@ -437,7 +441,7 @@ func (s *ServerQUIC) serveQUICStream(
 		// fatal error. It SHOULD forcibly abort the connection using QUIC's
 		// CONNECTION_CLOSE mechanism and SHOULD use the DoQ error code
 		// DOQ_PROTOCOL_ERROR.
-		closeQUICConn(conn, DOQCodeProtocolError)
+		s.closeQUICConn(ctx, conn, DOQCodeProtocolError)
 
 		return ErrProtocol
 	}
@@ -464,7 +468,7 @@ func (s *ServerQUIC) serveQUICStream(
 
 	b, err := packWithPrefix(resp, *bufPtr)
 	if err != nil {
-		closeQUICConn(conn, DOQCodeProtocolError)
+		s.closeQUICConn(ctx, conn, DOQCodeProtocolError)
 
 		return err
 	}
@@ -570,8 +574,8 @@ func (s *ServerQUIC) listenQUIC(ctx context.Context) (err error) {
 		VerifySourceAddress: v.requiresValidation,
 	}
 
-	qConf := newServerQUICConfig(s.conf.QUICLimitsEnabled, s.conf.MaxStreamsPerPeer)
-	ql, err := transport.Listen(s.conf.TLSConfig, qConf)
+	qConf := newServerQUICConfig(s.quicLimitsEnabled, s.maxStreamsPerPeer)
+	ql, err := transport.Listen(s.tlsConf, qConf)
 	if err != nil {
 		return fmt.Errorf("listening quic: %w", err)
 	}
@@ -684,10 +688,14 @@ func validQUICMsg(req *dns.Msg) (ok bool) {
 
 // closeQUICConn quietly closes the QUIC connection with the specified error
 // code and logs if it fails to close the connection.
-func closeQUICConn(conn quic.Connection, code quic.ApplicationErrorCode) {
+func (s *ServerQUIC) closeQUICConn(
+	ctx context.Context,
+	conn quic.Connection,
+	code quic.ApplicationErrorCode,
+) {
 	err := conn.CloseWithError(code, "")
 	if err != nil {
-		log.Debug("failed to close the QUIC connection: %v", err)
+		s.baseLogger.DebugContext(ctx, "closing quic conn", slogutil.KeyError, err)
 	}
 }
 

@@ -7,10 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/composite"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
@@ -23,41 +25,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newFromStr is a helper to create a rule-list filter from a rule text and a
-// filtering-list ID.
-func newFromStr(tb testing.TB, text string, id internal.ID) (rl *rulelist.Refreshable) {
-	tb.Helper()
-
-	rl, err := rulelist.NewFromString(text, id, "", rulelist.ResultCacheEmpty{})
-	require.NoError(tb, err)
-
-	return rl
-}
-
-// newImmutable is a helper to create an immutable rule-list filter from a rule
-// text and a filtering-list ID.
-func newImmutable(tb testing.TB, text string, id internal.ID) (rl *rulelist.Immutable) {
-	tb.Helper()
-
-	rl, err := rulelist.NewImmutable(text, id, "", rulelist.ResultCacheEmpty{})
-	require.NoError(tb, err)
-
-	return rl
-}
-
 // newReqData returns data for calling FilterRequest.  The context uses
 // [filtertest.Timeout] and [tb.Cleanup] is used for its cancelation.  req uses
 // [filtertest.FQDNBlocked], [dns.TypeA], and [dns.ClassINET] for the request
 // data.
-func newReqData(tb testing.TB) (ctx context.Context, req *internal.Request) {
+func newReqData(tb testing.TB) (ctx context.Context, req *filter.Request) {
+	tb.Helper()
+
+	return newReqDataWithFQDN(tb, filtertest.FQDNBlocked)
+}
+
+// newReqDataWithFQDN is like [newReqData] but allows setting the FQDN.
+func newReqDataWithFQDN(tb testing.TB, fqdn string) (ctx context.Context, req *filter.Request) {
 	tb.Helper()
 
 	ctx = testutil.ContextWithTimeout(tb, filtertest.Timeout)
-	req = &internal.Request{
-		DNS:      dnsservertest.NewReq(filtertest.FQDNBlocked, dns.TypeA, dns.ClassINET),
+	req = &filter.Request{
+		DNS:      dnsservertest.NewReq(fqdn, dns.TypeA, dns.ClassINET),
 		Messages: agdtest.NewConstructor(tb),
 		RemoteIP: filtertest.IPv4Client,
-		Host:     filtertest.HostBlocked,
+		Host:     agdnet.NormalizeDomain(fqdn),
 		QType:    dns.TypeA,
 		QClass:   dns.ClassINET,
 	}
@@ -66,29 +53,29 @@ func newReqData(tb testing.TB) (ctx context.Context, req *internal.Request) {
 }
 
 func TestFilter_FilterRequest_customWithClientName(t *testing.T) {
-	const (
-		devName   = "MyDevice"
-		blockRule = filtertest.RuleBlockStr + "$client=" + devName
-	)
-
 	f := composite.New(&composite.Config{
-		Custom: newImmutable(t, blockRule, internal.IDCustom),
+		Custom: custom.New(&custom.Config{
+			Logger: slogutil.NewDiscardLogger(),
+			Rules: []filter.RuleText{
+				filtertest.RuleBlockForClientName,
+			},
+		}),
 	})
 
-	ctx, req := newReqData(t)
+	ctx, req := newReqDataWithFQDN(t, filtertest.FQDNBlockedForClientName)
 	res, err := f.FilterRequest(ctx, req)
 	require.NoError(t, err)
 
 	assert.Nil(t, res)
 
-	req.ClientName = devName
+	req.ClientName = filtertest.ClientName
 
 	res, err = f.FilterRequest(ctx, req)
 	require.NoError(t, err)
 
-	wantRes := &internal.ResultBlocked{
-		List: internal.IDCustom,
-		Rule: blockRule,
+	wantRes := &filter.ResultBlocked{
+		List: filter.IDCustom,
+		Rule: filtertest.RuleBlockForClientName,
 	}
 
 	assert.Equal(t, wantRes, res)
@@ -105,11 +92,11 @@ func TestFilter_FilterRequest_badfilter(t *testing.T) {
 
 	testCases := []struct {
 		name      string
-		wantRes   internal.Result
+		wantRes   filter.Result
 		ruleLists []*rulelist.Refreshable
 	}{{
 		name: "block",
-		wantRes: &internal.ResultBlocked{
+		wantRes: &filter.ResultBlocked{
 			List: filtertest.RuleListID1,
 			Rule: blockRule,
 		},
@@ -139,11 +126,22 @@ func TestFilter_FilterRequest_badfilter(t *testing.T) {
 	}
 }
 
+// newFromStr is a helper to create a rule-list filter from a rule text and a
+// filtering-list ID.
+func newFromStr(tb testing.TB, text string, id filter.ID) (rl *rulelist.Refreshable) {
+	tb.Helper()
+
+	return rulelist.NewFromString(text, id, "", rulelist.EmptyResultCache{})
+}
+
 func TestFilter_FilterRequest_customAllow(t *testing.T) {
-	const allowRule = "@@" + filtertest.RuleBlockStr
+	const allowRule = "@@" + filtertest.RuleBlock
 
 	blockingRL := newFromStr(t, filtertest.RuleBlockStr, filtertest.RuleListID1)
-	customRL := newImmutable(t, allowRule, internal.IDCustom)
+	customRL := custom.New(&custom.Config{
+		Logger: slogutil.NewDiscardLogger(),
+		Rules:  []filter.RuleText{allowRule},
+	})
 
 	f := composite.New(&composite.Config{
 		Custom:    customRL,
@@ -154,8 +152,8 @@ func TestFilter_FilterRequest_customAllow(t *testing.T) {
 	res, err := f.FilterRequest(ctx, req)
 	require.NoError(t, err)
 
-	want := &internal.ResultAllowed{
-		List: internal.IDCustom,
+	want := &filter.ResultAllowed{
+		List: filter.IDCustom,
 		Rule: allowRule,
 	}
 	assert.Equal(t, want, res)
@@ -177,10 +175,10 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 
 	var (
 		rlNonRewrite    = newFromStr(t, blockRule, filtertest.RuleListID1)
-		rlCustomRefused = newImmutable(t, dnsRewriteRuleRefused, internal.IDCustom)
-		rlCustomCname   = newImmutable(t, dnsRewriteRuleCname, internal.IDCustom)
-		rlCustom2Rules  = newImmutable(t, dnsRewrite2Rules, internal.IDCustom)
-		rlCustomTyped   = newImmutable(t, dnsRewriteTypedRules, internal.IDCustom)
+		rlCustomRefused = newCustom(t, dnsRewriteRuleRefused)
+		rlCustomCname   = newCustom(t, dnsRewriteRuleCname)
+		rlCustom2Rules  = newCustom(t, dnsRewrite2Rules)
+		rlCustomTyped   = newCustom(t, dnsRewriteTypedRules)
 	)
 
 	req := dnsservertest.NewReq(filtertest.FQDNBlocked, dns.TypeA, dns.ClassINET)
@@ -196,15 +194,15 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 	soaReq.Question[0].Qtype = dns.TypeSOA
 
 	testCases := []struct {
-		custom    *rulelist.Immutable
+		custom    filter.Custom
 		req       *dns.Msg
-		wantRes   internal.Result
+		wantRes   filter.Result
 		name      string
 		ruleLists []*rulelist.Refreshable
 	}{{
 		custom: nil,
 		req:    req,
-		wantRes: &internal.ResultBlocked{
+		wantRes: &filter.ResultBlocked{
 			List: filtertest.RuleListID1,
 			Rule: blockRule,
 		},
@@ -213,7 +211,7 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 	}, {
 		custom: nil,
 		req:    req,
-		wantRes: &internal.ResultBlocked{
+		wantRes: &filter.ResultBlocked{
 			List: filtertest.RuleListID1,
 			Rule: blockRule,
 		},
@@ -222,9 +220,9 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 	}, {
 		custom: rlCustomRefused,
 		req:    req,
-		wantRes: &internal.ResultModifiedResponse{
+		wantRes: &filter.ResultModifiedResponse{
 			Msg:  dnsservertest.NewResp(dns.RcodeRefused, req),
-			List: internal.IDCustom,
+			List: filter.IDCustom,
 			Rule: dnsRewriteRuleRefused,
 		},
 		name:      "dnsrewrite_block",
@@ -232,9 +230,9 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 	}, {
 		custom: rlCustomCname,
 		req:    req,
-		wantRes: &internal.ResultModifiedRequest{
+		wantRes: &filter.ResultModifiedRequest{
 			Msg:  modifiedReq,
-			List: internal.IDCustom,
+			List: filter.IDCustom,
 			Rule: dnsRewriteRuleCname,
 		},
 		name:      "dnsrewrite_cname",
@@ -242,7 +240,7 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 	}, {
 		custom: rlCustom2Rules,
 		req:    req,
-		wantRes: &internal.ResultModifiedResponse{
+		wantRes: &filter.ResultModifiedResponse{
 			Msg: dnsservertest.NewResp(dns.RcodeSuccess, req, dnsservertest.SectionAnswer{
 				dnsservertest.NewA(
 					filtertest.FQDNBlocked,
@@ -255,7 +253,7 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 					netip.MustParseAddr("1.2.3.5"),
 				),
 			}),
-			List: internal.IDCustom,
+			List: filter.IDCustom,
 			Rule: "",
 		},
 		name:      "dnsrewrite_answers",
@@ -263,7 +261,7 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 	}, {
 		custom: rlCustomTyped,
 		req:    txtReq,
-		wantRes: &internal.ResultModifiedResponse{
+		wantRes: &filter.ResultModifiedResponse{
 			Msg: dnsservertest.NewResp(dns.RcodeSuccess, txtReq, dnsservertest.SectionAnswer{
 				dnsservertest.NewTXT(
 					filtertest.FQDNBlocked,
@@ -271,7 +269,7 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 					"abcdefg",
 				),
 			}),
-			List: internal.IDCustom,
+			List: filter.IDCustom,
 			Rule: "",
 		},
 		name:      "dnsrewrite_txt",
@@ -279,9 +277,9 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 	}, {
 		custom: rlCustomTyped,
 		req:    soaReq,
-		wantRes: &internal.ResultModifiedResponse{
+		wantRes: &filter.ResultModifiedResponse{
 			Msg:  dnsservertest.NewResp(dns.RcodeSuccess, soaReq),
-			List: internal.IDCustom,
+			List: filter.IDCustom,
 		},
 		name:      "dnsrewrite_soa",
 		ruleLists: []*rulelist.Refreshable{},
@@ -289,13 +287,15 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			f := composite.New(&composite.Config{
+			c := &composite.Config{
 				Custom:    tc.custom,
 				RuleLists: tc.ruleLists,
-			})
+			}
+
+			f := composite.New(c)
 
 			ctx := context.Background()
-			res, fltErr := f.FilterRequest(ctx, &internal.Request{
+			res, fltErr := f.FilterRequest(ctx, &filter.Request{
 				DNS:      tc.req,
 				Messages: agdtest.NewConstructor(t),
 				Host:     filtertest.HostBlocked,
@@ -307,6 +307,18 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 			filtertest.AssertEqualResult(t, tc.wantRes, res)
 		})
 	}
+}
+
+// newCustom is a helper to create a cusotm filter from a rule text.
+func newCustom(tb testing.TB, text string) (f *custom.Filter) {
+	tb.Helper()
+
+	return custom.New(&custom.Config{
+		Logger: slogutil.NewDiscardLogger(),
+		Rules: []filter.RuleText{
+			filter.RuleText(text),
+		},
+	})
 }
 
 func TestFilter_FilterRequest_hostsRules(t *testing.T) {
@@ -326,18 +338,18 @@ func TestFilter_FilterRequest_hostsRules(t *testing.T) {
 		RuleLists: []*rulelist.Refreshable{rl},
 	})
 
-	resBlocked4 := &internal.ResultBlocked{
+	resBlocked4 := &filter.ResultBlocked{
 		List: filtertest.RuleListID1,
 		Rule: blockRule4,
 	}
 
-	resBlocked6 := &internal.ResultBlocked{
+	resBlocked6 := &filter.ResultBlocked{
 		List: filtertest.RuleListID1,
 		Rule: blockRule6,
 	}
 
 	testCases := []struct {
-		wantRes internal.Result
+		wantRes filter.Result
 		name    string
 		reqHost string
 		reqType dnsmsg.RRType
@@ -379,7 +391,7 @@ func TestFilter_FilterRequest_hostsRules(t *testing.T) {
 			}
 
 			ctx := context.Background()
-			fltReq := &internal.Request{
+			fltReq := &filter.Request{
 				DNS:      req,
 				Messages: agdtest.NewConstructor(t),
 				Host:     tc.reqHost,
@@ -399,7 +411,7 @@ func TestFilter_FilterRequest_safeSearch(t *testing.T) {
 	const rewriteRule = filtertest.RuleSafeSearchGeneralIPv4Str + "\n"
 	cachePath, srvURL := filtertest.PrepareRefreshable(t, nil, rewriteRule, http.StatusOK)
 
-	const fltListID = internal.IDGeneralSafeSearch
+	const fltListID = filter.IDGeneralSafeSearch
 
 	gen, err := safesearch.New(
 		&safesearch.Config{
@@ -425,10 +437,7 @@ func TestFilter_FilterRequest_safeSearch(t *testing.T) {
 		GeneralSafeSearch: gen,
 	})
 
-	ctx, req := newReqData(t)
-	req.DNS.Question[0].Name = filtertest.FQDNSafeSearchGeneralIPv4
-	req.Host = filtertest.HostSafeSearchGeneralIPv4
-
+	ctx, req := newReqDataWithFQDN(t, filtertest.FQDNSafeSearchGeneralIPv4)
 	res, err := f.FilterRequest(ctx, req)
 	require.NoError(t, err)
 
@@ -439,7 +448,7 @@ func TestFilter_FilterRequest_safeSearch(t *testing.T) {
 			filtertest.IPv4SafeSearchRepl,
 		),
 	})
-	want := &internal.ResultModifiedResponse{
+	want := &filter.ResultModifiedResponse{
 		Msg:  wantResp,
 		List: fltListID,
 		Rule: filtertest.HostSafeSearchGeneralIPv4,
@@ -448,13 +457,12 @@ func TestFilter_FilterRequest_safeSearch(t *testing.T) {
 }
 
 func TestFilter_FilterRequest_services(t *testing.T) {
-	svcRL, err := rulelist.NewImmutable(
+	svcRL := rulelist.NewImmutable(
 		filtertest.RuleBlockStr,
-		internal.IDBlockedService,
+		filter.IDBlockedService,
 		filtertest.BlockedServiceID1,
-		rulelist.ResultCacheEmpty{},
+		rulelist.EmptyResultCache{},
 	)
-	require.NoError(t, err)
 
 	f := composite.New(&composite.Config{
 		ServiceLists: []*rulelist.Immutable{svcRL},
@@ -464,9 +472,9 @@ func TestFilter_FilterRequest_services(t *testing.T) {
 	res, err := f.FilterRequest(ctx, req)
 	require.NoError(t, err)
 
-	want := &internal.ResultBlocked{
-		List: internal.IDBlockedService,
-		Rule: internal.RuleText(filtertest.BlockedServiceID1),
+	want := &filter.ResultBlocked{
+		List: filter.IDBlockedService,
+		Rule: filter.RuleText(filtertest.BlockedServiceID1),
 	}
 	assert.Equal(t, want, res)
 }
@@ -499,7 +507,7 @@ func TestFilter_FilterResponse(t *testing.T) {
 	testCases := []struct {
 		name     string
 		reqFQDN  string
-		wantRule internal.RuleText
+		wantRule filter.RuleText
 		respAns  dnsservertest.SectionAnswer
 		qType    dnsmsg.RRType
 	}{{
@@ -583,11 +591,10 @@ func TestFilter_FilterResponse(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, req := newReqData(t)
-			req.DNS.Question[0].Name = tc.reqFQDN
+			ctx, req := newReqDataWithFQDN(t, tc.reqFQDN)
 			req.DNS.Question[0].Qtype = tc.qType
 
-			res, err := f.FilterResponse(ctx, &internal.Response{
+			res, err := f.FilterResponse(ctx, &filter.Response{
 				DNS:      dnsservertest.NewResp(dns.RcodeSuccess, req.DNS, tc.respAns),
 				RemoteIP: filtertest.IPv4Client,
 			})
@@ -599,7 +606,7 @@ func TestFilter_FilterResponse(t *testing.T) {
 				return
 			}
 
-			want := &internal.ResultBlocked{
+			want := &filter.ResultBlocked{
 				List: filtertest.RuleListID1,
 				Rule: tc.wantRule,
 			}

@@ -2,10 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/timeutil"
+	"github.com/AdguardTeam/golibs/validate"
 )
 
 // cacheConfig is the configuration of the DNS cacheConfig module
@@ -38,6 +40,18 @@ type ttlOverride struct {
 	Enabled bool `yaml:"enabled"`
 }
 
+// type check
+var _ validate.Interface = (*ttlOverride)(nil)
+
+// Validate implements the [validate.Interface] interface for *ttlOverride.
+func (c *ttlOverride) Validate() (err error) {
+	if c == nil {
+		return errors.ErrNoValue
+	}
+
+	return validate.Positive("min", c.Min)
+}
+
 // Cache types.
 const (
 	cacheTypeECS    = "ecs"
@@ -58,7 +72,7 @@ func (c *cacheConfig) toInternal() (cacheConf *dnssvc.CacheConfig) {
 	}
 
 	return &dnssvc.CacheConfig{
-		MinTTL:           c.TTLOverride.Min.Duration,
+		MinTTL:           time.Duration(c.TTLOverride.Min),
 		ECSCount:         c.ECSSize,
 		NoECSCount:       c.Size,
 		Type:             typ,
@@ -67,47 +81,36 @@ func (c *cacheConfig) toInternal() (cacheConf *dnssvc.CacheConfig) {
 }
 
 // type check
-var _ validator = (*cacheConfig)(nil)
+var _ validate.Interface = (*cacheConfig)(nil)
 
-// validate implements the [validator] interface for *cacheConfig.
-func (c *cacheConfig) validate() (err error) {
-	switch {
-	case c == nil:
+// Validate implements the [validate.Interface] interface for *cacheConfig.
+func (c *cacheConfig) Validate() (err error) {
+	if c == nil {
 		return errors.ErrNoValue
-	case c.Type != cacheTypeSimple && c.Type != cacheTypeECS:
-		return fmt.Errorf(
+	}
+
+	errs := []error{
+		validate.NotNegative("size", c.Size),
+	}
+
+	errs = validate.Append(errs, "ttl_override", c.TTLOverride)
+
+	switch c.Type {
+	case cacheTypeSimple:
+		// Go on.
+	case cacheTypeECS:
+		if err = validate.NotNegative("ecs_size", c.ECSSize); err != nil {
+			// Don't wrap the error, because it's informative enough as is.
+			errs = append(errs, err)
+		}
+	default:
+		errs = append(errs, fmt.Errorf(
 			"type: %w: %q, supported: %q",
 			errors.ErrBadEnumValue,
 			c.Type,
 			[]string{cacheTypeSimple, cacheTypeECS},
-		)
-	case c.Size < 0:
-		return newNegativeError("size", c.Size)
-	case c.Type == cacheTypeECS && c.ECSSize < 0:
-		return newNegativeError("ecs_size", c.ECSSize)
-	default:
-		// Go on.
+		))
 	}
 
-	err = c.TTLOverride.validate()
-	if err != nil {
-		return fmt.Errorf("ttl_override: %w", err)
-	}
-
-	return nil
-}
-
-// type check
-var _ validator = (*ttlOverride)(nil)
-
-// validate implements the [validator] interface for *ttlOverride.
-func (c *ttlOverride) validate() (err error) {
-	switch {
-	case c == nil:
-		return errors.ErrNoValue
-	case c.Min.Duration <= 0:
-		return newNotPositiveError("min", c.Min)
-	default:
-		return nil
-	}
+	return errors.Join(errs...)
 }

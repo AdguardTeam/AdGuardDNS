@@ -3,7 +3,7 @@
 # This comment is used to simplify checking local copies of the script.  Bump
 # this number every time a significant change is made to this script.
 #
-# AdGuard-Project-Version: 12
+# AdGuard-Project-Version: 14
 
 verbose="${VERBOSE:-0}"
 readonly verbose
@@ -26,8 +26,8 @@ set -f -u
 
 # Simple analyzers
 
-# blocklist_imports is a simple check against unwanted packages.  The following
-# packages are banned:
+# blocklist_imports is a simple best-effort check against unwanted packages.
+# The following packages are banned:
 #
 #   *  Package errors is replaced by our own package in the
 #      github.com/AdguardTeam/golibs module.
@@ -67,8 +67,11 @@ set -f -u
 #   *  internal/profiledb/internal/filecachepb/unsafe.go: a “safe” unsafe helper
 #      to prevent excessive allocations.
 #
-# TODO(a.garipov): Add golibs/log, client_golang/prometheus/promauto.
+# TODO(a.garipov): Add client_golang/prometheus/promauto.
 blocklist_imports() {
+	import_or_tab="$(printf '^\\(import \\|\t\\)')"
+	readonly import_or_tab
+
 	find . \
 		-type 'f' \
 		'(' \
@@ -79,15 +82,16 @@ blocklist_imports() {
 		-exec \
 		'grep' \
 		'-H' \
-		'-e' '[[:space:]]"errors"$' \
-		'-e' '[[:space:]]"golang.org/x/exp/maps"$' \
-		'-e' '[[:space:]]"golang.org/x/exp/slices"$' \
-		'-e' '[[:space:]]"golang.org/x/net/context"$' \
-		'-e' '[[:space:]]"io/ioutil"$' \
-		'-e' '[[:space:]]"log"$' \
-		'-e' '[[:space:]]"reflect"$' \
-		'-e' '[[:space:]]"sort"$' \
-		'-e' '[[:space:]]"unsafe"$' \
+		'-e' "$import_or_tab"'"errors"$' \
+		'-e' "$import_or_tab"'"github.com/AdguardTeam/golibs/log"$' \
+		'-e' "$import_or_tab"'"golang.org/x/exp/maps"$' \
+		'-e' "$import_or_tab"'"golang.org/x/exp/slices"$' \
+		'-e' "$import_or_tab"'"golang.org/x/net/context"$' \
+		'-e' "$import_or_tab"'"io/ioutil"$' \
+		'-e' "$import_or_tab"'"log"$' \
+		'-e' "$import_or_tab"'"reflect"$' \
+		'-e' "$import_or_tab"'"sort"$' \
+		'-e' "$import_or_tab"'"unsafe"$' \
 		'-n' \
 		'{}' \
 		';'
@@ -222,7 +226,7 @@ if [ "$shadow_output" != '' ]; then
 	exit 1
 fi
 
-run_linter gosec --quiet ./... "$dnssrvmod"
+run_linter gosec --exclude-generated --quiet ./... "$dnssrvmod"
 
 run_linter errcheck ./... "$dnssrvmod"
 

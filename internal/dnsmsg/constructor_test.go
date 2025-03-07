@@ -183,7 +183,46 @@ func TestConstructor_AppendDebugExtra(t *testing.T) {
 				wantExtra[0].Header().Name = fqdn
 			}
 
-			assert.Equal(t, resp.Extra, tc.wantExtra)
+			assert.Equal(t, tc.wantExtra, resp.Extra)
 		})
 	}
+}
+
+// errSink is a sink for benchmark results.
+var errSink error
+
+func BenchmarkConstructor_AppendDebugExtra(b *testing.B) {
+	msgs := agdtest.NewConstructor(b)
+
+	longText := strings.Repeat("abc", 2*dnsmsg.MaxTXTStringLen)
+
+	req := &dns.Msg{
+		MsgHdr: dns.MsgHdr{
+			Id: dns.Id(),
+		},
+		Question: []dns.Question{{
+			Name:   testFQDN,
+			Qtype:  dns.TypeTXT,
+			Qclass: dns.ClassCHAOS,
+		}},
+	}
+
+	resp := &dns.Msg{}
+	resp = resp.SetReply(req)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		errSink = msgs.AppendDebugExtra(req, resp, longText)
+	}
+
+	assert.NoError(b, errSink)
+
+	// Most recent results:
+	//
+	// goos: darwin
+	// goarch: arm64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg
+	// cpu: Apple M1 Pro
+	// BenchmarkConstructor_AppendDebugExtra-8   	 8809124	       137.3 ns/op	     253 B/op	       2 allocs/op
 }

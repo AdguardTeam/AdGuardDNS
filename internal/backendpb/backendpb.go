@@ -28,7 +28,11 @@ func newClient(apiURL *url.URL) (client *grpc.ClientConn, err error) {
 		return nil, fmt.Errorf("bad grpc url scheme %q", s)
 	}
 
-	conn, err := grpc.NewClient(apiURL.Host, grpc.WithTransportCredentials(creds))
+	conn, err := grpc.NewClient(
+		apiURL.Host,
+		grpc.WithDisableServiceConfig(),
+		grpc.WithTransportCredentials(creds),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("dialing: %w", err)
 	}

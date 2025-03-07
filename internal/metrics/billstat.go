@@ -12,9 +12,9 @@ import (
 // Billstat is the Prometheus-based implementation of the [billstat.Metrics]
 // interface.
 type Billstat struct {
-	// bufSize is a gauge with the total count of records in the local billing
-	// statistics database.
-	bufSize prometheus.Gauge
+	// recordCount is a gauge with the total count of records in the local
+	// billing statistics database.
+	recordCount prometheus.Gauge
 
 	// uploadStatus is a gauge with the status of the last billing statistics
 	// upload.
@@ -33,15 +33,15 @@ type Billstat struct {
 // properly initialized [Billstat].
 func NewBillstat(namespace string, reg prometheus.Registerer) (m *Billstat, err error) {
 	const (
-		bufSize         = "buf_size"
+		recordCount     = "buf_size"
 		uploadStatus    = "bill_stat_upload_status"
 		uploadTimestamp = "bill_stat_upload_timestamp"
 		uploadDuration  = "bill_stat_upload_duration"
 	)
 
 	m = &Billstat{
-		bufSize: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name:      bufSize,
+		recordCount: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name:      recordCount,
 			Namespace: namespace,
 			Subsystem: subsystemBillStat,
 			Help:      "Count of records in the local billstat DB.",
@@ -69,8 +69,8 @@ func NewBillstat(namespace string, reg prometheus.Registerer) (m *Billstat, err 
 
 	var errs []error
 	collectors := container.KeyValues[string, prometheus.Collector]{{
-		Key:   bufSize,
-		Value: m.bufSize,
+		Key:   recordCount,
+		Value: m.recordCount,
 	}, {
 		Key:   uploadStatus,
 		Value: m.uploadStatus,
@@ -96,20 +96,22 @@ func NewBillstat(namespace string, reg prometheus.Registerer) (m *Billstat, err 
 	return m, nil
 }
 
-// BufferSizeSet implements the [billstat.Metrics] interface for *Billstat.
-func (m *Billstat) BufferSizeSet(_ context.Context, n float64) {
-	m.bufSize.Set(n)
+// SetRecordCount implements the [billstat.Metrics] interface for *Billstat.
+func (m *Billstat) SetRecordCount(_ context.Context, count int) {
+	m.recordCount.Set(float64(count))
 }
 
 // HandleUploadDuration implements the [billstat.Metrics] interface for
 // *Billstat.
-func (m *Billstat) HandleUploadDuration(_ context.Context, dur float64, isSuccess bool) {
+func (m *Billstat) HandleUploadDuration(_ context.Context, dur float64, err error) {
 	m.uploadDuration.Observe(dur)
 
-	if isSuccess {
-		m.uploadTimestamp.SetToCurrentTime()
-		m.uploadStatus.Set(1)
-	} else {
+	if err != nil {
 		m.uploadStatus.Set(0)
+
+		return
 	}
+
+	m.uploadStatus.Set(1)
+	m.uploadTimestamp.SetToCurrentTime()
 }

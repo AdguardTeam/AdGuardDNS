@@ -13,7 +13,7 @@ import (
 func TestSyncTimeFromTrailer(t *testing.T) {
 	t.Parallel()
 
-	milliseconds := strconv.FormatInt(TestUpdTime.UnixMilli(), 10)
+	milliseconds := strconv.FormatInt(TestSyncTime.UnixMilli(), 10)
 
 	testCases := []struct {
 		in        metadata.MD
@@ -38,7 +38,7 @@ func TestSyncTimeFromTrailer(t *testing.T) {
 	}, {
 		in:        metadata.MD{"sync_time": []string{milliseconds}},
 		wantError: "",
-		want:      TestUpdTime,
+		want:      TestSyncTime,
 		name:      "success",
 	}}
 

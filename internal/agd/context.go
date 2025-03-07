@@ -80,14 +80,12 @@ type RequestInfo struct {
 	// to this request.
 	Messages *dnsmsg.Constructor
 
-	// ServerGroup is the server group which handles this request.
-	ServerGroup *ServerGroup
+	// ServerInfo contains the information about the server processing the query
+	// and its server group.  It must not be nil.
+	ServerInfo *RequestServerInfo
 
 	// RemoteIP is the remote IP address of the client.
 	RemoteIP netip.Addr
-
-	// Server is the name of the server which handles this request.
-	Server ServerName
 
 	// Host is the lowercased, non-FQDN version of the hostname from the
 	// question of the request.
@@ -102,10 +100,31 @@ type RequestInfo struct {
 
 	// QClass is the class of question for this request.
 	QClass dnsmsg.Class
-
-	// Proto is the protocol by which this request is made.
-	Proto Protocol
 }
+
+// RequestServerInfo contains the information about the server and its group
+// relevant to the request.
+type RequestServerInfo struct {
+	// GroupName is the unique name of the server group.  It must not be empty.
+	GroupName ServerGroupName
+
+	// Name is the unique name of the server.  It must not be empty.
+	Name ServerName
+
+	// DeviceDomains is the list of domain names that the server group uses to
+	// detect device IDs from clients' server names.
+	DeviceDomains []string
+
+	// Protocol is the protocol by which this request is made.
+	Protocol Protocol
+
+	// ProfilesEnabled, if true, enables recognition of user devices and
+	// profiles for the server group.
+	ProfilesEnabled bool
+}
+
+// ServerGroupName is the name of a server group.
+type ServerGroupName string
 
 // DeviceData returns the profile and device data if any.  Either both p and d
 // are nil or neither is nil.

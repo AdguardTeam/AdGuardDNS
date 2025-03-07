@@ -3,6 +3,8 @@ package websvc
 import (
 	"maps"
 	"net/http"
+
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 )
 
 // StaticContent serves static content with the given content type.  Elements
@@ -37,6 +39,8 @@ func (sc StaticContent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, err := w.Write(f.Content)
 	if err != nil {
-		logErrorByType(err, "websvc: static content: writing %s: %s", p, err)
+		ctx := r.Context()
+		l := slogutil.MustLoggerFromContext(ctx)
+		l.Log(ctx, levelForError(err), "writing static content", slogutil.KeyError, err)
 	}
 }

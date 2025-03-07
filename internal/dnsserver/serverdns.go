@@ -10,8 +10,9 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/miekg/dns"
 	"github.com/panjf2000/ants/v2"
@@ -39,14 +40,16 @@ const (
 // ConfigDNS is a struct that needs to be passed to NewServerDNS to
 // initialize a new ServerDNS instance.
 type ConfigDNS struct {
-	ConfigBase
+	// Base is the base configuration for this server.  It must not be nil and
+	// must be valid.
+	Base *ConfigBase
 
 	// ReadTimeout is the net.Conn.SetReadTimeout value for new connections.
-	// If not set it defaults to DefaultReadTimeout.
+	// If not set it defaults to [DefaultReadTimeout].
 	ReadTimeout time.Duration
 
 	// WriteTimeout is the net.Conn.SetWriteTimeout value for connections.  If
-	// not set it defaults to DefaultWriteTimeout.
+	// not set it defaults to [DefaultWriteTimeout].
 	WriteTimeout time.Duration
 
 	// TCPIdleTimeout is the timeout for waiting between multiple queries.  If
@@ -68,6 +71,7 @@ type ConfigDNS struct {
 	TCPSize int
 
 	// MaxUDPRespSize is the maximum size of DNS response over UDP protocol.
+	// If not set, [dns.MinMsgSize] is used.
 	MaxUDPRespSize uint16
 
 	// MaxPipelineEnabled, if true, enables TCP pipeline limiting.
@@ -75,6 +79,8 @@ type ConfigDNS struct {
 }
 
 // ServerDNS is a plain DNS server (e.g. it supports UDP and TCP protocols).
+//
+// TODO(a.garipov):  Consider unembedding ServerBase.
 type ServerDNS struct {
 	*ServerBase
 
@@ -94,33 +100,41 @@ type ServerDNS struct {
 	respPool *syncutil.Pool[[]byte]
 
 	// tcpConns is a set that is used to track active connections.
-	tcpConns   map[net.Conn]struct{}
+	tcpConns   *container.MapSet[net.Conn]
 	tcpConnsMu *sync.Mutex
 
-	// TODO(ameshkov, a.garipov):  Only save the parameters a server actually
-	// needs.
-	conf ConfigDNS
+	readTimeout    time.Duration
+	tcpIdleTimeout time.Duration
+	writeTimeout   time.Duration
+
+	maxPipelineCount uint
+
+	maxUDPRespSize uint16
+
+	maxPipelineEnabled bool
 }
 
 // type check
 var _ Server = (*ServerDNS)(nil)
 
-// NewServerDNS creates a new ServerDNS instance.
-func NewServerDNS(conf ConfigDNS) (s *ServerDNS) {
-	return newServerDNS(ProtoDNS, conf)
+// NewServerDNS creates a new ServerDNS instance.  c must not be nil and must be
+// valid.
+func NewServerDNS(c *ConfigDNS) (s *ServerDNS) {
+	return newServerDNS(ProtoDNS, c)
 }
 
 // newServerDNS initializes a new ServerDNS instance with the specified proto.
-// This function is reused in ServerTLS as it is basically a plain DNS-over-TCP
-// server with a TLS layer on top of it.
-func newServerDNS(proto Protocol, conf ConfigDNS) (s *ServerDNS) {
+// This function is reused in [ServerTLS] as it is basically a plain
+// DNS-over-TCP server with a TLS layer on top of it.  c must not be nil and
+// must be valid.
+func newServerDNS(proto Protocol, c *ConfigDNS) (s *ServerDNS) {
 	// Init default settings first.
-	conf.ReadTimeout = cmp.Or(conf.ReadTimeout, DefaultReadTimeout)
-	conf.WriteTimeout = cmp.Or(conf.WriteTimeout, DefaultWriteTimeout)
-	conf.TCPIdleTimeout = cmp.Or(conf.TCPIdleTimeout, DefaultTCPIdleTimeout)
+	c.ReadTimeout = cmp.Or(c.ReadTimeout, DefaultReadTimeout)
+	c.WriteTimeout = cmp.Or(c.WriteTimeout, DefaultWriteTimeout)
+	c.TCPIdleTimeout = cmp.Or(c.TCPIdleTimeout, DefaultTCPIdleTimeout)
 
 	// TODO(a.garipov):  Return an error instead.
-	if t := conf.TCPIdleTimeout; t < 0 || t > MaxTCPIdleTimeout {
+	if t := c.TCPIdleTimeout; t < 0 || t > MaxTCPIdleTimeout {
 		panic(fmt.Errorf(
 			"newServerDNS: tcp idle timeout: %w: must be >= 0 and <= %s, got %s",
 			errors.ErrOutOfRange,
@@ -131,26 +145,33 @@ func newServerDNS(proto Protocol, conf ConfigDNS) (s *ServerDNS) {
 
 	// Use dns.MinMsgSize since 99% of DNS queries fit this size, so this is a
 	// sensible default.
-	conf.UDPSize = cmp.Or(conf.UDPSize, dns.MinMsgSize)
-	conf.TCPSize = cmp.Or(conf.TCPSize, dns.MinMsgSize)
+	c.UDPSize = cmp.Or(c.UDPSize, dns.MinMsgSize)
+	c.TCPSize = cmp.Or(c.TCPSize, dns.MinMsgSize)
 
-	if conf.ListenConfig == nil {
-		conf.ListenConfig = netext.DefaultListenConfigWithOOB(nil)
-	}
+	c.Base.ListenConfig = cmp.Or(c.Base.ListenConfig, netext.DefaultListenConfigWithOOB(nil))
 
 	s = &ServerDNS{
-		ServerBase: newServerBase(proto, conf.ConfigBase),
-		workerPool: newPoolNonblocking(),
+		ServerBase: newServerBase(proto, c.Base),
 
-		udpPool:  syncutil.NewSlicePool[byte](conf.UDPSize),
-		tcpPool:  syncutil.NewSlicePool[byte](conf.TCPSize),
+		udpPool:  syncutil.NewSlicePool[byte](c.UDPSize),
+		tcpPool:  syncutil.NewSlicePool[byte](c.TCPSize),
 		respPool: syncutil.NewSlicePool[byte](dns.MinMsgSize),
 
-		tcpConns:   map[net.Conn]struct{}{},
+		tcpConns:   container.NewMapSet[net.Conn](),
 		tcpConnsMu: &sync.Mutex{},
 
-		conf: conf,
+		readTimeout:    c.ReadTimeout,
+		tcpIdleTimeout: c.TCPIdleTimeout,
+		writeTimeout:   c.WriteTimeout,
+
+		maxPipelineCount: c.MaxPipelineCount,
+
+		maxUDPRespSize: max(c.MaxUDPRespSize, dns.MinMsgSize),
+
+		maxPipelineEnabled: c.MaxPipelineEnabled,
 	}
+
+	s.workerPool = mustNewPoolNonblocking(s.baseLogger)
 
 	return s
 }
@@ -166,7 +187,7 @@ func (s *ServerDNS) Start(ctx context.Context) (err error) {
 		return ErrServerAlreadyStarted
 	}
 
-	log.Info("[%s]: Starting the server", s.Name())
+	s.baseLogger.InfoContext(ctx, "starting server")
 
 	ctx = ContextWithServerInfo(ctx, &ServerInfo{
 		Name:  s.name,
@@ -202,7 +223,7 @@ func (s *ServerDNS) Start(ctx context.Context) (err error) {
 
 	s.started = true
 
-	log.Info("[%s]: Server has been started", s.Name())
+	s.baseLogger.InfoContext(ctx, "server has been started")
 
 	return nil
 }
@@ -211,20 +232,22 @@ func (s *ServerDNS) Start(ctx context.Context) (err error) {
 func (s *ServerDNS) Shutdown(ctx context.Context) (err error) {
 	defer func() { err = errors.Annotate(err, "shutting down dns server: %w") }()
 
-	err = s.shutdown()
+	s.baseLogger.InfoContext(ctx, "shutting down server")
+
+	err = s.shutdown(ctx)
 	if err != nil {
-		log.Info("[%s]: Failed to shutdown: %v", s.Name(), err)
+		s.baseLogger.WarnContext(ctx, "error while shutting down", slogutil.KeyError, err)
 
 		return err
 	}
 
-	s.unblockTCPConns()
+	s.unblockTCPConns(ctx)
 	err = s.waitShutdown(ctx)
 
 	// Close the workerPool and releases all workers.
 	s.workerPool.Release()
 
-	log.Info("[%s]: Finished stopping the server", s.Name())
+	s.baseLogger.InfoContext(ctx, "server has been shut down")
 
 	return err
 }
@@ -236,10 +259,11 @@ func (s *ServerDNS) startServeUDP(ctx context.Context) {
 	defer s.handlePanicAndExit(ctx)
 	defer s.wg.Done()
 
-	log.Info("[%s]: Start listening to udp://%s", s.Name(), s.Addr())
+	s.baseLogger.InfoContext(ctx, "starting listening udp")
+
 	err := s.serveUDP(ctx, s.udpListener)
 	if err != nil {
-		log.Info("[%s]: Finished listening to udp://%s due to %v", s.Name(), s.Addr(), err)
+		s.baseLogger.WarnContext(ctx, "listening udp failed", slogutil.KeyError, err)
 	}
 }
 
@@ -250,15 +274,15 @@ func (s *ServerDNS) startServeTCP(ctx context.Context) {
 	defer s.handlePanicAndExit(ctx)
 	defer s.wg.Done()
 
-	log.Info("[%s]: Start listening to tcp://%s", s.Name(), s.Addr())
+	s.baseLogger.InfoContext(ctx, "starting listening tcp")
 	err := s.serveTCP(ctx, s.tcpListener)
 	if err != nil {
-		log.Info("[%s]: Finished listening to tcp://%s due to %v", s.Name(), s.Addr(), err)
+		s.baseLogger.WarnContext(ctx, "listening tcp failed", slogutil.KeyError, err)
 	}
 }
 
 // shutdown marks the server as stopped and closes active listeners.
-func (s *ServerDNS) shutdown() (err error) {
+func (s *ServerDNS) shutdown(ctx context.Context) (err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -270,21 +294,24 @@ func (s *ServerDNS) shutdown() (err error) {
 	s.started = false
 
 	// Now close all listeners.
-	s.closeListeners()
+	s.closeListeners(ctx)
 
 	return nil
 }
 
 // unblockTCPConns unblocks reads for all active TCP connections.
-func (s *ServerDNS) unblockTCPConns() {
+func (s *ServerDNS) unblockTCPConns(ctx context.Context) {
 	s.tcpConnsMu.Lock()
 	defer s.tcpConnsMu.Unlock()
-	for conn := range s.tcpConns {
+
+	s.tcpConns.Range(func(conn net.Conn) (cont bool) {
 		err := conn.SetReadDeadline(time.Unix(1, 0))
 		if err != nil {
-			log.Debug("[%s]: Failed to set read deadline: %v", s.Name(), err)
+			s.baseLogger.WarnContext(ctx, "failed to unblock conn", slogutil.KeyError, err)
 		}
-	}
+
+		return true
+	})
 }
 
 // writeDeadlineSetter is an interface for connections that can set write
@@ -306,6 +333,11 @@ func withWriteDeadline(
 	// sooner.
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 
+	logger, ok := slogutil.LoggerFromContext(ctx)
+	if !ok {
+		logger = slogutil.NewDiscardLogger()
+	}
+
 	defer func() {
 		cancel()
 
@@ -313,7 +345,7 @@ func withWriteDeadline(
 		if err != nil && !errors.Is(err, net.ErrClosed) {
 			// Consider deadline errors non-critical.  Ignore [net.ErrClosed] as
 			// it is expected to happen when the client closes connections.
-			log.Error("dnsserver: removing deadlines: %s", err)
+			logger.WarnContext(ctx, "removing deadlines", slogutil.KeyError, err)
 		}
 	}()
 
@@ -324,7 +356,7 @@ func withWriteDeadline(
 	if err != nil && !errors.Is(err, net.ErrClosed) {
 		// Consider deadline errors non-critical.  Ignore [net.ErrClosed] as it
 		// is expected to happen when the client closes connections.
-		log.Error("dnsserver: setting deadlines: %s", err)
+		logger.WarnContext(ctx, "setting deadlines", slogutil.KeyError, err)
 	}
 
 	f()

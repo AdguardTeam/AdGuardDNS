@@ -15,6 +15,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	dnssrvprom "github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/service"
 	"github.com/miekg/dns"
 )
@@ -56,9 +57,17 @@ func New(c *Config) (svc *Service, err error) {
 		newListener = NewListener
 	}
 
+	mtrcListener, err := dnssrvprom.NewServerMetricsListener(
+		c.MetricsNamespace,
+		c.PrometheusRegisterer,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("metrics listener: %w", err)
+	}
+
 	errCollListener := &errCollMetricsListener{
 		errColl:      c.ErrColl,
-		baseListener: dnssrvprom.NewServerMetricsListener(c.MetricsNamespace),
+		baseListener: mtrcListener,
 	}
 
 	// Configure the service itself.
@@ -87,7 +96,7 @@ func New(c *Config) (svc *Service, err error) {
 // newServers creates a slice of servers.
 func newServers(
 	c *Config,
-	srvGrp *agd.ServerGroup,
+	srvGrp *ServerGroupConfig,
 	errCollListener *errCollMetricsListener,
 	newListener NewListenerFunc,
 ) (servers []*server, err error) {
@@ -140,7 +149,15 @@ func newListeners(
 		proto := srv.Protocol
 
 		name := listenerName(srv.Name, addr, proto)
-		baseConf := dnsserver.ConfigBase{
+		baseConf := &dnsserver.ConfigBase{
+			// TODO(a.garipov):  Consider making servers add the address instead
+			// of module users doing that.  Including the correct handling of
+			// addresses with zero port.
+			BaseLogger: c.BaseLogger.With(
+				"listener_addr", addr,
+				"listener_name", name,
+				slogutil.KeyPrefix, "dnsserver",
+			),
 			Network:        dnsserver.NetworkAny,
 			Handler:        handler,
 			Metrics:        errCollListener,
@@ -152,7 +169,6 @@ func newListeners(
 				c.ConnLimiter,
 				proto,
 			),
-			Name: name,
 			Addr: addr,
 		}
 
@@ -318,7 +334,7 @@ func (svc *Service) Handle(
 // TODO(a.garipov):  Replace this in tests with [netext.ListenConfig].
 func NewListener(
 	s *agd.Server,
-	baseConf dnsserver.ConfigBase,
+	baseConf *dnsserver.ConfigBase,
 	nonDNS http.Handler,
 ) (l Listener, err error) {
 	defer func() { err = errors.Annotate(err, "listener %q: %w", baseConf.Name) }()
@@ -328,8 +344,8 @@ func NewListener(
 	switch p := s.Protocol; p {
 	case agd.ProtoDNS:
 		udpConf := s.UDPConf
-		l = dnsserver.NewServerDNS(dnsserver.ConfigDNS{
-			ConfigBase:         baseConf,
+		l = dnsserver.NewServerDNS(&dnsserver.ConfigDNS{
+			Base:               baseConf,
 			ReadTimeout:        s.ReadTimeout,
 			WriteTimeout:       s.WriteTimeout,
 			MaxUDPRespSize:     udpConf.MaxRespSize,
@@ -339,14 +355,14 @@ func NewListener(
 		})
 	case agd.ProtoDNSCrypt:
 		dcConf := s.DNSCrypt
-		l = dnsserver.NewServerDNSCrypt(dnsserver.ConfigDNSCrypt{
-			ConfigBase:           baseConf,
-			DNSCryptProviderName: dcConf.ProviderName,
-			DNSCryptResolverCert: dcConf.Cert,
+		l = dnsserver.NewServerDNSCrypt(&dnsserver.ConfigDNSCrypt{
+			Base:         baseConf,
+			ProviderName: dcConf.ProviderName,
+			ResolverCert: dcConf.Cert,
 		})
 	case agd.ProtoDoH:
-		l = dnsserver.NewServerHTTPS(dnsserver.ConfigHTTPS{
-			ConfigBase:        baseConf,
+		l = dnsserver.NewServerHTTPS(&dnsserver.ConfigHTTPS{
+			Base:              baseConf,
 			TLSConfDefault:    s.TLS.Default,
 			TLSConfH3:         s.TLS.H3,
 			NonDNSHandler:     nonDNS,
@@ -354,16 +370,16 @@ func NewListener(
 			QUICLimitsEnabled: quicConf.QUICLimitsEnabled,
 		})
 	case agd.ProtoDoQ:
-		l = dnsserver.NewServerQUIC(dnsserver.ConfigQUIC{
+		l = dnsserver.NewServerQUIC(&dnsserver.ConfigQUIC{
 			TLSConfig:         s.TLS.Default,
-			ConfigBase:        baseConf,
+			Base:              baseConf,
 			MaxStreamsPerPeer: quicConf.MaxStreamsPerPeer,
 			QUICLimitsEnabled: quicConf.QUICLimitsEnabled,
 		})
 	case agd.ProtoDoT:
-		l = dnsserver.NewServerTLS(dnsserver.ConfigTLS{
-			ConfigDNS: dnsserver.ConfigDNS{
-				ConfigBase:         baseConf,
+		l = dnsserver.NewServerTLS(&dnsserver.ConfigTLS{
+			DNS: &dnsserver.ConfigDNS{
+				Base:               baseConf,
 				ReadTimeout:        s.ReadTimeout,
 				WriteTimeout:       s.WriteTimeout,
 				MaxPipelineEnabled: tcpConf.MaxPipelineEnabled,

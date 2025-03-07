@@ -10,6 +10,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/validate"
 )
 
 // interfaceListenersConfig contains the optional configuration for the network
@@ -53,33 +54,37 @@ func (c *interfaceListenersConfig) toInternal(
 }
 
 // type check
-var _ validator = (*interfaceListenersConfig)(nil)
+var _ validate.Interface = (*interfaceListenersConfig)(nil)
 
-// validate implements the [validator] interface for *interfaceListenersConfig.
-func (c *interfaceListenersConfig) validate() (err error) {
-	switch {
-	case c == nil:
+// Validate implements the [validate.Interface] interface for
+// *interfaceListenersConfig.
+func (c *interfaceListenersConfig) Validate() (err error) {
+	if c == nil {
 		// This configuration is optional.
 		//
 		// TODO(a.garipov): Consider making required or not relying on nil
 		// values.
 		return nil
-	case c.ChannelBufferSize <= 0:
-		return newNotPositiveError("channel_buffer_size", c.ChannelBufferSize)
-	case len(c.List) == 0:
-		return fmt.Errorf("list: %w", errors.ErrEmptyValue)
-	default:
-		// Go on.
 	}
 
+	errs := []error{
+		validate.Positive("channel_buffer_size", c.ChannelBufferSize),
+	}
+
+	// TODO(a.garipov):  Consider adding validate.NotEmptyMap.
+	if len(c.List) == 0 {
+		errs = append(errs, fmt.Errorf("list: %w", errors.ErrEmptyValue))
+	}
+
+	// TODO(a.garipov):  Consider adding validate.Map.
 	for _, id := range slices.Sorted(maps.Keys(c.List)) {
-		err = c.List[id].validate()
+		err = c.List[id].Validate()
 		if err != nil {
-			return fmt.Errorf("interface %q: %w", id, err)
+			errs = append(errs, fmt.Errorf("interface %q: %w", id, err))
 		}
 	}
 
-	return err
+	return errors.Join(errs...)
 }
 
 // interfaceListener contains configuration for a single network interface
@@ -93,18 +98,17 @@ type interfaceListener struct {
 }
 
 // type check
-var _ validator = (*interfaceListener)(nil)
+var _ validate.Interface = (*interfaceListener)(nil)
 
-// validate implements the [validator] interface for *interfaceListener.
-func (l *interfaceListener) validate() (err error) {
-	switch {
-	case l == nil:
+// Validate implements the [validate.Interface] interface for
+// *interfaceListener.
+func (l *interfaceListener) Validate() (err error) {
+	if l == nil {
 		return errors.ErrNoValue
-	case l.Port == 0:
-		return fmt.Errorf("port: %w", errors.ErrEmptyValue)
-	case l.Interface == "":
-		return fmt.Errorf("interface: %w", errors.ErrEmptyValue)
-	default:
-		return nil
 	}
+
+	return errors.Join(
+		validate.Positive("port", l.Port),
+		validate.NotEmpty("interface", l.Interface),
+	)
 }

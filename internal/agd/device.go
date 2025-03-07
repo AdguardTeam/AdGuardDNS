@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdpasswd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdvalidate"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
 )
@@ -66,7 +67,12 @@ func NewDeviceID(s string) (id DeviceID, err error) {
 		}
 	}()
 
-	err = ValidateInclusion(len(s), MaxDeviceIDLen, MinDeviceIDLen, UnitByte)
+	err = agdvalidate.Inclusion(
+		len(s),
+		MinDeviceIDLen,
+		MaxDeviceIDLen,
+		agdvalidate.UnitByte,
+	)
 	if err != nil {
 		// The error will be wrapped by the deferred helper.
 		return "", err
@@ -102,7 +108,12 @@ func NewDeviceName(s string) (n DeviceName, err error) {
 		}
 	}()
 
-	err = ValidateInclusion(utf8.RuneCountInString(s), MaxDeviceNameRuneLen, 0, UnitRune)
+	err = agdvalidate.Inclusion(
+		utf8.RuneCountInString(s),
+		0,
+		MaxDeviceNameRuneLen,
+		agdvalidate.UnitRune,
+	)
 	if err != nil {
 		// The error will be wrapped by the deferred helper.
 		return "", err

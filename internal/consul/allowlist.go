@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
+	"github.com/AdguardTeam/golibs/service"
 )
 
 // AllowlistUpdater is a wrapper that updates the allowlist on refresh.  It
@@ -68,10 +68,9 @@ func NewAllowlistUpdater(c *AllowlistUpdaterConfig) (upd *AllowlistUpdater) {
 }
 
 // type check
-var _ agdservice.Refresher = (*AllowlistUpdater)(nil)
+var _ service.Refresher = (*AllowlistUpdater)(nil)
 
-// Refresh implements the [agdservice.Refresher] interface for
-// *AllowlistUpdater.
+// Refresh implements the [service.Refresher] interface for *AllowlistUpdater.
 func (upd *AllowlistUpdater) Refresh(ctx context.Context) (err error) {
 	upd.logger.InfoContext(ctx, "refresh started")
 	defer upd.logger.InfoContext(ctx, "refresh finished")

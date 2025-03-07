@@ -1,11 +1,12 @@
 package cmd
 
 import (
-	"fmt"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/timeutil"
+	"github.com/AdguardTeam/golibs/validate"
 	"github.com/c2h5oh/datasize"
 	"github.com/miekg/dns"
 )
@@ -34,37 +35,25 @@ type dnsConfig struct {
 }
 
 // type check
-var _ validator = (*dnsConfig)(nil)
+var _ validate.Interface = (*dnsConfig)(nil)
 
-// validate implements the [validator] interface for *dnsConfig.
-func (c *dnsConfig) validate() (err error) {
-	switch {
-	case c == nil:
+// Validate implements the [validate.Interface] interface for *dnsConfig.
+func (c *dnsConfig) Validate() (err error) {
+	if c == nil {
 		return errors.ErrNoValue
-	case c.ReadTimeout.Duration <= 0:
-		return newNotPositiveError("read_timeout", c.ReadTimeout)
-	case c.TCPIdleTimeout.Duration <= 0:
-		return newNotPositiveError("tcp_idle_timeout", c.TCPIdleTimeout)
-	case c.TCPIdleTimeout.Duration > dnsserver.MaxTCPIdleTimeout:
-		return fmt.Errorf(
-			"tcp_idle_timeout: %w: must be less than or equal to %s got %s",
-			errors.ErrOutOfRange,
-			dnsserver.MaxTCPIdleTimeout,
-			c.TCPIdleTimeout,
-		)
-	case c.WriteTimeout.Duration <= 0:
-		return newNotPositiveError("write_timeout", c.WriteTimeout)
-	case c.HandleTimeout.Duration <= 0:
-		return newNotPositiveError("handle_timeout", c.HandleTimeout)
-	case c.MaxUDPResponseSize.Bytes() == 0:
-		return newNotPositiveError("max_udp_response_size", c.MaxUDPResponseSize)
-	case c.MaxUDPResponseSize.Bytes() > dns.MaxMsgSize:
-		return fmt.Errorf(
-			"max_udp_response_size must be less than %s, got %s",
-			datasize.ByteSize(dns.MaxMsgSize),
-			c.MaxUDPResponseSize,
-		)
-	default:
-		return nil
 	}
+
+	return errors.Join(
+		validate.Positive("read_timeout", c.ReadTimeout),
+		validate.Positive("tcp_idle_timeout", c.TCPIdleTimeout),
+		validate.NoGreaterThan(
+			"tcp_idle_timeout",
+			time.Duration(c.TCPIdleTimeout),
+			dnsserver.MaxTCPIdleTimeout,
+		),
+		validate.Positive("write_timeout", c.WriteTimeout),
+		validate.Positive("handle_timeout", c.HandleTimeout),
+		validate.Positive("max_udp_response_size", c.MaxUDPResponseSize),
+		validate.NoGreaterThan("max_udp_response_size", c.MaxUDPResponseSize, dns.MaxMsgSize),
+	)
 }

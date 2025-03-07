@@ -1,22 +1,41 @@
 package dnsserver
 
 import (
+	"cmp"
 	"context"
+	"fmt"
+	"log/slog"
 	"net"
 	"os"
-	"runtime/debug"
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/contextutil"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/osutil"
+	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/miekg/dns"
 )
 
-// ConfigBase contains the necessary minimum that every Server needs to
-// be initialized.
+// ConfigBase contains the necessary minimum that every [Server] needs to be
+// initialized.
+//
+// TODO(a.garipov):  Consider splitting and adding appropriate fields to the
+// configs of the separate server types.
 type ConfigBase struct {
-	// Handler is a handler that processes incoming DNS messages.  If not set,
-	// the default handler, which returns error response to any query, is used.
+	// BaseLogger is used to create loggers for servers and requests.  It should
+	// contain the name of the server.  If BaseLogger is nil, [slog.Default] is
+	// used.
+	//
+	// Loggers for requests derived from this logger include the following
+	// fields:
+	//   - "qname": the target of the DNS query.
+	//   - "qtype": the type of the DNS query.
+	//   - "req_id": the 16-bit ID of the message as set by the client.
+	BaseLogger *slog.Logger
+
+	// Handler processes incoming DNS messages.  If not set, the default
+	// handler, which returns error responses to all queries, is used.
 	Handler Handler
 
 	// Metrics is the object we use for collecting performance metrics.  If not
@@ -24,12 +43,12 @@ type ConfigBase struct {
 	Metrics MetricsListener
 
 	// Disposer is used to help module users reuse parts of DNS responses.  If
-	// not set, EmptyDisposer is used.
+	// not set, [EmptyDisposer] is used.
 	Disposer Disposer
 
-	// RequestContext is a ContextConstructor that returns contexts for
-	// requests.  If not set, the server uses [DefaultContextConstructor].
-	RequestContext ContextConstructor
+	// RequestContext is a context constructor that returns contexts for
+	// requests.  If not set, the server uses [contextutil.EmptyConstructor].
+	RequestContext contextutil.Constructor
 
 	// ListenConfig, when set, is used to set options of connections used by the
 	// DNS server.  If nil, an appropriate default ListenConfig is used.
@@ -42,20 +61,27 @@ type ConfigBase struct {
 	Network Network
 
 	// Name is used for logging, and it may be used for perf counters reporting.
+	// It should not be empty.
 	Name string
 
 	// Addr is the address the server listens to.  See [net.Dial] for the
-	// documentation on the address format.
+	// documentation on the address format.  It must not be empty.
 	Addr string
 }
 
-// ServerBase implements base methods that every Server implementation uses.
+// ServerBase implements base methods that every [Server] implementation uses.
 type ServerBase struct {
+	// baseLogger is the base logger of this server.
+	baseLogger *slog.Logger
+
+	// attrPool is the pool of logging attributes for reuse.
+	attrPool *syncutil.Pool[[]slog.Attr]
+
 	// handler is a handler that processes incoming DNS messages.
 	handler Handler
 
 	// reqCtx is a function that should return the base context.
-	reqCtx ContextConstructor
+	reqCtx contextutil.Constructor
 
 	// metrics is the object we use for collecting performance metrics.
 	metrics MetricsListener
@@ -66,6 +92,9 @@ type ServerBase struct {
 	// listenConfig is used to set tcpListener and udpListener.
 	listenConfig netext.ListenConfig
 
+	// mu protects started, tcpListener, and udpListener.
+	mu *sync.RWMutex
+
 	// tcpListener is used to accept new TCP connections.  It is nil for servers
 	// that don't use TCP.
 	tcpListener net.Listener
@@ -74,14 +103,13 @@ type ServerBase struct {
 	// that don't use UDP.
 	udpListener net.PacketConn
 
-	// mu protects started, tcpListener, and udpListener.
-	mu *sync.RWMutex
-
-	// wg tracks active workers (listeners or query processing). Shutdown
-	// won't finish until there's at least one active worker.
+	// wg tracks active workers, both listeners and workers processing queries.
+	// Shutdown won't finish until there's at least one active worker.
 	wg *sync.WaitGroup
 
 	// name is used for logging and it may be used for perf counters reporting.
+	//
+	// TODO(a.garipov):  Remove eventually.
 	name string
 
 	// addr is the address the server listens to.
@@ -89,84 +117,81 @@ type ServerBase struct {
 
 	// network is the network to listen to.  It only makes sense for the
 	// following protocols: [ProtoDNS], [ProtoDNSCrypt], [ProtoDoH].
+	//
+	// TODO(a.garipov):  Move into separate servers.
 	network Network
 
-	// proto is the server protocol.
+	// proto is the protocol of the server.
 	proto Protocol
 
+	// started shows if the server has already been started.
 	started bool
 }
 
 // type check
 var _ Server = (*ServerBase)(nil)
 
+// logAttrNum is the number of attributes used by the request loggers
+const logAttrNum = 4
+
 // newServerBase creates a new instance of ServerBase and initializes
-// some of its internal properties.
-func newServerBase(proto Protocol, conf ConfigBase) (s *ServerBase) {
-	s = &ServerBase{
-		handler:      conf.Handler,
-		reqCtx:       conf.RequestContext,
-		metrics:      conf.Metrics,
-		disposer:     conf.Disposer,
-		listenConfig: conf.ListenConfig,
+// some of its internal properties.  proto must be valid.  c must not be nil.
+//
+// TODO(a.garipov):  Consider either relaxing the requirements, by turning
+// “must” into “should” and returning errors, or validating the configuration
+// contracts explicitly.
+func newServerBase(proto Protocol, c *ConfigBase) (s *ServerBase) {
+	return &ServerBase{
+		baseLogger: cmp.Or(c.BaseLogger, slog.Default()),
+		attrPool:   syncutil.NewSlicePool[slog.Attr](logAttrNum),
+		handler:    cmp.Or[Handler](c.Handler, notImplementedHandlerFunc),
+		reqCtx: cmp.Or[contextutil.Constructor](
+			c.RequestContext,
+			contextutil.EmptyConstructor{},
+		),
+		metrics:      cmp.Or[MetricsListener](c.Metrics, EmptyMetricsListener{}),
+		disposer:     cmp.Or[Disposer](c.Disposer, EmptyDisposer{}),
+		listenConfig: c.ListenConfig,
 		mu:           &sync.RWMutex{},
 		wg:           &sync.WaitGroup{},
-		name:         conf.Name,
-		addr:         conf.Addr,
-		network:      conf.Network,
+		name:         c.Name,
+		addr:         c.Addr,
+		network:      c.Network,
 		proto:        proto,
 	}
-
-	if s.reqCtx == nil {
-		s.reqCtx = DefaultContextConstructor{}
-	}
-
-	if s.metrics == nil {
-		s.metrics = &EmptyMetricsListener{}
-	}
-
-	if s.disposer == nil {
-		s.disposer = EmptyDisposer{}
-	}
-
-	if s.handler == nil {
-		s.handler = notImplementedHandlerFunc
-	}
-
-	return s
 }
 
-// Name implements the [dnsserver.Server] interface for *ServerBase.
+// Name implements the [Server] interface for *ServerBase.
 func (s *ServerBase) Name() (name string) {
 	return s.name
 }
 
-// Proto implements the [dnsserver.Server] interface for *ServerBase.
+// Proto implements the [Server] interface for *ServerBase.
 func (s *ServerBase) Proto() (proto Protocol) {
 	return s.proto
 }
 
-// Network implements the [dnsserver.Server] interface for *ServerBase.
+// Network implements the [Server] interface for *ServerBase.
 func (s *ServerBase) Network() (network Network) {
 	return s.network
 }
 
-// Addr implements the [dnsserver.Server] interface for *ServerBase.
+// Addr implements the [Server] interface for *ServerBase.
 func (s *ServerBase) Addr() (addr string) {
 	return s.addr
 }
 
-// Start implements the [dnsserver.Server] interface for *ServerBase.
+// Start implements the [Server] interface for *ServerBase.
 func (s *ServerBase) Start(_ context.Context) (err error) {
 	panic("*ServerBase must not be used directly")
 }
 
-// Shutdown implements the [dnsserver.Server] interface for *ServerBase.
+// Shutdown implements the [Server] interface for *ServerBase.
 func (s *ServerBase) Shutdown(_ context.Context) (err error) {
 	panic("*ServerBase must not be used directly")
 }
 
-// LocalTCPAddr implements the [dnsserver.Server] interface for *ServerBase.
+// LocalTCPAddr implements the [Server] interface for *ServerBase.
 func (s *ServerBase) LocalTCPAddr() (addr net.Addr) {
 	if s.tcpListener != nil {
 		return s.tcpListener.Addr()
@@ -175,7 +200,7 @@ func (s *ServerBase) LocalTCPAddr() (addr net.Addr) {
 	return nil
 }
 
-// LocalUDPAddr implements the [dnsserver.Server] interface for *ServerBase.
+// LocalUDPAddr implements the [Server] interface for *ServerBase.
 func (s *ServerBase) LocalUDPAddr() (addr net.Addr) {
 	if s.udpListener != nil {
 		return s.udpListener.LocalAddr()
@@ -185,8 +210,10 @@ func (s *ServerBase) LocalUDPAddr() (addr net.Addr) {
 }
 
 // requestContext returns a context for one request and adds server information.
-func (s *ServerBase) requestContext() (ctx context.Context, cancel context.CancelFunc) {
-	ctx, cancel = s.reqCtx.New()
+func (s *ServerBase) requestContext(
+	parent context.Context,
+) (ctx context.Context, cancel context.CancelFunc) {
+	ctx, cancel = s.reqCtx.New(parent)
 	ctx = ContextWithServerInfo(ctx, &ServerInfo{
 		Name:  s.name,
 		Addr:  s.addr,
@@ -212,17 +239,26 @@ func (s *ServerBase) serveDNS(ctx context.Context, buf []byte, rw ResponseWriter
 }
 
 // serveDNSMsg processes the incoming DNS query and writes the response to the
-// specified ResponseWriter.  written is false if no response was written.
+// specified ResponseWriter.  req and rw must not be nil.  written is false if
+// no response was written.
 func (s *ServerBase) serveDNSMsg(
 	ctx context.Context,
 	req *dns.Msg,
 	rw ResponseWriter,
 ) (written bool) {
-	hostname, qType := questionData(req)
-	log.Debug("[%d] processing \"%s %s\"", req.Id, qType, hostname)
+	attrsPtr := s.newAttrsSlicePtr(req, rw.RemoteAddr().String())
+	defer s.attrPool.Put(attrsPtr)
+
+	logHdlr := s.baseLogger.Handler().WithAttrs(*attrsPtr)
+	logger := slog.New(logHdlr)
+
+	logger.DebugContext(ctx, "started processing")
+	defer logger.DebugContext(ctx, "finished processing")
+
+	ctx = slogutil.ContextWithLogger(ctx, logger)
 
 	recW := NewRecorderResponseWriter(rw)
-	s.serveDNSMsgInternal(ctx, req, recW)
+	s.serveDNSMsgInternal(ctx, logger, req, recW)
 
 	resp := recW.Resp
 	written = resp != nil
@@ -241,11 +277,44 @@ func (s *ServerBase) serveDNSMsg(
 		ResponseSize: respLen,
 	}, rw)
 
-	log.Debug("[%d]: finished processing \"%s %s\"", req.Id, qType, hostname)
-
 	s.dispose(rw, resp)
 
 	return written
+}
+
+// newAttrsSlicePtr returns a pointer to a slice with the attributes from the
+// DNS request set.  Callers should defer returning the slice back to the pool.
+// req must not be nil.
+func (s *ServerBase) newAttrsSlicePtr(req *dns.Msg, raddr string) (attrsPtr *[]slog.Attr) {
+	attrsPtr = s.attrPool.Get()
+
+	attrs := *attrsPtr
+
+	// Optimize bounds checking.
+	_ = attrs[logAttrNum-1]
+
+	qName, qType := questionData(req)
+	attrs[0] = slog.String("qname", qName)
+	attrs[1] = slog.String("qtype", qType)
+	attrs[2] = slog.String("raddr", raddr)
+	attrs[3] = slog.Uint64("req_id", uint64(req.Id))
+
+	return attrsPtr
+}
+
+// questionData extracts DNS Question data in a safe manner.  m must not be nil.
+func questionData(m *dns.Msg) (hostname, qType string) {
+	if len(m.Question) > 0 {
+		q := m.Question[0]
+		hostname = q.Name
+		if v, ok := dns.TypeToString[q.Qtype]; ok {
+			qType = v
+		} else {
+			qType = fmt.Sprintf("TYPE%d", q.Qtype)
+		}
+	}
+
+	return hostname, qType
 }
 
 // dispose is a helper for disposing a DNS response right after writing it to a
@@ -266,25 +335,30 @@ func (s *ServerBase) dispose(rw ResponseWriter, resp *dns.Msg) {
 }
 
 // serveDNSMsgInternal serves the DNS request and uses recorder as a
-// ResponseWriter.  This method is supposed to be called from serveDNSMsg,
-// the recorded response is used for counting metrics.
+// [ResponseWriter].  This method is supposed to be called from serveDNSMsg, the
+// recorded response is used for counting metrics.  logger, req, and rw must not
+// be nil.
+//
+// TODO(a.garipov):  Think of a better name or refactor its connections to other
+// methods.
 func (s *ServerBase) serveDNSMsgInternal(
 	ctx context.Context,
+	logger *slog.Logger,
 	req *dns.Msg,
 	rw *RecorderResponseWriter,
 ) {
 	var resp *dns.Msg
 
-	// Check if we can accept this message
-	switch action := s.acceptMsg(req); action {
+	// Check if we can accept this message.
+	switch action, reason := s.acceptMsg(req); action {
 	case dns.MsgReject:
-		log.Debug("[%d] Query format is invalid", req.Id)
+		logger.DebugContext(ctx, "rejected", "reason", reason)
 		resp = genErrorResponse(req, dns.RcodeFormatError)
 	case dns.MsgRejectNotImplemented:
-		log.Debug("[%d] Rejecting this query", req.Id)
+		logger.DebugContext(ctx, "not implemented", "reason", reason)
 		resp = genErrorResponse(req, dns.RcodeNotImplemented)
 	case dns.MsgIgnore:
-		log.Debug("[%d] Ignoring this query", req.Id)
+		logger.DebugContext(ctx, "ignoring", "reason", reason)
 		s.metrics.OnInvalidMsg(ctx)
 
 		return
@@ -293,11 +367,10 @@ func (s *ServerBase) serveDNSMsgInternal(
 	// If resp is not empty at this stage, the request is invalid and we should
 	// simply exit here.
 	if resp != nil {
-		// Ignore errors and just write the message
-		log.Debug("[%d]: writing DNS response code %d", req.Id, resp.Rcode)
+		logger.DebugContext(ctx, "writing response", "rcode", resp.Rcode)
 		err := rw.WriteMsg(ctx, req, resp)
 		if err != nil {
-			log.Debug("[%d]: error writing a response: %v", req.Id, err)
+			logger.DebugContext(ctx, "error writing reject response", slogutil.KeyError, err)
 		}
 
 		return
@@ -305,7 +378,7 @@ func (s *ServerBase) serveDNSMsgInternal(
 
 	err := s.handler.ServeDNS(ctx, rw, req)
 	if err != nil {
-		log.Debug("[%d]: handler returned an error: %s", req.Id, err)
+		logger.DebugContext(ctx, "handler error", slogutil.KeyError, err)
 		s.metrics.OnError(ctx, err)
 
 		resp = genErrorResponse(req, dns.RcodeServerFailure)
@@ -315,7 +388,7 @@ func (s *ServerBase) serveDNSMsgInternal(
 
 		err = rw.WriteMsg(ctx, req, resp)
 		if err != nil {
-			log.Debug("[%d]: error writing a response: %s", req.Id, err)
+			logger.DebugContext(ctx, "error writing handler response", slogutil.KeyError, err)
 		}
 	}
 }
@@ -342,78 +415,82 @@ func addEDE(req, resp *dns.Msg, code uint16, text string) {
 	})
 }
 
-// acceptMsg checks if we should process the incoming DNS query.
-func (s *ServerBase) acceptMsg(m *dns.Msg) (action dns.MsgAcceptAction) {
-	if m.Response {
-		log.Debug("[%d]: message rejected since this is a response", m.Id)
-
-		return dns.MsgIgnore
+// acceptMsg checks if we should process the incoming DNS query.  msg must not be
+// nil.
+func (s *ServerBase) acceptMsg(msg *dns.Msg) (action dns.MsgAcceptAction, reason string) {
+	if msg.Response {
+		return dns.MsgIgnore, "message is a response"
 	}
 
-	if m.Opcode != dns.OpcodeQuery && m.Opcode != dns.OpcodeNotify {
-		log.Debug("[%d]: rejected due to unsupported opcode", m.Opcode)
-
-		return dns.MsgRejectNotImplemented
+	if msg.Opcode != dns.OpcodeQuery && msg.Opcode != dns.OpcodeNotify {
+		return dns.MsgRejectNotImplemented, fmt.Sprintf("unsupported opcode %d", msg.Opcode)
 	}
 
 	// There can only be one question in request, unless DNS Cookies are
 	// involved.  See AGDNS-738.
-	if len(m.Question) != 1 {
-		log.Debug("[%d]: message rejected due to wrong number of questions", m.Id)
-
-		return dns.MsgReject
+	if len(msg.Question) != 1 {
+		return dns.MsgReject, "bad number of questions"
 	}
 
-	// NOTIFY requests can have a SOA in the ANSWER section. See RFC 1996 Section 3.7 and 3.11.
-	if len(m.Answer) > 1 {
-		log.Debug("[%d]: message rejected due to wrong number of answers", m.Id)
-
-		return dns.MsgReject
+	// NOTIFY requests can have a SOA in the ANSWER section.  See RFC 1996
+	// Section 3.7 and 3.11.
+	if len(msg.Answer) > 1 {
+		return dns.MsgReject, "bad number of answers"
 	}
 
-	// IXFR request could have one SOA RR in the NS section. See RFC 1995, section 3.
-	if len(m.Ns) > 1 {
-		log.Debug("[%d]: message rejected due to wrong number of NS records", m.Id)
-
-		return dns.MsgReject
+	// IXFR request could have one SOA RR in the NS section.  See RFC 1995,
+	// section 3.
+	if len(msg.Ns) > 1 {
+		return dns.MsgReject, "bad number of ns records"
 	}
 
-	return dns.MsgAccept
+	return dns.MsgAccept, ""
 }
 
 // handlePanicAndExit writes panic info to log, reports it to the registered
-// MetricsListener and calls os.Exit with a positive exit code.
+// [MetricsListener] and calls [os.Exit] with [osutil.ExitCodeFailure].
 func (s *ServerBase) handlePanicAndExit(ctx context.Context) {
-	if v := recover(); v != nil {
-		log.Error(
-			"%q(%s://%s): panic encountered, exiting: %v\n%s",
-			s.name,
-			s.proto,
-			s.addr,
-			v,
-			string(debug.Stack()),
-		)
-
-		s.metrics.OnPanic(ctx, v)
-
-		os.Exit(1)
+	v := recover()
+	if v == nil {
+		return
 	}
+
+	s.handlePanic(ctx, v)
+
+	os.Exit(osutil.ExitCodeFailure)
+}
+
+// handlePanic is the common panic handler.  v should be the recovered value and
+// must not be nil.
+func (s *ServerBase) handlePanic(ctx context.Context, v any) {
+	s.metrics.OnPanic(ctx, v)
+
+	logger, ok := slogutil.LoggerFromContext(ctx)
+	if !ok {
+		logger = s.baseLogger
+	}
+
+	var args []any
+	err, ok := v.(error)
+	if ok {
+		args = []any{slogutil.KeyError, err}
+	} else {
+		args = []any{"value", v}
+	}
+
+	logger.ErrorContext(ctx, "recovered from panic", args...)
+	slogutil.PrintStack(ctx, logger, slog.LevelError)
 }
 
 // handlePanicAndRecover writes panic info to log, reports it to the registered
 // MetricsListener.
 func (s *ServerBase) handlePanicAndRecover(ctx context.Context) {
-	if v := recover(); v != nil {
-		log.Error(
-			"%s %s://%s: panic encountered, recovered: %s\n%s",
-			s.name,
-			s.addr,
-			s.proto,
-			v,
-			string(debug.Stack()),
-		)
-		s.metrics.OnPanic(ctx, v)
+	v := recover()
+	if v == nil {
+		return
 	}
+
+	s.handlePanic(ctx, v)
 }
 
 // listenUDP initializes and starts s.udpListener using s.addr.  If the TCP
@@ -457,17 +534,18 @@ func (s *ServerBase) listenTCP(ctx context.Context) (err error) {
 }
 
 // closeListeners stops UDP and TCP listeners.
-func (s *ServerBase) closeListeners() {
+func (s *ServerBase) closeListeners(ctx context.Context) {
 	if s.udpListener != nil {
 		err := s.udpListener.Close()
 		if err != nil {
-			log.Info("[%s]: Failed to close NetworkUDP listener: %v", s.Name(), err)
+			s.baseLogger.InfoContext(ctx, "closing udp listener", slogutil.KeyError, err)
 		}
 	}
+
 	if s.tcpListener != nil {
 		err := s.tcpListener.Close()
 		if err != nil {
-			log.Info("[%s]: Failed to close NetworkTCP listener: %v", s.Name(), err)
+			s.baseLogger.InfoContext(ctx, "closing tcp listener", slogutil.KeyError, err)
 		}
 	}
 }
@@ -476,8 +554,9 @@ func (s *ServerBase) closeListeners() {
 func (s *ServerBase) waitShutdown(ctx context.Context) (err error) {
 	// Using this channel to wait until all goroutines finish their work
 	closed := make(chan struct{})
+
 	go func() {
-		defer log.OnPanic("waitShutdown")
+		defer slogutil.RecoverAndLog(ctx, s.baseLogger)
 
 		// wait until all queries are processed
 		s.wg.Wait()

@@ -9,22 +9,30 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/httphdr"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// testTimeout is the common timeout for tests.
 const testTimeout = 1 * time.Second
 
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
+// testLogger is the common logger for tests.
+var testLogger = slogutil.NewDiscardLogger()
 
 func TestNew(t *testing.T) {
-	startService(t, &websvc.Config{})
+	startService(t, &websvc.Config{
+		Logger:        testLogger,
+		StaticContent: http.NotFoundHandler(),
+		DNSCheck:      http.NotFoundHandler(),
+		ErrColl:       agdtest.NewErrorCollector(),
+		Timeout:       testTimeout,
+	})
 }
 
 func TestService_NonDoH(t *testing.T) {
@@ -38,6 +46,7 @@ func TestService_NonDoH(t *testing.T) {
 		require.NoError(pt, err)
 	})
 
+	// TODO(a.garipov):  Do not use hardcoded ports.
 	nonDoHPort := netip.MustParseAddrPort("127.0.0.1:3003")
 	nonDoHBind := []*websvc.BindData{{
 		TLS:     nil,
@@ -46,9 +55,11 @@ func TestService_NonDoH(t *testing.T) {
 
 	notFoundContent := []byte("not found")
 	c := &websvc.Config{
+		Logger:        testLogger,
 		StaticContent: http.NotFoundHandler(),
 		DNSCheck:      mockHandler,
 		NonDoHBind:    nonDoHBind,
+		ErrColl:       agdtest.NewErrorCollector(),
 		Error404:      notFoundContent,
 		Timeout:       testTimeout,
 	}

@@ -17,12 +17,12 @@ import (
 // type check
 var _ http.Handler = (*Default)(nil)
 
-// ServeHTTP implements the http.Handler interface for *Default.
+// ServeHTTP implements the [http.Handler] interface for *Default.
 func (db *Default) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var err error
 	ctx := r.Context()
 
-	records := db.reset()
+	records := db.reset(ctx)
 
 	h := w.Header()
 	h.Add(httphdr.ContentType, agdhttp.HdrValTextCSV)

@@ -5,14 +5,13 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
-	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 )
 
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
+// testLogger is the common logger for tests.
+var testLogger = slogutil.NewDiscardLogger()
 
 // testNamespace is a test namespace for metrics.
 const testNamespace = "dns"
@@ -33,12 +32,12 @@ var testUDPAddr = &net.UDPAddr{
 	Port: 53,
 }
 
-// requireMetrics accepts a list of metrics names and checks that
-// they exist in the prom registry.
-func requireMetrics(t testing.TB, args ...string) {
+// requireMetrics accepts a list of metrics names and checks that they exist in
+// reg.
+func requireMetrics(t testing.TB, reg *prometheus.Registry, args ...string) {
 	t.Helper()
 
-	mf, err := prometheus.DefaultGatherer.Gather()
+	mf, err := reg.Gather()
 	require.NoError(t, err)
 	require.NotNil(t, mf)
 

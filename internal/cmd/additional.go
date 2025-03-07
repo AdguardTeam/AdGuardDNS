@@ -5,6 +5,8 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/validate"
 	"github.com/prometheus/common/model"
 )
 
@@ -12,15 +14,20 @@ import (
 type additionalInfo map[string]string
 
 // type check
-var _ validator = additionalInfo(nil)
+var _ validate.Interface = additionalInfo(nil)
 
-// validate implements the [validator] interface for additionalInfo.
-func (c additionalInfo) validate() (err error) {
+// Validate implements the [validate.Interface] interface for additionalInfo.
+func (c additionalInfo) Validate() (err error) {
+	var errs []error
 	for _, k := range slices.Sorted(maps.Keys(c)) {
 		if !model.LabelName(k).IsValid() {
-			return fmt.Errorf("prometheus labels must match %s, got %q", model.LabelNameRE, k)
+			errs = append(errs, fmt.Errorf(
+				"prometheus labels must match %s, got %q",
+				model.LabelNameRE,
+				k,
+			))
 		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }

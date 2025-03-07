@@ -10,8 +10,6 @@ import (
 var reqIDSink agd.RequestID
 
 func BenchmarkNewRequestID(b *testing.B) {
-	agd.InitRequestID()
-
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
@@ -20,10 +18,10 @@ func BenchmarkNewRequestID(b *testing.B) {
 
 	require.NotEmpty(b, reqIDSink)
 
-	// Most recent result, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
-	//	goos: linux
-	//	goarch: amd64
+	// Most recent results:
+	//	goos: darwin
+	//	goarch: arm64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/agd
-	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkNewRequestID-16        50985721                24.91 ns/op            0 B/op          0 allocs/op
+	//	cpu: Apple M1 Pro
+	//	BenchmarkNewRequestID-8   	56177144	        21.33 ns/op	       0 B/op	       0 allocs/op
 }

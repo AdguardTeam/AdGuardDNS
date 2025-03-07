@@ -17,11 +17,11 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv"
 	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv/consulkv"
 	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv/rediskv"
-	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/timeutil"
+	"github.com/AdguardTeam/golibs/validate"
 	"github.com/c2h5oh/datasize"
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/time/rate"
@@ -29,8 +29,8 @@ import (
 
 // checkConfig is the DNS server checking configuration.
 type checkConfig struct {
-	// RemoteKV is remote key-value store configuration for DNS server checking.
-	RemoteKV *remoteKVConfig `yaml:"kv"`
+	// KV is remote key-value store configuration for DNS server checking.
+	KV *remoteKVConfig `yaml:"kv"`
 
 	// Domains are the domain names used for DNS server checking.
 	Domains []string `yaml:"domains"`
@@ -61,7 +61,12 @@ func (c *checkConfig) toInternal(
 	reg prometheus.Registerer,
 	grpcMtrc backendpb.GRPCMetrics,
 ) (conf *dnscheck.RemoteKVConfig, err error) {
-	kv, err := c.RemoteKV.newRemoteKV(envs, namespace, reg, grpcMtrc)
+	mtrc, err := metrics.NewDNSCheck(namespace, reg)
+	if err != nil {
+		return nil, fmt.Errorf("dnscheck metrics: %w", err)
+	}
+
+	kv, err := c.KV.newRemoteKV(envs, namespace, reg, grpcMtrc)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
@@ -75,6 +80,7 @@ func (c *checkConfig) toInternal(
 	return &dnscheck.RemoteKVConfig{
 		Logger:       baseLogger.With(slogutil.KeyPrefix, "dnscheck"),
 		Messages:     messages,
+		Metrics:      mtrc,
 		RemoteKV:     kv,
 		ErrColl:      errColl,
 		Domains:      domains,
@@ -135,8 +141,8 @@ func (c *remoteKVConfig) newRemoteKV(
 			},
 			MaxActive:   envs.RedisMaxActive,
 			MaxIdle:     envs.RedisMaxIdle,
-			IdleTimeout: envs.RedisIdleTimeout.Duration,
-			TTL:         c.TTL.Duration,
+			IdleTimeout: time.Duration(envs.RedisIdleTimeout),
+			TTL:         time.Duration(c.TTL),
 		})
 	case kvModeConsul:
 		kv, err = c.newConsulRemoteKV(envs)
@@ -167,7 +173,7 @@ func (c *remoteKVConfig) newBackendRemoteKV(
 		Metrics:     backendKVMtrc,
 		Endpoint:    &envs.DNSCheckRemoteKVURL.URL,
 		APIKey:      envs.DNSCheckRemoteKVAPIKey,
-		TTL:         c.TTL.Duration,
+		TTL:         time.Duration(c.TTL),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("initializing backend dnscheck kv: %w", err)
@@ -206,7 +212,7 @@ func (c *remoteKVConfig) newConsulRemoteKV(envs *environment) (kv remotekv.Inter
 		}),
 		// TODO(ameshkov): Consider making configurable.
 		Limiter:     rate.NewLimiter(rate.Limit(200)/60, 1),
-		TTL:         c.TTL.Duration,
+		TTL:         time.Duration(c.TTL),
 		MaxRespSize: maxRespSize,
 	})
 	if err != nil {
@@ -217,53 +223,38 @@ func (c *remoteKVConfig) newConsulRemoteKV(envs *environment) (kv remotekv.Inter
 }
 
 // type check
-var _ validator = (*checkConfig)(nil)
+var _ validate.Interface = (*checkConfig)(nil)
 
-// validate implements the [validator] interface for *checkConfig.
-func (c *checkConfig) validate() (err error) {
+// Validate implements the [validate.Interface] interface for *checkConfig.
+func (c *checkConfig) Validate() (err error) {
 	if c == nil {
 		return errors.ErrNoValue
 	}
 
-	notEmptyParams := container.KeyValues[string, string]{{
-		Key:   "node_location",
-		Value: c.NodeLocation,
-	}, {
-		Key:   "node_name",
-		Value: c.NodeName,
-	}}
-
-	for _, kv := range notEmptyParams {
-		if kv.Value == "" {
-			return fmt.Errorf("%s: %w", kv.Key, errors.ErrEmptyValue)
-		}
-	}
-
-	if len(c.Domains) == 0 {
-		return fmt.Errorf("domains: %w", errors.ErrEmptyValue)
+	errs := []error{
+		validate.NotEmpty("node_location", c.NodeLocation),
+		validate.NotEmpty("node_name", c.NodeName),
+		validate.NotEmptySlice("domains", c.Domains),
 	}
 
 	err = validateNonNilIPs(c.IPv4, netutil.AddrFamilyIPv4)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
-		return err
+		errs = append(errs, err)
 	}
 
 	err = validateNonNilIPs(c.IPv6, netutil.AddrFamilyIPv6)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
-		return err
+		errs = append(errs, err)
 	}
 
-	err = c.RemoteKV.validate()
-	if err != nil {
-		return fmt.Errorf("kv: %w", err)
-	}
+	errs = validate.Append(errs, "kv", c.KV)
 
-	return nil
+	return errors.Join(errs...)
 }
 
-// validateNonNilIPs returns an error if ips is empty or had IP addresses of
+// ValidateNonNilIPs returns an error if ips is empty or had IP addresses of
 // incorrect protocol version.
 //
 // TODO(a.garipov): Merge with [validateAddrs].
@@ -313,45 +304,26 @@ type remoteKVConfig struct {
 }
 
 // type check
-var _ validator = (*remoteKVConfig)(nil)
+var _ validate.Interface = (*remoteKVConfig)(nil)
 
-// validate implements the [validator] interface for *remoteKVConfig.
-func (c *remoteKVConfig) validate() (err error) {
+// Validate implements the [validate.Interface] interface for *remoteKVConfig.
+func (c *remoteKVConfig) Validate() (err error) {
 	if c == nil {
 		return errors.ErrNoValue
 	}
 
-	ttl := c.TTL
+	ttl := time.Duration(c.TTL)
 
 	switch c.Type {
 	case kvModeBackend:
-		if ttl.Duration <= 0 {
-			return newNotPositiveError("ttl", ttl)
-		}
+		return validate.Positive("ttl", ttl)
 	case kvModeCache:
-		// Go on.
+		return nil
 	case kvModeConsul:
-		if ttl.Duration < consulkv.MinTTL || ttl.Duration > consulkv.MaxTTL {
-			return fmt.Errorf(
-				"ttl: %w: must be between %s and %s; got %s",
-				errors.ErrOutOfRange,
-				consulkv.MinTTL,
-				consulkv.MaxTTL,
-				ttl,
-			)
-		}
+		return validate.InRange("ttl", ttl, consulkv.MinTTL, consulkv.MaxTTL)
 	case kvModeRedis:
-		if ttl.Duration < rediskv.MinTTL {
-			return fmt.Errorf(
-				"ttl: %w: must be greater than or equal to %s got %s",
-				errors.ErrOutOfRange,
-				rediskv.MinTTL,
-				ttl,
-			)
-		}
+		return validate.NoLessThan("ttl", ttl, rediskv.MinTTL)
 	default:
 		return fmt.Errorf("type: %w: %q", errors.ErrBadEnumValue, c.Type)
 	}
-
-	return nil
 }

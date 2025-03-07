@@ -2,15 +2,16 @@ package prometheus
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 // ForwardMetricsListener implements the [forward.MetricsListener] interface
@@ -33,40 +34,50 @@ type ForwardMetricsListener struct {
 // NewForwardMetricsListener returns a properly initialized
 // *ForwardMetricsListener expecting to track upsNumHint upstreams.  As long as
 // this function registers prometheus counters it must be called only once.
-//
-// TODO(a.garipov): Do not use promauto.
-func NewForwardMetricsListener(namespace string, upsNumHint int) (f *ForwardMetricsListener) {
-	return &ForwardMetricsListener{
-		requestsTotal: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name:      "request_total",
+func NewForwardMetricsListener(
+	namespace string,
+	reg prometheus.Registerer,
+	upsNumHint int,
+) (f *ForwardMetricsListener, err error) {
+	const (
+		requestsTotal   = "request_total"
+		responseRCode   = "response_rcode_total"
+		requestDuration = "request_duration_seconds"
+		errorsTotal     = "error_total"
+		upstreamStatus  = "upstream_status"
+	)
+
+	f = &ForwardMetricsListener{
+		requestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name:      requestsTotal,
 			Namespace: namespace,
 			Subsystem: subsystemForward,
 			Help:      "The number of processed DNS requests.",
 		}, []string{"to", "network"}),
 
-		responseRCode: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name:      "response_rcode_total",
+		responseRCode: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name:      responseRCode,
 			Namespace: namespace,
 			Subsystem: subsystemForward,
 			Help:      "The counter for DNS response codes.",
 		}, []string{"to", "rcode"}),
 
-		requestDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name:      "request_duration_seconds",
+		requestDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:      requestDuration,
 			Namespace: namespace,
 			Subsystem: subsystemForward,
 			Help:      "Time elapsed on processing a DNS query.",
 		}, []string{"to"}),
 
-		errorsTotal: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name:      "error_total",
+		errorsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name:      errorsTotal,
 			Namespace: namespace,
 			Subsystem: subsystemForward,
 			Help:      "The number of errors occurred when processing a DNS query.",
 		}, []string{"to", "type"}),
 
-		upstreamStatus: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name:      "upstream_status",
+		upstreamStatus: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name:      upstreamStatus,
 			Namespace: namespace,
 			Subsystem: subsystemForward,
 			Help:      "Status of the main upstream. 1 is okay, 0 the upstream is backed off",
@@ -76,6 +87,37 @@ func NewForwardMetricsListener(namespace string, upsNumHint int) (f *ForwardMetr
 
 		statusGauges: make(map[forward.Upstream]prometheus.Gauge, upsNumHint),
 	}
+
+	var errs []error
+	collectors := container.KeyValues[string, prometheus.Collector]{{
+		Key:   requestsTotal,
+		Value: f.requestsTotal,
+	}, {
+		Key:   responseRCode,
+		Value: f.responseRCode,
+	}, {
+		Key:   requestDuration,
+		Value: f.requestDuration,
+	}, {
+		Key:   errorsTotal,
+		Value: f.errorsTotal,
+	}, {
+		Key:   upstreamStatus,
+		Value: f.upstreamStatus,
+	}}
+
+	for _, c := range collectors {
+		err = reg.Register(c.Value)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("registering metrics %q: %w", c.Key, err))
+		}
+	}
+
+	if err = errors.Join(errs...); err != nil {
+		return nil, err
+	}
+
+	return f, nil
 }
 
 // type check

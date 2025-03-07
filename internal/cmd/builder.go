@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math/rand/v2"
 	"net/netip"
 	"net/url"
 	"path"
@@ -15,8 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdrand"
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
@@ -29,6 +29,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
+	dnssvcprom "github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
@@ -42,11 +43,13 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
+	"github.com/AdguardTeam/golibs/contextutil"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/osutil"
 	"github.com/AdguardTeam/golibs/service"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -87,6 +90,7 @@ type builder struct {
 	mtrcNamespace  string
 	plugins        *plugin.Registry
 	promRegisterer prometheus.Registerer
+	rand           *rand.Rand
 	sigHdlr        *service.SignalHandler
 
 	// The fields below are initialized later by calling the builder's methods.
@@ -114,6 +118,7 @@ type builder struct {
 	newRegDomains       *hashprefix.Filter
 	newRegDomainsHashes *hashprefix.Storage
 	profileDB           profiledb.Interface
+	queryLog            querylog.Interface
 	rateLimit           *ratelimit.Backoff
 	ruleStat            rulestat.Interface
 	safeBrowsing        *hashprefix.Filter
@@ -125,7 +130,7 @@ type builder struct {
 	// The fields below are initialized later, just like with the fields above,
 	// but are placed in this order for alignment optimization.
 
-	serverGroups    []*agd.ServerGroup
+	serverGroups    []*dnssvc.ServerGroupConfig
 	profilesEnabled bool
 }
 
@@ -170,6 +175,10 @@ func newBuilder(c *builderConfig) (b *builder) {
 		plugins:        c.plugins,
 		promRegisterer: prometheus.DefaultRegisterer,
 		debugRefrs:     debugsvc.Refreshers{},
+		// #nosec G115 G404 -- The Unix epoch time is highly unlikely to be
+		// negative and we don't need a real random for simple refresh time
+		// randomization.
+		rand: rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 0)),
 		sigHdlr: service.NewSignalHandler(&service.SignalHandlerConfig{
 			Logger:          c.baseLogger.With(slogutil.KeyPrefix, service.SignalHandlerPrefix),
 			ShutdownTimeout: shutdownTimeout,
@@ -199,9 +208,17 @@ func (b *builder) initGeoIP(ctx context.Context) {
 	asn, ctry := b.env.GeoIPASNPath, b.env.GeoIPCountryPath
 	b.logger.DebugContext(ctx, "using geoip files", "asn", asn, "ctry", ctry)
 
+	mtrc, err := metrics.NewGeoIP(b.mtrcNamespace, b.promRegisterer, asn, ctry)
+	if err != nil {
+		err = fmt.Errorf("registering geoip metrics: %w", err)
+
+		return
+	}
+
 	c := b.conf.GeoIP
 	b.geoIP = geoip.NewFile(&geoip.FileConfig{
 		Logger:         b.baseLogger.With(slogutil.KeyPrefix, "geoip"),
+		Metrics:        mtrc,
 		CacheManager:   b.cacheManager,
 		ASNPath:        asn,
 		CountryPath:    ctry,
@@ -280,8 +297,22 @@ func (b *builder) initAdultBlocking(
 	}
 
 	c := b.conf.AdultBlocking
-	id := filter.IDAdultBlocking
+	refrIvl := time.Duration(c.RefreshIvl)
+	refrTimeout := time.Duration(c.RefreshTimeout)
+
+	const id = filter.IDAdultBlocking
+
+	hashPrefMtcs, err := metrics.NewHashPrefixFilter(
+		b.mtrcNamespace,
+		string(id),
+		b.promRegisterer,
+	)
+	if err != nil {
+		return fmt.Errorf("registering hashprefix filter metrics: %w", err)
+	}
+
 	prefix := path.Join(hashprefix.IDPrefix, string(id))
+
 	b.adultBlocking, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
 		Logger:          b.baseLogger.With(slogutil.KeyPrefix, prefix),
 		Cloner:          b.cloner,
@@ -289,13 +320,14 @@ func (b *builder) initAdultBlocking(
 		Hashes:          b.adultBlockingHashes,
 		URL:             &b.env.AdultBlockingURL.URL,
 		ErrColl:         b.errColl,
+		HashPrefixMtcs:  hashPrefMtcs,
 		Metrics:         b.filterMtrc,
 		ID:              id,
 		CachePath:       filepath.Join(cacheDir, string(id)),
 		ReplacementHost: c.BlockHost,
-		Staleness:       c.RefreshIvl.Duration,
-		RefreshTimeout:  c.RefreshTimeout.Duration,
-		CacheTTL:        c.CacheTTL.Duration,
+		Staleness:       refrIvl,
+		RefreshTimeout:  refrTimeout,
+		CacheTTL:        time.Duration(c.CacheTTL),
 		// TODO(a.garipov):  Make all sizes [datasize.ByteSize] and rename cache
 		// entity counts to fooCount.
 		CacheCount: c.CacheSize,
@@ -310,15 +342,14 @@ func (b *builder) initAdultBlocking(
 		return fmt.Errorf("initial refresh: %w", err)
 	}
 
-	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
+	refr := service.NewRefreshWorker(&service.RefreshWorkerConfig{
 		// Note that we also set the same timeout for the http.Client in
 		// [hashprefix.NewFilter].
-		Context:           newCtxWithTimeoutCons(c.RefreshTimeout.Duration),
-		Refresher:         b.adultBlocking,
-		Logger:            b.baseLogger.With(slogutil.KeyPrefix, string(id)+"_refresh"),
-		Interval:          c.RefreshIvl.Duration,
-		RefreshOnShutdown: false,
-		RandomizeStart:    false,
+		ContextConstructor: contextutil.NewTimeoutConstructor(refrTimeout),
+		ErrorHandler:       newSlogErrorHandler(b.baseLogger, string(id)+"_refresh"),
+		Refresher:          b.adultBlocking,
+		Schedule:           timeutil.NewConstSchedule(refrIvl),
+		RefreshOnShutdown:  false,
 	})
 	err = refr.Start(ctx)
 	if err != nil {
@@ -332,6 +363,16 @@ func (b *builder) initAdultBlocking(
 	b.debugRefrs[prefix] = b.adultBlocking
 
 	return nil
+}
+
+// newSlogErrorHandler is a convenient wrapper around
+// [service.NewSlogErrorHandler].
+func newSlogErrorHandler(baseLogger *slog.Logger, prefix string) (h *service.SlogErrorHandler) {
+	return service.NewSlogErrorHandler(
+		baseLogger.With(slogutil.KeyPrefix, prefix),
+		slog.LevelError,
+		"refreshing",
+	)
 }
 
 // initNewRegDomains initializes the newly-registered domain filter and hash
@@ -357,8 +398,22 @@ func (b *builder) initNewRegDomains(
 	// Reuse the general safe-browsing filter configuration with a new URL and
 	// ID.
 	c := b.conf.SafeBrowsing
-	id := filter.IDNewRegDomains
+	refrIvl := time.Duration(c.RefreshIvl)
+	refrTimeout := time.Duration(c.RefreshTimeout)
+
+	const id = filter.IDNewRegDomains
+
+	hashPrefMtcs, err := metrics.NewHashPrefixFilter(
+		b.mtrcNamespace,
+		string(id),
+		b.promRegisterer,
+	)
+	if err != nil {
+		return fmt.Errorf("registering hashprefix filter metrics: %w", err)
+	}
+
 	prefix := path.Join(hashprefix.IDPrefix, string(id))
+
 	b.newRegDomains, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
 		Logger:          b.baseLogger.With(slogutil.KeyPrefix, prefix),
 		Cloner:          b.cloner,
@@ -366,13 +421,14 @@ func (b *builder) initNewRegDomains(
 		Hashes:          b.newRegDomainsHashes,
 		URL:             &b.env.NewRegDomainsURL.URL,
 		ErrColl:         b.errColl,
+		HashPrefixMtcs:  hashPrefMtcs,
 		Metrics:         b.filterMtrc,
 		ID:              id,
 		CachePath:       filepath.Join(cacheDir, string(id)),
 		ReplacementHost: c.BlockHost,
-		Staleness:       c.RefreshIvl.Duration,
-		RefreshTimeout:  c.RefreshTimeout.Duration,
-		CacheTTL:        c.CacheTTL.Duration,
+		Staleness:       refrIvl,
+		RefreshTimeout:  refrTimeout,
+		CacheTTL:        time.Duration(c.CacheTTL),
 		CacheCount:      c.CacheSize,
 		MaxSize:         maxSize,
 	})
@@ -385,15 +441,14 @@ func (b *builder) initNewRegDomains(
 		return fmt.Errorf("initial refresh: %w", err)
 	}
 
-	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
+	refr := service.NewRefreshWorker(&service.RefreshWorkerConfig{
 		// Note that we also set the same timeout for the http.Client in
 		// [hashprefix.NewFilter].
-		Context:           newCtxWithTimeoutCons(c.RefreshTimeout.Duration),
-		Refresher:         b.newRegDomains,
-		Logger:            b.baseLogger.With(slogutil.KeyPrefix, string(id)+"_refresh"),
-		Interval:          c.RefreshIvl.Duration,
-		RefreshOnShutdown: false,
-		RandomizeStart:    false,
+		ContextConstructor: contextutil.NewTimeoutConstructor(refrTimeout),
+		ErrorHandler:       newSlogErrorHandler(b.baseLogger, string(id)+"_refresh"),
+		Refresher:          b.newRegDomains,
+		Schedule:           timeutil.NewConstSchedule(refrIvl),
+		RefreshOnShutdown:  false,
 	})
 	err = refr.Start(ctx)
 	if err != nil {
@@ -429,8 +484,22 @@ func (b *builder) initSafeBrowsing(
 	}
 
 	c := b.conf.SafeBrowsing
-	id := filter.IDSafeBrowsing
+	refrIvl := time.Duration(c.RefreshIvl)
+	refrTimeout := time.Duration(c.RefreshTimeout)
+
+	const id = filter.IDSafeBrowsing
+
+	hashPrefMtcs, err := metrics.NewHashPrefixFilter(
+		b.mtrcNamespace,
+		string(id),
+		b.promRegisterer,
+	)
+	if err != nil {
+		return fmt.Errorf("registering hashprefix filter metrics: %w", err)
+	}
+
 	prefix := path.Join(hashprefix.IDPrefix, string(id))
+
 	b.safeBrowsing, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
 		Logger:          b.baseLogger.With(slogutil.KeyPrefix, prefix),
 		Cloner:          b.cloner,
@@ -438,13 +507,14 @@ func (b *builder) initSafeBrowsing(
 		Hashes:          b.safeBrowsingHashes,
 		URL:             &b.env.SafeBrowsingURL.URL,
 		ErrColl:         b.errColl,
+		HashPrefixMtcs:  hashPrefMtcs,
 		Metrics:         b.filterMtrc,
 		ID:              id,
 		CachePath:       filepath.Join(cacheDir, string(id)),
 		ReplacementHost: c.BlockHost,
-		Staleness:       c.RefreshIvl.Duration,
-		RefreshTimeout:  c.RefreshTimeout.Duration,
-		CacheTTL:        c.CacheTTL.Duration,
+		Staleness:       refrIvl,
+		RefreshTimeout:  refrTimeout,
+		CacheTTL:        time.Duration(c.CacheTTL),
 		CacheCount:      c.CacheSize,
 		MaxSize:         maxSize,
 	})
@@ -457,15 +527,14 @@ func (b *builder) initSafeBrowsing(
 		return fmt.Errorf("initial refresh: %w", err)
 	}
 
-	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
+	refr := service.NewRefreshWorker(&service.RefreshWorkerConfig{
 		// Note that we also set the same timeout for the http.Client in
 		// [hashprefix.NewFilter].
-		Context:           newCtxWithTimeoutCons(c.RefreshTimeout.Duration),
-		Refresher:         b.safeBrowsing,
-		Logger:            b.baseLogger.With(slogutil.KeyPrefix, string(id)+"_refresh"),
-		Interval:          c.RefreshIvl.Duration,
-		RefreshOnShutdown: false,
-		RandomizeStart:    false,
+		ContextConstructor: contextutil.NewTimeoutConstructor(refrTimeout),
+		ErrorHandler:       newSlogErrorHandler(b.baseLogger, string(id)+"_refresh"),
+		Refresher:          b.safeBrowsing,
+		Schedule:           timeutil.NewConstSchedule(refrIvl),
+		RefreshOnShutdown:  false,
 	})
 	err = refr.Start(ctx)
 	if err != nil {
@@ -487,14 +556,19 @@ func (b *builder) initSafeBrowsing(
 // [builder.initHashPrefixFilters] must be called before this method.
 func (b *builder) initFilterStorage(ctx context.Context) (err error) {
 	c := b.conf.Filters
-	refrIvl := c.RefreshIvl.Duration
-	refrTimeout := c.RefreshTimeout.Duration
+	refrIvl := time.Duration(c.RefreshIvl)
+	refrTimeout := time.Duration(c.RefreshTimeout)
+
+	var blockedSvcIdxURL *url.URL
+	if b.env.BlockedServiceEnabled {
+		blockedSvcIdxURL = &b.env.BlockedServiceIndexURL.URL
+	}
 
 	b.filterStorage, err = filterstorage.New(&filterstorage.Config{
 		BaseLogger: b.baseLogger,
 		Logger:     b.baseLogger.With(slogutil.KeyPrefix, filter.StoragePrefix),
 		BlockedServices: &filterstorage.ConfigBlockedServices{
-			IndexURL: &b.env.BlockedServiceIndexURL.URL,
+			IndexURL: blockedSvcIdxURL,
 			// TODO(a.garipov):  Consider adding a separate parameter here.
 			IndexMaxSize: c.MaxSize,
 			// TODO(a.garipov):  Consider making configurable.
@@ -520,7 +594,7 @@ func (b *builder) initFilterStorage(ctx context.Context) (err error) {
 			// TODO(a.garipov):  Consider adding a separate parameter here.
 			IndexMaxSize:        c.MaxSize,
 			MaxSize:             c.MaxSize,
-			IndexRefreshTimeout: c.IndexRefreshTimeout.Duration,
+			IndexRefreshTimeout: time.Duration(c.IndexRefreshTimeout),
 			// TODO(a.garipov):  Consider adding a separate parameter here.
 			IndexStaleness: refrIvl,
 			RefreshTimeout: refrTimeout,
@@ -540,7 +614,7 @@ func (b *builder) initFilterStorage(ctx context.Context) (err error) {
 			bool(b.env.YoutubeSafeSearchEnabled),
 		),
 		CacheManager: b.cacheManager,
-		Clock:        agdtime.SystemClock{},
+		Clock:        timeutil.SystemClock{},
 		ErrColl:      b.errColl,
 		Metrics:      b.filterMtrc,
 		CacheDir:     b.env.FilterCachePath,
@@ -554,13 +628,12 @@ func (b *builder) initFilterStorage(ctx context.Context) (err error) {
 		return fmt.Errorf("refreshing default filter storage: %w", err)
 	}
 
-	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
-		Context:           newCtxWithTimeoutCons(refrTimeout),
-		Refresher:         b.filterStorage,
-		Logger:            b.baseLogger.With(slogutil.KeyPrefix, "filters/storage_refresh"),
-		Interval:          refrIvl,
-		RefreshOnShutdown: false,
-		RandomizeStart:    false,
+	refr := service.NewRefreshWorker(&service.RefreshWorkerConfig{
+		ContextConstructor: contextutil.NewTimeoutConstructor(refrTimeout),
+		ErrorHandler:       newSlogErrorHandler(b.baseLogger, "filters/storage_refresh"),
+		Refresher:          b.filterStorage,
+		Schedule:           timeutil.NewConstSchedule(refrIvl),
+		RefreshOnShutdown:  false,
 	})
 	err = refr.Start(ctx)
 	if err != nil {
@@ -597,9 +670,9 @@ func (b *builder) newSafeSearchConfig(
 		// TODO(a.garipov):  Consider making this configurable.
 		ResultCacheTTL: 1 * time.Hour,
 		// TODO(a.garipov):  Consider adding a separate parameter here.
-		RefreshTimeout: fltConf.RefreshTimeout.Duration,
+		RefreshTimeout: time.Duration(fltConf.RefreshTimeout),
 		// TODO(a.garipov):  Consider adding a separate parameter here.
-		Staleness:        fltConf.RefreshIvl.Duration,
+		Staleness:        time.Duration(fltConf.RefreshIvl),
 		ResultCacheCount: fltConf.SafeSearchCacheSize,
 		Enabled:          true,
 	}
@@ -651,6 +724,59 @@ func (b *builder) initBindToDevice(ctx context.Context) (err error) {
 	return nil
 }
 
+// initDNSDB initializes the DNS database.
+func (b *builder) initDNSDB(ctx context.Context) (err error) {
+	if !b.conf.DNSDB.Enabled {
+		b.dnsDB = dnsdb.Empty{}
+
+		return nil
+	}
+
+	mtrc, err := metrics.NewDNSDB(b.mtrcNamespace, b.promRegisterer)
+	if err != nil {
+		return fmt.Errorf("registering dnsdb metrics: %w", err)
+	}
+
+	b.dnsDB = dnsdb.New(&dnsdb.DefaultConfig{
+		Logger:  b.baseLogger.With(slogutil.KeyPrefix, "dnsdb"),
+		ErrColl: b.errColl,
+		Metrics: mtrc,
+		MaxSize: b.conf.DNSDB.MaxSize,
+	})
+
+	b.logger.DebugContext(ctx, "initialized dns database")
+
+	return nil
+}
+
+// initQueryLog initializes the appropriate query log implementation from the
+// configuration and environment data.
+func (b *builder) initQueryLog(ctx context.Context) (err error) {
+	if !b.conf.QueryLog.File.Enabled {
+		b.queryLog = querylog.Empty{}
+
+		b.logger.DebugContext(ctx, "initialized empty query log")
+
+		return nil
+	}
+
+	mtrc, err := metrics.NewQueryLog(b.mtrcNamespace, b.promRegisterer)
+	if err != nil {
+		return fmt.Errorf("registering querylog metrics: %w", err)
+	}
+
+	b.queryLog = querylog.NewFileSystem(&querylog.FileSystemConfig{
+		Logger:   b.baseLogger.With(slogutil.KeyPrefix, "querylog"),
+		Path:     b.env.QueryLogPath,
+		Metrics:  mtrc,
+		RandSeed: agdrand.MustNewSeed(),
+	})
+
+	b.logger.DebugContext(ctx, "initialized file-based query log")
+
+	return nil
+}
+
 // Constants for the experimental Structured DNS Errors feature.
 //
 // TODO(a.garipov):  Make configurable.
@@ -685,7 +811,7 @@ func (b *builder) initMsgConstructor(ctx context.Context) (err error) {
 		Cloner:              b.cloner,
 		BlockingMode:        &dnsmsg.BlockingModeNullIP{},
 		StructuredErrors:    b.sdeConf,
-		FilteredResponseTTL: fltConf.ResponseTTL.Duration,
+		FilteredResponseTTL: time.Duration(fltConf.ResponseTTL),
 		EDEEnabled:          fltConf.EDEEnabled,
 	})
 	if err != nil {
@@ -823,20 +949,19 @@ func (b *builder) startBindToDevice(ctx context.Context) (err error) {
 //
 // [builder.initTLSManager] must be called before this method.
 func (b *builder) initTicketRotator(ctx context.Context) (err error) {
-	tickRot := agdservice.RefresherFunc(b.tlsManager.RotateTickets)
+	tickRot := service.RefresherFunc(b.tlsManager.RotateTickets)
 	err = tickRot.Refresh(ctx)
 	if err != nil {
 		return fmt.Errorf("initial session ticket refresh: %w", err)
 	}
 
-	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
-		Context:   ctxWithDefaultTimeout,
-		Refresher: tickRot,
-		Logger:    b.baseLogger.With(slogutil.KeyPrefix, "tickrot_refresh"),
+	refr := service.NewRefreshWorker(&service.RefreshWorkerConfig{
+		ContextConstructor: contextutil.NewTimeoutConstructor(defaultTimeout),
+		ErrorHandler:       newSlogErrorHandler(b.baseLogger, "tickrot_refresh"),
+		Refresher:          tickRot,
 		// TODO(a.garipov):  Make configurable.
-		Interval:          1 * time.Minute,
+		Schedule:          timeutil.NewConstSchedule(1 * time.Minute),
 		RefreshOnShutdown: false,
-		RandomizeStart:    false,
 	})
 	err = refr.Start(ctx)
 	if err != nil {
@@ -852,13 +977,17 @@ func (b *builder) initTicketRotator(ctx context.Context) (err error) {
 	return nil
 }
 
+// defaultTimeout is the timeout used for some operations where another timeout
+// hasn't been defined yet.
+const defaultTimeout = 30 * time.Second
+
 // initGRPCMetrics initializes the gRPC metrics if necessary.
 // [builder.initServerGroups] must be called before this method.
 func (b *builder) initGRPCMetrics(ctx context.Context) (err error) {
 	switch {
 	case
 		b.profilesEnabled,
-		b.conf.Check.RemoteKV.Type == kvModeBackend,
+		b.conf.Check.KV.Type == kvModeBackend,
 		b.conf.RateLimit.Allowlist.Type == rlAllowlistTypeBackend:
 		// Go on.
 	default:
@@ -904,17 +1033,16 @@ func (b *builder) initBillStat(ctx context.Context) (err error) {
 	})
 
 	c := b.conf.Backend
-	refrIvl := c.BillStatIvl.Duration
-	timeout := c.Timeout.Duration
+	refrIvl := time.Duration(c.BillStatIvl)
+	timeout := time.Duration(c.Timeout)
 
 	b.billStat = billStat
-	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
-		Context:           newCtxWithTimeoutCons(timeout),
-		Refresher:         billStat,
-		Logger:            b.baseLogger.With(slogutil.KeyPrefix, "billstat_refresh"),
-		Interval:          refrIvl,
-		RefreshOnShutdown: true,
-		RandomizeStart:    false,
+	refr := service.NewRefreshWorker(&service.RefreshWorkerConfig{
+		ContextConstructor: contextutil.NewTimeoutConstructor(timeout),
+		ErrorHandler:       newSlogErrorHandler(b.baseLogger, "billstat_refresh"),
+		Refresher:          billStat,
+		Schedule:           timeutil.NewConstSchedule(refrIvl),
+		RefreshOnShutdown:  true,
 	})
 	err = refr.Start(ctx)
 	if err != nil {
@@ -971,10 +1099,12 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 	}
 
 	respSzEst := b.conf.RateLimit.ResponseSizeEstimate
+	customLogger := b.baseLogger.With(slogutil.KeyPrefix, "filters/"+string(filter.IDCustom))
 	strg, err := backendpb.NewProfileStorage(&backendpb.ProfileStorageConfig{
 		BindSet:              b.bindSet,
 		ErrColl:              b.errColl,
 		Logger:               b.baseLogger.With(slogutil.KeyPrefix, "profilestorage"),
+		BaseCustomLogger:     customLogger,
 		GRPCMetrics:          b.backendGRPCMtrc,
 		Metrics:              backendProfileDBMtrc,
 		Endpoint:             apiURL,
@@ -992,15 +1122,16 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 	}
 
 	c := b.conf.Backend
-	timeout := c.Timeout.Duration
+	timeout := time.Duration(c.Timeout)
 	profDB, err := profiledb.New(&profiledb.Config{
 		Logger:               b.baseLogger.With(slogutil.KeyPrefix, "profiledb"),
+		BaseCustomLogger:     customLogger,
 		Storage:              strg,
 		ErrColl:              b.errColl,
 		Metrics:              profDBMtrc,
 		CacheFilePath:        b.env.ProfilesCachePath,
-		FullSyncIvl:          c.FullRefreshIvl.Duration,
-		FullSyncRetryIvl:     c.FullRefreshRetryIvl.Duration,
+		FullSyncIvl:          time.Duration(c.FullRefreshIvl),
+		FullSyncRetryIvl:     time.Duration(c.FullRefreshRetryIvl),
 		ResponseSizeEstimate: respSzEst,
 	})
 	if err != nil {
@@ -1014,13 +1145,22 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 
 	// TODO(a.garipov):  Add a separate refresher ID for full refreshes.
 	b.profileDB = profDB
-	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
-		Context:           newCtxWithTimeoutCons(timeout),
-		Logger:            b.baseLogger.With(slogutil.KeyPrefix, "profiledb_refresh"),
-		Refresher:         profDB,
-		Interval:          c.RefreshIvl.Duration,
-		RefreshOnShutdown: false,
-		RandomizeStart:    true,
+
+	// Randomize the start of the profile DB refresh by up to 10 % to not
+	// overload the profile storage.
+	refrIvl := time.Duration(c.RefreshIvl)
+	sched := timeutil.NewRandomizedSchedule(
+		timeutil.NewConstSchedule(refrIvl),
+		b.rand,
+		0,
+		refrIvl/10,
+	)
+	refr := service.NewRefreshWorker(&service.RefreshWorkerConfig{
+		ContextConstructor: contextutil.NewTimeoutConstructor(timeout),
+		ErrorHandler:       newSlogErrorHandler(b.baseLogger, "profiledb_refresh"),
+		Refresher:          profDB,
+		Schedule:           sched,
+		RefreshOnShutdown:  false,
 	})
 	err = refr.Start(ctx)
 	if err != nil {
@@ -1082,21 +1222,26 @@ func (b *builder) initRuleStat(ctx context.Context) (err error) {
 		return nil
 	}
 
+	mtrc, err := metrics.NewRuleStat(b.mtrcNamespace, b.promRegisterer)
+	if err != nil {
+		return fmt.Errorf("rulestat metrics: %w", err)
+	}
+
 	ruleStat := rulestat.NewHTTP(&rulestat.HTTPConfig{
 		Logger:  b.baseLogger.With(slogutil.KeyPrefix, "rulestat"),
 		ErrColl: b.errColl,
+		Metrics: mtrc,
 		URL:     &u.URL,
 	})
 
 	b.ruleStat = ruleStat
-	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
-		Context:   ctxWithDefaultTimeout,
-		Refresher: ruleStat,
-		Logger:    b.baseLogger.With(slogutil.KeyPrefix, "rulestat_refresh"),
+	refr := service.NewRefreshWorker(&service.RefreshWorkerConfig{
+		ContextConstructor: contextutil.NewTimeoutConstructor(defaultTimeout),
+		ErrorHandler:       newSlogErrorHandler(b.baseLogger, "rulestat_refresh"),
+		Refresher:          ruleStat,
 		// TODO(a.garipov):  Make configurable.
-		Interval:          10 * time.Minute,
+		Schedule:          timeutil.NewConstSchedule(10 * time.Minute),
 		RefreshOnShutdown: true,
-		RandomizeStart:    false,
 	})
 	err = refr.Start(ctx)
 	if err != nil {
@@ -1129,7 +1274,7 @@ func (b *builder) initRateLimiter(ctx context.Context) (err error) {
 		return fmt.Errorf("ratelimit metrics: %w", err)
 	}
 
-	var updater agdservice.Refresher
+	var updater service.Refresher
 	if typ == rlAllowlistTypeBackend {
 		updater, err = backendpb.NewRateLimiter(&backendpb.RateLimiterConfig{
 			Logger:      b.baseLogger.With(slogutil.KeyPrefix, "backend_ratelimiter"),
@@ -1160,13 +1305,12 @@ func (b *builder) initRateLimiter(ctx context.Context) (err error) {
 		return fmt.Errorf("allowlist: initial refresh: %w", err)
 	}
 
-	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
-		Context:           ctxWithDefaultTimeout,
-		Refresher:         updater,
-		Logger:            b.baseLogger.With(slogutil.KeyPrefix, "ratelimit_allowlist_refresh"),
-		Interval:          c.Allowlist.RefreshIvl.Duration,
-		RefreshOnShutdown: false,
-		RandomizeStart:    false,
+	refr := service.NewRefreshWorker(&service.RefreshWorkerConfig{
+		ContextConstructor: contextutil.NewTimeoutConstructor(defaultTimeout),
+		ErrorHandler:       newSlogErrorHandler(b.baseLogger, "ratelimit_allowlist_refresh"),
+		Refresher:          updater,
+		Schedule:           timeutil.NewConstSchedule(time.Duration(c.Allowlist.RefreshIvl)),
+		RefreshOnShutdown:  false,
 	})
 	err = refr.Start(ctx)
 	if err != nil {
@@ -1175,7 +1319,11 @@ func (b *builder) initRateLimiter(ctx context.Context) (err error) {
 
 	b.sigHdlr.Add(refr)
 
-	b.connLimit = c.ConnectionLimit.toInternal(b.baseLogger)
+	err = b.initConnLimit(ctx, c.ConnectionLimit)
+	if err != nil {
+		return fmt.Errorf("connlimit: %w", err)
+	}
+
 	b.rateLimit = ratelimit.NewBackoff(c.toInternal(allowlist))
 
 	b.debugRefrs[debugIDAllowlist] = updater
@@ -1185,11 +1333,27 @@ func (b *builder) initRateLimiter(ctx context.Context) (err error) {
 	return nil
 }
 
+// initConnLimit initializes the connection limiter from the given conf.
+func (b *builder) initConnLimit(ctx context.Context, conf *connLimitConfig) (err error) {
+	if !conf.Enabled {
+		return nil
+	}
+
+	mtrc, err := metrics.NewConnLimiter(b.mtrcNamespace, b.promRegisterer)
+	if err != nil {
+		return fmt.Errorf("metrics: %w", err)
+	}
+
+	b.connLimit = connlimiter.New(conf.toInternal(ctx, b.baseLogger, mtrc))
+
+	return nil
+}
+
 // initWeb initializes the web service, starts it, and registers it in the
 // signal handler.  [builder.initDNSCheck] must be call before this method.
 func (b *builder) initWeb(ctx context.Context) (err error) {
 	c := b.conf.Web
-	webConf, err := c.toInternal(ctx, b.env, b.dnsCheck, b.errColl, b.tlsManager)
+	webConf, err := c.toInternal(ctx, b.env, b.dnsCheck, b.errColl, b.baseLogger, b.tlsManager)
 	if err != nil {
 		return fmt.Errorf("converting web configuration: %w", err)
 	}
@@ -1201,14 +1365,13 @@ func (b *builder) initWeb(ctx context.Context) (err error) {
 		return fmt.Errorf("web: initial refresh: %w", err)
 	}
 
-	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
-		Context:   ctxWithDefaultTimeout,
-		Refresher: b.webSvc,
-		Logger:    b.baseLogger.With(slogutil.KeyPrefix, "websvc_refresh"),
+	refr := service.NewRefreshWorker(&service.RefreshWorkerConfig{
+		ContextConstructor: contextutil.NewTimeoutConstructor(defaultTimeout),
+		ErrorHandler:       newSlogErrorHandler(b.baseLogger, "websvc_refresh"),
+		Refresher:          b.webSvc,
 		// TODO(a.garipov): Consider making configurable.
-		Interval:          5 * time.Minute,
+		Schedule:          timeutil.NewConstSchedule(5 * time.Minute),
 		RefreshOnShutdown: false,
-		RandomizeStart:    false,
 	})
 	err = refr.Start(ctx)
 	if err != nil {
@@ -1240,22 +1403,16 @@ func (b *builder) waitGeoIP(ctx context.Context) (err error) {
 
 	const prefix = "geoip_refresh"
 	refrLogger := b.baseLogger.With(slogutil.KeyPrefix, prefix)
-	refr := agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
-		Context: ctxWithDefaultTimeout,
+	refr := service.NewRefreshWorker(&service.RefreshWorkerConfig{
+		ContextConstructor: contextutil.NewTimeoutConstructor(defaultTimeout),
 		// Do not add errColl to geoip's config, as that would create an import
 		// cycle.
 		//
 		// TODO(a.garipov):  Resolve that.
-		Refresher: agdservice.NewRefresherWithErrColl(
-			b.geoIP,
-			refrLogger,
-			b.errColl,
-			prefix,
-		),
-		Logger:            refrLogger,
-		Interval:          b.conf.GeoIP.RefreshIvl.Duration,
+		ErrorHandler:      errcoll.NewRefreshErrorHandler(refrLogger, b.errColl),
+		Refresher:         b.geoIP,
+		Schedule:          timeutil.NewConstSchedule(time.Duration(b.conf.GeoIP.RefreshIvl)),
 		RefreshOnShutdown: false,
-		RandomizeStart:    false,
 	})
 	err = refr.Start(ctx)
 	if err != nil {
@@ -1275,17 +1432,27 @@ func (b *builder) waitGeoIP(ctx context.Context) (err error) {
 //   - [builder.initAccess]
 //   - [builder.initBillStat]
 //   - [builder.initBindToDevice]
+//   - [builder.initDNSDB]
 //   - [builder.initFilterStorage]
 //   - [builder.initFilteringGroups]
 //   - [builder.initMsgConstructor]
+//   - [builder.initQueryLog]
 //   - [builder.initProfileDB]
 //   - [builder.initRateLimiter]
 //   - [builder.initRuleStat]
 //   - [builder.initWeb]
 //   - [builder.waitGeoIP]
 func (b *builder) initDNS(ctx context.Context) (err error) {
-	b.fwdHandler = forward.NewHandler(b.conf.Upstream.toInternal(b.baseLogger))
-	b.dnsDB = b.conf.DNSDB.toInternal(b.baseLogger, b.errColl)
+	mtrcListener, err := dnssvcprom.NewForwardMetricsListener(
+		b.mtrcNamespace,
+		b.promRegisterer,
+		len(b.conf.Upstream.Servers)+len(b.conf.Upstream.Fallback.Servers),
+	)
+	if err != nil {
+		return fmt.Errorf("forward metrics listener: %w", err)
+	}
+
+	b.fwdHandler = forward.NewHandler(b.conf.Upstream.toInternal(b.baseLogger, mtrcListener))
 
 	dnsHdlrsConf := &dnssvc.HandlersConfig{
 		BaseLogger:           b.baseLogger,
@@ -1307,7 +1474,7 @@ func (b *builder) initDNS(ctx context.Context) (err error) {
 		HashMatcher:          b.hashMatcher,
 		ProfileDB:            b.profileDB,
 		PrometheusRegisterer: b.promRegisterer,
-		QueryLog:             b.queryLog(),
+		QueryLog:             b.queryLog,
 		RateLimit:            b.rateLimit,
 		RuleStat:             b.ruleStat,
 		MetricsNamespace:     b.mtrcNamespace,
@@ -1322,15 +1489,17 @@ func (b *builder) initDNS(ctx context.Context) (err error) {
 	}
 
 	dnsConf := &dnssvc.Config{
-		Handlers:         dnsHdlrs,
-		Cloner:           b.cloner,
-		ControlConf:      b.controlConf,
-		ConnLimiter:      b.connLimit,
-		NonDNS:           b.webSvc,
-		ErrColl:          b.errColl,
-		MetricsNamespace: b.mtrcNamespace,
-		ServerGroups:     b.serverGroups,
-		HandleTimeout:    b.conf.DNS.HandleTimeout.Duration,
+		BaseLogger:           b.baseLogger,
+		Handlers:             dnsHdlrs,
+		Cloner:               b.cloner,
+		ControlConf:          b.controlConf,
+		ConnLimiter:          b.connLimit,
+		NonDNS:               b.webSvc,
+		ErrColl:              b.errColl,
+		PrometheusRegisterer: b.promRegisterer,
+		MetricsNamespace:     b.mtrcNamespace,
+		ServerGroups:         b.serverGroups,
+		HandleTimeout:        time.Duration(b.conf.DNS.HandleTimeout),
 	}
 
 	b.dnsSvc, err = dnssvc.New(dnsConf)
@@ -1341,22 +1510,6 @@ func (b *builder) initDNS(ctx context.Context) (err error) {
 	b.logger.DebugContext(ctx, "initialized dns")
 
 	return nil
-}
-
-// queryLog returns the appropriate query log implementation from the
-// configuration and environment data.
-func (b *builder) queryLog() (l querylog.Interface) {
-	fileNeeded := b.conf.QueryLog.File.Enabled
-	if !fileNeeded {
-		return querylog.Empty{}
-	}
-
-	return querylog.NewFileSystem(&querylog.FileSystemConfig{
-		Logger: b.baseLogger.With(slogutil.KeyPrefix, "querylog"),
-		Path:   b.env.QueryLogPath,
-		// #nosec G115 -- The Unix epoch time is highly unlikely to be negative.
-		RandSeed: uint64(time.Now().UnixNano()),
-	})
 }
 
 // performConnCheck performs the connectivity check in accordance to the

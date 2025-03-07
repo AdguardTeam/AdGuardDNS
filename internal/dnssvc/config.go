@@ -17,6 +17,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/initial"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
@@ -28,6 +29,10 @@ import (
 
 // Config is the configuration of the AdGuard DNS service.
 type Config struct {
+	// BaseLogger is used to create loggers for the DNS listeners.  It must not
+	// be nil.
+	BaseLogger *slog.Logger
+
 	// Handlers are the handlers to use in this DNS service.
 	Handlers Handlers
 
@@ -56,22 +61,27 @@ type Config struct {
 	// NonDNS is the handler for non-DNS HTTP requests.  It must not be nil.
 	NonDNS http.Handler
 
+	// PrometheusRegisterer is used to register Prometheus metrics.  It must not
+	// be nil.
+	PrometheusRegisterer prometheus.Registerer
+
 	// MetricsNamespace is a namespace for Prometheus metrics.  It must be a
 	// valid Prometheus metric label.
 	MetricsNamespace string
 
 	// ServerGroups are the DNS server groups.  Each element must be non-nil.
-	ServerGroups []*agd.ServerGroup
+	ServerGroups []*ServerGroupConfig
 
 	// HandleTimeout defines the timeout for the entire handling of a single
 	// query.  It must be greater than zero.
 	HandleTimeout time.Duration
 }
 
-// NewListenerFunc is the type for DNS listener constructors.
+// NewListenerFunc is the type for DNS listener constructors.  All arguments
+// must not be nil.
 type NewListenerFunc func(
 	srv *agd.Server,
-	baseConf dnsserver.ConfigBase,
+	baseConf *dnsserver.ConfigBase,
 	nonDNS http.Handler,
 ) (l Listener, err error)
 
@@ -142,6 +152,9 @@ type HandlersConfig struct {
 
 	// Handler is the ultimate handler of the DNS query to be wrapped by
 	// middlewares.  It must not be nil.
+	//
+	// TODO(a.garipov):  Use the logger from the context throughout the
+	// handling.
 	Handler dnsserver.Handler
 
 	// HashMatcher is the safe-browsing hash matcher for TXT queries.  It must
@@ -176,8 +189,8 @@ type HandlersConfig struct {
 	FilteringGroups map[agd.FilteringGroupID]*agd.FilteringGroup
 
 	// ServerGroups are the DNS server groups for which to build handlers.  Each
-	// element and its servers must be non-nil.
-	ServerGroups []*agd.ServerGroup
+	// server group and its servers must be valid and non-nil.
+	ServerGroups []*ServerGroupConfig
 
 	// EDEEnabled enables the addition of the Extended DNS Error (EDE) codes in
 	// the profiles' message constructors.
@@ -192,7 +205,7 @@ type Handlers map[HandlerKey]dnsserver.Handler
 // HandlerKey is a key for the [Handlers] map.
 type HandlerKey struct {
 	Server      *agd.Server
-	ServerGroup *agd.ServerGroup
+	ServerGroup *ServerGroupConfig
 }
 
 // CacheConfig is the configuration for the DNS cache.
@@ -226,3 +239,37 @@ const (
 	CacheTypeSimple
 	CacheTypeECS
 )
+
+// ServerGroupConfig is the configuration for a group of DNS servers all of
+// which use the same filtering settings.
+type ServerGroupConfig struct {
+	// DDR is the configuration for the server group's Discovery Of Designated
+	// Resolvers (DDR) handlers.  DDR must not be nil.
+	DDR *DDRConfig
+
+	// DeviceDomains is the list of domain names used to detect device IDs from
+	// clients' server names.
+	DeviceDomains []string
+
+	// Name is the unique name of the server group.
+	Name agd.ServerGroupName
+
+	// FilteringGroup is the ID of the filtering group for this server group.
+	FilteringGroup agd.FilteringGroupID
+
+	// Servers are the settings for servers.  Each element must be non-nil.
+	//
+	// TODO(a.garipov):  Move servers here as well as ServerConfig.
+	Servers []*agd.Server
+
+	// ProfilesEnabled, if true, enables recognition of user devices and
+	// profiles for this server group.
+	ProfilesEnabled bool
+}
+
+// ServerGroupName is the name of a server group.
+type ServerGroupName string
+
+// DDRConfig is the configuration for the server group's Discovery Of Designated
+// Resolvers (DDR) handlers.
+type DDRConfig = initial.DDRConfig

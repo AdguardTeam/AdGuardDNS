@@ -21,8 +21,9 @@ func TestFileSystem_Write(t *testing.T) {
 
 	l := querylog.NewFileSystem(&querylog.FileSystemConfig{
 		Logger:   slogutil.NewDiscardLogger(),
+		Metrics:  querylog.EmptyMetrics{},
 		Path:     f.Name(),
-		RandSeed: 0,
+		RandSeed: [32]byte{},
 	})
 
 	ctx := context.Background()
@@ -57,7 +58,7 @@ func TestFileSystem_Write(t *testing.T) {
   "e":5,
   "q":1,
   "r":0,
-  "rn":35121,
+  "rn":13933,
   "f":2,
   "s":1,
   "p":8
@@ -94,7 +95,7 @@ func TestFileSystem_Write(t *testing.T) {
   "e":5,
   "q":1,
   "r":3,
-  "rn":47387,
+  "rn":10182,
   "f":1,
   "s":1,
   "p":8
@@ -112,8 +113,9 @@ func BenchmarkFileSystem_Write_file(b *testing.B) {
 
 	l := querylog.NewFileSystem(&querylog.FileSystemConfig{
 		Logger:   slogutil.NewDiscardLogger(),
+		Metrics:  querylog.EmptyMetrics{},
 		Path:     f.Name(),
-		RandSeed: 0,
+		RandSeed: [32]byte{},
 	})
 
 	e := testEntry()

@@ -1,11 +1,13 @@
 package dnsserver
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -17,7 +19,8 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/ioutil"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/miekg/dns"
@@ -55,13 +58,13 @@ var NextProtoDoH3 = []string{http3.NextProtoH3, http2.NextProtoTLS, "http/1.1"}
 
 // ConfigHTTPS is a struct that needs to be passed to NewServerHTTPS to
 // initialize a new ServerHTTPS instance.  You can choose whether HTTP/3 is
-// enabled or not by specifying [ConfigBase.Network].  By default, the server
-// will listen to both HTTP/2 and HTTP/3, but if you set it to NetworkTCP, the
-// server will only use HTTP/2 and NetworkUDP will mean HTTP/3 only.
+// enabled or not by specifying [Base.Network].  By default, the server will
+// listen to both HTTP/2 and HTTP/3, but if you set it to NetworkTCP, the server
+// will only use HTTP/2 and NetworkUDP will mean HTTP/3 only.
 type ConfigHTTPS struct {
 	// TLSConfDefault is the TLS configuration for HTTPS.  If not set and
-	// [ConfigBase.Network] is set to NetworkTCP the server will listen to plain
-	// HTTP.  If it is not nil, it must be set to [NextProtoDoH].
+	// [Base.Network] is set to NetworkTCP the server will listen to plain HTTP.
+	// If it is not nil, it must be set to [NextProtoDoH].
 	TLSConfDefault *tls.Config
 
 	// TLSConfH3 is the TLS configuration for DoH3.  If it is not nil, it must
@@ -72,10 +75,12 @@ type ConfigHTTPS struct {
 	// If it is empty, the server will return 404 for requests like that.
 	NonDNSHandler http.Handler
 
-	ConfigBase
+	// Base is the base configuration for this server.  It must not be nil and
+	// must be valid.
+	Base *ConfigBase
 
 	// MaxStreamsPerPeer is the maximum number of concurrent streams that a peer
-	// is allowed to open.
+	// is allowed to open.  If not set, 100 is used.
 	MaxStreamsPerPeer int
 
 	// QUICLimitsEnabled, if true, enables QUIC limiting.
@@ -86,6 +91,8 @@ type ConfigHTTPS struct {
 // and DNS JSON format.  Regular DoH (wireformat) will be available at the
 // /dns-query location.  JSON format will be available at the "/resolve"
 // location.
+//
+// TODO(a.garipov):  Consider unembedding ServerBase.
 type ServerHTTPS struct {
 	*ServerBase
 
@@ -103,26 +110,36 @@ type ServerHTTPS struct {
 	// quicTransport is saved here to close it later.
 	quicTransport *quic.Transport
 
-	conf ConfigHTTPS
+	tlsConfDefault *tls.Config
+	tlsConfH3      *tls.Config
+
+	nonDNSHandler http.Handler
+
+	maxStreamsPerPeer int
+
+	quicLimitsEnabled bool
 }
 
 // type check
 var _ Server = (*ServerHTTPS)(nil)
 
-// NewServerHTTPS creates a new ServerHTTPS instance.
-func NewServerHTTPS(conf ConfigHTTPS) (s *ServerHTTPS) {
-	if conf.ListenConfig == nil {
-		// Do not enable OOB here, because ListenPacket is only used by HTTP/3,
-		// and quic-go sets the necessary flags.
-		conf.ListenConfig = netext.DefaultListenConfig(nil)
-	}
+// NewServerHTTPS creates a new ServerHTTPS instance.  c must not be nil and
+// must be valid.
+func NewServerHTTPS(c *ConfigHTTPS) (s *ServerHTTPS) {
+	// Do not enable OOB here, because ListenPacket is only used by HTTP/3, and
+	// quic-go sets the necessary flags.
+	c.Base.ListenConfig = cmp.Or(c.Base.ListenConfig, netext.DefaultListenConfig(nil))
 
-	s = &ServerHTTPS{
-		ServerBase: newServerBase(ProtoDoH, conf.ConfigBase),
-		conf:       conf,
+	return &ServerHTTPS{
+		ServerBase:     newServerBase(ProtoDoH, c.Base),
+		tlsConfDefault: c.TLSConfDefault,
+		tlsConfH3:      c.TLSConfH3,
+		nonDNSHandler:  c.NonDNSHandler,
+		// NOTE:  100 is the current default in package quic, but set it
+		// explicitly in case that changes in the future.
+		maxStreamsPerPeer: cmp.Or(c.MaxStreamsPerPeer, 100),
+		quicLimitsEnabled: c.QUICLimitsEnabled,
 	}
-
-	return s
 }
 
 // Start implements the dnsserver.Server interface for *ServerHTTPS.
@@ -136,7 +153,7 @@ func (s *ServerHTTPS) Start(ctx context.Context) (err error) {
 		return ErrServerAlreadyStarted
 	}
 
-	log.Info("[%s]: Starting the server", s.addr)
+	s.baseLogger.InfoContext(ctx, "starting server")
 
 	ctx = ContextWithServerInfo(ctx, &ServerInfo{
 		Name:  s.name,
@@ -164,7 +181,7 @@ func (s *ServerHTTPS) Start(ctx context.Context) (err error) {
 
 	s.started = true
 
-	log.Info("[%s]: Server has been started", s.Name())
+	s.baseLogger.InfoContext(ctx, "server has been started")
 
 	return nil
 }
@@ -173,16 +190,18 @@ func (s *ServerHTTPS) Start(ctx context.Context) (err error) {
 func (s *ServerHTTPS) Shutdown(ctx context.Context) (err error) {
 	defer func() { err = errors.Annotate(err, "shutting down doh server: %w") }()
 
-	log.Info("[%s]: Stopping the server", s.Name())
+	s.baseLogger.InfoContext(ctx, "shutting down server")
+
 	err = s.shutdown(ctx)
 	if err != nil {
-		log.Info("[%s]: Failed to shutdown: %v", s.Name(), err)
+		s.baseLogger.WarnContext(ctx, "error while shutting down", slogutil.KeyError, err)
 
 		return err
 	}
 
 	err = s.waitShutdown(ctx)
-	log.Info("[%s]: Finished stopping the server", s.Name())
+
+	s.baseLogger.InfoContext(ctx, "server has been shut down")
 
 	return err
 }
@@ -208,7 +227,7 @@ func (s *ServerHTTPS) startHTTPSServer(ctx context.Context) (err error) {
 		ReadHeaderTimeout: httpReadTimeout,
 		WriteTimeout:      httpWriteTimeout,
 		IdleTimeout:       httpIdleTimeout,
-		ErrorLog:          log.StdLog("dnsserver/serverhttps: "+s.name, log.DEBUG),
+		ErrorLog:          slog.NewLogLogger(s.baseLogger.Handler(), slog.LevelDebug),
 	}
 
 	// Start the server worker goroutine.
@@ -262,41 +281,41 @@ func (s *ServerHTTPS) shutdown(ctx context.Context) (err error) {
 	if s.tcpListener != nil {
 		err = s.tcpListener.Close()
 		if err != nil {
-			log.Info("[%s]: Failed to close NetworkTCP listener: %v", s.Name(), err)
+			s.baseLogger.WarnContext(ctx, "closing tcp listener", slogutil.KeyError, err)
 		}
 	}
 
 	// Second, shutdown the HTTP server.
 	err = s.httpServer.Shutdown(ctx)
 	if err != nil {
-		log.Debug("[%s]: http server shutdown: %v", s.Name(), err)
+		s.baseLogger.WarnContext(ctx, "shutting down http server", slogutil.KeyError, err)
 	}
 
 	// Finally, shutdown the HTTP/3 server.
-	s.shutdownH3()
+	s.shutdownH3(ctx)
 
 	return nil
 }
 
 // shutdownH3 shuts down the HTTP/3 server, if enabled, and logs all errors.
-func (s *ServerHTTPS) shutdownH3() {
+func (s *ServerHTTPS) shutdownH3(ctx context.Context) {
 	if s.h3Server == nil {
 		return
 	}
 
 	err := s.quicListener.Close()
 	if err != nil {
-		log.Debug("[%s]: quic listener shutdown: %s", s.Name(), err)
+		s.baseLogger.WarnContext(ctx, "closing quic listener", slogutil.KeyError, err)
 	}
 
 	err = s.quicTransport.Close()
 	if err != nil {
-		log.Debug("[%s]: quic transport shutdown: %s", s.Name(), err)
+		s.baseLogger.WarnContext(ctx, "closing quic transport", slogutil.KeyError, err)
 	}
 
 	err = s.h3Server.Close()
 	if err != nil {
-		log.Debug("[%s]: http/3 server shutdown: %s", s.Name(), err)
+		s.baseLogger.WarnContext(ctx, "shutting down http/3 server", slogutil.KeyError, err)
 	}
 }
 
@@ -310,19 +329,15 @@ func (s *ServerHTTPS) serveHTTPS(ctx context.Context, hs *http.Server, l net.Lis
 	defer s.handlePanicAndExit(ctx)
 
 	scheme := urlutil.SchemeHTTPS
-	if s.conf.TLSConfDefault == nil {
+	if s.tlsConfDefault == nil {
 		scheme = urlutil.SchemeHTTP
 	}
 
-	u := &url.URL{
-		Scheme: scheme,
-		Host:   s.addr,
-	}
-	log.Info("[%s]: Start listening to %s", s.name, u)
+	s.baseLogger.InfoContext(ctx, "starting serving http", "scheme", scheme)
 
 	err := hs.Serve(l)
 	if err != nil {
-		log.Info("[%s]: Finished listening to %s due to %v", s.name, u, err)
+		s.baseLogger.WarnContext(ctx, "serving http failed", "scheme", scheme, slogutil.KeyError, err)
 	}
 }
 
@@ -334,20 +349,18 @@ func (s *ServerHTTPS) serveH3(ctx context.Context, hs *http3.Server, ql *quic.Ea
 	// application won't be able to continue listening to DoH.
 	defer s.handlePanicAndExit(ctx)
 
-	u := &url.URL{
-		Scheme: http3.NextProtoH3,
-		Host:   s.addr,
-	}
-	log.Info("[%s]: Start listening to %s", s.name, u)
+	s.baseLogger.InfoContext(ctx, "starting serving http/3")
 
 	err := hs.ServeListener(ql)
 	if err != nil {
-		log.Info("[%s]: Finished listening to %s due to %v", s.name, u, err)
+		s.baseLogger.WarnContext(ctx, "serving http/3 failed", slogutil.KeyError, err)
 	}
 }
 
-// httpHandler is a helper structure that implements http.Handler
-// and holds pointers to ServerHTTPS, net.Listener.
+// httpHandler is a helper structure that implements [http.Handler] and holds
+// pointers to ServerHTTPS and net.Addr.
+//
+// TODO(a.garipov):  Think of ways of using [httputil.LogMiddleware] with this.
 type httpHandler struct {
 	srv       *ServerHTTPS
 	localAddr net.Addr
@@ -384,21 +397,12 @@ func (h *httpHandler) remoteAddr(r *http.Request) (addr net.Addr) {
 
 // ServeHTTP implements the http.Handler interface for *httpHandler.  It reads
 // the DNS data from the request, resolves it, and sends a response.
-//
-// NOTE: r.Context() is only used to control cancelation.  To add values to the
-// context, use the BaseContext of this handler's ServerHTTPS.
 func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := h.srv.requestContext()
+	ctx := r.Context()
+	ctx, cancel := h.srv.requestContext(ctx)
 	defer cancel()
 
-	if dl, ok := r.Context().Deadline(); ok {
-		ctx, cancel = context.WithDeadline(ctx, dl)
-		defer cancel()
-	}
-
 	defer h.srv.handlePanicAndRecover(ctx)
-
-	log.Debug("Received a request to %s", r.URL)
 
 	// TODO(ameshkov): Consider using ants.Pool here.
 
@@ -409,8 +413,8 @@ func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.srv.conf.NonDNSHandler != nil {
-		h.srv.conf.NonDNSHandler.ServeHTTP(w, r)
+	if hdlr := h.srv.nonDNSHandler; hdlr != nil {
+		hdlr.ServeHTTP(w, r)
 	} else {
 		h.srv.metrics.OnInvalidMsg(ctx)
 		http.Error(w, "", http.StatusNotFound)
@@ -422,7 +426,6 @@ func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *httpHandler) serveDoH(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	m, err := httpRequestToMsg(r)
 	if err != nil {
-		log.Debug("Failed to convert request to a DNS message: %v", err)
 		h.srv.metrics.OnInvalidMsg(ctx)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 
@@ -439,7 +442,6 @@ func (h *httpHandler) serveDoH(ctx context.Context, w http.ResponseWriter, r *ht
 
 	// If no response were written, indicate it via an internal server error.
 	if !written {
-		log.Debug("No response has been written by the handler")
 		http.Error(w, "No response", http.StatusInternalServerError)
 
 		return
@@ -452,8 +454,6 @@ func (h *httpHandler) serveDoH(ctx context.Context, w http.ResponseWriter, r *ht
 	// Write the response to the client
 	err = h.writeResponse(req, resp, r, w)
 	if err != nil {
-		log.Debug("[%d] Failed to write HTTP response: %v", req.Id, err)
-
 		// Try writing an error response just in case.
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 
@@ -505,7 +505,6 @@ func (h *httpHandler) writeResponse(
 	w.WriteHeader(http.StatusOK)
 
 	// Write the actual response
-	log.Debug("[%d] Writing HTTP response", req.Id)
 	_, err = w.Write(buf)
 
 	return err
@@ -520,7 +519,7 @@ func (s *ServerHTTPS) listenTLS(ctx context.Context) (err error) {
 	}
 
 	// Prepare the TLS configuration of the server.
-	tlsConf := s.conf.TLSConfDefault
+	tlsConf := s.tlsConfDefault
 	if tlsConf == nil {
 		return nil
 	}
@@ -533,7 +532,7 @@ func (s *ServerHTTPS) listenTLS(ctx context.Context) (err error) {
 // listenQUIC starts a QUIC listener that will be used to serve HTTP/3 requests.
 func (s *ServerHTTPS) listenQUIC(ctx context.Context) (err error) {
 	// Prepare the TLS configuration of the server.
-	tlsConf := s.conf.TLSConfH3
+	tlsConf := s.tlsConfH3
 
 	conn, err := s.listenConfig.ListenPacket(ctx, "udp", s.addr)
 	if err != nil {
@@ -546,7 +545,7 @@ func (s *ServerHTTPS) listenQUIC(ctx context.Context) (err error) {
 		VerifySourceAddress: v.requiresValidation,
 	}
 
-	qConf := newServerQUICConfig(s.conf.QUICLimitsEnabled, s.conf.MaxStreamsPerPeer)
+	qConf := newServerQUICConfig(s.quicLimitsEnabled, s.maxStreamsPerPeer)
 	ql, err := transport.ListenEarly(tlsConf, qConf)
 	if err != nil {
 		return fmt.Errorf("listening quic: %w", err)
@@ -596,10 +595,14 @@ func httpRequestToMsg(req *http.Request) (b []byte, err error) {
 	}
 }
 
-// httpRequestToMsgPost extracts the DNS message from a request body.
+// httpRequestToMsgPost extracts the DNS message from a request body.  req must
+// not be nil.
 func httpRequestToMsgPost(req *http.Request) (b []byte, err error) {
-	buf, err := io.ReadAll(req.Body)
-	defer log.OnCloserError(req.Body, log.DEBUG)
+	// TODO(a.garipov):  Make the limit configurable.
+	r := ioutil.LimitReader(req.Body, dns.MaxMsgSize)
+	buf, err := io.ReadAll(r)
+	err = errors.WithDeferred(err, req.Body.Close())
+
 	return buf, err
 }
 

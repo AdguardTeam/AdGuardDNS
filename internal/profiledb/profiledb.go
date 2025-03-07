@@ -12,14 +12,13 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecachepb"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/osutil"
-	"github.com/AdguardTeam/golibs/timeutil"
+	"github.com/AdguardTeam/golibs/service"
 	"github.com/c2h5oh/datasize"
 )
 
@@ -123,6 +122,9 @@ func (d *Disabled) ProfileByLinkedIP(
 type Config struct {
 	// Logger is used for logging the operation of profile database.
 	Logger *slog.Logger
+
+	// BaseCustomLogger is the base logger used for the custom filters.
+	BaseCustomLogger *slog.Logger
 
 	// Storage returns the data for this profile DB.
 	Storage Storage
@@ -239,8 +241,12 @@ func New(c *Config) (db *Default, err error) {
 	if c.CacheFilePath == "none" {
 		cacheStorage = internal.EmptyFileCacheStorage{}
 	} else if ext := filepath.Ext(c.CacheFilePath); ext == ".pb" {
-		logger := c.Logger.With("cache_type", "pb")
-		cacheStorage = filecachepb.New(logger, c.CacheFilePath, c.ResponseSizeEstimate)
+		cacheStorage = filecachepb.New(&filecachepb.Config{
+			Logger:               c.Logger.With("cache_type", "pb"),
+			BaseCustomLogger:     c.BaseCustomLogger,
+			CacheFilePath:        c.CacheFilePath,
+			ResponseSizeEstimate: c.ResponseSizeEstimate,
+		})
 	} else {
 		return nil, fmt.Errorf("file %q is not protobuf", c.CacheFilePath)
 	}
@@ -278,9 +284,9 @@ func New(c *Config) (db *Default, err error) {
 }
 
 // type check
-var _ agdservice.Refresher = (*Default)(nil)
+var _ service.Refresher = (*Default)(nil)
 
-// Refresh implements the [agdservice.Refresher] interface for *Default.  It
+// Refresh implements the [service.Refresher] interface for *Default.  It
 // updates the internal maps and the synchronization time using the data it
 // receives from the storage.
 //
@@ -374,9 +380,7 @@ func (db *Default) fetchProfiles(
 ) (sr *StorageProfilesResponse, err error) {
 	syncTime := db.syncTime
 	if isFullSync {
-		db.logger.InfoContext(ctx, "full sync", "since_last_attempt", timeutil.Duration{
-			Duration: sinceLastAttempt,
-		})
+		db.logger.InfoContext(ctx, "full sync", "since_last_attempt", sinceLastAttempt)
 
 		syncTime = time.Time{}
 	}
@@ -412,9 +416,7 @@ func (db *Default) needsFullSync(ctx context.Context) (sinceFull time.Duration, 
 	db.logger.WarnContext(
 		ctx,
 		"previous sync finished with error",
-		"since_last_successful_sync", timeutil.Duration{
-			Duration: sinceFull,
-		},
+		"since_last_successful_sync", sinceFull,
 		"last_successful_sync_time", lastFull,
 	)
 
@@ -453,9 +455,7 @@ func (db *Default) loadFileCache(ctx context.Context) (err error) {
 		"version", c.Version,
 		"prof_num", profNum,
 		"dev_num", devNum,
-		"elapsed", timeutil.Duration{
-			Duration: time.Since(start),
-		},
+		"elapsed", time.Since(start),
 	)
 
 	if profNum == 0 || devNum == 0 {

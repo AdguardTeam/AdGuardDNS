@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdvalidate"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/syncutil"
@@ -42,7 +43,7 @@ func NewHumanID(s string) (id HumanID, err error) {
 // valid.  It does not wrap the error to be used in places where that could
 // create additional allocations.
 func newHumanID(s string) (id HumanID, err error) {
-	err = ValidateInclusion(len(s), MaxHumanIDLen, MinHumanIDLen, UnitByte)
+	err = agdvalidate.Inclusion(len(s), MinHumanIDLen, MaxHumanIDLen, agdvalidate.UnitByte)
 	if err != nil {
 		// Don't wrap the error, because the caller should do that.
 		return "", err
@@ -130,7 +131,12 @@ func (p *HumanIDParser) ParseNormalized(s string) (id HumanID, err error) {
 	}()
 
 	// Immediately validate it against the upper DNS hostname-length limit.
-	err = ValidateInclusion(len(s), netutil.MaxDomainNameLen, MinHumanIDLen, UnitByte)
+	err = agdvalidate.Inclusion(
+		len(s),
+		MinHumanIDLen,
+		netutil.MaxDomainNameLen,
+		agdvalidate.UnitByte,
+	)
 	if err != nil {
 		// Don't wrap the error, because there is already a deferred wrap, and
 		// the error is informative enough as is.

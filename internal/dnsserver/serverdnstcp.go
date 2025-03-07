@@ -6,20 +6,21 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"slices"
 	"sync"
 	"time"
 
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/miekg/dns"
 )
 
 // serveTCP runs the TCP serving loop.
 func (s *ServerDNS) serveTCP(ctx context.Context, l net.Listener) (err error) {
-	defer log.OnCloserError(l, log.DEBUG)
+	defer func() { closeWithLog(ctx, s.baseLogger, "closing tcp listener", l) }()
 
 	for s.isStarted() {
 		err = s.acceptTCPConn(ctx, l)
@@ -56,7 +57,7 @@ func (s *ServerDNS) acceptTCPConn(ctx context.Context, l net.Listener) (err erro
 		defer s.tcpConnsMu.Unlock()
 
 		// Track the connection to allow unblocking reads on shutdown.
-		s.tcpConns[conn] = struct{}{}
+		s.tcpConns.Add(conn)
 	}()
 
 	s.wg.Add(1)
@@ -99,30 +100,30 @@ func (s *ServerDNS) serveTCPConn(ctx context.Context, conn net.Conn) {
 
 		wg.Wait()
 
-		log.OnCloserError(conn, log.DEBUG)
+		closeWithLog(ctx, s.baseLogger, "closing tcp conn", conn)
 
 		s.tcpConnsMu.Lock()
 		defer s.tcpConnsMu.Unlock()
 
-		delete(s.tcpConns, conn)
+		s.tcpConns.Delete(conn)
 	}()
 
 	defer s.handlePanicAndRecover(ctx)
 
 	var msgSema syncutil.Semaphore = syncutil.EmptySemaphore{}
-	if s.conf.MaxPipelineEnabled {
-		msgSema = syncutil.NewChanSemaphore(s.conf.MaxPipelineCount)
+	if s.maxPipelineEnabled {
+		msgSema = syncutil.NewChanSemaphore(s.maxPipelineCount)
 	}
 
 	// writeMu serializes write deadline setting and writing to conn.
 	writeMu := &sync.Mutex{}
 
-	timeout := s.conf.ReadTimeout
-	idleTimeout := s.conf.TCPIdleTimeout
+	timeout := s.readTimeout
+	idleTimeout := s.tcpIdleTimeout
 
 	err := handshake(conn, timeout)
 	if err != nil {
-		s.logReadErr("handshaking", err)
+		s.logReadErr(ctx, "handshaking", err)
 
 		return
 	}
@@ -130,7 +131,7 @@ func (s *ServerDNS) serveTCPConn(ctx context.Context, conn net.Conn) {
 	for s.isStarted() {
 		err = s.acceptTCPMsg(conn, wg, writeMu, timeout, msgSema)
 		if err != nil {
-			s.logReadErr("reading from conn", err)
+			s.logReadErr(ctx, "reading from conn", err)
 
 			return
 		}
@@ -142,12 +143,12 @@ func (s *ServerDNS) serveTCPConn(ctx context.Context, conn net.Conn) {
 
 // logReadErr logs err on debug level unless it's trivial ([io.EOF] or
 // [net.ErrClosed]).
-func (s *ServerDNS) logReadErr(msg string, err error) {
+func (s *ServerDNS) logReadErr(ctx context.Context, msg string, err error) {
 	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
 		return
 	}
 
-	log.Debug("[%s]: %s: %s", s.Name(), msg, err)
+	s.baseLogger.DebugContext(ctx, msg, slogutil.KeyError, err)
 }
 
 // acceptTCPMsg reads and starts processing a single TCP message.  If conn is a
@@ -171,7 +172,7 @@ func (s *ServerDNS) acceptTCPMsg(
 		ri.TLSServerName = cs.ConnectionState().ServerName
 	}
 
-	reqCtx, reqCancel := s.requestContext()
+	reqCtx, reqCancel := s.requestContext(context.Background())
 	reqCtx = ContextWithRequestInfo(reqCtx, ri)
 
 	err = msgSema.Acquire(reqCtx)
@@ -213,8 +214,8 @@ func (s *ServerDNS) serveTCPMessage(
 		respPool:     s.respPool,
 		writeMu:      writeMu,
 		conn:         conn,
-		writeTimeout: s.conf.WriteTimeout,
-		idleTimeout:  s.conf.TCPIdleTimeout,
+		writeTimeout: s.writeTimeout,
+		idleTimeout:  s.tcpIdleTimeout,
 	}
 	written := s.serveDNS(ctx, buf, rw)
 
@@ -223,7 +224,7 @@ func (s *ServerDNS) serveTCPMessage(
 		// avoid hanging connections.  Than might happen if the handler
 		// rate-limited connections or if we received garbage data instead of
 		// a DNS query.
-		log.OnCloserError(conn, log.DEBUG)
+		slogutil.CloseAndLog(ctx, s.baseLogger, conn, slog.LevelDebug)
 	}
 }
 

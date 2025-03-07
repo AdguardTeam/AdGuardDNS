@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 )
 
@@ -52,7 +52,7 @@ type Config struct {
 
 	// Clock is used for time-related operations, such as schedule checking.
 	// It must not be nil.
-	Clock agdtime.Clock
+	Clock timeutil.Clock
 
 	// ErrColl is used to collect non-critical and rare errors as well as
 	// refresh errors.  It must not be nil.

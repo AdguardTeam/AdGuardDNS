@@ -9,20 +9,20 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// type check
-var _ agdservice.Refresher = (*forward.Handler)(nil)
+// testLogger is the common logger for tests.
+var testLogger = slogutil.NewDiscardLogger()
 
 // testListener is a [dnssvc.Listener] for tests.
 type testListener struct {
@@ -99,7 +99,7 @@ func newTestListener() (tl *testListener) {
 func newTestListenerFunc(tl *testListener) (f dnssvc.NewListenerFunc) {
 	return func(
 		_ *agd.Server,
-		_ dnsserver.ConfigBase,
+		_ *dnsserver.ConfigBase,
 		_ http.Handler,
 	) (l dnssvc.Listener, err error) {
 		return tl, nil
@@ -150,7 +150,7 @@ func TestService_Start(t *testing.T) {
 		AddrPort: netip.MustParseAddrPort("127.0.0.1:53"),
 	})
 
-	srvGrp := &agd.ServerGroup{
+	srvGrp := &dnssvc.ServerGroupConfig{
 		Name:    dnssvctest.ServerGroupName,
 		Servers: []*agd.Server{srv},
 	}
@@ -161,12 +161,14 @@ func TestService_Start(t *testing.T) {
 	}
 
 	c := &dnssvc.Config{
+		BaseLogger:  testLogger,
 		NewListener: newTestListenerFunc(tl),
 		Handlers: dnssvc.Handlers{
 			k: dnsservertest.NewDefaultHandler(),
 		},
-		MetricsNamespace: "test_start",
-		ServerGroups:     []*agd.ServerGroup{srvGrp},
+		PrometheusRegisterer: prometheus.NewRegistry(),
+		MetricsNamespace:     "test_start",
+		ServerGroups:         []*dnssvc.ServerGroupConfig{srvGrp},
 	}
 
 	svc, err := dnssvc.New(c)
@@ -204,7 +206,7 @@ func TestNew(t *testing.T) {
 		}),
 	}
 
-	srvGrp := &agd.ServerGroup{
+	srvGrp := &dnssvc.ServerGroupConfig{
 		Name:    dnssvctest.ServerGroupName,
 		Servers: srvs,
 	}
@@ -220,9 +222,11 @@ func TestNew(t *testing.T) {
 	}
 
 	c := &dnssvc.Config{
-		Handlers:         handlers,
-		MetricsNamespace: "test_new",
-		ServerGroups:     []*agd.ServerGroup{srvGrp},
+		BaseLogger:           testLogger,
+		Handlers:             handlers,
+		PrometheusRegisterer: prometheus.NewRegistry(),
+		MetricsNamespace:     "test_new",
+		ServerGroups:         []*dnssvc.ServerGroupConfig{srvGrp},
 	}
 
 	svc, err := dnssvc.New(c)

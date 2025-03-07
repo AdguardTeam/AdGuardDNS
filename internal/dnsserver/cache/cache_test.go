@@ -10,10 +10,14 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/cache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// testLogger is the common logger for tests.
+var testLogger = slogutil.NewDiscardLogger()
 
 func TestMiddleware_Wrap(t *testing.T) {
 	const (
@@ -186,6 +190,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 			withCache := dnsserver.WithMiddlewares(
 				handler,
 				cache.NewMiddleware(&cache.MiddlewareConfig{
+					Logger:      testLogger,
 					Count:       100,
 					MinTTL:      minTTL,
 					OverrideTTL: tc.minTTL != nil,

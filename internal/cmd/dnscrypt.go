@@ -6,6 +6,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/validate"
 	"github.com/ameshkov/dnscrypt/v2"
 	"gopkg.in/yaml.v2"
 )
@@ -63,9 +64,9 @@ func (c *dnsCryptConfig) toInternal() (conf *agd.DNSCryptConfig, err error) {
 	}, nil
 }
 
-// validate returns an error if the DNSCrypt configuration is invalid for the
-// given protocol.
-func (c *dnsCryptConfig) validate(p serverProto) (err error) {
+// validateForProtocol returns an error if the DNSCrypt configuration is invalid
+// for the given protocol.
+func (c *dnsCryptConfig) validateForProtocol(p serverProto) (err error) {
 	needsDC := p == srvProtoDNSCrypt
 	switch {
 	case c == nil:
@@ -91,18 +92,18 @@ func (c *dnsCryptConfig) validate(p serverProto) (err error) {
 	return nil
 }
 
-// validateDNSCrypt validates DNSCrypt resolver configuration.
+// validateDNSCrypt validates DNSCrypt resolver configuration.  rc must not be
+// nil.
 func validateDNSCrypt(rc *dnscrypt.ResolverConfig) (err error) {
-	switch {
-	case rc.ProviderName == "":
-		return errors.Error("no provider_name")
-	case rc.PublicKey == "":
-		return errors.Error("no public_key")
-	case rc.PrivateKey == "":
-		return errors.Error("no private_key")
-	case rc.EsVersion != dnscrypt.XChacha20Poly1305 && rc.EsVersion != dnscrypt.XSalsa20Poly1305:
-		return fmt.Errorf("bad es_version: %d", rc.EsVersion)
-	default:
-		return nil
+	errs := []error{
+		validate.NotEmpty("provider_name", rc.ProviderName),
+		validate.NotEmpty("public_key", rc.PublicKey),
+		validate.NotEmpty("private_key", rc.PrivateKey),
 	}
+
+	if rc.EsVersion != dnscrypt.XChacha20Poly1305 && rc.EsVersion != dnscrypt.XSalsa20Poly1305 {
+		errs = append(errs, fmt.Errorf("es_version: %w: %d", errors.ErrBadEnumValue, rc.EsVersion))
+	}
+
+	return errors.Join(errs...)
 }

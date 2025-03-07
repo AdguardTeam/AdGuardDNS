@@ -10,8 +10,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdpasswd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
@@ -95,36 +93,6 @@ type Authenticator struct {
 // *Authenticator.
 func (a *Authenticator) Authenticate(ctx context.Context, passwd []byte) (ok bool) {
 	return a.OnAuthenticate(ctx, passwd)
-}
-
-// Package agdservice
-
-// type check
-var _ agdservice.Refresher = (*Refresher)(nil)
-
-// Refresher is an [agdservice.Refresher] for tests.
-type Refresher struct {
-	OnRefresh func(ctx context.Context) (err error)
-}
-
-// Refresh implements the [agdservice.Refresher] interface for *Refresher.
-func (r *Refresher) Refresh(ctx context.Context) (err error) {
-	return r.OnRefresh(ctx)
-}
-
-// Package agdtime
-
-// type check
-var _ agdtime.Clock = (*Clock)(nil)
-
-// Clock is a [agdtime.Clock] for tests.
-type Clock struct {
-	OnNow func() (now time.Time)
-}
-
-// Now implements the [agdtime.Clock] interface for *Clock.
-func (c *Clock) Now() (now time.Time) {
-	return c.OnNow()
 }
 
 // Package billstat

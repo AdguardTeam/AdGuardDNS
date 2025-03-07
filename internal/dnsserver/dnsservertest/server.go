@@ -12,6 +12,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/ameshkov/dnscrypt/v2"
 	"github.com/miekg/dns"
@@ -27,11 +28,12 @@ import (
 func RunDNSServer(t testing.TB, h dnsserver.Handler) (s *dnsserver.ServerDNS, addr string) {
 	t.Helper()
 
-	conf := dnsserver.ConfigDNS{
-		ConfigBase: dnsserver.ConfigBase{
-			Name:    "test",
-			Addr:    "127.0.0.1:0",
-			Handler: h,
+	conf := &dnsserver.ConfigDNS{
+		Base: &dnsserver.ConfigBase{
+			BaseLogger: slogutil.NewDiscardLogger(),
+			Name:       "test",
+			Addr:       "127.0.0.1:0",
+			Handler:    h,
 		},
 		MaxUDPRespSize: dns.MaxMsgSize,
 	}
@@ -59,12 +61,13 @@ func RunDNSServer(t testing.TB, h dnsserver.Handler) (s *dnsserver.ServerDNS, ad
 func RunTLSServer(t testing.TB, h dnsserver.Handler, tlsConfig *tls.Config) (addr *net.TCPAddr) {
 	t.Helper()
 
-	conf := dnsserver.ConfigTLS{
-		ConfigDNS: dnsserver.ConfigDNS{
-			ConfigBase: dnsserver.ConfigBase{
-				Name:    "test",
-				Addr:    "127.0.0.1:0",
-				Handler: h,
+	conf := &dnsserver.ConfigTLS{
+		DNS: &dnsserver.ConfigDNS{
+			Base: &dnsserver.ConfigBase{
+				BaseLogger: slogutil.NewDiscardLogger(),
+				Name:       "test",
+				Addr:       "127.0.0.1:0",
+				Handler:    h,
 			},
 		},
 		TLSConfig: tlsConfig,
@@ -118,14 +121,15 @@ func RunDNSCryptServer(t testing.TB, h dnsserver.Handler) (s *TestDNSCryptServer
 
 	s.ResolverPk = testutil.RequireTypeAssert[ed25519.PublicKey](t, pk)
 
-	conf := dnsserver.ConfigDNSCrypt{
-		ConfigBase: dnsserver.ConfigBase{
-			Name:    "test",
-			Addr:    "127.0.0.1:0",
-			Handler: h,
+	conf := &dnsserver.ConfigDNSCrypt{
+		Base: &dnsserver.ConfigBase{
+			BaseLogger: slogutil.NewDiscardLogger(),
+			Name:       "test",
+			Addr:       "127.0.0.1:0",
+			Handler:    h,
 		},
-		DNSCryptProviderName: s.ProviderName,
-		DNSCryptResolverCert: cert,
+		ProviderName: s.ProviderName,
+		ResolverCert: cert,
 	}
 
 	// Create a new ServerDNSCrypt and run it.
@@ -166,12 +170,13 @@ func RunLocalHTTPSServer(
 		tlsConfigH3.NextProtos = dnsserver.NextProtoDoH3
 	}
 
-	conf := dnsserver.ConfigHTTPS{
-		ConfigBase: dnsserver.ConfigBase{
-			Name:    "test",
-			Addr:    "127.0.0.1:0",
-			Handler: h,
-			Network: network,
+	conf := &dnsserver.ConfigHTTPS{
+		Base: &dnsserver.ConfigBase{
+			BaseLogger: slogutil.NewDiscardLogger(),
+			Name:       "test",
+			Addr:       "127.0.0.1:0",
+			Handler:    h,
+			Network:    network,
 		},
 		TLSConfDefault: tlsConfig,
 		TLSConfH3:      tlsConfigH3,
@@ -197,12 +202,13 @@ func RunLocalQUICServer(
 	h dnsserver.Handler,
 	tlsConfig *tls.Config,
 ) (s *dnsserver.ServerQUIC, addr *net.UDPAddr, err error) {
-	conf := dnsserver.ConfigQUIC{
+	conf := &dnsserver.ConfigQUIC{
 		TLSConfig: tlsConfig,
-		ConfigBase: dnsserver.ConfigBase{
-			Name:    "test",
-			Addr:    "127.0.0.1:0",
-			Handler: h,
+		Base: &dnsserver.ConfigBase{
+			BaseLogger: slogutil.NewDiscardLogger(),
+			Name:       "test",
+			Addr:       "127.0.0.1:0",
+			Handler:    h,
 		},
 	}
 

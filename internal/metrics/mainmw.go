@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"strconv"
 	"time"
@@ -63,8 +64,10 @@ type DefaultMainMiddleware struct {
 }
 
 // NewDefaultMainMiddleware registers the filtering-middleware metrics in reg
-// and returns a properly initialized *DefaultMainMiddleware.
+// and returns a properly initialized *DefaultMainMiddleware.  All arguments
+// must be set.
 func NewDefaultMainMiddleware(
+	logger *slog.Logger,
 	namespace string,
 	reg prometheus.Registerer,
 ) (m *DefaultMainMiddleware, err error) {
@@ -144,7 +147,7 @@ func NewDefaultMainMiddleware(
 		Help:      "The approximate number of DNS users for the last 1 hour.",
 	})
 
-	m.userCounter = NewUserCounter(ipsLastHour, ipsLastDay)
+	m.userCounter = NewUserCounter(logger, ipsLastHour, ipsLastDay)
 
 	var errs []error
 	collectors := container.KeyValues[string, prometheus.Collector]{{
@@ -182,7 +185,7 @@ func NewDefaultMainMiddleware(
 }
 
 // OnRequest implements the [Metrics] interface for *DefaultMainMiddleware.
-func (m *DefaultMainMiddleware) OnRequest(_ context.Context, rm *MainMiddlewareRequestMetrics) {
+func (m *DefaultMainMiddleware) OnRequest(ctx context.Context, rm *MainMiddlewareRequestMetrics) {
 	m.filteringDuration.Observe(rm.FilteringDuration.Seconds())
 
 	asnStr := strconv.FormatUint(uint64(rm.ASN), 10)
@@ -197,5 +200,5 @@ func (m *DefaultMainMiddleware) OnRequest(_ context.Context, rm *MainMiddlewareR
 	// Assume that ip is the remote IP address, which has already been unmapped
 	// by [netutil.NetAddrToAddrPort].
 	ipArr := rm.RemoteIP.As16()
-	m.userCounter.Record(time.Now(), ipArr[:], false)
+	m.userCounter.Record(ctx, time.Now(), ipArr[:], false)
 }

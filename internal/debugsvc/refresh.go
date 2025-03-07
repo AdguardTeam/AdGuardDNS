@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/service"
 )
 
 // RefresherID is a type alias for strings that represent IDs of refreshers.
@@ -25,7 +25,7 @@ type RefresherID = string
 
 // Refreshers is a type alias for maps of refresher IDs to Refreshers
 // themselves.
-type Refreshers map[RefresherID]agdservice.Refresher
+type Refreshers map[RefresherID]service.Refresher
 
 // refreshHandler performs debug refreshes.
 type refreshHandler struct {

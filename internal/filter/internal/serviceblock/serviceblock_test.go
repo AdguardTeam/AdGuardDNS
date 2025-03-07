@@ -8,7 +8,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/serviceblock"
@@ -31,7 +30,7 @@ func TestFilter(t *testing.T) {
 		Refreshable: &refreshable.Config{
 			Logger:    slogutil.NewDiscardLogger(),
 			URL:       srvURL,
-			ID:        internal.IDBlockedService,
+			ID:        filter.IDBlockedService,
 			CachePath: cachePath,
 			Staleness: filtertest.Staleness,
 			Timeout:   filtertest.Timeout,
@@ -49,23 +48,23 @@ func TestFilter(t *testing.T) {
 
 	testutil.RequireReceive(t, reqCh, filtertest.Timeout)
 
-	rls := f.RuleLists(ctx, []internal.BlockedServiceID{
+	rls := f.RuleLists(ctx, []filter.BlockedServiceID{
 		filtertest.BlockedServiceID1,
 		filtertest.BlockedServiceID2,
 		filtertest.BlockedServiceIDDoesNotExist,
 	})
 	require.Len(t, rls, 2)
 
-	wantSvcIDs := []internal.BlockedServiceID{
+	wantSvcIDs := []filter.BlockedServiceID{
 		filtertest.BlockedServiceID1,
 		filtertest.BlockedServiceID2,
 	}
 
-	gotFltIDs := make([]internal.ID, 2)
-	gotSvcIDs := make([]internal.BlockedServiceID, 2)
+	gotFltIDs := make([]filter.ID, 2)
+	gotSvcIDs := make([]filter.BlockedServiceID, 2)
 	gotFltIDs[0], gotSvcIDs[0] = rls[0].ID()
 	gotFltIDs[1], gotSvcIDs[1] = rls[1].ID()
-	assert.Equal(t, internal.IDBlockedService, gotFltIDs[0])
-	assert.Equal(t, internal.IDBlockedService, gotFltIDs[1])
+	assert.Equal(t, filter.IDBlockedService, gotFltIDs[0])
+	assert.Equal(t, filter.IDBlockedService, gotFltIDs[1])
 	assert.ElementsMatch(t, wantSvcIDs, gotSvcIDs)
 }

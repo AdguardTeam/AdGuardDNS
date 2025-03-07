@@ -6,6 +6,7 @@ import (
 
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/validate"
 	"gopkg.in/yaml.v2"
 )
 
@@ -83,16 +84,16 @@ type configuration struct {
 }
 
 // type check
-var _ validator = (*configuration)(nil)
+var _ validate.Interface = (*configuration)(nil)
 
-// validate implements the [validator] interface for *configuration.
-func (c *configuration) validate() (err error) {
+// Validate implements the [validate.Interface] interface for *configuration.
+func (c *configuration) Validate() (err error) {
 	if c == nil {
 		return errors.ErrNoValue
 	}
 
 	// Keep this in the same order as the fields in the config.
-	validators := container.KeyValues[string, validator]{{
+	validators := container.KeyValues[string, validate.Interface]{{
 		Key:   "ratelimit",
 		Value: c.RateLimit,
 	}, {
@@ -154,15 +155,12 @@ func (c *configuration) validate() (err error) {
 		Value: c.AdditionalMetricsInfo,
 	}}
 
-	// TODO(a.garipov):  Use errors.Join everywhere.
+	var errs []error
 	for _, kv := range validators {
-		err = kv.Value.validate()
-		if err != nil {
-			return fmt.Errorf("%s: %w", kv.Key, err)
-		}
+		errs = validate.Append(errs, kv.Key, kv.Value)
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // isProfilesEnabled returns true if there is at least one server group with

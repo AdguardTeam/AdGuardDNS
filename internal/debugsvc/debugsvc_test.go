@@ -11,12 +11,12 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/debugsvc"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil/httputil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/testutil/fakeservice"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -39,21 +39,21 @@ func TestService_Start(t *testing.T) {
 
 	var refreshed []string
 	refreshers := debugsvc.Refreshers{
-		"test": &agdtest.Refresher{
+		"test": &fakeservice.Refresher{
 			OnRefresh: func(_ context.Context) (err error) {
 				refreshed = append(refreshed, "test")
 
 				return nil
 			},
 		},
-		"parent/first": &agdtest.Refresher{
+		"parent/first": &fakeservice.Refresher{
 			OnRefresh: func(_ context.Context) (err error) {
 				refreshed = append(refreshed, "parent/first")
 
 				return nil
 			},
 		},
-		"parent/second": &agdtest.Refresher{
+		"parent/second": &fakeservice.Refresher{
 			OnRefresh: func(_ context.Context) (err error) {
 				refreshed = append(refreshed, "parent/second")
 

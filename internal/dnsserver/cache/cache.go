@@ -4,16 +4,18 @@
 package cache
 
 import (
+	"cmp"
 	"context"
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"math"
 	"strings"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/bluele/gcache"
 	"github.com/miekg/dns"
 )
@@ -22,21 +24,19 @@ import (
 //
 // TODO(a.garipov): Extract cache logic to golibs.
 type Middleware struct {
-	// metrics is a listener for the middleware events.
-	metrics MetricsListener
-
-	// cache is the underlying LRU cache.
-	cache gcache.Cache
-
-	// cacheMinTTL is the minimum supported TTL for cache items.
+	logger      *slog.Logger
+	metrics     MetricsListener
+	cache       gcache.Cache
 	cacheMinTTL time.Duration
-
-	// overrideTTL shows if the TTL overrides logic should be used.
 	overrideTTL bool
 }
 
 // MiddlewareConfig is the configuration structure for NewMiddleware.
 type MiddlewareConfig struct {
+	// Logger is used to log the operation of the middleware.  If Logger is nil,
+	// [slog.Default] is used.
+	Logger *slog.Logger
+
 	// MetricsListener is the optional listener for the middleware events.  Set
 	// it if you want to keep track of what the middleware does and record
 	// performance metrics.  If not set, EmptyMetricsListener is used.
@@ -55,15 +55,9 @@ type MiddlewareConfig struct {
 
 // NewMiddleware initializes a new LRU caching middleware.  c must not be nil.
 func NewMiddleware(c *MiddlewareConfig) (m *Middleware) {
-	var metrics MetricsListener
-	if c.MetricsListener != nil {
-		metrics = c.MetricsListener
-	} else {
-		metrics = EmptyMetricsListener{}
-	}
-
 	return &Middleware{
-		metrics:     metrics,
+		logger:      cmp.Or(c.Logger, slog.Default()),
+		metrics:     cmp.Or[MetricsListener](c.MetricsListener, EmptyMetricsListener{}),
 		cache:       gcache.New(c.Count).LRU().Build(),
 		cacheMinTTL: c.MinTTL,
 		overrideTTL: c.OverrideTTL,
@@ -78,7 +72,7 @@ func (m *Middleware) Wrap(handler dnsserver.Handler) (wrapped dnsserver.Handler)
 	f := func(ctx context.Context, rw dnsserver.ResponseWriter, req *dns.Msg) (err error) {
 		defer func() { err = errors.Annotate(err, "cache: %w") }()
 
-		resp, ok := m.get(req)
+		resp, ok := m.get(ctx, req)
 		if ok {
 			m.metrics.OnCacheHit(ctx, req)
 
@@ -115,13 +109,13 @@ func (m *Middleware) Wrap(handler dnsserver.Handler) (wrapped dnsserver.Handler)
 }
 
 // get retrieves a DNS message for the specified request from the cache.
-func (m *Middleware) get(req *dns.Msg) (resp *dns.Msg, found bool) {
+func (m *Middleware) get(ctx context.Context, req *dns.Msg) (resp *dns.Msg, found bool) {
 	key := toCacheKey(req)
 	ciVal, err := m.cache.Get(key)
 	if err != nil {
 		if !errors.Is(err, gcache.KeyNotFoundError) {
 			// Shouldn't happen, since we don't set a serialization function.
-			log.Error("cache: error while retrieving a message from the cache: %v", err)
+			m.logger.ErrorContext(ctx, "retrieving from cache", slogutil.KeyError, err)
 		}
 
 		return nil, false
@@ -129,7 +123,12 @@ func (m *Middleware) get(req *dns.Msg) (resp *dns.Msg, found bool) {
 
 	item, ok := ciVal.(cacheItem)
 	if !ok {
-		log.Error("cache: bad type %T of cache item for name %q", ciVal, req.Question[0].Name)
+		m.logger.ErrorContext(
+			ctx,
+			"bad type in cache",
+			"type", fmt.Sprintf("%T", ciVal),
+			"target", req.Question[0].Name,
+		)
 
 		return nil, false
 	}

@@ -1,6 +1,7 @@
 package dnsserver
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net"
@@ -8,7 +9,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/ameshkov/dnscrypt/v2"
 	"github.com/miekg/dns"
 )
@@ -16,36 +17,41 @@ import (
 // ConfigDNSCrypt is a struct that needs to be passed to NewServerDNSCrypt to
 // initialize a new ServerDNSCrypt instance.
 type ConfigDNSCrypt struct {
-	ConfigBase
+	// Base is the base configuration for this server.  It must not be nil
+	// and must be valid.
+	Base *ConfigBase
 
-	// DNSCryptResolverCert is a DNSCrypt server certificate.
-	DNSCryptResolverCert *dnscrypt.Cert
+	// ResolverCert is a DNSCrypt server certificate.  It must not be nil.
+	ResolverCert *dnscrypt.Cert
 
-	// DNSCryptProviderName is a DNSCrypt provider name (see DNSCrypt spec).
-	DNSCryptProviderName string
+	// ProviderName is a DNSCrypt provider name, see DNSCrypt spec.  It must not
+	// be empty.
+	ProviderName string
 }
 
 // ServerDNSCrypt is a DNSCrypt server implementation.
+//
+// TODO(a.garipov):  Consider unembedding ServerBase.
 type ServerDNSCrypt struct {
 	*ServerBase
 
-	dnsCryptServer *dnscrypt.Server
-
-	conf ConfigDNSCrypt
+	server       *dnscrypt.Server
+	resolverCert *dnscrypt.Cert
+	providerName string
 }
 
 // type check
 var _ Server = (*ServerDNSCrypt)(nil)
 
-// NewServerDNSCrypt creates a new instance of ServerDNSCrypt.
-func NewServerDNSCrypt(conf ConfigDNSCrypt) (s *ServerDNSCrypt) {
-	if conf.ListenConfig == nil {
-		conf.ListenConfig = netext.DefaultListenConfig(nil)
-	}
+// NewServerDNSCrypt creates a new instance of ServerDNSCrypt.  c must not be
+// nil and must be valid.
+func NewServerDNSCrypt(c *ConfigDNSCrypt) (s *ServerDNSCrypt) {
+	c.Base.ListenConfig = cmp.Or(c.Base.ListenConfig, netext.DefaultListenConfig(nil))
 
 	return &ServerDNSCrypt{
-		ServerBase: newServerBase(ProtoDNSCrypt, conf.ConfigBase),
-		conf:       conf,
+		ServerBase:   newServerBase(ProtoDNSCrypt, c.Base),
+		resolverCert: c.ResolverCert,
+		providerName: c.ProviderName,
 	}
 }
 
@@ -65,7 +71,7 @@ func (s *ServerDNSCrypt) Start(ctx context.Context) (err error) {
 		return ErrServerAlreadyStarted
 	}
 
-	log.Info("[%s]: Starting the server", s.Name())
+	s.baseLogger.InfoContext(ctx, "starting server")
 
 	ctx = ContextWithServerInfo(ctx, &ServerInfo{
 		Name:  s.name,
@@ -74,9 +80,9 @@ func (s *ServerDNSCrypt) Start(ctx context.Context) (err error) {
 	})
 
 	// Create DNSCrypt server with a handler
-	s.dnsCryptServer = &dnscrypt.Server{
-		ProviderName: s.conf.DNSCryptProviderName,
-		ResolverCert: s.conf.DNSCryptResolverCert,
+	s.server = &dnscrypt.Server{
+		ProviderName: s.providerName,
+		ResolverCert: s.resolverCert,
 		Handler: &dnsCryptHandler{
 			srv: s,
 		},
@@ -89,7 +95,7 @@ func (s *ServerDNSCrypt) Start(ctx context.Context) (err error) {
 
 	s.started = true
 
-	log.Info("[%s]: Server has been started", s.Name())
+	s.baseLogger.InfoContext(ctx, "server has been started")
 
 	return nil
 }
@@ -98,16 +104,18 @@ func (s *ServerDNSCrypt) Start(ctx context.Context) (err error) {
 func (s *ServerDNSCrypt) Shutdown(ctx context.Context) (err error) {
 	defer func() { err = errors.Annotate(err, "shutting down dnscrypt server: %w") }()
 
-	log.Info("[%s]: Stopping the server", s.Name())
-	err = s.shutdown()
+	s.baseLogger.InfoContext(ctx, "shutting down server")
+
+	err = s.shutdown(ctx)
 	if err != nil {
-		log.Info("[%s]: Failed to shutdown: %v", s.Name(), err)
+		s.baseLogger.WarnContext(ctx, "error while shutting down", slogutil.KeyError, err)
 
 		return err
 	}
 
-	err = s.dnsCryptServer.Shutdown(ctx)
-	log.Info("[%s]: Finished stopping the server", s.Name())
+	err = s.server.Shutdown(ctx)
+
+	s.baseLogger.InfoContext(ctx, "server has been shut down")
 
 	return err
 }
@@ -133,7 +141,7 @@ func (s *ServerDNSCrypt) startServe(ctx context.Context) (err error) {
 	}
 
 	if len(errs) > 0 {
-		s.closeListeners()
+		s.closeListeners(ctx)
 
 		return fmt.Errorf("creating listeners: %w", errors.Join(errs...))
 	}
@@ -150,7 +158,7 @@ func (s *ServerDNSCrypt) startServeUDP(ctx context.Context) {
 	// the application won't be able to continue listening to DoT.
 	defer s.handlePanicAndExit(ctx)
 
-	log.Info("[%s]: Start listening to udp://%s", s.Name(), s.Addr())
+	s.baseLogger.InfoContext(ctx, "starting listening udp")
 
 	// TODO(ameshkov): Add context to the ServeTCP and ServeUDP methods in
 	// dnscrypt/v3.  Or at least add ServeTCPContext and ServeUDPContext
@@ -158,9 +166,9 @@ func (s *ServerDNSCrypt) startServeUDP(ctx context.Context) {
 	//
 	// TODO(ameshkov): Redo the dnscrypt module to make it not depend on
 	// *net.UDPConn and use net.PacketConn instead.
-	err := s.dnsCryptServer.ServeUDP(s.udpListener.(*net.UDPConn))
+	err := s.server.ServeUDP(s.udpListener.(*net.UDPConn))
 	if err != nil {
-		log.Info("[%s]: Finished listening to udp://%s due to %v", s.Name(), s.Addr(), err)
+		s.baseLogger.WarnContext(ctx, "listening udp failed", slogutil.KeyError, err)
 	}
 }
 
@@ -170,19 +178,19 @@ func (s *ServerDNSCrypt) startServeTCP(ctx context.Context) {
 	// the application won't be able to continue listening to DoT.
 	defer s.handlePanicAndExit(ctx)
 
-	log.Info("[%s]: Start listening to tcp://%s", s.Name(), s.Addr())
+	s.baseLogger.InfoContext(ctx, "starting listening tcp")
 
 	// TODO(ameshkov): Add context to the ServeTCP and ServeUDP methods in
 	// dnscrypt/v3.  Or at least add ServeTCPContext and ServeUDPContext
 	// methods for now.
-	err := s.dnsCryptServer.ServeTCP(s.tcpListener)
+	err := s.server.ServeTCP(s.tcpListener)
 	if err != nil {
-		log.Info("[%s]: Finished listening to tcp://%s due to %v", s.Name(), s.Addr(), err)
+		s.baseLogger.WarnContext(ctx, "listening tcp failed", slogutil.KeyError, err)
 	}
 }
 
 // shutdown marks the server as stopped and closes active listeners.
-func (s *ServerDNSCrypt) shutdown() (err error) {
+func (s *ServerDNSCrypt) shutdown(ctx context.Context) (err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -194,7 +202,7 @@ func (s *ServerDNSCrypt) shutdown() (err error) {
 	s.started = false
 
 	// Now close all listeners
-	s.closeListeners()
+	s.closeListeners(ctx)
 
 	return nil
 }
@@ -212,7 +220,7 @@ func (h *dnsCryptHandler) ServeDNS(rw dnscrypt.ResponseWriter, r *dns.Msg) (err 
 	defer func() { err = errors.Annotate(err, "dnscrypt: %w") }()
 
 	// TODO(ameshkov): Use the context from the arguments once it's added there.
-	ctx, cancel := h.srv.requestContext()
+	ctx, cancel := h.srv.requestContext(context.Background())
 	defer cancel()
 
 	ctx = ContextWithRequestInfo(ctx, &RequestInfo{StartTime: time.Now()})

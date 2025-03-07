@@ -12,7 +12,9 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/c2h5oh/datasize"
 	"github.com/stretchr/testify/require"
 )
@@ -77,13 +79,16 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 		Enabled: true,
 	}
 
+	customConf := &custom.Config{
+		Logger: slogutil.NewDiscardLogger(),
+		Rules:  []filter.RuleText{"|blocked-by-custom.example^"},
+	}
+
 	return &agd.Profile{
 		FilterConfig: &filter.ConfigClient{
 			Custom: &filter.ConfigCustom{
-				ID:         string(ProfileID),
-				UpdateTime: time.Now().UTC(),
-				Rules:      []filter.RuleText{"|blocked-by-custom.example"},
-				Enabled:    true,
+				Filter:  custom.New(customConf),
+				Enabled: true,
 			},
 			Parental: parental,
 			RuleList: &filter.ConfigRuleList{

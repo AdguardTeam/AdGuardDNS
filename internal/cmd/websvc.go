@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"maps"
 	"net/http"
 	"net/netip"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path"
 	"slices"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
@@ -18,9 +20,11 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/timeutil"
+	"github.com/AdguardTeam/golibs/validate"
 )
 
 // webConfig contains configuration for the AdGuard DNS web service.
@@ -62,12 +66,13 @@ type webConfig struct {
 }
 
 // toInternal converts c to the AdGuardDNS web service configuration.  c must be
-// valid.
+// valid.  All arguments must not be nil.
 func (c *webConfig) toInternal(
 	ctx context.Context,
 	envs *environment,
 	dnsCk dnscheck.Interface,
 	errColl errcoll.Interface,
+	baseLogger *slog.Logger,
 	tlsMgr tlsconfig.Manager,
 ) (conf *websvc.Config, err error) {
 	if c == nil {
@@ -75,8 +80,9 @@ func (c *webConfig) toInternal(
 	}
 
 	conf = &websvc.Config{
+		Logger:  baseLogger.With(slogutil.KeyPrefix, "websvc"),
 		ErrColl: errColl,
-		Timeout: c.Timeout.Duration,
+		Timeout: time.Duration(c.Timeout),
 	}
 
 	if dnsCkHdlr, ok := dnsCk.(http.Handler); ok {
@@ -174,50 +180,26 @@ func (c *webConfig) setStaticContent(envs *environment, conf *websvc.Config) (er
 }
 
 // type check
-var _ validator = (*webConfig)(nil)
+var _ validate.Interface = (*webConfig)(nil)
 
-// validate implements the [validator] interface for *webConfig.
-func (c *webConfig) validate() (err error) {
-	switch {
-	case c == nil:
+// Validate implements the [validate.Interface] interface for *webConfig.
+func (c *webConfig) Validate() (err error) {
+	if c == nil {
 		return nil
-	case c.Timeout.Duration <= 0:
-		return newNotPositiveError("timeout", c.Timeout)
-	default:
-		// Go on.
 	}
 
-	err = c.LinkedIP.validate()
-	if err != nil {
-		return fmt.Errorf("linked_ip: %w", err)
+	errs := []error{
+		validate.Positive("timeout", c.Timeout),
 	}
 
-	err = c.AdultBlocking.validate()
-	if err != nil {
-		return fmt.Errorf("adult_blocking: %w", err)
-	}
+	errs = validate.Append(errs, "linked_ip", c.LinkedIP)
+	errs = validate.Append(errs, "adult_blocking", c.AdultBlocking)
+	errs = validate.Append(errs, "general_blocking", c.GeneralBlocking)
+	errs = validate.Append(errs, "safe_browsing", c.SafeBrowsing)
+	errs = validate.Append(errs, "static_content", c.StaticContent)
+	errs = validate.Append(errs, "non_doh_bind", c.NonDoHBind)
 
-	err = c.GeneralBlocking.validate()
-	if err != nil {
-		return fmt.Errorf("general_blocking: %w", err)
-	}
-
-	err = c.SafeBrowsing.validate()
-	if err != nil {
-		return fmt.Errorf("safe_browsing: %w", err)
-	}
-
-	err = c.StaticContent.validate()
-	if err != nil {
-		return fmt.Errorf("static_content: %w", err)
-	}
-
-	err = c.NonDoHBind.validate()
-	if err != nil {
-		return fmt.Errorf("non_doh_bind: %w", err)
-	}
-
-	return nil
+	return errors.Join(errs...)
 }
 
 // linkedIPServer is the linked IP web server configuration.
@@ -253,25 +235,21 @@ func (s *linkedIPServer) toInternal(
 }
 
 // type check
-var _ validator = (*linkedIPServer)(nil)
+var _ validate.Interface = (*linkedIPServer)(nil)
 
-// validate implements the [validator] interface for *linkedIPServer.
-func (s *linkedIPServer) validate() (err error) {
-	switch {
-	case s == nil:
+// Validate implements the [validate.Interface] interface for *linkedIPServer.
+func (s *linkedIPServer) Validate() (err error) {
+	if s == nil {
 		return nil
-	case len(s.Bind) == 0:
-		return fmt.Errorf("bind: %w", errors.ErrEmptyValue)
-	default:
-		// Go on.
 	}
 
-	err = s.Bind.validate()
-	if err != nil {
-		return fmt.Errorf("bind: %w", err)
+	errs := []error{
+		validate.NotEmptySlice("bind", s.Bind),
 	}
 
-	return nil
+	errs = validate.Append(errs, "bind", s.Bind)
+
+	return errors.Join(errs...)
 }
 
 // blockPageServer is the safe browsing or adult blocking block page web servers
@@ -307,27 +285,22 @@ func (s *blockPageServer) toInternal(
 }
 
 // type check
-var _ validator = (*blockPageServer)(nil)
+var _ validate.Interface = (*blockPageServer)(nil)
 
-// validate implements the [validator] interface for *blockPageServer.
-func (s *blockPageServer) validate() (err error) {
-	switch {
-	case s == nil:
+// Validate implements the [validate.Interface] interface for *blockPageServer.
+func (s *blockPageServer) Validate() (err error) {
+	if s == nil {
 		return nil
-	case s.BlockPage == "":
-		return fmt.Errorf("block_page: %w", errors.ErrEmptyValue)
-	case len(s.Bind) == 0:
-		return fmt.Errorf("bind: %w", errors.ErrEmptyValue)
-	default:
-		// Go on.
 	}
 
-	err = s.Bind.validate()
-	if err != nil {
-		return fmt.Errorf("bind: %w", err)
+	errs := []error{
+		validate.NotEmpty("block_page", s.BlockPage),
+		validate.NotEmptySlice("bind", s.Bind),
 	}
 
-	return nil
+	errs = validate.Append(errs, "bind", s.Bind)
+
+	return errors.Join(errs...)
 }
 
 // bindData are the data for binding HTTP servers to addresses.
@@ -352,22 +325,23 @@ func (bd bindData) toInternal(
 }
 
 // type check
-var _ validator = bindData(nil)
+var _ validate.Interface = bindData(nil)
 
-// validate implements the [validator] interface for bindData.
-func (bd bindData) validate() (err error) {
+// Validate implements the [validate.Interface] interface for bindData.
+func (bd bindData) Validate() (err error) {
 	if len(bd) == 0 {
 		return nil
 	}
 
+	var errs []error
 	for i, d := range bd {
-		err = d.validate()
+		err = d.Validate()
 		if err != nil {
-			return fmt.Errorf("at index %d: %w", i, err)
+			errs = append(errs, fmt.Errorf("at index %d: %w", i, err))
 		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // bindItem is data for binding one HTTP server to an address.
@@ -397,25 +371,21 @@ func (i *bindItem) toInternal(
 }
 
 // type check
-var _ validator = (*bindItem)(nil)
+var _ validate.Interface = (*bindItem)(nil)
 
-// validate implements the [validator] interface for *bindItem.
-func (i *bindItem) validate() (err error) {
-	switch {
-	case i == nil:
+// Validate implements the [validate.Interface] interface for *bindItem.
+func (i *bindItem) Validate() (err error) {
+	if i == nil {
 		return errors.ErrNoValue
-	case i.Address == netip.AddrPort{}:
-		return fmt.Errorf("address: %w", errors.ErrEmptyValue)
-	default:
-		// Go on.
 	}
 
-	err = i.Certificates.validate()
-	if err != nil {
-		return fmt.Errorf("certificates: %w", err)
+	errs := []error{
+		validate.NotEmpty("address", i.Address),
 	}
 
-	return nil
+	errs = validate.Append(errs, "certificates", i.Certificates)
+
+	return errors.Join(errs...)
 }
 
 // staticContent is the static content mapping.  Paths must be absolute and
@@ -441,26 +411,29 @@ func (sc staticContent) toInternal() (fs websvc.StaticContent, err error) {
 }
 
 // type check
-var _ validator = staticContent(nil)
+var _ validate.Interface = staticContent(nil)
 
-// validate implements the [validator] interface for staticContent.
-func (sc staticContent) validate() (err error) {
+// Validate implements the [validate.Interface] interface for staticContent.
+func (sc staticContent) Validate() (err error) {
 	if len(sc) == 0 {
 		return nil
 	}
 
+	var errs []error
 	for _, p := range slices.Sorted(maps.Keys(sc)) {
 		if !path.IsAbs(p) {
-			return fmt.Errorf("path %q: not absolute", p)
+			errs = append(errs, fmt.Errorf("path %q: not absolute", p))
+
+			continue
 		}
 
-		err = sc[p].validate()
+		err = sc[p].Validate()
 		if err != nil {
 			return fmt.Errorf("path %q: %w", p, err)
 		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // staticFile is a single file in a static content mapping.
@@ -499,10 +472,10 @@ func (f *staticFile) toInternal() (file *websvc.StaticFile, err error) {
 }
 
 // type check
-var _ validator = (*staticFile)(nil)
+var _ validate.Interface = (*staticFile)(nil)
 
-// validate implements the [validator] interface for *staticFile.
-func (f *staticFile) validate() (err error) {
+// Validate implements the [validate.Interface] interface for *staticFile.
+func (f *staticFile) Validate() (err error) {
 	if f == nil {
 		return errors.ErrNoValue
 	}

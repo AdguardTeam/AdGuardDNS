@@ -13,7 +13,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/composite"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
@@ -21,6 +21,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// type check
+var _ composite.RequestFilter = (*hashprefix.Filter)(nil)
 
 func TestFilter_FilterRequest_host(t *testing.T) {
 	t.Parallel()
@@ -31,7 +34,7 @@ func TestFilter_FilterRequest_host(t *testing.T) {
 		name       string
 		host       string
 		replHost   string
-		wantRule   internal.RuleText
+		wantRule   filter.RuleText
 		qType      dnsmsg.RRType
 		wantResult bool
 	}{{
@@ -101,7 +104,7 @@ func TestFilter_FilterRequest_host(t *testing.T) {
 			ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 			req := dnsservertest.NewReq(dns.Fqdn(tc.host), tc.qType, dns.ClassINET)
 
-			r, err := f.FilterRequest(ctx, &internal.Request{
+			r, err := f.FilterRequest(ctx, &filter.Request{
 				DNS:      req,
 				Messages: msgs,
 				Host:     tc.host,
@@ -109,7 +112,7 @@ func TestFilter_FilterRequest_host(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			var wantRes internal.Result
+			var wantRes filter.Result
 			if tc.wantResult {
 				if tc.replHost == filtertest.HostAdultContentRepl {
 					wantRes = newModReqResult(req, tc.wantRule)
@@ -123,7 +126,7 @@ func TestFilter_FilterRequest_host(t *testing.T) {
 	}
 
 	require.True(t, t.Run("cached_success", func(t *testing.T) {
-		f := filtertest.NewHashprefixFilter(t, internal.IDAdultBlocking)
+		f := filtertest.NewHashprefixFilter(t, filter.IDAdultBlocking)
 
 		req := filtertest.NewARequest(t, filtertest.HostAdultContent)
 
@@ -138,7 +141,7 @@ func TestFilter_FilterRequest_host(t *testing.T) {
 	}))
 
 	require.True(t, t.Run("cached_no_match", func(t *testing.T) {
-		f := filtertest.NewHashprefixFilter(t, internal.IDAdultBlocking)
+		f := filtertest.NewHashprefixFilter(t, filter.IDAdultBlocking)
 
 		req := filtertest.NewARequest(t, filtertest.Host)
 
@@ -153,7 +156,7 @@ func TestFilter_FilterRequest_host(t *testing.T) {
 	}))
 
 	require.True(t, t.Run("https", func(t *testing.T) {
-		f := filtertest.NewHashprefixFilter(t, internal.IDAdultBlocking)
+		f := filtertest.NewHashprefixFilter(t, filter.IDAdultBlocking)
 
 		req := filtertest.NewRequest(
 			t,
@@ -175,7 +178,7 @@ func TestFilter_FilterRequest_host(t *testing.T) {
 	require.True(t, t.Run("https_ip", func(t *testing.T) {
 		f := filtertest.NewHashprefixFilterWithRepl(
 			t,
-			internal.IDAdultBlocking,
+			filter.IDAdultBlocking,
 			filtertest.IPv4AdultContentReplStr,
 		)
 
@@ -192,7 +195,7 @@ func TestFilter_FilterRequest_host(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, r)
 
-		m := testutil.RequireTypeAssert[*internal.ResultModifiedResponse](t, r)
+		m := testutil.RequireTypeAssert[*filter.ResultModifiedResponse](t, r)
 		require.NotNil(t, m.Msg)
 		require.Len(t, m.Msg.Question, 1)
 
@@ -207,13 +210,13 @@ func newModRespResult(
 	req *dns.Msg,
 	messages *dnsmsg.Constructor,
 	replIP netip.Addr,
-) (r *internal.ResultModifiedResponse) {
+) (r *filter.ResultModifiedResponse) {
 	tb.Helper()
 
 	resp, err := messages.NewRespIP(req, replIP)
 	require.NoError(tb, err)
 
-	return &internal.ResultModifiedResponse{
+	return &filter.ResultModifiedResponse{
 		Msg:  resp,
 		List: filter.IDAdultBlocking,
 		Rule: filtertest.HostAdultContent,
@@ -221,11 +224,11 @@ func newModRespResult(
 }
 
 // newModReqResult is a helper for creating modified results for tests.
-func newModReqResult(req *dns.Msg, rule internal.RuleText) (r *internal.ResultModifiedRequest) {
+func newModReqResult(req *dns.Msg, rule filter.RuleText) (r *filter.ResultModifiedRequest) {
 	req = dnsmsg.Clone(req)
 	req.Question[0].Name = filtertest.FQDNAdultContentRepl
 
-	return &internal.ResultModifiedRequest{
+	return &filter.ResultModifiedRequest{
 		Msg:  req,
 		List: filter.IDAdultBlocking,
 		Rule: rule,
@@ -248,8 +251,9 @@ func TestFilter_Refresh(t *testing.T) {
 		Hashes:          strg,
 		URL:             srvURL,
 		ErrColl:         agdtest.NewErrorCollector(),
+		HashPrefixMtcs:  hashprefix.EmptyMetrics{},
 		Metrics:         filter.EmptyMetrics{},
-		ID:              internal.IDAdultBlocking,
+		ID:              filter.IDAdultBlocking,
 		CachePath:       cachePath,
 		ReplacementHost: filtertest.HostAdultContentRepl,
 		Staleness:       filtertest.Staleness,
@@ -300,8 +304,9 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 		Hashes:          strg,
 		URL:             srvURL,
 		ErrColl:         agdtest.NewErrorCollector(),
+		HashPrefixMtcs:  hashprefix.EmptyMetrics{},
 		Metrics:         filter.EmptyMetrics{},
-		ID:              internal.IDAdultBlocking,
+		ID:              filter.IDAdultBlocking,
 		CachePath:       cachePath,
 		ReplacementHost: filtertest.HostAdultContentRepl,
 		Staleness:       filtertest.Staleness,
@@ -330,7 +335,7 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	require.True(t, t.Run("hit_cached_host", func(t *testing.T) {
 		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 
-		var r internal.Result
+		var r filter.Result
 		r, err = f.FilterRequest(ctx, otherHostReq)
 		require.NoError(t, err)
 
@@ -355,7 +360,7 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	require.True(t, t.Run("previously_cached", func(t *testing.T) {
 		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 
-		var r internal.Result
+		var r filter.Result
 		r, err = f.FilterRequest(ctx, otherHostReq)
 		require.NoError(t, err)
 
@@ -365,7 +370,7 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	require.True(t, t.Run("new_host", func(t *testing.T) {
 		ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 
-		var r internal.Result
+		var r filter.Result
 		r, err = f.FilterRequest(ctx, hostReq)
 		require.NoError(t, err)
 

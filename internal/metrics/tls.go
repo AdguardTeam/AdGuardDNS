@@ -210,8 +210,8 @@ func (m *TLSConfig) SetCertificateInfo(_ context.Context, algo, subj string, not
 
 // SetSessionTicketRotationStatus implements the [tlsconfig.Metrics] interface
 // for *TLSConfig.
-func (m *TLSConfig) SetSessionTicketRotationStatus(_ context.Context, enabled bool) {
-	if !enabled {
+func (m *TLSConfig) SetSessionTicketRotationStatus(_ context.Context, err error) {
+	if err != nil {
 		m.sessionTicketsRotateStatus.Set(0)
 
 		return

@@ -2,12 +2,14 @@ package prometheus
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
+	"github.com/AdguardTeam/golibs/container"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 // ServerMetricsListener implements the [dnsserver.MetricsListener] interface
@@ -55,36 +57,39 @@ func (i srvInfoRCode) withLabelValues(vec *prometheus.CounterVec) (c prometheus.
 // NewServerMetricsListener returns a new properly initialized
 // *ServerMetricsListener.  As long as this function registers prometheus
 // counters it must be called only once.
-//
-// TODO(a.garipov): Do not use promauto.
-func NewServerMetricsListener(namespace string) (l *ServerMetricsListener) {
+func NewServerMetricsListener(
+	namespace string,
+	reg prometheus.Registerer,
+) (l *ServerMetricsListener, err error) {
+	const (
+		reqTotalMtrcName        = "request_total"
+		reqDurationMtrcName     = "request_duration_seconds"
+		reqSizeMtrcName         = "request_size_bytes"
+		respSizeMtrcName        = "response_size_bytes"
+		respRCodeMtrcName       = "response_rcode_total"
+		errTotalMtrcName        = "error_total"
+		panicTotalMtrcName      = "panic_total"
+		invalidMsgTotalMtrcName = "invalid_msg_total"
+		quicAddrLookupsMtrcName = "quic_addr_validation_lookups"
+	)
+
 	var (
-		requestTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-			Name:      "request_total",
+		requestTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name:      reqTotalMtrcName,
 			Namespace: namespace,
 			Subsystem: subsystemServer,
 			Help:      "The number of processed DNS requests.",
 		}, []string{"name", "proto", "network", "addr", "type", "family"})
 
-		requestDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name:      "request_duration_seconds",
+		requestDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:      reqDurationMtrcName,
 			Namespace: namespace,
 			Subsystem: subsystemServer,
 			Help:      "Time elapsed on processing a DNS query.",
 		}, []string{"name", "proto", "addr"})
 
-		requestSize = promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name:      "request_size_bytes",
-			Namespace: namespace,
-			Subsystem: subsystemServer,
-			Help:      "Time elapsed on processing a DNS query.",
-			Buckets: []float64{
-				0, 50, 100, 200, 300, 511, 1023, 4095, 8291,
-			},
-		}, []string{"name", "proto", "addr"})
-
-		responseSize = promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name:      "response_size_bytes",
+		requestSize = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:      reqSizeMtrcName,
 			Namespace: namespace,
 			Subsystem: subsystemServer,
 			Help:      "Time elapsed on processing a DNS query.",
@@ -93,42 +98,93 @@ func NewServerMetricsListener(namespace string) (l *ServerMetricsListener) {
 			},
 		}, []string{"name", "proto", "addr"})
 
-		responseRCode = promauto.NewCounterVec(prometheus.CounterOpts{
-			Name:      "response_rcode_total",
+		responseSize = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:      respSizeMtrcName,
+			Namespace: namespace,
+			Subsystem: subsystemServer,
+			Help:      "Time elapsed on processing a DNS query.",
+			Buckets: []float64{
+				0, 50, 100, 200, 300, 511, 1023, 4095, 8291,
+			},
+		}, []string{"name", "proto", "addr"})
+
+		responseRCode = prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name:      respRCodeMtrcName,
 			Namespace: namespace,
 			Subsystem: subsystemServer,
 			Help:      "The counter for DNS response codes.",
 		}, []string{"name", "proto", "addr", "rcode"})
 
-		errorTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-			Name:      "error_total",
+		errorTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name:      errTotalMtrcName,
 			Namespace: namespace,
 			Subsystem: subsystemServer,
 			Help:      "The number of errors occurred in the DNS server.",
 		}, []string{"name", "proto", "addr"})
 
-		panicTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-			Name:      "panic_total",
+		panicTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name:      panicTotalMtrcName,
 			Namespace: namespace,
 			Subsystem: subsystemServer,
 			Help:      "The number of panics occurred in the DNS server.",
 		}, []string{"name", "proto", "addr"})
 
-		invalidMsgTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-			Name:      "invalid_msg_total",
+		invalidMsgTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name:      invalidMsgTotalMtrcName,
 			Namespace: namespace,
 			Subsystem: subsystemServer,
 			Help:      "The number of invalid DNS messages processed by the DNS server.",
 		}, []string{"name", "proto", "addr"})
+
+		quicAddrValidationCacheLookups = prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name:      quicAddrLookupsMtrcName,
+			Namespace: namespace,
+			Subsystem: subsystemServer,
+			Help: "The number of QUIC address validation lookups." +
+				"hit=1 means that a cached item was found.",
+		}, []string{"hit"})
 	)
 
-	quicAddrValidationCacheLookups := promauto.NewCounterVec(prometheus.CounterOpts{
-		Name:      "quic_addr_validation_lookups",
-		Namespace: namespace,
-		Subsystem: subsystemServer,
-		Help: "The number of QUIC address validation lookups." +
-			"hit=1 means that a cached item was found.",
-	}, []string{"hit"})
+	var errs []error
+	collectors := container.KeyValues[string, prometheus.Collector]{{
+		Key:   reqTotalMtrcName,
+		Value: requestTotal,
+	}, {
+		Key:   reqDurationMtrcName,
+		Value: requestDuration,
+	}, {
+		Key:   reqSizeMtrcName,
+		Value: requestSize,
+	}, {
+		Key:   respSizeMtrcName,
+		Value: responseSize,
+	}, {
+		Key:   respRCodeMtrcName,
+		Value: responseRCode,
+	}, {
+		Key:   errTotalMtrcName,
+		Value: errorTotal,
+	}, {
+		Key:   panicTotalMtrcName,
+		Value: panicTotal,
+	}, {
+		Key:   invalidMsgTotalMtrcName,
+		Value: invalidMsgTotal,
+	}, {
+		Key:   quicAddrLookupsMtrcName,
+		Value: quicAddrValidationCacheLookups,
+	}}
+
+	for _, c := range collectors {
+		err = reg.Register(c.Value)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("registering metrics %q: %w", c.Key, err))
+		}
+	}
+
+	if err = errors.Join(errs...); err != nil {
+		return nil, err
+	}
 
 	return &ServerMetricsListener{
 		quicAddrValidationCacheLookupsHits:   quicAddrValidationCacheLookups.WithLabelValues("1"),
@@ -177,7 +233,7 @@ func NewServerMetricsListener(namespace string) (l *ServerMetricsListener) {
 				return withSrvInfoLabelValues(responseSize, k)
 			},
 		),
-	}
+	}, nil
 }
 
 // type check

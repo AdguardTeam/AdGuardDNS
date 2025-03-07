@@ -1,8 +1,6 @@
 package rulelist
 
-import (
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
-)
+import "github.com/AdguardTeam/AdGuardDNS/internal/filter"
 
 // Immutable is a rule-list filter that doesn't refresh or change.  It is used
 // for users' custom rule-lists as well as in service blocking.
@@ -17,23 +15,18 @@ import (
 type Immutable struct {
 	// TODO(a.garipov):  Find ways to embed it in a way that shows the methods,
 	// doesn't result in double dereferences, and doesn't cause naming issues.
-	*filter
+	*baseFilter
 }
 
 // NewImmutable returns a new immutable DNS request and response filter using
-// the provided rule text and ID.
+// the provided rule text and IDs.
 func NewImmutable(
 	text string,
-	id internal.ID,
-	svcID internal.BlockedServiceID,
+	id filter.ID,
+	svcID filter.BlockedServiceID,
 	cache ResultCache,
-) (f *Immutable, err error) {
-	f = &Immutable{}
-	f.filter, err = newFilter(text, id, svcID, cache)
-	if err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		return nil, err
+) (f *Immutable) {
+	return &Immutable{
+		baseFilter: newBaseFilter(text, id, svcID, cache),
 	}
-
-	return f, nil
 }

@@ -1,15 +1,6 @@
 package dnsserver_test
 
-import (
-	"testing"
-
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
-	"github.com/AdguardTeam/golibs/testutil"
-)
-
-func TestMain(m *testing.M) {
-	testutil.DiscardLogOutput(m)
-}
+import "github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 
 // testTimeout is a common timeout for tests.
 const testTimeout = dnsserver.DefaultReadTimeout

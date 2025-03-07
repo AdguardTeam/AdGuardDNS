@@ -33,6 +33,9 @@ var (
 // testTimeout is the common timeout for tests.
 const testTimeout = 1 * time.Second
 
+// testLogger is the common logger for tests.
+var testLogger = slogutil.NewDiscardLogger()
+
 // newDefaultProfileDB returns a new default profile database for tests.
 // devicesCh receives the devices that the storage should return in its
 // response.
@@ -70,7 +73,8 @@ func newDefaultProfileDB(tb testing.TB, devices <-chan []*agd.Device) (db *profi
 	}
 
 	db, err := profiledb.New(&profiledb.Config{
-		Logger:               slogutil.NewDiscardLogger(),
+		Logger:               testLogger,
+		BaseCustomLogger:     testLogger,
 		Storage:              ps,
 		ErrColl:              agdtest.NewErrorCollector(),
 		Metrics:              profiledb.EmptyMetrics{},
@@ -421,8 +425,12 @@ func TestDefaultProfileDB_fileCache_success(t *testing.T) {
 	prof, dev := profiledbtest.NewProfile(t)
 
 	cacheFilePath := filepath.Join(t.TempDir(), "profiles.pb")
-	logger := slogutil.NewDiscardLogger()
-	pbCache := filecachepb.New(logger, cacheFilePath, profiledbtest.RespSzEst)
+	pbCache := filecachepb.New(&filecachepb.Config{
+		Logger:               testLogger,
+		BaseCustomLogger:     testLogger,
+		CacheFilePath:        cacheFilePath,
+		ResponseSizeEstimate: profiledbtest.RespSzEst,
+	})
 
 	ctx := testutil.ContextWithTimeout(t, testTimeout)
 	err := pbCache.Store(ctx, &internal.FileCache{
@@ -434,7 +442,8 @@ func TestDefaultProfileDB_fileCache_success(t *testing.T) {
 	require.NoError(t, err)
 
 	db, err := profiledb.New(&profiledb.Config{
-		Logger:               logger,
+		Logger:               testLogger,
+		BaseCustomLogger:     testLogger,
 		Storage:              ps,
 		ErrColl:              agdtest.NewErrorCollector(),
 		Metrics:              profiledb.EmptyMetrics{},
@@ -479,8 +488,12 @@ func TestDefaultProfileDB_fileCache_badVersion(t *testing.T) {
 	}
 
 	cacheFilePath := filepath.Join(t.TempDir(), "profiles.pb")
-	logger := slogutil.NewDiscardLogger()
-	pbCache := filecachepb.New(logger, cacheFilePath, profiledbtest.RespSzEst)
+	pbCache := filecachepb.New(&filecachepb.Config{
+		Logger:               testLogger,
+		BaseCustomLogger:     testLogger,
+		CacheFilePath:        cacheFilePath,
+		ResponseSizeEstimate: profiledbtest.RespSzEst,
+	})
 
 	ctx := testutil.ContextWithTimeout(t, testTimeout)
 	err := pbCache.Store(ctx, &internal.FileCache{
@@ -489,7 +502,8 @@ func TestDefaultProfileDB_fileCache_badVersion(t *testing.T) {
 	require.NoError(t, err)
 
 	db, err := profiledb.New(&profiledb.Config{
-		Logger:               logger,
+		Logger:               testLogger,
+		BaseCustomLogger:     testLogger,
 		Storage:              ps,
 		ErrColl:              agdtest.NewErrorCollector(),
 		Metrics:              profiledb.EmptyMetrics{},
@@ -542,7 +556,8 @@ func TestDefaultProfileDB_CreateAutoDevice(t *testing.T) {
 	}
 
 	db, err := profiledb.New(&profiledb.Config{
-		Logger:               slogutil.NewDiscardLogger(),
+		Logger:               testLogger,
+		BaseCustomLogger:     testLogger,
 		Storage:              ps,
 		ErrColl:              agdtest.NewErrorCollector(),
 		Metrics:              profiledb.EmptyMetrics{},

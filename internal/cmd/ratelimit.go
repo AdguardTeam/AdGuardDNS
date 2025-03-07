@@ -1,24 +1,19 @@
 package cmd
 
 import (
-	"cmp"
+	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/timeutil"
+	"github.com/AdguardTeam/golibs/validate"
 	"github.com/c2h5oh/datasize"
-)
-
-// Constants for rate limit settings endpoints.
-const (
-	rlAllowlistTypeBackend = "backend"
-	rlAllowlistTypeConsul  = "consul"
 )
 
 // rateLimitConfig is the configuration of the instance's rate limiting.
@@ -78,18 +73,18 @@ type rateLimitOptions struct {
 }
 
 // type check
-var _ validator = (*rateLimitOptions)(nil)
+var _ validate.Interface = (*rateLimitOptions)(nil)
 
-// validate implements the [validator] interface for *rateLimitOptions.
-func (o *rateLimitOptions) validate() (err error) {
+// Validate implements the [validate.Interface] interface for *rateLimitOptions.
+func (o *rateLimitOptions) Validate() (err error) {
 	if o == nil {
 		return errors.ErrNoValue
 	}
 
-	return cmp.Or(
-		validatePositive("count", o.Count),
-		validatePositive("interval", o.Interval),
-		validatePositive("subnet_key_len", o.SubnetKeyLen),
+	return errors.Join(
+		validate.Positive("count", o.Count),
+		validate.Positive("interval", o.Interval),
+		validate.Positive("subnet_key_len", o.SubnetKeyLen),
 	)
 }
 
@@ -99,13 +94,13 @@ func (c *rateLimitConfig) toInternal(al ratelimit.Allowlist) (conf *ratelimit.Ba
 	return &ratelimit.BackoffConfig{
 		Allowlist:            al,
 		ResponseSizeEstimate: c.ResponseSizeEstimate,
-		Duration:             c.BackoffDuration.Duration,
-		Period:               c.BackoffPeriod.Duration,
+		Duration:             time.Duration(c.BackoffDuration),
+		Period:               time.Duration(c.BackoffPeriod),
 		IPv4Count:            c.IPv4.Count,
-		IPv4Interval:         c.IPv4.Interval.Duration,
+		IPv4Interval:         time.Duration(c.IPv4.Interval),
 		IPv4SubnetKeyLen:     c.IPv4.SubnetKeyLen,
 		IPv6Count:            c.IPv6.Count,
-		IPv6Interval:         c.IPv6.Interval.Duration,
+		IPv6Interval:         time.Duration(c.IPv6.Interval),
 		IPv6SubnetKeyLen:     c.IPv6.SubnetKeyLen,
 		Count:                c.BackoffCount,
 		RefuseANY:            c.RefuseANY,
@@ -113,26 +108,29 @@ func (c *rateLimitConfig) toInternal(al ratelimit.Allowlist) (conf *ratelimit.Ba
 }
 
 // type check
-var _ validator = (*rateLimitConfig)(nil)
+var _ validate.Interface = (*rateLimitConfig)(nil)
 
-// validate implements the [validator] interface for *rateLimitConfig.
-func (c *rateLimitConfig) validate() (err error) {
+// Validate implements the [validate.Interface] interface for *rateLimitConfig.
+func (c *rateLimitConfig) Validate() (err error) {
 	if c == nil {
 		return errors.ErrNoValue
 	}
 
-	return cmp.Or(
-		validateProp("allowlist", c.Allowlist.validate),
-		validateProp("connection_limit", c.ConnectionLimit.validate),
-		validateProp("ipv4", c.IPv4.validate),
-		validateProp("ipv6", c.IPv6.validate),
-		validateProp("quic", c.QUIC.validate),
-		validateProp("tcp", c.TCP.validate),
-		validatePositive("backoff_count", c.BackoffCount),
-		validatePositive("backoff_duration", c.BackoffDuration),
-		validatePositive("backoff_period", c.BackoffPeriod),
-		validatePositive("response_size_estimate", c.ResponseSizeEstimate),
-	)
+	errs := []error{
+		validate.Positive("backoff_count", c.BackoffCount),
+		validate.Positive("backoff_duration", c.BackoffDuration),
+		validate.Positive("backoff_period", c.BackoffPeriod),
+		validate.Positive("response_size_estimate", c.ResponseSizeEstimate),
+	}
+
+	errs = validate.Append(errs, "allowlist", c.Allowlist)
+	errs = validate.Append(errs, "connection_limit", c.ConnectionLimit)
+	errs = validate.Append(errs, "ipv4", c.IPv4)
+	errs = validate.Append(errs, "ipv6", c.IPv6)
+	errs = validate.Append(errs, "quic", c.QUIC)
+	errs = validate.Append(errs, "tcp", c.TCP)
+
+	return errors.Join(errs...)
 }
 
 // allowListConfig is the consul allow list configuration.
@@ -148,23 +146,35 @@ type allowListConfig struct {
 	RefreshIvl timeutil.Duration `yaml:"refresh_interval"`
 }
 
-// type check
-var _ validator = (*allowListConfig)(nil)
+// Constants for rate limit settings endpoints.
+const (
+	rlAllowlistTypeBackend = "backend"
+	rlAllowlistTypeConsul  = "consul"
+)
 
-// validate implements the [validator] interface for *allowListConfig.
-func (c *allowListConfig) validate() (err error) {
+// type check
+var _ validate.Interface = (*allowListConfig)(nil)
+
+// Validate implements the [validate.Interface] interface for *allowListConfig.
+func (c *allowListConfig) Validate() (err error) {
 	if c == nil {
 		return errors.ErrNoValue
 	}
 
-	switch c.Type {
-	case rlAllowlistTypeBackend, rlAllowlistTypeConsul:
-		// Go on.
-	default:
-		return fmt.Errorf("type: %w: %q", errors.ErrBadEnumValue, c.Type)
+	errs := []error{
+		validate.Positive("refresh_interval", c.RefreshIvl),
 	}
 
-	return validatePositive("refresh_interval", c.RefreshIvl)
+	switch c.Type {
+	case
+		rlAllowlistTypeBackend,
+		rlAllowlistTypeConsul:
+		// Go on.
+	default:
+		errs = append(errs, fmt.Errorf("type: %w: %q", errors.ErrBadEnumValue, c.Type))
+	}
+
+	return errors.Join(errs...)
 }
 
 // connLimitConfig is the configuration structure for the stream-connection
@@ -187,44 +197,40 @@ type connLimitConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
-// toInternal converts c to the connection limiter to use.  c must be valid.
-func (c *connLimitConfig) toInternal(logger *slog.Logger) (l *connlimiter.Limiter) {
-	if !c.Enabled {
-		return nil
+// toInternal converts c to a valid connection limiter config.  c must be valid.
+// mtrc must not be nil.
+func (c *connLimitConfig) toInternal(
+	ctx context.Context,
+	logger *slog.Logger,
+	mtrc connlimiter.Metrics,
+) (l *connlimiter.Config) {
+	mtrc.SetStopLimit(ctx, c.Stop)
+	mtrc.SetResumeLimit(ctx, c.Resume)
+
+	return &connlimiter.Config{
+		Metrics: mtrc,
+		Logger:  logger.With(slogutil.KeyPrefix, "connlimiter"),
+		Stop:    c.Stop,
+		Resume:  c.Resume,
 	}
-
-	l, err := connlimiter.New(&connlimiter.Config{
-		Logger: logger.With(slogutil.KeyPrefix, "connlimiter"),
-		Stop:   c.Stop,
-		Resume: c.Resume,
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	metrics.ConnLimiterLimits.WithLabelValues("stop").Set(float64(c.Stop))
-	metrics.ConnLimiterLimits.WithLabelValues("resume").Set(float64(c.Resume))
-
-	return l
 }
 
 // type check
-var _ validator = (*connLimitConfig)(nil)
+var _ validate.Interface = (*connLimitConfig)(nil)
 
-// validate implements the [validator] interface for *connLimitConfig.
-func (c *connLimitConfig) validate() (err error) {
-	switch {
-	case c == nil:
+// Validate implements the [validate.Interface] interface for *connLimitConfig.
+func (c *connLimitConfig) Validate() (err error) {
+	if c == nil {
 		return errors.ErrNoValue
-	case !c.Enabled:
-		return nil
-	case c.Stop == 0:
-		return newNotPositiveError("stop", c.Stop)
-	case c.Resume > c.Stop:
-		return errors.Error("resume: must be less than or equal to stop")
-	default:
+	} else if !c.Enabled {
 		return nil
 	}
+
+	return errors.Join(
+		validate.Positive("stop", c.Stop),
+		validate.Positive("resume", c.Resume),
+		validate.NoGreaterThan("resume", c.Resume, c.Stop),
+	)
 }
 
 // ratelimitTCPConfig is the configuration of TCP pipeline limiting.
@@ -238,15 +244,15 @@ type ratelimitTCPConfig struct {
 }
 
 // type check
-var _ validator = (*ratelimitTCPConfig)(nil)
+var _ validate.Interface = (*ratelimitTCPConfig)(nil)
 
-// validate implements the [validator] interface for *ratelimitTCPConfig.
-func (c *ratelimitTCPConfig) validate() (err error) {
+// Validate implements the [validate.Interface] interface for *ratelimitTCPConfig.
+func (c *ratelimitTCPConfig) Validate() (err error) {
 	if c == nil {
 		return errors.ErrNoValue
 	}
 
-	return validatePositive("max_pipeline_count", c.MaxPipelineCount)
+	return validate.Positive("max_pipeline_count", c.MaxPipelineCount)
 }
 
 // ratelimitQUICConfig is the configuration of QUIC streams limiting.
@@ -260,13 +266,13 @@ type ratelimitQUICConfig struct {
 }
 
 // type check
-var _ validator = (*ratelimitQUICConfig)(nil)
+var _ validate.Interface = (*ratelimitQUICConfig)(nil)
 
-// validate implements the [validator] interface for *ratelimitQUICConfig.
-func (c *ratelimitQUICConfig) validate() (err error) {
+// Validate implements the [validate.Interface] interface for *ratelimitQUICConfig.
+func (c *ratelimitQUICConfig) Validate() (err error) {
 	if c == nil {
 		return errors.ErrNoValue
 	}
 
-	return validatePositive("max_streams_per_peer", c.MaxStreamsPerPeer)
+	return validate.Positive("max_streams_per_peer", c.MaxStreamsPerPeer)
 }

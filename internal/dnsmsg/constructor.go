@@ -17,11 +17,11 @@ type ConstructorConfig struct {
 
 	// StructuredErrors is the configuration for the experimental Structured DNS
 	// Errors feature.  It must not be nil.  If enabled,
-	// [ConstructorConfig.Enabled] should also be true.
+	// [ConstructorConfig.EDEEnabled] should also be true.
 	StructuredErrors *StructuredDNSErrorsConfig
 
-	// BlockingMode is the blocking mode to use in
-	// [Constructor.NewBlockedRespMsg].  It must not be nil.
+	// BlockingMode is the blocking mode to use in [Constructor.NewBlockedResp].
+	// It must not be nil.
 	BlockingMode BlockingMode
 
 	// FilteredResponseTTL is the time-to-live value used for responses created
@@ -118,7 +118,7 @@ func (c *Constructor) AppendDebugExtra(req, resp *dns.Msg, str string) (err erro
 	// positive numbers, but we need a ceiling operation here.
 	strNum := (strLen + MaxTXTStringLen - 1) / MaxTXTStringLen
 
-	// TODO(a.garipov): Use slices.Chunk in Go 1.23.
+	// TODO(a.garipov): Consider adding strings.Chunks to golibs.
 	newStr := make([]string, strNum)
 	for i := range strNum {
 		start := i * MaxTXTStringLen

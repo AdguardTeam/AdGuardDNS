@@ -1,10 +1,10 @@
-package internal_test
+package filter_test
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 )
@@ -38,7 +38,7 @@ func TestNewID(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			id, err := internal.NewID(tc.in)
+			id, err := filter.NewID(tc.in)
 			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)
 			if tc.wantErrMsg == "" && tc.in != "" {
 				assert.NotEmpty(t, id)
@@ -52,8 +52,8 @@ func TestNewID(t *testing.T) {
 func TestNewRuleText(t *testing.T) {
 	t.Parallel()
 
-	tooLong := strings.Repeat("a", internal.MaxRuleTextRuneLen+1)
-	tooLongUnicode := strings.Repeat("ы", internal.MaxRuleTextRuneLen+1)
+	tooLong := strings.Repeat("a", filter.MaxRuleTextRuneLen+1)
+	tooLongUnicode := strings.Repeat("ы", filter.MaxRuleTextRuneLen+1)
 
 	testCases := []struct {
 		name       string
@@ -86,7 +86,7 @@ func TestNewRuleText(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			txt, err := internal.NewRuleText(tc.in)
+			txt, err := filter.NewRuleText(tc.in)
 			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)
 			if tc.wantErrMsg == "" && tc.in != "" {
 				assert.NotEmpty(t, txt)

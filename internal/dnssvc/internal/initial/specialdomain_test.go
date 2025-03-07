@@ -123,6 +123,9 @@ func TestMiddleware_Wrap_specialDomain(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mw := initial.New(&initial.Config{
 				Logger: slogutil.NewDiscardLogger(),
+				DDR: &initial.DDRConfig{
+					Enabled: false,
+				},
 			})
 
 			h := mw.Wrap(newSpecDomHandler(tc.wantRCode == dns.RcodeSuccess))
@@ -163,7 +166,6 @@ func newSpecDomReqInfo(
 
 	ri = &agd.RequestInfo{
 		Messages:       agdtest.NewConstructor(tb),
-		ServerGroup:    &agd.ServerGroup{},
 		FilteringGroup: fltGrp,
 		Host:           host,
 		QClass:         dns.ClassINET,

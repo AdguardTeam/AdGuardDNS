@@ -64,10 +64,13 @@ func TestMiddleware_Wrap_access(t *testing.T) {
 		Logger:         slogutil.NewDiscardLogger(),
 		Messages:       agdtest.NewConstructor(t),
 		FilteringGroup: &agd.FilteringGroup{},
-		ServerGroup:    &agd.ServerGroup{},
-		Server: &agd.Server{
+		ServerInfo: &agd.RequestServerInfo{
+			GroupName:     dnssvctest.ServerGroupName,
+			Name:          dnssvctest.ServerName,
+			DeviceDomains: []string{dnssvctest.DomainForDevices},
 			// Use a DoT server to prevent ratelimiting.
-			Protocol: agd.ProtoDoT,
+			Protocol:        agd.ProtoDoT,
+			ProfilesEnabled: true,
 		},
 		StructuredErrors: agdtest.NewSDEConfig(true),
 		AccessManager:    accessMgr,

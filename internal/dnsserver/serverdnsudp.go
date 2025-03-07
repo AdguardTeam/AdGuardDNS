@@ -8,14 +8,13 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/miekg/dns"
 )
 
 // serveUDP runs the UDP serving loop.
 func (s *ServerDNS) serveUDP(ctx context.Context, conn net.PacketConn) (err error) {
-	defer log.OnCloserError(conn, log.DEBUG)
+	defer func() { closeWithLog(ctx, s.baseLogger, "closing udp conn", conn) }()
 
 	for s.isStarted() {
 		err = s.acceptUDPMsg(ctx, conn)
@@ -52,7 +51,7 @@ func (s *ServerDNS) acceptUDPMsg(ctx context.Context, conn net.PacketConn) (err 
 	s.wg.Add(1)
 
 	// Save the start time here, but create the context inside the goroutine,
-	// since s.reqCtx.New can be slow.
+	// since s.requestContext can be slow.
 	//
 	// TODO(a.garipov):  The slowness is likely due to constant reallocation of
 	// timers in [context.WithTimeout].  Consider creating an optimized reusable
@@ -60,7 +59,7 @@ func (s *ServerDNS) acceptUDPMsg(ctx context.Context, conn net.PacketConn) (err 
 	startTime := time.Now()
 
 	return s.workerPool.Submit(func() {
-		reqCtx, reqCancel := s.requestContext()
+		reqCtx, reqCancel := s.requestContext(context.Background())
 		defer reqCancel()
 
 		reqCtx = ContextWithRequestInfo(reqCtx, &RequestInfo{
@@ -86,8 +85,8 @@ func (s *ServerDNS) serveUDPPacket(
 		respPool:     s.respPool,
 		udpSession:   sess,
 		conn:         conn,
-		writeTimeout: s.conf.WriteTimeout,
-		maxRespSize:  s.conf.MaxUDPRespSize,
+		writeTimeout: s.writeTimeout,
+		maxRespSize:  s.maxUDPRespSize,
 	}
 	s.serveDNS(ctx, buf, rw)
 }
@@ -98,7 +97,7 @@ func (s *ServerDNS) readUDPMsg(
 	conn net.PacketConn,
 	buf []byte,
 ) (n int, sess netext.PacketSession, err error) {
-	err = conn.SetReadDeadline(time.Now().Add(s.conf.ReadTimeout))
+	err = conn.SetReadDeadline(time.Now().Add(s.readTimeout))
 	if err != nil {
 		return 0, nil, err
 	}

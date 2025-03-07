@@ -49,12 +49,12 @@ func TestListenConfig(t *testing.T) {
 		},
 	}
 
-	l, err := connlimiter.New(&connlimiter.Config{
-		Logger: slogutil.NewDiscardLogger(),
-		Stop:   1,
-		Resume: 1,
+	l := connlimiter.New(&connlimiter.Config{
+		Metrics: connlimiter.EmptyMetrics{},
+		Logger:  slogutil.NewDiscardLogger(),
+		Stop:    1,
+		Resume:  1,
 	})
-	require.NoError(t, err)
 
 	limited := connlimiter.NewListenConfig(c, l)
 

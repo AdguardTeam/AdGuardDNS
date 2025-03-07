@@ -10,6 +10,7 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/timeutil"
+	"github.com/AdguardTeam/golibs/validate"
 )
 
 // backendConfig is the backend module configuration.
@@ -39,26 +40,21 @@ type backendConfig struct {
 }
 
 // type check
-var _ validator = (*backendConfig)(nil)
+var _ validate.Interface = (*backendConfig)(nil)
 
-// validate implements the [validator] interface for *backendConfig.
-func (c *backendConfig) validate() (err error) {
-	switch {
-	case c == nil:
+// Validate implements the [validate.Interface] interface for *backendConfig.
+func (c *backendConfig) Validate() (err error) {
+	if c == nil {
 		return errors.ErrNoValue
-	case c.Timeout.Duration < 0:
-		return newNegativeError("timeout", c.Timeout)
-	case c.RefreshIvl.Duration <= 0:
-		return newNotPositiveError("refresh_interval", c.RefreshIvl)
-	case c.FullRefreshIvl.Duration <= 0:
-		return newNotPositiveError("full_refresh_interval", c.FullRefreshIvl)
-	case c.FullRefreshRetryIvl.Duration <= 0:
-		return newNotPositiveError("full_refresh_retry_interval", c.FullRefreshRetryIvl)
-	case c.BillStatIvl.Duration <= 0:
-		return newNotPositiveError("bill_stat_interval", c.BillStatIvl)
-	default:
-		return nil
 	}
+
+	return errors.Join(
+		validate.NotNegative("timeout", c.Timeout),
+		validate.Positive("refresh_interval", c.RefreshIvl),
+		validate.Positive("full_refresh_interval", c.FullRefreshIvl),
+		validate.Positive("full_refresh_retry_interval", c.FullRefreshRetryIvl),
+		validate.Positive("bill_stat_interval", c.BillStatIvl),
+	)
 }
 
 // initProfDB refreshes the profile database initially.  It logs an error if

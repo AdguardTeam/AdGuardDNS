@@ -49,6 +49,7 @@ func TestConsul_ServeHTTP(t *testing.T) {
 	conf := &dnscheck.RemoteKVConfig{
 		Logger:       slogutil.NewDiscardLogger(),
 		Messages:     &dnsmsg.Constructor{},
+		Metrics:      dnscheck.EmptyMetrics{},
 		RemoteKV:     remotekv.Empty{},
 		ErrColl:      agdtest.NewErrorCollector(),
 		Domains:      []string{checkDomain},
@@ -72,15 +73,16 @@ func TestConsul_ServeHTTP(t *testing.T) {
 				Device:  &agd.Device{ID: agd.DeviceID(theOnlyVal["device_id"].(string))},
 				Profile: &agd.Profile{ID: agd.ProfileID(theOnlyVal["profile_id"].(string))},
 			},
-			ServerGroup: &agd.ServerGroup{
-				Name:            agd.ServerGroupName(theOnlyVal["server_group_name"].(string)),
+			ServerInfo: &agd.RequestServerInfo{
+				GroupName:       agd.ServerGroupName(theOnlyVal["server_group_name"].(string)),
+				Name:            agd.ServerName(theOnlyVal["server_name"].(string)),
+				DeviceDomains:   nil,
+				Protocol:        agd.ProtoDNS,
 				ProfilesEnabled: theOnlyVal["server_type"] == "private",
 			},
-			Server:   agd.ServerName(theOnlyVal["server_name"].(string)),
 			Host:     randomid + "-" + checkDomain,
 			RemoteIP: testRemoteIP,
 			QType:    dns.TypeA,
-			Proto:    agd.ProtoDNS,
 		},
 	)
 	require.NoError(t, err)
@@ -175,6 +177,7 @@ func TestConsul_Check(t *testing.T) {
 	conf := &dnscheck.RemoteKVConfig{
 		Logger:   slogutil.NewDiscardLogger(),
 		Messages: msgs,
+		Metrics:  dnscheck.EmptyMetrics{},
 		RemoteKV: remotekv.Empty{},
 		Domains:  []string{checkDomain},
 		IPv4:     []netip.Addr{netip.MustParseAddr("1.2.3.4")},
@@ -194,12 +197,13 @@ func TestConsul_Check(t *testing.T) {
 				}},
 			}
 			ri := &agd.RequestInfo{
-				Host:        tc.host,
-				ServerGroup: &agd.ServerGroup{},
-				RemoteIP:    testRemoteIP,
-				QType:       tc.qtype,
-				Messages:    msgs,
-				Proto:       agd.ProtoDNS,
+				Host: tc.host,
+				ServerInfo: &agd.RequestServerInfo{
+					Protocol: agd.ProtoDNS,
+				},
+				RemoteIP: testRemoteIP,
+				QType:    tc.qtype,
+				Messages: msgs,
 			}
 
 			resp, cErr := dnsCk.Check(ctx, req, ri)

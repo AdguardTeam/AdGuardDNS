@@ -69,10 +69,10 @@ func NewRedisKV(namespace string, reg prometheus.Registerer) (m *RedisKV, err er
 }
 
 // UpdateMetrics implements the [rediskv.Metrics] interface for *RedisKV.
-func (m *RedisKV) UpdateMetrics(_ context.Context, val uint, isSuccess bool) {
+func (m *RedisKV) UpdateMetrics(_ context.Context, val uint, err error) {
 	m.activeConnections.Set(float64(val))
 
-	if !isSuccess {
+	if err != nil {
 		m.errors.Inc()
 	}
 }

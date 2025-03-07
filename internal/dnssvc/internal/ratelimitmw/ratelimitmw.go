@@ -48,41 +48,46 @@ type Middleware struct {
 // Config is the configuration structure for the access and ratelimiting
 // middleware.  All fields must not be empty.
 type Config struct {
-	// Logger is used to log the operation of the middleware.
+	// Logger is used to log the operation of the middleware.  It must not be
+	// nil.
 	Logger *slog.Logger
 
 	// Messages is used to build the responses specific for a request's context.
+	// It must not be nil.
 	Messages *dnsmsg.Constructor
 
 	// FilteringGroup is the filtering group to which [Config.Server] belongs.
+	// It must not be nil.
 	FilteringGroup *agd.FilteringGroup
 
-	// ServerGroup is the server group to which [Config.Server] belongs.
-	ServerGroup *agd.ServerGroup
-
-	// Server is the current server which serves the request.
-	Server *agd.Server
+	// ServerInfo contains the information about the server processing the
+	// queries and its server group.  It must not be nil.
+	ServerInfo *agd.RequestServerInfo
 
 	// StructuredErrors is the configuration for the experimental Structured DNS
-	// Errors feature for the profiles' message constructors.
+	// Errors feature for the profiles' message constructors.  It must not be
+	// nil.
 	StructuredErrors *dnsmsg.StructuredDNSErrorsConfig
 
-	// AccessManager is the global access manager.
+	// AccessManager is the global access manager.  It must not be nil.
 	AccessManager access.Interface
 
 	// DeviceFinder is used to set the device and profile for a request, if any.
+	// If [Config.ServerInfo.ProfilesEnabled] is true, it must not be nil.
 	DeviceFinder agd.DeviceFinder
 
-	// ErrColl collects and reports the errors considered non-critical.
+	// ErrColl collects and reports the errors considered non-critical.  It must
+	// not be nil.
 	ErrColl errcoll.Interface
 
-	// GeoIP detects the location of the request source.
+	// GeoIP detects the location of the request source.  It must not be nil.
 	GeoIP geoip.Interface
 
-	// Metrics is a listener for the middleware events.
+	// Metrics is a listener for the middleware events.  It must not be nil.
 	Metrics Metrics
 
-	// Limiter defines whether the query should be dropped or not.
+	// Limiter defines whether the query should be dropped or not.  It must not
+	// be nil.
 	Limiter ratelimit.Interface
 
 	// Protocols is a list of protocols this middleware applies ratelimiting
@@ -103,9 +108,7 @@ func New(c *Config) (mw *Middleware) {
 			// Set the filtering-group and server information here immediately.
 			return &agd.RequestInfo{
 				FilteringGroup: c.FilteringGroup,
-				ServerGroup:    c.ServerGroup,
-				Server:         c.Server.Name,
-				Proto:          c.Server.Protocol,
+				ServerInfo:     c.ServerInfo,
 			}
 		}),
 		sdeConf:       c.StructuredErrors,

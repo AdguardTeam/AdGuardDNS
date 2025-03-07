@@ -8,7 +8,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -93,7 +92,7 @@ func TestUpstreamPlain_Exchange_truncated(t *testing.T) {
 		Network: forward.NetworkUDP,
 		Address: addr,
 	})
-	defer log.OnCloserError(uUDP, log.DEBUG)
+	defer testutil.CleanupAndRequireSuccess(t, uUDP.Close)
 
 	res, nw, err := uUDP.Exchange(testutil.ContextWithTimeout(t, testTimeout), req)
 	require.NoError(t, err)
@@ -106,7 +105,7 @@ func TestUpstreamPlain_Exchange_truncated(t *testing.T) {
 		Network: forward.NetworkTCP,
 		Address: addr,
 	})
-	defer log.OnCloserError(uTCP, log.DEBUG)
+	defer testutil.CleanupAndRequireSuccess(t, uTCP.Close)
 
 	res, nw, err = uTCP.Exchange(testutil.ContextWithTimeout(t, testTimeout), req)
 	require.NoError(t, err)
@@ -120,7 +119,7 @@ func TestUpstreamPlain_Exchange_truncated(t *testing.T) {
 		Network: forward.NetworkAny,
 		Address: addr,
 	})
-	defer log.OnCloserError(uAny, log.DEBUG)
+	defer testutil.CleanupAndRequireSuccess(t, uAny.Close)
 
 	res, nw, err = uAny.Exchange(testutil.ContextWithTimeout(t, testTimeout), req)
 	require.NoError(t, err)

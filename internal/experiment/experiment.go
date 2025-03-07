@@ -11,19 +11,18 @@
 //   - Some errors may be logged or ignored.
 //   - Tests may be lacking.
 //   - The environment may be read here as opposed to package cmd.
-//   - init() is allowed.
 package experiment
 
 import (
+	"log/slog"
 	"os"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/stringutil"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-func init() {
+func Init(l *slog.Logger) {
 	expStr := os.Getenv("EXPERIMENTS")
 	if expStr == "" {
 		return
@@ -36,7 +35,7 @@ func init() {
 		//	case idMyExp:
 		//		enableMyExp()
 		default:
-			log.Error("experiment: no experiment with id %q", id)
+			l.Error("no such experiment", "id", id)
 		}
 	}
 

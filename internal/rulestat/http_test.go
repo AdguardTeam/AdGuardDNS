@@ -42,8 +42,9 @@ func TestHTTP_Collect(t *testing.T) {
 		rw.WriteHeader(http.StatusOK)
 	}))
 	conf := &rulestat.HTTPConfig{
-		ErrColl: agdtest.NewErrorCollector(),
 		Logger:  slogutil.NewDiscardLogger(),
+		ErrColl: agdtest.NewErrorCollector(),
+		Metrics: rulestat.EmptyMetrics{},
 		URL:     u,
 	}
 
@@ -96,6 +97,7 @@ func TestHTTP_Refresh_errors(t *testing.T) {
 					testutil.AssertErrorMsg(t, "uploading rulestat: "+wantErrMsg, err)
 				},
 			},
+			Metrics: rulestat.EmptyMetrics{},
 			URL: &url.URL{
 				Scheme: "badscheme",
 				Host:   "0.0.0.0",
@@ -117,7 +119,8 @@ func TestHTTP_Refresh_errors(t *testing.T) {
 					require.NotNil(t, err)
 				},
 			},
-			URL: u,
+			Metrics: rulestat.EmptyMetrics{},
+			URL:     u,
 		})
 
 		var serr *agdhttp.StatusError

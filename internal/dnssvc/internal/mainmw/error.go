@@ -36,5 +36,6 @@ var _ errcoll.SentryReportableError = afterFilteringError{}
 // IsSentryReportable implements the [errcoll.SentryReportableError] interface
 // for afterFilteringError.
 func (err afterFilteringError) IsSentryReportable() (ok bool) {
-	return !errors.Is(err.err, context.DeadlineExceeded)
+	return !errors.Is(err.err, context.DeadlineExceeded) &&
+		!errors.Is(err.err, context.Canceled)
 }

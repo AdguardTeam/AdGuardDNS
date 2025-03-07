@@ -7,9 +7,11 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterstorage"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/golibs/container"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
@@ -105,12 +107,11 @@ func TestDefault_ForConfig_client(t *testing.T) {
 			newFltConfigSafeBrowsing(false, false),
 		)
 
-		conf.Custom.ID = "1234"
-		conf.Custom.UpdateTime = time.Now()
-		conf.Custom.Rules = []filter.RuleText{
-			filtertest.RuleBlock,
-		}
 		conf.Custom.Enabled = true
+		conf.Custom.Filter = custom.New(&custom.Config{
+			Logger: slogutil.NewDiscardLogger(),
+			Rules:  []filter.RuleText{filtertest.RuleBlock},
+		})
 
 		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 		f := s.ForConfig(ctx, conf)

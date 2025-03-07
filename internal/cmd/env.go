@@ -15,11 +15,11 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/version"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/timeutil"
+	"github.com/AdguardTeam/golibs/validate"
 	"github.com/c2h5oh/datasize"
 	"github.com/caarlos0/env/v7"
 	"github.com/getsentry/sentry-go"
@@ -53,11 +53,12 @@ type environment struct {
 	FilterCachePath        string `env:"FILTER_CACHE_PATH" envDefault:"./filters/"`
 	GeoIPASNPath           string `env:"GEOIP_ASN_PATH" envDefault:"./asn.mmdb"`
 	GeoIPCountryPath       string `env:"GEOIP_COUNTRY_PATH" envDefault:"./country.mmdb"`
+	LogFormat              string `env:"LOG_FORMAT" envDefault:"text"`
 	ProfilesAPIKey         string `env:"PROFILES_API_KEY"`
 	ProfilesCachePath      string `env:"PROFILES_CACHE_PATH" envDefault:"./profilecache.pb"`
+	QueryLogPath           string `env:"QUERYLOG_PATH" envDefault:"./querylog.jsonl"`
 	RedisAddr              string `env:"REDIS_ADDR"`
 	RedisKeyPrefix         string `env:"REDIS_KEY_PREFIX" envDefault:"agdns"`
-	QueryLogPath           string `env:"QUERYLOG_PATH" envDefault:"./querylog.jsonl"`
 	SSLKeyLogFile          string `env:"SSL_KEY_LOG_FILE"`
 	SentryDSN              string `env:"SENTRY_DSN" envDefault:"stderr"`
 	WebStaticDir           string `env:"WEB_STATIC_DIR"`
@@ -100,11 +101,10 @@ func parseEnvironment() (envs *environment, err error) {
 }
 
 // type check
-var _ validator = (*environment)(nil)
+var _ validate.Interface = (*environment)(nil)
 
-// validate implements the [validator] interface for *environment.
-func (envs *environment) validate() (err error) {
-	// TODO(a.garipov):  Use a similar approach with errors.Join everywhere.
+// Validate implements the [validate.Interface] interface for *environment.
+func (envs *environment) Validate() (err error) {
 	var errs []error
 
 	errs = envs.validateHTTPURLs(errs)
@@ -112,19 +112,24 @@ func (envs *environment) validate() (err error) {
 	if s := envs.FilterIndexURL.Scheme; !strings.EqualFold(s, urlutil.SchemeFile) &&
 		!urlutil.IsValidHTTPURLScheme(s) {
 		errs = append(errs, fmt.Errorf(
-			"env %s: not a valid http(s) url or file uri",
+			"%s: not a valid http(s) url or file uri",
 			"FILTER_INDEX_URL",
 		))
 	}
 
 	err = envs.validateWebStaticDir()
 	if err != nil {
-		errs = append(errs, fmt.Errorf("env WEB_STATIC_DIR: %w", err))
+		errs = append(errs, fmt.Errorf("WEB_STATIC_DIR: %w", err))
+	}
+
+	_, err = slogutil.NewFormat(envs.LogFormat)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("LOG_FORMAT: %w", err))
 	}
 
 	_, err = slogutil.VerbosityToLevel(envs.Verbosity)
 	if err != nil {
-		errs = append(errs, fmt.Errorf("env VERBOSE: %w", err))
+		errs = append(errs, fmt.Errorf("VERBOSE: %w", err))
 	}
 
 	return errors.Join(errs...)
@@ -234,7 +239,7 @@ func (envs *environment) validateWebStaticDir() (err error) {
 func (envs *environment) validateFromValidConfig(conf *configuration) (err error) {
 	var errs []error
 
-	switch typ := conf.Check.RemoteKV.Type; typ {
+	switch typ := conf.Check.KV.Type; typ {
 	case kvModeBackend:
 		errs = envs.validateBackendKV(errs)
 	case kvModeCache:
@@ -248,13 +253,13 @@ func (envs *environment) validateFromValidConfig(conf *configuration) (err error
 	if conf.isProfilesEnabled() {
 		errs = envs.validateProfilesURLs(errs)
 
-		if envs.ProfilesMaxRespSize > math.MaxInt {
-			errs = append(errs, fmt.Errorf(
-				"PROFILES_MAX_RESP_SIZE: %w: must be less than or equal to %s, got %s",
-				errors.ErrOutOfRange,
-				datasize.ByteSize(math.MaxInt),
-				envs.ProfilesMaxRespSize,
-			))
+		err = validate.NoGreaterThan(
+			"PROFILES_MAX_RESP_SIZE",
+			envs.ProfilesMaxRespSize,
+			math.MaxInt,
+		)
+		if err != nil {
+			errs = append(errs, err)
 		}
 	}
 
@@ -268,8 +273,9 @@ func (envs *environment) validateFromValidConfig(conf *configuration) (err error
 func (envs *environment) validateCache(errs []error) (res []error) {
 	res = errs
 
-	if envs.DNSCheckCacheKVSize <= 0 {
-		err := newNotPositiveError("DNSCHECK_CACHE_KV_SIZE", envs.DNSCheckCacheKVSize)
+	err := validate.Positive("env DNSCHECK_CACHE_KV_SIZE", envs.DNSCheckCacheKVSize)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
 		res = append(res, err)
 	}
 
@@ -281,23 +287,23 @@ func (envs *environment) validateCache(errs []error) (res []error) {
 func (envs *environment) validateRedis(errs []error) (res []error) {
 	res = errs
 
-	if envs.RedisAddr == "" {
-		err := fmt.Errorf("REDIS_ADDR: %w", errors.ErrEmptyValue)
+	if err := validate.NotEmpty("env REDIS_ADDR", envs.RedisAddr); err != nil {
+		// Don't wrap the error, because it's informative enough as is.
 		res = append(res, err)
 	}
 
-	if envs.RedisIdleTimeout.Duration <= 0 {
-		err := newNotPositiveError("REDIS_IDLE_TIMEOUT", envs.RedisIdleTimeout)
+	if err := validate.Positive("env REDIS_IDLE_TIMEOUT", envs.RedisIdleTimeout); err != nil {
+		// Don't wrap the error, because it's informative enough as is.
 		res = append(res, err)
 	}
 
-	if envs.RedisMaxActive < 0 {
-		err := newNegativeError("REDIS_MAX_ACTIVE", envs.RedisMaxActive)
+	if err := validate.NotNegative("env REDIS_MAX_ACTIVE", envs.RedisMaxActive); err != nil {
+		// Don't wrap the error, because it's informative enough as is.
 		res = append(res, err)
 	}
 
-	if envs.RedisMaxIdle < 0 {
-		err := newNegativeError("REDIS_MAX_IDLE", envs.RedisMaxIdle)
+	if err := validate.NotNegative("env REDIS_MAX_IDLE", envs.RedisMaxIdle); err != nil {
+		// Don't wrap the error, because it's informative enough as is.
 		res = append(res, err)
 	}
 
@@ -385,31 +391,11 @@ func (envs *environment) validateRateLimitURLs(
 	return errs
 }
 
-// configureLogs sets the configuration for the plain text logs.  It also
-// returns a [slog.Logger] for code that uses it.
-func (envs *environment) configureLogs() (slogLogger *slog.Logger) {
-	var flags int
-	if envs.LogTimestamp {
-		flags = log.LstdFlags | log.Lmicroseconds
-	}
-
-	log.SetFlags(flags)
-
-	lvl := errors.Must(slogutil.VerbosityToLevel(envs.Verbosity))
-	if lvl < slog.LevelInfo {
-		log.SetLevel(log.DEBUG)
-	}
-
-	return slogutil.New(&slogutil.Config{
-		Output:       os.Stdout,
-		Format:       slogutil.FormatAdGuardLegacy,
-		Level:        lvl,
-		AddTimestamp: bool(envs.LogTimestamp),
-	})
-}
-
 // buildErrColl builds and returns an error collector from environment.
-func (envs *environment) buildErrColl() (errColl errcoll.Interface, err error) {
+// baseLogger must not be nil.
+func (envs *environment) buildErrColl(
+	baseLogger *slog.Logger,
+) (errColl errcoll.Interface, err error) {
 	dsn := envs.SentryDSN
 	if dsn == "stderr" {
 		return errcoll.NewWriterErrorCollector(os.Stderr), nil
@@ -424,7 +410,9 @@ func (envs *environment) buildErrColl() (errColl errcoll.Interface, err error) {
 		return nil, err
 	}
 
-	return errcoll.NewSentryErrorCollector(cli), nil
+	l := baseLogger.With(slogutil.KeyPrefix, "sentry_errcoll")
+
+	return errcoll.NewSentryErrorCollector(cli, l), nil
 }
 
 // debugConf returns a debug HTTP service configuration from environment.

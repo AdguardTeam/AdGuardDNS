@@ -1,11 +1,13 @@
 package metrics
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/axiomhq/hyperloglog"
 	"github.com/prometheus/client_golang/prometheus"
@@ -24,6 +26,9 @@ const (
 //
 // TODO(a.garipov):  Improve and move to golibs.
 type UserCounter struct {
+	// logger is used to report errors.
+	logger *slog.Logger
+
 	// lastHour is a gauge with an approximate number of DNS users for the
 	// last 1 hour.
 	lastHour prometheus.Gauge
@@ -55,9 +60,11 @@ type UserCounter struct {
 }
 
 // NewUserCounter initializes and returns a properly initialized *UserCounter
-// that uses the given gauges to estimate the user count.
-func NewUserCounter(lastHour, lastDay prometheus.Gauge) (c *UserCounter) {
+// that uses the given gauges to estimate the user count.  All arguments must
+// not be nil.
+func NewUserCounter(logger *slog.Logger, lastHour, lastDay prometheus.Gauge) (c *UserCounter) {
 	return &UserCounter{
+		logger:               logger,
 		lastHour:             lastHour,
 		lastDay:              lastDay,
 		currentMu:            &sync.Mutex{},
@@ -80,7 +87,7 @@ func NewUserCounter(lastHour, lastDay prometheus.Gauge) (c *UserCounter) {
 // synchronously.  It is currently only used in tests.
 //
 // It currently assumes that it will be called at least once per day.
-func (c *UserCounter) Record(now time.Time, userData []byte, syncUpdate bool) {
+func (c *UserCounter) Record(ctx context.Context, now time.Time, userData []byte, syncUpdate bool) {
 	hour, minute, _ := now.Clock()
 	minuteOfDay := hour*minutesPerHour + minute
 
@@ -98,9 +105,9 @@ func (c *UserCounter) Record(now time.Time, userData []byte, syncUpdate bool) {
 		// counters, since there are none.
 		if prevMinute != -1 {
 			if syncUpdate {
-				c.updateCounters(prevMinute, hour, prevMinuteCounter)
+				c.updateCounters(ctx, prevMinute, hour, prevMinuteCounter)
 			} else {
-				go c.updateCounters(prevMinute, hour, prevMinuteCounter)
+				go c.updateCounters(ctx, prevMinute, hour, prevMinuteCounter)
 			}
 		}
 	}
@@ -112,11 +119,12 @@ func (c *UserCounter) Record(now time.Time, userData []byte, syncUpdate bool) {
 // the metrics.  It also clears all the stale hourly counters from the previous
 // day.
 func (c *UserCounter) updateCounters(
+	ctx context.Context,
 	prevMinute int,
 	currentHour int,
 	prevMinuteCounter *hyperloglog.Sketch,
 ) {
-	defer log.OnPanic("metrics.userCounter.updateCounters")
+	defer slogutil.RecoverAndLog(ctx, c.logger)
 
 	prevMinuteOfHour := prevMinute % minutesPerHour
 	hourOfPrevMinute := prevMinute / minutesPerHour

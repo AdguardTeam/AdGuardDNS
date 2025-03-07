@@ -9,9 +9,11 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/validate"
 	"github.com/miekg/dns"
 )
 
@@ -19,7 +21,7 @@ import (
 type ddrConfig struct {
 	// DeviceRecords are used to respond to DDR queries from recognized devices.
 	// The keys of the map are device ID wildcards.
-	DeviceRecords map[string]*ddrRecord `yaml:"device_records"`
+	DeviceRecords ddrDeviceRecords `yaml:"device_records"`
 
 	// PublicRecords are used to respond to DDR queries from unrecognized
 	// devices.  The keys of the map are the public domain names.
@@ -30,10 +32,42 @@ type ddrConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
+// ddrDeviceRecords is a mapping of wildcard domains to the DDR records for
+// devices using that domain.
+type ddrDeviceRecords map[string]*ddrRecord
+
+// type check
+var _ validate.Interface = ddrDeviceRecords(nil)
+
+// Validate implements the [validate.Interface] interface for ddrDeviceRecords.
+func (recs ddrDeviceRecords) Validate() (err error) {
+	var errs []error
+	for wildcard, r := range recs {
+		if !strings.HasPrefix(wildcard, "*.") {
+			errs = append(errs, fmt.Errorf("wildcard %q: not a wildcard", wildcard))
+
+			continue
+		}
+
+		domainSuf := wildcard[2:]
+		err = netutil.ValidateHostname(domainSuf)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("wildcard %q: %w", wildcard, err))
+		}
+
+		err = r.Validate()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("wildcard %q: %w", wildcard, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
 // toInternal returns the DDR configuration.  messages must not be nil.  c must
 // be valid.
-func (c *ddrConfig) toInternal(msgs *dnsmsg.Constructor) (conf *agd.DDR) {
-	conf = &agd.DDR{
+func (c *ddrConfig) toInternal(msgs *dnsmsg.Constructor) (conf *dnssvc.DDRConfig) {
+	conf = &dnssvc.DDRConfig{
 		Enabled: c.Enabled,
 	}
 
@@ -99,34 +133,31 @@ func appendDDRSVCBTmpls(
 }
 
 // type check
-var _ validator = (*ddrConfig)(nil)
+var _ validate.Interface = (*ddrConfig)(nil)
 
-// validate implements the [validator] interface for *ddrConfig.
-func (c *ddrConfig) validate() (err error) {
+// Validate implements the [validate.Interface] interface for *ddrConfig.
+func (c *ddrConfig) Validate() (err error) {
 	if c == nil {
 		return errors.ErrNoValue
 	}
 
-	for wildcard, r := range c.DeviceRecords {
-		if !strings.HasPrefix(wildcard, "*.") {
-			return fmt.Errorf("device_records: record for wildcard %q: not a wildcard", wildcard)
-		}
+	var errs []error
 
-		domainSuf := wildcard[2:]
-		err = errors.Join(netutil.ValidateHostname(domainSuf), r.validate())
-		if err != nil {
-			return fmt.Errorf("device_records: wildcard %q: %w", wildcard, err)
-		}
-	}
+	errs = validate.Append(errs, "device_records", c.DeviceRecords)
 
 	for domain, r := range c.PublicRecords {
-		err = errors.Join(netutil.ValidateHostname(domain), r.validate())
+		err = netutil.ValidateHostname(domain)
 		if err != nil {
-			return fmt.Errorf("public_records: domain %q: %w", domain, err)
+			errs = append(errs, fmt.Errorf("public_records: domain %q: %w", domain, err))
+		}
+
+		err = r.Validate()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("public_records: domain %q: %w", domain, err))
 		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // ddrRecord is a DDR record template for responses to DDR queries from both
@@ -158,34 +189,42 @@ type ddrRecord struct {
 }
 
 // type check
-var _ validator = (*ddrRecord)(nil)
+var _ validate.Interface = (*ddrRecord)(nil)
 
-// validate implements the [validator] interface for *ddrRecord.
-func (r *ddrRecord) validate() (err error) {
+// Validate implements the [validate.Interface] interface for *ddrRecord.
+func (r *ddrRecord) Validate() (err error) {
 	if r == nil {
 		return errors.ErrNoValue
 	}
 
+	var errs []error
+
 	// TODO(a.garipov): Consider validating that r.DoHPath is a valid RFC 6570
 	// URI template.
 	if r.HTTPSPort != 0 && r.DoHPath == "" {
-		return errors.Error("doh_path: cannot be empty if https_port is set")
+		errs = append(errs, errors.Error("doh_path: cannot be empty if https_port is set"))
 	}
 
 	// TODO(a.garipov): Merge with [validateAddrs] and [validateNonNilIPs].
 	for i, addr := range r.IPv4Hints {
 		if !addr.Is4() {
-			return fmt.Errorf("ipv4_hints: at index %d: not an ipv4 addr", i)
+			errs = append(errs, fmt.Errorf("ipv4_hints: at index %d: not an ipv4 addr", i))
 		}
 	}
 
 	for i, addr := range r.IPv6Hints {
 		if !addr.Is6() {
-			return fmt.Errorf("ipv6_hints: at index %d: not an ipv6 addr", i)
+			errs = append(errs, fmt.Errorf("ipv6_hints: at index %d: not an ipv6 addr", i))
 		}
 	}
 
-	return r.validatePorts()
+	err = r.validatePorts()
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
 }
 
 // validatePorts returns an error if the DDR record has invalid ports.  r must

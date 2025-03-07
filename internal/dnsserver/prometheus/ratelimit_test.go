@@ -8,10 +8,11 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
+	dnssvcprom "github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/c2h5oh/datasize"
 	"github.com/miekg/dns"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,8 +37,13 @@ func TestRateLimiterMetricsListener_integration_cache(t *testing.T) {
 		IPv6Interval:         ivl,
 		RefuseANY:            true,
 	})
+
+	reg := prometheus.NewRegistry()
+	mtrcListener, err := dnssvcprom.NewRateLimitMetricsListener(testNamespace, reg)
+	require.NoError(t, err)
+
 	rlMw, err := ratelimit.NewMiddleware(&ratelimit.MiddlewareConfig{
-		Metrics:   prometheus.NewRateLimitMetricsListener(testNamespace),
+		Metrics:   mtrcListener,
 		RateLimit: rl,
 	})
 	require.NoError(t, err)
@@ -68,11 +74,13 @@ func TestRateLimiterMetricsListener_integration_cache(t *testing.T) {
 	}
 
 	// Now make sure that prometheus metrics were incremented properly.
-	requireMetrics(t, "dns_ratelimit_dropped_total")
+	requireMetrics(t, reg, "dns_ratelimit_dropped_total")
 }
 
 func BenchmarkRateLimitMetricsListener(b *testing.B) {
-	l := prometheus.NewRateLimitMetricsListener(testNamespace)
+	reg := prometheus.NewRegistry()
+	l, err := dnssvcprom.NewRateLimitMetricsListener(testNamespace, reg)
+	require.NoError(b, err)
 
 	ctx := dnsserver.ContextWithServerInfo(context.Background(), testServerInfo)
 	req := dnsservertest.CreateMessage(testReqDomain, dns.TypeA)

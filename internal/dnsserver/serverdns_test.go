@@ -12,7 +12,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -376,7 +375,7 @@ func TestServerDNS_integration_udpMsgIgnore(t *testing.T) {
 	conn, err := net.Dial("udp", addr)
 	require.Nil(t, err)
 
-	defer log.OnCloserError(conn, log.DEBUG)
+	testutil.CleanupAndRequireSuccess(t, conn.Close)
 
 	// Write some crap
 	_, err = conn.Write([]byte{1, 3, 1, 52, 12, 5, 32, 12})
@@ -473,7 +472,7 @@ func TestServerDNS_integration_tcpMsgIgnore(t *testing.T) {
 			conn, err := net.Dial("tcp", addr)
 			require.Nil(t, err)
 
-			defer log.OnCloserError(conn, log.DEBUG)
+			testutil.CleanupAndRequireSuccess(t, conn.Close)
 
 			// Write the invalid request
 			_, err = conn.Write(tc.buf)

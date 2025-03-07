@@ -4,15 +4,11 @@ package composite
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch"
 	"github.com/miekg/dns"
 )
 
@@ -20,7 +16,7 @@ import (
 // rule-list filters.
 type Filter struct {
 	// custom is the custom rule-list filter of the profile, if any.
-	custom *rulelist.Immutable
+	custom filter.Custom
 
 	// ruleLists are the enabled rule-list filters of the profile or filtering
 	// group.
@@ -32,29 +28,29 @@ type Filter struct {
 
 	// reqFilters are the safe-browsing and safe-search request filters in the
 	// composite filter.
-	reqFilters []internal.RequestFilter
+	reqFilters []RequestFilter
 }
 
 // Config is the configuration structure for the composite filter.
 type Config struct {
 	// SafeBrowsing is the safe-browsing filter to apply, if any.
-	SafeBrowsing *hashprefix.Filter
+	SafeBrowsing RequestFilter
 
 	// AdultBlocking is the adult-content filter to apply, if any.
-	AdultBlocking *hashprefix.Filter
+	AdultBlocking RequestFilter
 
 	// NewRegisteredDomains is the newly registered domains filter to apply, if
 	// any.
-	NewRegisteredDomains *hashprefix.Filter
+	NewRegisteredDomains RequestFilter
 
 	// GeneralSafeSearch is the general safe-search filter to apply, if any.
-	GeneralSafeSearch *safesearch.Filter
+	GeneralSafeSearch RequestFilter
 
 	// YouTubeSafeSearch is the youtube safe-search filter to apply, if any.
-	YouTubeSafeSearch *safesearch.Filter
+	YouTubeSafeSearch RequestFilter
 
 	// Custom is the custom rule-list filter of the profile, if any.
-	Custom *rulelist.Immutable
+	Custom filter.Custom
 
 	// RuleLists are the enabled rule-list filters of the profile or filtering
 	// group, if any.  All items must not be nil.
@@ -63,6 +59,13 @@ type Config struct {
 	// ServiceLists are the rule-list filters of the profile's enabled blocked
 	// services, if any.  All items must not be nil.
 	ServiceLists []*rulelist.Immutable
+}
+
+// RequestFilter can filter a request based on the request info.
+type RequestFilter interface {
+	// FilterRequest filters a DNS request based on the information provided
+	// about the request.  req must be valid.
+	FilterRequest(ctx context.Context, req *filter.Request) (r filter.Result, err error)
 }
 
 // New returns a new composite filter.  c must not be nil.
@@ -74,22 +77,19 @@ func New(c *Config) (f *Filter) {
 	}
 
 	// DO NOT change the order of request filters without necessity.
-	f.reqFilters = appendReqFilter(f.reqFilters, c.SafeBrowsing)
-	f.reqFilters = appendReqFilter(f.reqFilters, c.AdultBlocking)
-	f.reqFilters = appendReqFilter(f.reqFilters, c.GeneralSafeSearch)
-	f.reqFilters = appendReqFilter(f.reqFilters, c.YouTubeSafeSearch)
-	f.reqFilters = appendReqFilter(f.reqFilters, c.NewRegisteredDomains)
+	f.reqFilters = appendIfNotNil(f.reqFilters, c.SafeBrowsing)
+	f.reqFilters = appendIfNotNil(f.reqFilters, c.AdultBlocking)
+	f.reqFilters = appendIfNotNil(f.reqFilters, c.GeneralSafeSearch)
+	f.reqFilters = appendIfNotNil(f.reqFilters, c.YouTubeSafeSearch)
+	f.reqFilters = appendIfNotNil(f.reqFilters, c.NewRegisteredDomains)
 
 	return f
 }
 
-// appendReqFilter appends flt to flts if flt is not nil.
-func appendReqFilter[T *hashprefix.Filter | *safesearch.Filter](
-	flts []internal.RequestFilter,
-	flt T,
-) (res []internal.RequestFilter) {
+// appendIfNotNil appends flt to flts if flt is not nil.
+func appendIfNotNil(flts []RequestFilter, flt RequestFilter) (res []RequestFilter) {
 	if flt != nil {
-		flts = append(flts, internal.RequestFilter(flt))
+		flts = append(flts, flt)
 	}
 
 	return flts
@@ -98,7 +98,7 @@ func appendReqFilter[T *hashprefix.Filter | *safesearch.Filter](
 // type check
 var _ filter.Interface = (*Filter)(nil)
 
-// FilterRequest implements the [internal.Interface] interface for *Filter.  The
+// FilterRequest implements the [filter.Interface] interface for *Filter.  The
 // order in which the filters are applied is the following:
 //
 //  1. Custom filter.
@@ -113,23 +113,23 @@ var _ filter.Interface = (*Filter)(nil)
 // If f is empty, it returns nil with no error.
 func (f *Filter) FilterRequest(
 	ctx context.Context,
-	req *internal.Request,
-) (r internal.Result, err error) {
+	req *filter.Request,
+) (r filter.Result, err error) {
 	// Prepare common data for filters.  Firstly, check the profile's rule-list
 	// filtering, the custom rules, and the rules from blocked services
 	// settings.
-	rlRes := f.filterReqWithRuleLists(req)
+	rlRes := f.filterReqWithRuleLists(ctx, req)
 	switch flRes := rlRes.(type) {
-	case *internal.ResultAllowed:
+	case *filter.ResultAllowed:
 		// Skip any additional filtering if the domain is explicitly allowed by
 		// user's custom rule.
-		if flRes.List == internal.IDCustom {
+		if flRes.List == filter.IDCustom {
 			return flRes, nil
 		}
 	case
-		*internal.ResultBlocked,
-		*internal.ResultModifiedRequest,
-		*internal.ResultModifiedResponse:
+		*filter.ResultBlocked,
+		*filter.ResultModifiedRequest,
+		*filter.ResultModifiedResponse:
 		// Skip any additional filtering if the query is already blocked or
 		// modified.
 		return flRes, nil
@@ -152,15 +152,20 @@ func (f *Filter) FilterRequest(
 
 // filterReqWithRuleLists filters one question's information through all rule
 // list filters of the composite filter.  req must not be nil.
-func (f *Filter) filterReqWithRuleLists(req *internal.Request) (r internal.Result) {
+func (f *Filter) filterReqWithRuleLists(
+	ctx context.Context,
+	req *filter.Request,
+) (r filter.Result) {
 	ip, host, qt := req.RemoteIP, req.Host, req.QType
 
-	ufRes := &rulelist.URLFilterResult{}
+	// TODO(a.garipov):  Consider adding a pool of results to the default
+	// storage and use it here.
+	ufRes := newURLFilterResult()
 	if f.custom != nil {
-		id := internal.IDCustom
+		id := filter.IDCustom
 
 		// Only use the device name for custom filters of profiles with devices.
-		dr := f.custom.DNSResult(ip, req.ClientName, host, qt, false)
+		dr := f.custom.DNSResult(ctx, ip, req.ClientName, host, qt, false)
 		mod := rulelist.ProcessDNSRewrites(req, dr.DNSRewrites(), id)
 		if mod != nil {
 			// Process the DNS rewrites of the custom list and return them
@@ -168,7 +173,7 @@ func (f *Filter) filterReqWithRuleLists(req *internal.Request) (r internal.Resul
 			return mod
 		}
 
-		ufRes.Add(dr)
+		ufRes.add(id, "", dr)
 	}
 
 	for _, rl := range f.ruleLists {
@@ -181,26 +186,27 @@ func (f *Filter) filterReqWithRuleLists(req *internal.Request) (r internal.Resul
 			return mod
 		}
 
-		ufRes.Add(dr)
+		ufRes.add(id, "", dr)
 	}
 
 	for _, rl := range f.svcLists {
-		ufRes.Add(rl.DNSResult(ip, "", host, qt, false))
+		id, svcID := rl.ID()
+		ufRes.add(id, svcID, rl.DNSResult(ip, "", host, qt, false))
 	}
 
-	return ufRes.ToInternal(f, qt)
+	return ufRes.toInternal(qt)
 }
 
-// FilterResponse implements the [internal.Interface] interface for *Filter.  It
+// FilterResponse implements the [filter.Interface] interface for *Filter.  It
 // returns the action created from the filter list network rule with the highest
 // priority.  If f is empty, it returns nil with no error.  Note that rewrite
 // results are not applied to responses.
 func (f *Filter) FilterResponse(
-	_ context.Context,
-	resp *internal.Response,
-) (r internal.Result, err error) {
+	ctx context.Context,
+	resp *filter.Response,
+) (r filter.Result, err error) {
 	for _, ans := range resp.DNS.Answer {
-		r = f.filterAnswer(resp, ans)
+		r = f.filterAnswer(ctx, resp, ans)
 		if r != nil {
 			break
 		}
@@ -211,9 +217,13 @@ func (f *Filter) FilterResponse(
 
 // filterAnswer filters a single answer of a response.  r is not nil if the
 // response is filtered.
-func (f *Filter) filterAnswer(resp *internal.Response, ans dns.RR) (r internal.Result) {
+func (f *Filter) filterAnswer(
+	ctx context.Context,
+	resp *filter.Response,
+	ans dns.RR,
+) (r filter.Result) {
 	if rr, ok := ans.(*dns.HTTPS); ok {
-		return f.filterHTTPSAnswer(resp, rr)
+		return f.filterHTTPSAnswer(ctx, resp, rr)
 	}
 
 	host, rrType, ok := parseRespAnswer(ans)
@@ -221,39 +231,47 @@ func (f *Filter) filterAnswer(resp *internal.Response, ans dns.RR) (r internal.R
 		return nil
 	}
 
-	return f.filterRespWithRuleLists(resp, host, rrType)
+	return f.filterRespWithRuleLists(ctx, resp, host, rrType)
 }
 
 // filterRespWithRuleLists filters one answer's information through all
 // rule-list filters of the composite filter.
 func (f *Filter) filterRespWithRuleLists(
-	resp *internal.Response,
+	ctx context.Context,
+	resp *filter.Response,
 	host string,
 	rrType dnsmsg.RRType,
-) (r internal.Result) {
-	ufRes := &rulelist.URLFilterResult{}
+) (r filter.Result) {
+	ufRes := newURLFilterResult()
 	for _, rl := range f.ruleLists {
-		ufRes.Add(rl.DNSResult(resp.RemoteIP, "", host, rrType, true))
+		id, _ := rl.ID()
+		ufRes.add(id, "", rl.DNSResult(resp.RemoteIP, "", host, rrType, true))
 	}
 
 	if f.custom != nil {
-		ufRes.Add(f.custom.DNSResult(resp.RemoteIP, resp.ClientName, host, rrType, true))
+		dr := f.custom.DNSResult(ctx, resp.RemoteIP, resp.ClientName, host, rrType, true)
+		ufRes.add(filter.IDCustom, "", dr)
 	}
 
 	for _, rl := range f.svcLists {
-		ufRes.Add(rl.DNSResult(resp.RemoteIP, "", host, rrType, true))
+		id, svcID := rl.ID()
+		ufRes.add(id, svcID, rl.DNSResult(resp.RemoteIP, "", host, rrType, true))
 	}
 
-	return ufRes.ToInternal(f, rrType)
+	return ufRes.toInternal(rrType)
 }
 
 // filterHTTPSAnswer filters HTTPS answers information through all rule list
 // filters of the composite filter.
-func (f *Filter) filterHTTPSAnswer(resp *internal.Response, rr *dns.HTTPS) (r internal.Result) {
+func (f *Filter) filterHTTPSAnswer(
+	ctx context.Context,
+	resp *filter.Response,
+	rr *dns.HTTPS,
+) (r filter.Result) {
 	for _, kv := range rr.Value {
 		switch kv.Key() {
 		case dns.SVCB_IPV4HINT, dns.SVCB_IPV6HINT:
-			r = f.filterSVCBHint(kv.String(), resp)
+			r = f.filterSVCBHint(ctx, kv.String(), resp)
 			if r != nil {
 				return r
 			}
@@ -267,9 +285,13 @@ func (f *Filter) filterHTTPSAnswer(resp *internal.Response, rr *dns.HTTPS) (r in
 
 // filterSVCBHint filters SVCB hint information through all rule list filters of
 // the composite filter.
-func (f *Filter) filterSVCBHint(hint string, resp *internal.Response) (r internal.Result) {
+func (f *Filter) filterSVCBHint(
+	ctx context.Context,
+	hint string,
+	resp *filter.Response,
+) (r filter.Result) {
 	for _, s := range strings.Split(hint, ",") {
-		r = f.filterRespWithRuleLists(resp, s, dns.TypeHTTPS)
+		r = f.filterRespWithRuleLists(ctx, resp, s, dns.TypeHTTPS)
 		if r != nil {
 			return r
 		}
@@ -292,32 +314,4 @@ func parseRespAnswer(ans dns.RR) (hostname string, rrType dnsmsg.RRType, ok bool
 	default:
 		return "", dns.TypeNone, false
 	}
-}
-
-// type check
-var _ rulelist.IDMapper = (*Filter)(nil)
-
-// Map implements the [rulelist.IDMapper] interface for *Filter.  It returns the
-// rule list data by its synthetic integer ID in the urlfilter engine.  It
-// panics if id is not found.
-func (f *Filter) Map(id int) (fltID internal.ID, svcID internal.BlockedServiceID) {
-	for _, rl := range f.ruleLists {
-		if rl.URLFilterID() == id {
-			return rl.ID()
-		}
-	}
-
-	if rl := f.custom; rl != nil && rl.URLFilterID() == id {
-		return rl.ID()
-	}
-
-	for _, rl := range f.svcLists {
-		if rl.URLFilterID() == id {
-			return rl.ID()
-		}
-	}
-
-	// Technically shouldn't happen, since id is supposed to be among the rule
-	// list filters in the composite filter.
-	panic(fmt.Errorf("filter: synthetic id %d not found", id))
 }

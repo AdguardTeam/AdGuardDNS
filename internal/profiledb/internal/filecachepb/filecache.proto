@@ -43,8 +43,8 @@ message Profile {
 
 message FilterConfig {
   message Custom {
-    string id = 1;
-    google.protobuf.Timestamp update_time = 2;
+    reserved 1;
+    reserved 2;
     repeated string rules = 3;
     bool enabled = 4;
   }

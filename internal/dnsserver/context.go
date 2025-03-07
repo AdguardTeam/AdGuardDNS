@@ -7,50 +7,6 @@ import (
 	"time"
 )
 
-// ContextConstructor is an interface for constructing interfaces with
-// deadlines, e.g. for request contexts.
-type ContextConstructor interface {
-	New() (ctx context.Context, cancel context.CancelFunc)
-}
-
-// DefaultContextConstructor is the default implementation of the
-// [ContextConstructor] interface.
-type DefaultContextConstructor struct{}
-
-// type check
-var _ ContextConstructor = DefaultContextConstructor{}
-
-// New implements the [ContextConstructor] interface for
-// DefaultContextConstructor.  It returns [context.Background] and an empty
-// [context.CancelFunc].
-func (DefaultContextConstructor) New() (ctx context.Context, cancel context.CancelFunc) {
-	return context.Background(), func() {}
-}
-
-// TimeoutContextConstructor is an implementation of the [ContextConstructor]
-// interface that returns a context with the given timeout.
-type TimeoutContextConstructor struct {
-	timeout time.Duration
-}
-
-// NewTimeoutContextConstructor returns a new properly initialized
-// *TimeoutContextConstructor.
-func NewTimeoutContextConstructor(timeout time.Duration) (c *TimeoutContextConstructor) {
-	return &TimeoutContextConstructor{
-		timeout: timeout,
-	}
-}
-
-// type check
-var _ ContextConstructor = (*TimeoutContextConstructor)(nil)
-
-// New implements the [ContextConstructor] interface for
-// *TimeoutContextConstructor.  It returns a context with its timeout and the
-// corresponding cancelation function.
-func (c *TimeoutContextConstructor) New() (ctx context.Context, cancel context.CancelFunc) {
-	return context.WithTimeout(context.Background(), c.timeout)
-}
-
 // ctxKey is the type for context keys.
 type ctxKey int
 

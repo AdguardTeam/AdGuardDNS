@@ -3,6 +3,9 @@ package agd
 import "github.com/AdguardTeam/AdGuardDNS/internal/filter"
 
 // FilteringGroup represents a set of filtering settings.
+//
+// TODO(a.garipov):  Extract the pre-filtering booleans and logic into a new
+// package.
 type FilteringGroup struct {
 	// FilterConfig is the configuration of the filters used for this filtering
 	// group.  It must not be nil.

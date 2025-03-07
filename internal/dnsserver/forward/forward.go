@@ -30,14 +30,16 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"sync"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdrand"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/service"
 	"github.com/miekg/dns"
-	"golang.org/x/exp/rand"
 )
 
 // Handler is a struct that implements [dnsserver.Handler] and forwards DNS
@@ -104,6 +106,10 @@ type HandlerConfig struct {
 	// metrics.  If not set, EmptyMetricsListener is used.
 	MetricsListener MetricsListener
 
+	// RandSource is used for randomized upstream selection and other
+	// non-sensitive tasks.  If it is nil, [rand.ChaCha8] is used.
+	RandSource rand.Source
+
 	// HealthcheckDomainTmpl is the template for domains used to perform
 	// healthcheck queries.  If the HealthcheckDomainTmpl contains the string
 	// "${RANDOM}", all occurrences of this string are replaced with a random
@@ -136,16 +142,20 @@ type HandlerConfig struct {
 // check afterwards if c.HealthcheckInitDuration is not zero.  Note, that this
 // handler only support plain DNS upstreams.  c must not be nil.
 func NewHandler(c *HandlerConfig) (h *Handler) {
+	src := c.RandSource
+	if src == nil {
+		// Do not initialize through [cmp.Or], as the default value could panic.
+		src = rand.NewChaCha8(agdrand.MustNewSeed())
+	}
+
 	h = &Handler{
-		logger:            cmp.Or(c.Logger, slog.Default()),
-		rand:              rand.New(&rand.LockedSource{}),
+		logger: cmp.Or(c.Logger, slog.Default()),
+		// #nosec G404 -- We don't need a real random, pseudorandom is enough.
+		rand:              rand.New(agdrand.NewLockedSource(src)),
 		activeUpstreamsMu: &sync.RWMutex{},
 		hcDomainTmpl:      c.HealthcheckDomainTmpl,
 		hcBackoff:         c.HealthcheckBackoffDuration,
 	}
-
-	// #nosec G115 -- The Unix epoch time is highly unlikely to be negative.
-	h.rand.Seed(uint64(time.Now().UnixNano()))
 
 	if l := c.MetricsListener; l != nil {
 		h.metrics = l
@@ -230,7 +240,7 @@ func (h *Handler) ServeDNS(
 	}
 
 	if useFallbacks && len(h.fallbacks) > 0 {
-		i := h.rand.Intn(len(h.fallbacks))
+		i := h.rand.IntN(len(h.fallbacks))
 		fallbackUps = h.fallbacks[i]
 		resp, err = h.exchange(ctx, fallbackUps, req)
 	}
@@ -268,13 +278,15 @@ func (h *Handler) exchange(
 	return resp, err
 }
 
-// Refresh implements the [agdservice.Refresher] interface for *Handler.
-//
-// It checks the accessibility of main upstreams and updates handler's list of
-// active upstreams.  In case all main upstreams are down, it returns an error
-// and when all requests are redirected to the fallbacks.  When any of the main
-// upstreams is detected to be up again, requests are redirected back to the
-// main upstreams.
+// type check
+var _ service.Refresher = (*Handler)(nil)
+
+// Refresh implements the [service.Refresher] interface for *Handler.  It checks
+// the accessibility of main upstreams and updates handler's list of active
+// upstreams.  In case all main upstreams are down, it returns an error and when
+// all requests are redirected to the fallbacks.  When any of the main upstreams
+// is detected to be up again, requests are redirected back to the main
+// upstreams.
 func (h *Handler) Refresh(ctx context.Context) (err error) {
 	h.logger.DebugContext(ctx, "healthcheck refresh started")
 	defer h.logger.DebugContext(ctx, "healthcheck refresh finished")
@@ -293,7 +305,7 @@ func (h *Handler) pickActiveUpstream() (u Upstream) {
 		return nil
 	}
 
-	i := h.rand.Intn(len(h.activeUpstreams))
+	i := h.rand.IntN(len(h.activeUpstreams))
 
 	return h.activeUpstreams[i]
 }

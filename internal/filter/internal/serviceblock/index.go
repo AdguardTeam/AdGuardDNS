@@ -9,7 +9,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/golibs/errors"
 )
@@ -38,7 +38,7 @@ func (r *indexResp) toInternal(
 	errs := make([]error, len(r.BlockedServices))
 	for i, svc := range r.BlockedServices {
 		var (
-			svcID internal.BlockedServiceID
+			svcID filter.BlockedServiceID
 			rl    *rulelist.Immutable
 		)
 
@@ -71,7 +71,7 @@ type indexRespService struct {
 const cachePrefix = "filters"
 
 // toInternal converts the service from the index to a rule-list filter.  It
-// also adds the cache with ID "[internal.IDBlockedService]/[svc.ID]" to
+// also adds the cache with ID "[filter.IDBlockedService]/[svc.ID]" to
 // the cache manager.
 func (svc *indexRespService) toInternal(
 	ctx context.Context,
@@ -80,8 +80,8 @@ func (svc *indexRespService) toInternal(
 	cacheManager agdcache.Manager,
 	cacheCount int,
 	useCache bool,
-) (svcID internal.BlockedServiceID, rl *rulelist.Immutable, err error) {
-	svcID, err = internal.NewBlockedServiceID(svc.ID)
+) (svcID filter.BlockedServiceID, rl *rulelist.Immutable, err error) {
+	svcID, err = filter.NewBlockedServiceID(svc.ID)
 	if err != nil {
 		return "", nil, fmt.Errorf("validating id: %w", err)
 	}
@@ -91,17 +91,9 @@ func (svc *indexRespService) toInternal(
 		logger.WarnContext(ctx, "service has no rules", "svc_id", svcID)
 	}
 
-	fltIDStr := path.Join(cachePrefix, string(internal.IDBlockedService), string(svcID))
+	fltIDStr := path.Join(cachePrefix, string(filter.IDBlockedService), string(svcID))
 	cache := rulelist.NewManagedResultCache(cacheManager, fltIDStr, cacheCount, useCache)
-	rl, err = rulelist.NewImmutable(
-		strings.Join(svc.Rules, "\n"),
-		internal.IDBlockedService,
-		svcID,
-		cache,
-	)
-	if err != nil {
-		return "", nil, fmt.Errorf("compiling %s: %w", svc.ID, err)
-	}
+	rl = rulelist.NewImmutable(strings.Join(svc.Rules, "\n"), filter.IDBlockedService, svcID, cache)
 
 	logger.InfoContext(ctx, "converted service", "svc_id", svcID, "num_rules", rl.RulesCount())
 

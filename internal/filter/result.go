@@ -1,4 +1,4 @@
-package internal
+package filter
 
 import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"

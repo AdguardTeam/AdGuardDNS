@@ -9,9 +9,13 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/profiledbtest"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
+
+// testLogger is the common logger for tests.
+var testLogger = slogutil.NewDiscardLogger()
 
 // Sinks for benchmarks
 var (
@@ -74,7 +78,7 @@ func BenchmarkCache(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for range b.N {
-			gotCache, errSink = toInternal(fileCacheSink, profiledbtest.RespSzEst)
+			gotCache, errSink = toInternal(fileCacheSink, testLogger, profiledbtest.RespSzEst)
 		}
 
 		require.NoError(b, errSink)

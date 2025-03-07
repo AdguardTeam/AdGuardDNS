@@ -1,12 +1,12 @@
 package cmd
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/validate"
 	"github.com/c2h5oh/datasize"
 )
 
@@ -22,29 +22,20 @@ type network struct {
 }
 
 // type check
-var _ validator = (*interfaceListener)(nil)
+var _ validate.Interface = (*network)(nil)
 
-// validate implements the [validator] interface for *network.
-func (n *network) validate() (err error) {
-	const maxBufSize datasize.ByteSize = math.MaxInt32
-	switch {
-	case n == nil:
+// Validate implements the [validate.Interface] interface for *network.
+func (n *network) Validate() (err error) {
+	if n == nil {
 		return errors.ErrNoValue
-	case n.SndBufSize > maxBufSize:
-		return fmt.Errorf(
-			"so_sndbuf: %s: must be less than or equal to %s",
-			errors.ErrOutOfRange,
-			maxBufSize,
-		)
-	case n.RcvBufSize > maxBufSize:
-		return fmt.Errorf(
-			"so_rcvbuf: %s: must be less than or equal to %s",
-			errors.ErrOutOfRange,
-			maxBufSize,
-		)
-	default:
-		return nil
 	}
+
+	const maxBufSize datasize.ByteSize = math.MaxInt32
+
+	return errors.Join(
+		validate.NoGreaterThan("so_sndbuf", n.SndBufSize, maxBufSize),
+		validate.NoGreaterThan("so_rcvbuf", n.RcvBufSize, maxBufSize),
+	)
 }
 
 // toInternal converts n to the bindtodevice control configuration and network

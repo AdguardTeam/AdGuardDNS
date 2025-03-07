@@ -2,6 +2,7 @@ package websvc
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -13,30 +14,25 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optlog"
 	"github.com/AdguardTeam/golibs/httphdr"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 )
-
-// Linked IP Proxy
 
 // linkedIPProxy proxies selected requests to a remote address.
 type linkedIPProxy struct {
 	httpProxy *httputil.ReverseProxy
 	errColl   errcoll.Interface
-	logPrefix string
 }
 
-// linkedIPHandler returns a linked IP proxy handler.
-func linkedIPHandler(
+// newLinkedIPHandler returns a linked IP proxy handler.  All arguments must be
+// set.
+func newLinkedIPHandler(
 	apiURL *url.URL,
 	errColl errcoll.Interface,
-	name string,
+	proxyLogger *slog.Logger,
 	timeout time.Duration,
 ) (h http.Handler) {
-	logPrefix := fmt.Sprintf("websvc: linked ip proxy %s", name)
-
 	// Use a Rewrite func to make sure we send the correct Host header and don't
 	// send anything besides the path.
 	rewrite := func(r *httputil.ProxyRequest) {
@@ -45,6 +41,10 @@ func linkedIPHandler(
 
 		// Make sure that all requests are marked with our user agent.
 		r.Out.Header.Set(httphdr.UserAgent, agdhttp.UserAgent())
+
+		// Set the X-Forwarded-* headers for the backend to inspect cert
+		// validation requests.
+		r.SetXForwarded()
 	}
 
 	// Use largely the same transport as http.DefaultTransport, but with a
@@ -81,28 +81,20 @@ func linkedIPHandler(
 	handlerWithError := func(_ http.ResponseWriter, r *http.Request, err error) {
 		ctx := r.Context()
 		reqID, _ := agd.RequestIDFromContext(ctx)
-		errcoll.Collectf(
-			ctx,
-			errColl,
-			"%s: proxying %s %s: req %s: %w",
-			logPrefix,
-			r.Method,
-			r.URL.Path,
-			reqID,
-			err,
-		)
+
+		l := slogutil.MustLoggerFromContext(ctx).With("req_id", reqID)
+		errcoll.Collect(ctx, errColl, l, "proxying", err)
 	}
 
 	return &linkedIPProxy{
 		httpProxy: &httputil.ReverseProxy{
 			Rewrite:        rewrite,
 			Transport:      transport,
-			ErrorLog:       log.StdLog(logPrefix, log.DEBUG),
+			ErrorLog:       slog.NewLogLogger(proxyLogger.Handler(), slog.LevelDebug),
 			ModifyResponse: modifyResponse,
 			ErrorHandler:   handlerWithError,
 		},
-		errColl:   errColl,
-		logPrefix: logPrefix,
+		errColl: errColl,
 	}
 }
 
@@ -115,9 +107,9 @@ func (prx *linkedIPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	respHdr := w.Header()
 	respHdr.Set(httphdr.Server, agdhttp.UserAgent())
 
+	ctx := r.Context()
+	l := slogutil.MustLoggerFromContext(ctx)
 	m, p, rAddr := r.Method, r.URL.Path, r.RemoteAddr
-	optlog.Debug3("websvc: starting req %s %s from %s", m, p, rAddr)
-	defer optlog.Debug3("websvc: finished req %s %s from %s", m, p, rAddr)
 
 	if shouldProxy(m, p) {
 		// TODO(a.garipov): Consider moving some or all this request
@@ -134,8 +126,8 @@ func (prx *linkedIPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Set the real IP.
 		ip, err := netutil.SplitHost(rAddr)
 		if err != nil {
-			ctx := r.Context()
-			prx.errColl.Collect(ctx, fmt.Errorf("%s: getting ip: %w", prx.logPrefix, err))
+			err = fmt.Errorf("websvc: linked ip proxy: getting ip: %w", err)
+			prx.errColl.Collect(ctx, err)
 
 			// Send a 500 error, despite the fact that this is probably a client
 			// error, because this is the code that the frontend expects.
@@ -151,13 +143,13 @@ func (prx *linkedIPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r = r.WithContext(agd.WithRequestID(r.Context(), reqID))
 		hdr.Set(httphdr.XRequestID, reqID.String())
 
-		log.Debug("%s: proxying %s %s: req %s", prx.logPrefix, m, p, reqID)
+		l.DebugContext(ctx, "starting to proxy", "req_id", reqID)
 
 		prx.httpProxy.ServeHTTP(w, r)
 
 		metrics.WebSvcLinkedIPProxyRequestsTotal.Inc()
 	} else if r.URL.Path == "/robots.txt" {
-		serveRobotsDisallow(respHdr, w, prx.logPrefix)
+		serveRobotsDisallow(ctx, respHdr, w)
 	} else {
 		http.NotFound(w, r)
 	}
@@ -170,6 +162,8 @@ func (prx *linkedIPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 //   - GET /linkip/{device_id}/{encrypted}/status
 //   - POST /ddns/{device_id}/{encrypted}/{domain}
 //   - POST /linkip/{device_id}/{encrypted}
+//
+// TODO(a.garipov):  Use mux routes.
 func shouldProxy(method, urlPath string) (ok bool) {
 	parts := strings.SplitN(strings.TrimPrefix(urlPath, "/"), "/", 5)
 	if l := len(parts); l < 3 || l > 4 {

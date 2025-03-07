@@ -3,9 +3,8 @@ package agd
 import (
 	"encoding/base64"
 	"fmt"
-	"time"
 
-	"golang.org/x/exp/rand"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdrand"
 )
 
 // RequestIDLen is the length of a [RequestID] in bytes.  A RequestID is
@@ -20,13 +19,7 @@ type RequestID [RequestIDLen]byte
 // requestIDRand is used to create [RequestID]s.
 //
 // TODO(a.garipov): Consider making a struct instead of using one global source.
-var requestIDRand = rand.New(&rand.LockedSource{})
-
-// InitRequestID initializes the [RequestID] generator.
-func InitRequestID() {
-	// #nosec G115 -- The Unix epoch time is highly unlikely to be negative.
-	requestIDRand.Seed(uint64(time.Now().UnixNano()))
-}
+var requestIDRand = agdrand.NewReader(agdrand.MustNewSeed())
 
 // NewRequestID returns a new pseudorandom RequestID.  Prefer this to manual
 // conversion from other string types.

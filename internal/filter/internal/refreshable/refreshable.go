@@ -64,10 +64,10 @@ type Config struct {
 // New returns a new refreshable.  c must not be nil.
 func New(c *Config) (f *Refreshable, err error) {
 	if c.URL == nil {
-		return nil, fmt.Errorf("internal.NewRefreshable: nil url for refreshable with ID %q", c.ID)
+		return nil, fmt.Errorf("refreshable.New: nil url for refreshable with ID %q", c.ID)
 	} else if s := c.URL.Scheme; !strings.EqualFold(s, urlutil.SchemeFile) &&
 		!urlutil.IsValidHTTPURLScheme(s) {
-		return nil, fmt.Errorf("internal.NewRefreshable: bad url scheme %q", s)
+		return nil, fmt.Errorf("refreshable.New: bad url scheme %q", s)
 	}
 
 	return &Refreshable{

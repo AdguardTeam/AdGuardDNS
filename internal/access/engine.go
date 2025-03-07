@@ -15,6 +15,8 @@ import (
 )
 
 // blockedHostEngine is a lazy blocklist rules engine.
+//
+// TODO(a.garipov):  Replace/merge with [custom.Filter].
 type blockedHostEngine struct {
 	lazyEngine *urlfilter.DNSEngine
 	initOnce   *sync.Once

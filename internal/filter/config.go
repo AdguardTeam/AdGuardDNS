@@ -1,6 +1,12 @@
 package filter
 
-import "github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
+import (
+	"context"
+	"net/netip"
+
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/urlfilter"
+)
 
 // Config is the sum type of [Storage.ForConfig] configurations.
 //
@@ -39,7 +45,32 @@ func (*ConfigClient) isConfig() {}
 
 // ConfigCustom is the configuration for identification or construction of a
 // custom filter for a client.
-type ConfigCustom = internal.ConfigCustom
+type ConfigCustom struct {
+	// Filter is the custom filter to use for this client, if any.  If
+	// [ConfigCustom.Enabled] is true, Filter must not be nil.
+	Filter Custom
+
+	// Enabled shows whether the custom filters are applied at all.
+	Enabled bool
+}
+
+// Custom is a custom filter for a client.
+type Custom interface {
+	// DNSResult returns the result of applying the urlfilter DNS filtering
+	// engine.  If the request is not filtered, DNSResult returns nil.
+	DNSResult(
+		ctx context.Context,
+		clientIP netip.Addr,
+		clientName string,
+		host string,
+		rrType dnsmsg.RRType,
+		isAns bool,
+	) (res *urlfilter.DNSResult)
+
+	// Rules returns the rules used to create the filter.  rules must not be
+	// modified.
+	Rules() (rules []RuleText)
+}
 
 // ConfigParental is the configuration for parental-control filtering.
 type ConfigParental struct {

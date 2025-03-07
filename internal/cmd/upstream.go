@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"cmp"
 	"fmt"
 	"log/slog"
 	"net/netip"
@@ -9,15 +8,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
+	dnssvcprom "github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
+	"github.com/AdguardTeam/golibs/contextutil"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/service"
 	"github.com/AdguardTeam/golibs/timeutil"
+	"github.com/AdguardTeam/golibs/validate"
 )
 
 // upstreamConfig is the upstream module configuration.
@@ -35,57 +34,45 @@ type upstreamConfig struct {
 
 // toInternal converts c to the data storage configuration for the DNS server.
 // c must be valid.
-func (c *upstreamConfig) toInternal(logger *slog.Logger) (fwdConf *forward.HandlerConfig) {
-	upstreams := c.Servers
-	fallbacks := c.Fallback.Servers
-
-	upsConfs := toUpstreamConfigs(upstreams)
-	fallbackConfs := toUpstreamConfigs(fallbacks)
-	metricsListener := prometheus.NewForwardMetricsListener(
-		metrics.Namespace(),
-		len(upstreams)+len(fallbacks),
-	)
-
+func (c *upstreamConfig) toInternal(
+	logger *slog.Logger,
+	mtrcListener *dnssvcprom.ForwardMetricsListener,
+) (fwdConf *forward.HandlerConfig) {
 	var hcInit time.Duration
 	if c.Healthcheck.Enabled {
-		hcInit = c.Healthcheck.Timeout.Duration
+		hcInit = time.Duration(c.Healthcheck.Timeout)
 	}
 
-	fwdConf = &forward.HandlerConfig{
+	return &forward.HandlerConfig{
 		Logger:                     logger.With(slogutil.KeyPrefix, "forward"),
-		MetricsListener:            metricsListener,
+		MetricsListener:            mtrcListener,
 		HealthcheckDomainTmpl:      c.Healthcheck.DomainTmpl,
-		UpstreamsAddresses:         upsConfs,
-		FallbackAddresses:          fallbackConfs,
-		HealthcheckBackoffDuration: c.Healthcheck.BackoffDuration.Duration,
+		UpstreamsAddresses:         toUpstreamConfigs(c.Servers),
+		FallbackAddresses:          toUpstreamConfigs(c.Fallback.Servers),
+		HealthcheckBackoffDuration: time.Duration(c.Healthcheck.BackoffDuration),
 		HealthcheckInitDuration:    hcInit,
 	}
-
-	return fwdConf
 }
 
 // type check
-var _ validator = (*upstreamConfig)(nil)
+var _ validate.Interface = (*upstreamConfig)(nil)
 
-// validate implements the [validator] interface for *upstreamConfig.
-func (c *upstreamConfig) validate() (err error) {
-	switch {
-	case c == nil:
+// Validate implements the [validate.Interface] interface for *upstreamConfig.
+func (c *upstreamConfig) Validate() (err error) {
+	if c == nil {
 		return errors.ErrNoValue
-	case len(c.Servers) == 0:
-		return fmt.Errorf("servers: %w", errors.ErrEmptyValue)
 	}
 
-	for i, s := range c.Servers {
-		if err = s.validate(); err != nil {
-			return fmt.Errorf("servers: at index %d: %w", i, err)
-		}
+	errs := []error{
+		validate.NotEmptySlice("servers", c.Servers),
 	}
 
-	return cmp.Or(
-		validateProp("fallback", c.Fallback.validate),
-		validateProp("healthcheck", c.Healthcheck.validate),
-	)
+	errs = validate.AppendSlice(errs, "servers", c.Servers)
+
+	errs = validate.Append(errs, "fallback", c.Fallback)
+	errs = validate.Append(errs, "healthcheck", c.Healthcheck)
+
+	return errors.Join(errs...)
 }
 
 // splitUpstreamURL separates server url to net protocol and port address.
@@ -142,26 +129,23 @@ type upstreamHealthcheckConfig struct {
 }
 
 // type check
-var _ validator = (*upstreamHealthcheckConfig)(nil)
+var _ validate.Interface = (*upstreamHealthcheckConfig)(nil)
 
-// validate implements the [validator] interface for *upstreamHealthcheckConfig.
-func (c *upstreamHealthcheckConfig) validate() (err error) {
-	switch {
-	case c == nil:
+// Validate implements the [validate.Interface] interface for
+// *upstreamHealthcheckConfig.
+func (c *upstreamHealthcheckConfig) Validate() (err error) {
+	if c == nil {
 		return errors.ErrNoValue
-	case !c.Enabled:
+	} else if !c.Enabled {
 		return nil
-	case c.DomainTmpl == "":
-		return fmt.Errorf("domain_template: %w", errors.ErrEmptyValue)
-	case c.Interval.Duration <= 0:
-		return newNotPositiveError("interval", c.Interval)
-	case c.Timeout.Duration <= 0:
-		return newNotPositiveError("timeout", c.Timeout)
-	case c.BackoffDuration.Duration <= 0:
-		return newNotPositiveError("backoff_duration", c.BackoffDuration)
 	}
 
-	return nil
+	return errors.Join(
+		validate.NotEmpty("domain_template", c.DomainTmpl),
+		validate.Positive("backoff_duration", c.BackoffDuration),
+		validate.Positive("interval", c.Interval),
+		validate.Positive("timeout", c.Timeout),
+	)
 }
 
 // newUpstreamHealthcheck returns refresher worker service that performs
@@ -178,13 +162,13 @@ func newUpstreamHealthcheck(
 
 	const prefix = "upstream_healthcheck_refresh"
 	refrLogger := logger.With(slogutil.KeyPrefix, prefix)
-	return agdservice.NewRefreshWorker(&agdservice.RefreshWorkerConfig{
-		Context:           newCtxWithTimeoutCons(conf.Healthcheck.Timeout.Duration),
-		Refresher:         agdservice.NewRefresherWithErrColl(handler, refrLogger, errColl, prefix),
-		Logger:            refrLogger,
-		Interval:          conf.Healthcheck.Interval.Duration,
-		RefreshOnShutdown: false,
-		RandomizeStart:    false,
+
+	return service.NewRefreshWorker(&service.RefreshWorkerConfig{
+		ContextConstructor: contextutil.NewTimeoutConstructor(time.Duration(conf.Healthcheck.Timeout)),
+		ErrorHandler:       errcoll.NewRefreshErrorHandler(refrLogger, errColl),
+		Refresher:          handler,
+		Schedule:           timeutil.NewConstSchedule(time.Duration(conf.Healthcheck.Interval)),
+		RefreshOnShutdown:  false,
 	})
 }
 
@@ -197,24 +181,22 @@ type upstreamFallbackConfig struct {
 }
 
 // type check
-var _ validator = (*upstreamFallbackConfig)(nil)
+var _ validate.Interface = (*upstreamFallbackConfig)(nil)
 
-// validate implements the [validator] interface for *upstreamFallbackConfig.
-func (c *upstreamFallbackConfig) validate() (err error) {
-	switch {
-	case c == nil:
+// Validate implements the [validate.Interface] interface for
+// *upstreamFallbackConfig.
+func (c *upstreamFallbackConfig) Validate() (err error) {
+	if c == nil {
 		return errors.ErrNoValue
-	case len(c.Servers) == 0:
-		return fmt.Errorf("servers: %w", errors.ErrEmptyValue)
 	}
 
-	for i, s := range c.Servers {
-		if err = s.validate(); err != nil {
-			return fmt.Errorf("servers: at index %d: %w", i, err)
-		}
+	errs := []error{
+		validate.NotEmptySlice("servers", c.Servers),
 	}
 
-	return nil
+	errs = validate.AppendSlice(errs, "servers", c.Servers)
+
+	return errors.Join(errs...)
 }
 
 // upstreamServerConfig is the configuration for the upstream server.
@@ -228,23 +210,25 @@ type upstreamServerConfig struct {
 }
 
 // type check
-var _ validator = (*upstreamServerConfig)(nil)
+var _ validate.Interface = (*upstreamServerConfig)(nil)
 
-// validate implements the [validator] interface for *upstreamServerConfig.
-func (c *upstreamServerConfig) validate() (err error) {
-	switch {
-	case c == nil:
+// Validate implements the [validate.Interface] interface for
+// *upstreamServerConfig.
+func (c *upstreamServerConfig) Validate() (err error) {
+	if c == nil {
 		return errors.ErrNoValue
-	case c.Timeout.Duration <= 0:
-		return newNotPositiveError("timeout", c.Timeout)
+	}
+
+	errs := []error{
+		validate.Positive("timeout", c.Timeout),
 	}
 
 	_, _, err = splitUpstreamURL(c.Address)
 	if err != nil {
-		return fmt.Errorf("invalid addr: %s", c.Address)
+		errs = append(errs, fmt.Errorf("address: %w", err))
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // toUpstreamConfigs converts confs to the list of upstream configurations.
@@ -257,7 +241,7 @@ func toUpstreamConfigs(confs []*upstreamServerConfig) (upsConfs []*forward.Upstr
 		upsConfs = append(upsConfs, &forward.UpstreamPlainConfig{
 			Network: net,
 			Address: addrPort,
-			Timeout: c.Timeout.Duration,
+			Timeout: time.Duration(c.Timeout),
 		})
 	}
 

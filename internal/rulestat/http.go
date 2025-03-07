@@ -12,12 +12,11 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdservice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/service"
 )
 
 // statFilterListLegacyID is the ID of the filtering rule list for which we
@@ -36,6 +35,7 @@ type HTTP struct {
 	url     *url.URL
 	http    *agdhttp.Client
 	errColl errcoll.Interface
+	metrics Metrics
 
 	// mu protects stats and recordedHits.
 	mu           *sync.Mutex
@@ -55,6 +55,9 @@ type HTTPConfig struct {
 	// ErrColl is used to collect errors during refreshes.
 	ErrColl errcoll.Interface
 
+	// Metrics is used for the collection of the filtering rule statistics.
+	Metrics Metrics
+
 	// URL is the URL to which the statistics is uploaded.
 	URL *url.URL
 }
@@ -69,6 +72,7 @@ func NewHTTP(c *HTTPConfig) (s *HTTP) {
 			Timeout: 30 * time.Second,
 		}),
 		errColl: c.ErrColl,
+		metrics: c.Metrics,
 
 		mu:    &sync.Mutex{},
 		stats: statsSet{},
@@ -79,7 +83,7 @@ func NewHTTP(c *HTTPConfig) (s *HTTP) {
 var _ Interface = (*HTTP)(nil)
 
 // Collect implements the Interface interface for *HTTP.
-func (s *HTTP) Collect(_ context.Context, id filter.ID, text filter.RuleText) {
+func (s *HTTP) Collect(ctx context.Context, id filter.ID, text filter.RuleText) {
 	if id != filter.IDAdGuardDNS {
 		return
 	}
@@ -90,7 +94,7 @@ func (s *HTTP) Collect(_ context.Context, id filter.ID, text filter.RuleText) {
 	defer s.mu.Unlock()
 
 	s.recordedHits++
-	metrics.RuleStatCacheSize.Set(float64(s.recordedHits))
+	s.metrics.SetHitCount(ctx, s.recordedHits)
 
 	texts := s.stats[id]
 	if texts != nil {
@@ -105,25 +109,23 @@ func (s *HTTP) Collect(_ context.Context, id filter.ID, text filter.RuleText) {
 }
 
 // type check
-var _ agdservice.Refresher = (*HTTP)(nil)
+var _ service.Refresher = (*HTTP)(nil)
 
-// Refresh implements the [agdservice.Refresher] interface for *HTTP.  It
-// uploads the collected statistics to s.u and starts collecting a new set of
+// Refresh implements the [service.Refresher] interface for *HTTP.  It uploads
+// the collected statistics to s.u and starts collecting a new set of
 // statistics.
 func (s *HTTP) Refresh(ctx context.Context) (err error) {
 	s.logger.InfoContext(ctx, "refresh started")
 	defer s.logger.InfoContext(ctx, "refresh finished")
 
+	defer func() { s.metrics.HandleUploadStatus(ctx, err) }()
+
 	err = s.refresh(ctx)
 	if err != nil {
 		errcoll.Collect(ctx, s.errColl, s.logger, "uploading rulestat", err)
-		metrics.SetStatusGauge(metrics.RuleStatUploadStatus, err)
 
 		return err
 	}
-
-	metrics.RuleStatUploadTimestamp.SetToCurrentTime()
-	metrics.SetStatusGauge(metrics.RuleStatUploadStatus, nil)
 
 	return nil
 }

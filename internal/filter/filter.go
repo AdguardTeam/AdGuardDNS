@@ -5,93 +5,77 @@ package filter
 
 import (
 	"context"
+	"net/netip"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/miekg/dns"
 )
 
 // Interface is the DNS request and response filter interface.
-type Interface = internal.Interface
+type Interface interface {
+	// FilterRequest filters a DNS request based on the information provided
+	// about the request.  req must be valid.
+	FilterRequest(ctx context.Context, req *Request) (r Result, err error)
 
-// Empty is an [Interface] implementation that always returns nil.
-type Empty = internal.Empty
+	// FilterResponse filters a DNS response based on the information provided
+	// about the response.  resp must be valid.
+	FilterResponse(ctx context.Context, resp *Response) (r Result, err error)
+}
 
 // Request contains information about a request being filtered.
-type Request = internal.Request
+type Request struct {
+	// DNS is the original DNS request used to create filtered responses.  It
+	// must not be nil and must have exactly one question.
+	DNS *dns.Msg
+
+	// Messages is used to create filtered responses for this request.  It must
+	// not be nil.
+	Messages *dnsmsg.Constructor
+
+	// RemoteIP is the remote IP address of the client.
+	RemoteIP netip.Addr
+
+	// ClientName is the client name for rule-list filtering.
+	ClientName string
+
+	// Host is the lowercased, non-FQDN version of the hostname from the
+	// question of the request.
+	Host string
+
+	// QType is the type of question for this request.
+	QType dnsmsg.RRType
+
+	// QClass is the class of question for this request.
+	QClass dnsmsg.Class
+}
 
 // Response contains information about a response being filtered.
-type Response = internal.Response
+type Response struct {
+	// DNS is the original DNS response used to create filtered responses.  It
+	// must not be nil and must have exactly one question.
+	DNS *dns.Msg
 
-// Result is a sum type of all possible filtering actions.  See the following
-// types as implementations:
-//
-//   - [*ResultAllowed]
-//   - [*ResultBlocked]
-//   - [*ResultModifiedResponse]
-//   - [*ResultModifiedRequest]
-type Result = internal.Result
+	// RemoteIP is the remote IP address of the client.
+	RemoteIP netip.Addr
 
-// ResultAllowed means that this request or response was allowed by an allowlist
-// rule within the given filter list.
-type ResultAllowed = internal.ResultAllowed
+	// ClientName is the client name for rule-list filtering.
+	ClientName string
+}
 
-// ResultBlocked means that this request or response was blocked by a blocklist
-// rule within the given filter list.
-type ResultBlocked = internal.ResultBlocked
+// Empty is an [Interface] implementation that always returns nil.
+type Empty struct{}
 
-// ResultModifiedResponse means that this response was rewritten or modified by
-// a rewrite rule within the given filter list.
-type ResultModifiedResponse = internal.ResultModifiedResponse
+// type check
+var _ Interface = Empty{}
 
-// ResultModifiedRequest means that this request was modified by a rewrite rule
-// within the given filter list.
-type ResultModifiedRequest = internal.ResultModifiedRequest
+// FilterRequest implements the [Interface] interface for Empty.
+func (Empty) FilterRequest(_ context.Context, _ *Request) (r Result, err error) {
+	return nil, nil
+}
 
-// ID is the ID of a filter list.  It is an opaque string.
-type ID = internal.ID
-
-// Special ID values shared across the AdGuard DNS system.
-//
-// NOTE:  DO NOT change these as other parts of the system depend on these
-// values.
-//
-// TODO(a.garipov):  Consider removing those that aren't used outside of the
-// filter subpackages.
-const (
-	IDNone = internal.IDNone
-
-	IDAdGuardDNS        = internal.IDAdGuardDNS
-	IDAdultBlocking     = internal.IDAdultBlocking
-	IDBlockedService    = internal.IDBlockedService
-	IDCustom            = internal.IDCustom
-	IDGeneralSafeSearch = internal.IDGeneralSafeSearch
-	IDNewRegDomains     = internal.IDNewRegDomains
-	IDSafeBrowsing      = internal.IDSafeBrowsing
-	IDYoutubeSafeSearch = internal.IDYoutubeSafeSearch
-)
-
-// NewID converts a simple string into an ID and makes sure that it's valid.
-// This should be preferred to a simple type conversion.
-func NewID(s string) (id ID, err error) { return internal.NewID(s) }
-
-// RuleText is the text of a single rule within a rule-list filter.
-type RuleText = internal.RuleText
-
-// NewRuleText converts a simple string into an RuleText and makes sure that
-// it's valid.  This should be preferred to a simple type conversion.
-func NewRuleText(s string) (id RuleText, err error) { return internal.NewRuleText(s) }
-
-// BlockedServiceID is the ID of a blocked service.  While these are usually
-// human-readable, clients should treat them as opaque strings.
-//
-// When a request is blocked by the service blocker, this ID is used as the
-// text of the blocking rule.
-type BlockedServiceID = internal.BlockedServiceID
-
-// NewBlockedServiceID converts a simple string into a BlockedServiceID and
-// makes sure that it's valid.  This should be preferred to a simple type
-// conversion.
-func NewBlockedServiceID(s string) (id BlockedServiceID, err error) {
-	return internal.NewBlockedServiceID(s)
+// FilterResponse implements the [Interface] interface for Empty.
+func (Empty) FilterResponse(_ context.Context, _ *Response) (r Result, err error) {
+	return nil, nil
 }
 
 // HashMatcher is the interface for a safe-browsing and adult-blocking hash
@@ -105,10 +89,3 @@ const (
 	GeneralTXTSuffix       = ".sb.dns.adguard.com"
 	AdultBlockingTXTSuffix = ".pc.dns.adguard.com"
 )
-
-// Metrics is the interface for metrics of filters.
-type Metrics = internal.Metrics
-
-// EmptyMetrics is the implementation of the [Metrics] interface that does
-// nothing.
-type EmptyMetrics = internal.EmptyMetrics
