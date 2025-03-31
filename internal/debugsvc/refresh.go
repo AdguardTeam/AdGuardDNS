@@ -33,6 +33,8 @@ type refreshHandler struct {
 }
 
 // refreshRequest describes the request to the POST /debug/api/refresh HTTP API.
+//
+// TODO(a.garipov):  Consider adding an "except" field.
 type refreshRequest struct {
 	// Patterns is the slice of path patterns to match the refreshers IDs.
 	Patterns []string `json:"ids"`

@@ -60,6 +60,7 @@ const (
 	debugIDBillStat      = "billstat"
 	debugIDGeoIP         = "geoip"
 	debugIDProfileDB     = "profiledb"
+	debugIDProfileDBFull = "profiledb_full"
 	debugIDRuleStat      = "rulestat"
 	debugIDTicketRotator = "ticket_rotator"
 	debugIDTLSConfig     = "tlsconfig"
@@ -1079,7 +1080,8 @@ func (b *builder) newBillStatUploader() (s billstat.Uploader, err error) {
 // initProfileDB initializes the profile database if necessary.
 //
 // [builder.initGRPCMetrics] must be called before this method.  It also adds
-// the refresher with ID [debugIDProfileDB] to the debug refreshers.
+// the refreshers with ID [debugIDProfileDB], [debugIDProfileDBFull] to the
+// debug refreshers.
 func (b *builder) initProfileDB(ctx context.Context) (err error) {
 	if !b.profilesEnabled {
 		b.profileDB = &profiledb.Disabled{}
@@ -1143,7 +1145,6 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 		return fmt.Errorf("preparing default profile database: %w", err)
 	}
 
-	// TODO(a.garipov):  Add a separate refresher ID for full refreshes.
 	b.profileDB = profDB
 
 	// Randomize the start of the profile DB refresh by up to 10 % to not
@@ -1170,6 +1171,9 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 	b.sigHdlr.Add(refr)
 
 	b.debugRefrs[debugIDProfileDB] = profDB
+
+	profRefr := service.RefresherFunc(profDB.RefreshFull)
+	b.debugRefrs[debugIDProfileDBFull] = profRefr
 
 	b.logger.DebugContext(ctx, "initialized profiledb")
 

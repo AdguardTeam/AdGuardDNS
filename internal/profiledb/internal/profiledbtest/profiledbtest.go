@@ -19,6 +19,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// AccountID is the profile ID for tests.
+const AccountID agd.AccountID = "acc1234"
+
 // ProfileID is the profile ID for tests.
 const ProfileID agd.ProfileID = "prof1234"
 
@@ -79,15 +82,41 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 		Enabled: true,
 	}
 
-	customConf := &custom.Config{
+	customDomains := &agd.AccountCustomDomains{
+		Domains: []*agd.CustomDomainConfig{{
+			State: &agd.CustomDomainStateCurrent{
+				CertName:  "abcdefgh",
+				NotBefore: time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC),
+				NotAfter:  time.Date(2022, 1, 1, 0, 0, 0, 0, time.UTC),
+				Enabled:   true,
+			},
+			Domains: []string{
+				"current-1.domain.example",
+				"current-2.domain.example",
+			},
+		}, {
+			State: &agd.CustomDomainStatePending{
+				WellKnownPath: "/.well-known/abc/def",
+				Expire:        time.Date(2022, 1, 1, 0, 0, 0, 0, time.UTC),
+			},
+			Domains: []string{
+				"pending-1.domain.example",
+				"pending-2.domain.example",
+			},
+		}},
+		Enabled: true,
+	}
+
+	customFltConf := &custom.Config{
 		Logger: slogutil.NewDiscardLogger(),
 		Rules:  []filter.RuleText{"|blocked-by-custom.example^"},
 	}
 
 	return &agd.Profile{
+		CustomDomains: customDomains,
 		FilterConfig: &filter.ConfigClient{
 			Custom: &filter.ConfigCustom{
-				Filter:  custom.New(customConf),
+				Filter:  custom.New(customFltConf),
 				Enabled: true,
 			},
 			Parental: parental,
@@ -114,6 +143,7 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 			RPS:           100,
 			Enabled:       true,
 		}, RespSzEst),
+		AccountID:           AccountID,
 		ID:                  ProfileID,
 		DeviceIDs:           []agd.DeviceID{dev.ID},
 		FilteredResponseTTL: 10 * time.Second,

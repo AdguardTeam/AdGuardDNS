@@ -109,9 +109,8 @@ func (prx *linkedIPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	l := slogutil.MustLoggerFromContext(ctx)
-	m, p, rAddr := r.Method, r.URL.Path, r.RemoteAddr
 
-	if shouldProxy(m, p) {
+	if shouldProxy(r) {
 		// TODO(a.garipov): Consider moving some or all this request
 		// modification to the Director function if there are more handlers like
 		// this in the future.
@@ -124,7 +123,7 @@ func (prx *linkedIPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		hdr.Del(httphdr.XRealIP)
 
 		// Set the real IP.
-		ip, err := netutil.SplitHost(rAddr)
+		ip, err := netutil.SplitHost(r.RemoteAddr)
 		if err != nil {
 			err = fmt.Errorf("websvc: linked ip proxy: getting ip: %w", err)
 			prx.errColl.Collect(ctx, err)
@@ -163,8 +162,17 @@ func (prx *linkedIPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 //   - POST /ddns/{device_id}/{encrypted}/{domain}
 //   - POST /linkip/{device_id}/{encrypted}
 //
+// As well as the well-known paths used for certificate validation.
+//
 // TODO(a.garipov):  Use mux routes.
-func shouldProxy(method, urlPath string) (ok bool) {
+func shouldProxy(r *http.Request) (ok bool) {
+	// TODO(a.garipov):  Remove the /.well-known/ crutch once the data about the
+	// actual URLs becomes available.
+	if isWellKnown(r) {
+		return true
+	}
+
+	method, urlPath := r.Method, r.URL.Path
 	parts := strings.SplitN(strings.TrimPrefix(urlPath, "/"), "/", 5)
 	if l := len(parts); l < 3 || l > 4 {
 		return false

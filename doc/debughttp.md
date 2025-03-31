@@ -109,11 +109,12 @@ Supported IDs:
 - `filters/storage`
 - `geoip`
 - `profiledb`
+- `profiledb_full`
 - `rulestat`
 - `ticket_rotator`
 - `tlsconfig`
 
-The special ID `*`, when used alone, causes all available refresh tasks to be performed. Use with caution.
+The special ID `*`, when used alone, causes all available refresh tasks to be performed. Note that it performs full profile DB refresh. Use with caution.
 
 Response body example:
 

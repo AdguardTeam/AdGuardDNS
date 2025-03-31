@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"slices"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
@@ -17,6 +18,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/c2h5oh/datasize"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -103,6 +105,16 @@ func (x *Profile) toInternal(
 		})
 	}
 
+	customDomainConfs, err := customDomainsToInternal(x.CustomDomains.Domains)
+	if err != nil {
+		return nil, fmt.Errorf("custom domain configs: %w", err)
+	}
+
+	customDomains := &agd.AccountCustomDomains{
+		Domains: customDomainConfs,
+		Enabled: x.CustomDomains.Enabled,
+	}
+
 	fltConf := &filter.ConfigClient{
 		Custom: &filter.ConfigCustom{
 			Filter:  flt,
@@ -132,13 +144,15 @@ func (x *Profile) toInternal(
 	}
 
 	return &agd.Profile{
-		FilterConfig: fltConf,
+		CustomDomains: customDomains,
+		FilterConfig:  fltConf,
 
 		Access:       x.Access.toInternal(),
 		BlockingMode: m,
 		Ratelimiter:  x.Ratelimiter.toInternal(respSzEst),
 
-		ID: agd.ProfileID(x.ProfileId),
+		AccountID: agd.AccountID(x.AccountId),
+		ID:        agd.ProfileID(x.ProfileId),
 
 		// Consider device IDs to have been prevalidated.
 		DeviceIDs: unsafelyConvertStrSlice[string, agd.DeviceID](x.DeviceIds),
@@ -230,6 +244,56 @@ func blockingModeToInternal(pbm isProfile_BlockingMode) (m dnsmsg.BlockingMode, 
 		// Consider unhandled type-switch cases programmer errors.
 		return nil, fmt.Errorf("bad pb blocking mode %T(%[1]v)", pbm)
 	}
+}
+
+// customDomainsToInternal converts protobuf custom-domain configurations to
+// internal ones.
+func customDomainsToInternal(
+	pbConfs []*CustomDomainConfig,
+) (confs []*agd.CustomDomainConfig, err error) {
+	l := len(pbConfs)
+	if l == 0 {
+		return nil, nil
+	}
+
+	confs = make([]*agd.CustomDomainConfig, 0, l)
+	for i, pbConf := range pbConfs {
+		var c *agd.CustomDomainConfig
+		c, err = pbConf.toInternal()
+		if err != nil {
+			return nil, fmt.Errorf("at index %d: %w", i, err)
+		}
+
+		confs = append(confs, c)
+	}
+
+	return confs, nil
+}
+
+// toInternal converts a protobuf custom-domain config to an internal one.
+func (x *CustomDomainConfig) toInternal() (c *agd.CustomDomainConfig, err error) {
+	var state agd.CustomDomainState
+	switch s := x.State.(type) {
+	case *CustomDomainConfig_StateCurrent_:
+		state = &agd.CustomDomainStateCurrent{
+			NotBefore: s.StateCurrent.NotBefore.AsTime(),
+			NotAfter:  s.StateCurrent.NotAfter.AsTime(),
+			CertName:  s.StateCurrent.CertName,
+			Enabled:   s.StateCurrent.Enabled,
+		}
+	case *CustomDomainConfig_StatePending_:
+		state = &agd.CustomDomainStatePending{
+			Expire:        s.StatePending.Expire.AsTime(),
+			WellKnownPath: s.StatePending.WellKnownPath,
+		}
+	default:
+		return nil, fmt.Errorf("pb custom domain state: %T(%[1]v): %w", s, errors.ErrBadEnumValue)
+	}
+
+	return &agd.CustomDomainConfig{
+		State:   state,
+		Domains: slices.Clone(x.Domains),
+	}, nil
 }
 
 // devicesToInternal converts protobuf device structures into internal ones.
@@ -378,30 +442,110 @@ func asnToInternal(asns []uint32) (out []geoip.ASN) {
 // profilesToProtobuf converts a slice of profiles to protobuf structures.
 func profilesToProtobuf(profiles []*agd.Profile) (pbProfiles []*Profile) {
 	pbProfiles = make([]*Profile, 0, len(profiles))
-	for _, p := range profiles {
-		pbProfiles = append(pbProfiles, &Profile{
-			FilterConfig:        filterConfigToProtobuf(p.FilterConfig),
-			Access:              accessToProtobuf(p.Access.Config()),
-			BlockingMode:        blockingModeToProtobuf(p.BlockingMode),
-			Ratelimiter:         ratelimiterToProtobuf(p.Ratelimiter.Config()),
-			ProfileId:           string(p.ID),
-			DeviceIds:           unsafelyConvertStrSlice[agd.DeviceID, string](p.DeviceIDs),
-			FilteredResponseTtl: durationpb.New(p.FilteredResponseTTL),
-			AutoDevicesEnabled:  p.AutoDevicesEnabled,
-			BlockChromePrefetch: p.BlockChromePrefetch,
-			BlockFirefoxCanary:  p.BlockFirefoxCanary,
-			BlockPrivateRelay:   p.BlockPrivateRelay,
-			Deleted:             p.Deleted,
-			FilteringEnabled:    p.FilteringEnabled,
-			IpLogEnabled:        p.IPLogEnabled,
-			QueryLogEnabled:     p.QueryLogEnabled,
-		})
+	for i, p := range profiles {
+		if p == nil {
+			panic(fmt.Errorf("converting profiles: at index %d: %w", i, errors.ErrNoValue))
+		}
+
+		pbProfiles = append(pbProfiles, profileToProtobuf(p))
 	}
 
 	return pbProfiles
 }
 
-// filterConfigToProtobuf converts the filtering configration to protobuf.
+// profileToProtobuf converts a profile to protobuf.  p must not be nil.
+func profileToProtobuf(p *agd.Profile) (pbProf *Profile) {
+	defer func() {
+		err := errors.FromRecovered(recover())
+		if err != nil {
+			// Repanic adding the profile information for easier debugging.
+			panic(fmt.Errorf("converting profile %q: %w", p.ID, err))
+		}
+	}()
+
+	return &Profile{
+		CustomDomains:       customDomainsToProtobuf(p.CustomDomains),
+		FilterConfig:        filterConfigToProtobuf(p.FilterConfig),
+		Access:              accessToProtobuf(p.Access.Config()),
+		BlockingMode:        blockingModeToProtobuf(p.BlockingMode),
+		Ratelimiter:         ratelimiterToProtobuf(p.Ratelimiter.Config()),
+		AccountId:           string(p.AccountID),
+		ProfileId:           string(p.ID),
+		DeviceIds:           unsafelyConvertStrSlice[agd.DeviceID, string](p.DeviceIDs),
+		FilteredResponseTtl: durationpb.New(p.FilteredResponseTTL),
+		AutoDevicesEnabled:  p.AutoDevicesEnabled,
+		BlockChromePrefetch: p.BlockChromePrefetch,
+		BlockFirefoxCanary:  p.BlockFirefoxCanary,
+		BlockPrivateRelay:   p.BlockPrivateRelay,
+		Deleted:             p.Deleted,
+		FilteringEnabled:    p.FilteringEnabled,
+		IpLogEnabled:        p.IPLogEnabled,
+		QueryLogEnabled:     p.QueryLogEnabled,
+	}
+}
+
+// customDomainsToProtobuf converts the custom-domains configuration to
+// protobuf.
+func customDomainsToProtobuf(acd *agd.AccountCustomDomains) (pbACD *AccountCustomDomains) {
+	return &AccountCustomDomains{
+		Domains: customDomainConfigsToProtobuf(acd.Domains),
+		Enabled: acd.Enabled,
+	}
+}
+
+// customDomainConfigsToProtobuf converts the configuration of custom-domain
+// sets to protobuf.
+func customDomainConfigsToProtobuf(
+	confs []*agd.CustomDomainConfig,
+) (pbConfs []*CustomDomainConfig) {
+	l := len(confs)
+	if l == 0 {
+		return nil
+	}
+
+	pbConfs = make([]*CustomDomainConfig, 0, l)
+	for i, c := range confs {
+		var state isCustomDomainConfig_State
+		switch s := c.State.(type) {
+		case *agd.CustomDomainStateCurrent:
+			curr := &CustomDomainConfig_StateCurrent{
+				NotBefore: timestamppb.New(s.NotBefore),
+				NotAfter:  timestamppb.New(s.NotAfter),
+				CertName:  s.CertName,
+				Enabled:   s.Enabled,
+			}
+
+			state = &CustomDomainConfig_StateCurrent_{
+				StateCurrent: curr,
+			}
+		case *agd.CustomDomainStatePending:
+			pend := &CustomDomainConfig_StatePending{
+				Expire:        timestamppb.New(s.Expire),
+				WellKnownPath: s.WellKnownPath,
+			}
+
+			state = &CustomDomainConfig_StatePending_{
+				StatePending: pend,
+			}
+		default:
+			panic(fmt.Errorf(
+				"at index %d: custom domain state: %T(%[2]v): %w",
+				i,
+				s,
+				errors.ErrBadEnumValue,
+			))
+		}
+
+		pbConfs = append(pbConfs, &CustomDomainConfig{
+			State:   state,
+			Domains: slices.Clone(c.Domains),
+		})
+	}
+
+	return pbConfs
+}
+
+// filterConfigToProtobuf converts the filtering configuration to protobuf.
 func filterConfigToProtobuf(c *filter.ConfigClient) (fc *FilterConfig) {
 	var rules []string
 	if c.Custom.Enabled {

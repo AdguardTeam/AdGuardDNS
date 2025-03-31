@@ -169,6 +169,7 @@ func newListeners(
 				c.ConnLimiter,
 				proto,
 			),
+			Name: name,
 			Addr: addr,
 		}
 

@@ -501,3 +501,115 @@ var RemoteKVService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "dns.proto",
 }
+
+const (
+	CustomDomainService_GetCustomDomainCertificate_FullMethodName = "/CustomDomainService/getCustomDomainCertificate"
+)
+
+// CustomDomainServiceClient is the client API for CustomDomainService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type CustomDomainServiceClient interface {
+	// Get certificate for custom domain.
+	//
+	// This method may return the following errors:
+	// - AuthenticationFailedError: If the authentication failed.
+	// - BadRequestError: If the request is invalid: cert_name is empty or no certificate found.
+	GetCustomDomainCertificate(ctx context.Context, in *CustomDomainCertificateRequest, opts ...grpc.CallOption) (*CustomDomainCertificateResponse, error)
+}
+
+type customDomainServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewCustomDomainServiceClient(cc grpc.ClientConnInterface) CustomDomainServiceClient {
+	return &customDomainServiceClient{cc}
+}
+
+func (c *customDomainServiceClient) GetCustomDomainCertificate(ctx context.Context, in *CustomDomainCertificateRequest, opts ...grpc.CallOption) (*CustomDomainCertificateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CustomDomainCertificateResponse)
+	err := c.cc.Invoke(ctx, CustomDomainService_GetCustomDomainCertificate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// CustomDomainServiceServer is the server API for CustomDomainService service.
+// All implementations must embed UnimplementedCustomDomainServiceServer
+// for forward compatibility.
+type CustomDomainServiceServer interface {
+	// Get certificate for custom domain.
+	//
+	// This method may return the following errors:
+	// - AuthenticationFailedError: If the authentication failed.
+	// - BadRequestError: If the request is invalid: cert_name is empty or no certificate found.
+	GetCustomDomainCertificate(context.Context, *CustomDomainCertificateRequest) (*CustomDomainCertificateResponse, error)
+	mustEmbedUnimplementedCustomDomainServiceServer()
+}
+
+// UnimplementedCustomDomainServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedCustomDomainServiceServer struct{}
+
+func (UnimplementedCustomDomainServiceServer) GetCustomDomainCertificate(context.Context, *CustomDomainCertificateRequest) (*CustomDomainCertificateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetCustomDomainCertificate not implemented")
+}
+func (UnimplementedCustomDomainServiceServer) mustEmbedUnimplementedCustomDomainServiceServer() {}
+func (UnimplementedCustomDomainServiceServer) testEmbeddedByValue()                             {}
+
+// UnsafeCustomDomainServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to CustomDomainServiceServer will
+// result in compilation errors.
+type UnsafeCustomDomainServiceServer interface {
+	mustEmbedUnimplementedCustomDomainServiceServer()
+}
+
+func RegisterCustomDomainServiceServer(s grpc.ServiceRegistrar, srv CustomDomainServiceServer) {
+	// If the following call pancis, it indicates UnimplementedCustomDomainServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&CustomDomainService_ServiceDesc, srv)
+}
+
+func _CustomDomainService_GetCustomDomainCertificate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CustomDomainCertificateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CustomDomainServiceServer).GetCustomDomainCertificate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CustomDomainService_GetCustomDomainCertificate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CustomDomainServiceServer).GetCustomDomainCertificate(ctx, req.(*CustomDomainCertificateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// CustomDomainService_ServiceDesc is the grpc.ServiceDesc for CustomDomainService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var CustomDomainService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "CustomDomainService",
+	HandlerType: (*CustomDomainServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "getCustomDomainCertificate",
+			Handler:    _CustomDomainService_GetCustomDomainCertificate_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "dns.proto",
+}

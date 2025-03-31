@@ -20,6 +20,10 @@ import (
 // TODO(a.garipov):  Extract the pre-filtering booleans and logic into a new
 // package.
 type Profile struct {
+	// CustomDomains is the configuration of the custom domains belonging to the
+	// account of this profile.  It must not be nil.
+	CustomDomains *AccountCustomDomains
+
 	// FilterConfig is the configuration of the filters used for this profile
 	// and all its devices that don't have filtering disabled.  It must not be
 	// nil.
@@ -36,10 +40,16 @@ type Profile struct {
 	// nil.
 	Ratelimiter Ratelimiter
 
-	// ID is the unique ID of this profile.  It must not be empty.
+	// AccountID is the ID of the account that owns this profile.  It must not
+	// be empty and must be valid.
+	AccountID AccountID
+
+	// ID is the unique ID of this profile.  It must not be empty and must be
+	// valid.
 	ID ProfileID
 
-	// DeviceIDs are the IDs of devices attached to this profile.
+	// DeviceIDs are the IDs of devices attached to this profile.  All items
+	// must not be empty and must be valid.
 	DeviceIDs []DeviceID
 
 	// FilteredResponseTTL is the time-to-live value used for responses sent to

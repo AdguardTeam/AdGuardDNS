@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
@@ -19,7 +20,9 @@ import (
 // type check
 var _ http.Handler = (*Service)(nil)
 
-// ServeHTTP implements the http.Handler interface for *Service.
+// ServeHTTP implements the [http.Handler] interface for *Service.  This handler
+// is used for the non-DoH queries on the DoH server as well as on the
+// additional servers, which usually serve this handler over plain HTTP.
 func (svc *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if svc == nil {
 		http.NotFound(w, r)
@@ -43,8 +46,8 @@ func (svc *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // logWriteError logs err at the appropriate level if ctx contains a logger.
 //
-// TODO(a.garipov):  This is not a proper solution; remove once dnsserver
-// starts adding a logger of its own.
+// TODO(a.garipov):  This is not a proper solution; remove once dnsserver starts
+// adding a logger of its own.
 func logWriteError(ctx context.Context, action string, err error) {
 	l, ok := slogutil.LoggerFromContext(ctx)
 	if ok {
@@ -53,7 +56,11 @@ func logWriteError(ctx context.Context, action string, err error) {
 }
 
 // serveHTTP processes the HTTP request.
-func (svc *Service) serveHTTP(ctx context.Context, rec *httptest.ResponseRecorder, r *http.Request) {
+func (svc *Service) serveHTTP(
+	ctx context.Context,
+	rec *httptest.ResponseRecorder,
+	r *http.Request,
+) {
 	// TODO(a.garipov):  Use mux routes.
 	switch r.URL.Path {
 	case "/dnscheck/test":
@@ -71,16 +78,39 @@ func (svc *Service) serveHTTP(ctx context.Context, rec *httptest.ResponseRecorde
 			metrics.WebSvcRootRedirectRequestsTotal.Inc()
 		}
 	default:
-		svc.staticContent.ServeHTTP(rec, r)
-		if rec.Code != http.StatusNotFound {
-			metrics.WebSvcStaticContentRequestsTotal.Inc()
-		}
-
-		// Assume that most unknown content types are actually plain-text files.
-		if h := rec.Header(); h.Get(httphdr.ContentType) == agdhttp.HdrValApplicationOctetStream {
-			h.Set(httphdr.ContentType, agdhttp.HdrValTextPlain)
-		}
+		svc.serveDefaultNonDoH(rec, r)
 	}
+}
+
+// serveDefaultNonDoH serves either the static content, the well-known proxy
+// handler's result, or a 404 page.
+func (svc *Service) serveDefaultNonDoH(rec *httptest.ResponseRecorder, r *http.Request) {
+	svc.staticContent.ServeHTTP(rec, r)
+	if rec.Code != http.StatusNotFound {
+		metrics.WebSvcStaticContentRequestsTotal.Inc()
+	} else if isWellKnown(r) {
+		// TODO(a.garipov):  Remove the /.well-known/ crutch once the data about
+		// the actual URLs becomes available.
+		//
+		// TODO(a.garipov):  Find a better way to reset the result?
+		*rec = *httptest.NewRecorder()
+		svc.wellKnownProxy.ServeHTTP(rec, r)
+	}
+
+	// Assume that most unknown content types are actually plain-text files.
+	if h := rec.Header(); h.Get(httphdr.ContentType) == agdhttp.HdrValApplicationOctetStream {
+		h.Set(httphdr.ContentType, agdhttp.HdrValTextPlain)
+	}
+}
+
+// isWellKnown returns true if the request should be proxied to the well-known
+// proxy.
+//
+// TODO(a.garipov):  Remove of improve.
+func isWellKnown(r *http.Request) (ok bool) {
+	return r.TLS == nil &&
+		r.Method == http.MethodGet &&
+		strings.HasPrefix(r.URL.Path, "/.well-known/pki-validation/")
 }
 
 // processRec processes the response code in rec and returns the appropriate

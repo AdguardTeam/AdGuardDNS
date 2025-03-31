@@ -7,17 +7,21 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 [kec]: https://keepachangelog.com/en/1.0.0/
 [sem]: https://semver.org/spec/v2.0.0.html
 
+## AGDNS-2478 / Build 974
+
+- Profiles’ file cache version has been incremented. Custom-domain data is now saved.
+
 ## AGDNS-2360 / Build 969
 
 - The environment variable `LOG_FORMAT` has been added.
 
 ## AGDNS-1519 / Build 944
 
-- Profiles’ file cache version was incremented.
+- Profiles’ file cache version has been incremented.
 
 ## AGDNS-2507 / Build 926
 
-- Profiles’ file cache version was incremented. The file cache structure has been optimized, so messages like the following are to be expected:
+- Profiles’ file cache version has been incremented. The file cache structure has been optimized, so messages like the following are to be expected:
 
     ```none
     profiledb: warning: error loading fs cache err="decoding protobuf: proto: cannot parse invalid wire-format data"
@@ -25,7 +29,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
 ## AGDNS-2327 / Build 916
 
-- Profiles’ file cache version was incremented. The new field `BlockChromePrefetch` has been added to profile’s object.
+- Profiles’ file cache version has been incremented. The new field `BlockChromePrefetch` has been added to profile’s object.
 
 - The objects within the `filtering_groups` have a new property, `block_chrome_prefetch`. So replace this:
 
@@ -172,7 +176,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
 ## AGDNS-2331 / Build 818
 
-- Profiles’ file cache version was incremented. The new field `RateLimit` has been added to profile’s object.
+- Profiles’ file cache version has been incremented. The new field `RateLimit` has been added to profile’s object.
 
 ## AGDNS-2008 / Build 809
 
@@ -246,7 +250,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
 - The objects within the `server_groups` array had a change in their `block_page_redirect` configuration, it now supports arrays of IP addresses in `ipv4` and `ipv6` fields.
 
-- Profiles’ file cache version was incremented. In case of `BlockingModeCustomIP` the `profile.blocking_mode` IPv4/IPv6 fields are now arrays of IP addresses.
+- Profiles’ file cache version has been incremented. In case of `BlockingModeCustomIP` the `profile.blocking_mode` IPv4/IPv6 fields are now arrays of IP addresses.
 
 ## AGDNS-2012 / Build 732
 
@@ -254,7 +258,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
 ## AGDNS-1879 / Build 729
 
-- Profiles’ file cache version was incremented. The new field `authentication` has been added to profile’s device object.
+- Profiles’ file cache version has been incremented. The new field `authentication` has been added to profile’s device object.
 
 ## AGDNS-1934 / Build 728
 
@@ -502,7 +506,7 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 
 ## AGDNS-1684 / Build 661
 
-- Profiles’ file cache version was incremented. The new field `access` has been added.
+- Profiles’ file cache version has been incremented. The new field `access` has been added.
 
 ## AGDNS-1664 / Build 636
 

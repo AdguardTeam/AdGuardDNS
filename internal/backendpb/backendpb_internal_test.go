@@ -13,19 +13,32 @@ import (
 //
 // TODO(a.garipov):  Move all or most tests into external and unexport these.
 const (
+	TestAccountIDStr    = "acc1234"
 	TestDeviceIDStr     = "dev1234"
 	TestHumanIDStr      = "My-Device-X--10"
 	TestHumanIDLowerStr = "my-device-x--10"
 	TestProfileIDStr    = "prof1234"
 
+	TestAccountID    agd.AccountID    = TestAccountIDStr
 	TestDeviceID     agd.DeviceID     = TestDeviceIDStr
 	TestHumanID      agd.HumanID      = TestHumanIDStr
 	TestHumanIDLower agd.HumanIDLower = TestHumanIDLowerStr
 	TestProfileID    agd.ProfileID    = TestProfileIDStr
 )
 
-// TestSyncTime is the common update time for tests.
-var TestSyncTime = time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
+var (
+	// TestSyncTime is the common update time for tests.
+	TestSyncTime = time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	// TestNotBefore is the common not-before time for tests.
+	TestNotBefore = time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	// TestNotAfter is the common not-after time for tests.
+	TestNotAfter = time.Date(2022, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	// TestPendingExpire is the common pending-cert expire-time for tests.
+	TestPendingExpire = time.Date(2022, 1, 1, 0, 0, 0, 0, time.UTC)
+)
 
 // TestBind includes any IPv4 address.
 //

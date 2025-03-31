@@ -15,6 +15,8 @@ message FileCache {
 }
 
 message Profile {
+  AccountCustomDomains custom_domains = 20;
+
   FilterConfig filter_config = 1;
 
   Access access = 2;
@@ -26,7 +28,9 @@ message Profile {
   }
   Ratelimiter ratelimiter = 7;
 
+  string account_id = 19;
   string profile_id = 8;
+
   repeated string device_ids = 9;
 
   google.protobuf.Duration filtered_response_ttl = 10;
@@ -39,6 +43,32 @@ message Profile {
   bool filtering_enabled = 16;
   bool ip_log_enabled = 17;
   bool query_log_enabled = 18;
+}
+
+message AccountCustomDomains {
+  repeated CustomDomainConfig domains = 1;
+  bool enabled = 2;
+}
+
+message CustomDomainConfig {
+  message StateCurrent {
+    google.protobuf.Timestamp not_before = 1;
+    google.protobuf.Timestamp not_after = 2;
+    string cert_name = 3;
+    bool enabled = 4;
+  }
+
+  message StatePending {
+    google.protobuf.Timestamp expire = 1;
+    string well_known_path = 2;
+  }
+
+  oneof state {
+    StateCurrent state_current = 1;
+    StatePending state_pending = 2;
+  }
+
+  repeated string domains = 3;
 }
 
 message FilterConfig {

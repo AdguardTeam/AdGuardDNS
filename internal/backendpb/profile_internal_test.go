@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestDNSProfile_ToInternal(t *testing.T) {
@@ -368,7 +369,8 @@ func newDNSProfileWithBadData(tb testing.TB) (dp *DNSProfile) {
 	return dp
 }
 
-// NewTestDNSProfile returns a new instance of *DNSProfile for tests.
+// NewTestDNSProfile returns a new instance of *DNSProfile for tests.  Keep in
+// sync with [newProfile].
 func NewTestDNSProfile(tb testing.TB) (dp *DNSProfile) {
 	tb.Helper()
 
@@ -412,6 +414,52 @@ func NewTestDNSProfile(tb testing.TB) (dp *DNSProfile) {
 		FilteringEnabled: true,
 	}}
 
+	customDomainPending := &CustomDomain{
+		Domains: []string{
+			"pending-1.domain.example",
+			"pending-2.domain.example",
+		},
+		State: &CustomDomain_Pending_{
+			Pending: &CustomDomain_Pending{
+				WellKnownPath: "/.well-known/abc/def",
+				Expire:        timestamppb.New(TestPendingExpire),
+			},
+		},
+	}
+
+	customDomainCurrent := &CustomDomain{
+		Domains: []string{
+			"current-1.domain.example",
+			"current-2.domain.example",
+		},
+		State: &CustomDomain_Current_{
+			Current: &CustomDomain_Current{
+				CertName:  "abcdefgh",
+				NotBefore: timestamppb.New(TestNotBefore),
+				NotAfter:  timestamppb.New(TestNotAfter),
+				Enabled:   true,
+			},
+		},
+	}
+
+	customDomain := &CustomDomainSettings{
+		Domains: []*CustomDomain{
+			customDomainCurrent,
+			customDomainPending,
+		},
+		Enabled: true,
+	}
+
+	week := &WeeklyRange{
+		Sun: nil,
+		Mon: dayRange,
+		Tue: dayRange,
+		Wed: dayRange,
+		Thu: dayRange,
+		Fri: dayRange,
+		Sat: nil,
+	}
+
 	return &DNSProfile{
 		DnsId:            TestProfileIDStr,
 		FilteringEnabled: true,
@@ -429,16 +477,8 @@ func NewTestDNSProfile(tb testing.TB) (dp *DNSProfile) {
 			YoutubeSafeSearch: false,
 			BlockedServices:   []string{"youtube"},
 			Schedule: &ScheduleSettings{
-				Tmz: "GMT",
-				WeeklyRange: &WeeklyRange{
-					Sun: nil,
-					Mon: dayRange,
-					Tue: dayRange,
-					Wed: dayRange,
-					Thu: dayRange,
-					Fri: dayRange,
-					Sat: nil,
-				},
+				Tmz:         "GMT",
+				WeeklyRange: week,
 			},
 		},
 		RuleLists: &RuleListsSettings{
@@ -481,6 +521,8 @@ func NewTestDNSProfile(tb testing.TB) (dp *DNSProfile) {
 			}},
 		},
 		BlockChromePrefetch: true,
+		CustomDomain:        customDomain,
+		AccountId:           TestAccountIDStr,
 	}
 }
 
@@ -494,7 +536,8 @@ func ipToBytes(tb testing.TB, ip netip.Addr) (b []byte) {
 	return b
 }
 
-// newProfile returns a new profile for tests.
+// newProfile returns a new profile for tests.  Keep in sync with
+// [NewTestDNSProfile].
 func newProfile(tb testing.TB) (p *agd.Profile) {
 	tb.Helper()
 
@@ -506,7 +549,7 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 		End:   60,
 	}
 
-	wantCustom := &filter.ConfigCustom{
+	wantCustomFilter := &filter.ConfigCustom{
 		Filter: custom.New(&custom.Config{
 			Logger: slogutil.NewDiscardLogger(),
 			Rules:  []filter.RuleText{"||example.org^"},
@@ -560,6 +603,31 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 		BlocklistDomainRules: []string{"block.test"},
 	})
 
+	wantCustomDomains := &agd.AccountCustomDomains{
+		Domains: []*agd.CustomDomainConfig{{
+			State: &agd.CustomDomainStateCurrent{
+				CertName:  "abcdefgh",
+				NotBefore: TestNotBefore,
+				NotAfter:  TestNotAfter,
+				Enabled:   true,
+			},
+			Domains: []string{
+				"current-1.domain.example",
+				"current-2.domain.example",
+			},
+		}, {
+			State: &agd.CustomDomainStatePending{
+				WellKnownPath: "/.well-known/abc/def",
+				Expire:        TestPendingExpire,
+			},
+			Domains: []string{
+				"pending-1.domain.example",
+				"pending-2.domain.example",
+			},
+		}},
+		Enabled: true,
+	}
+
 	wantRateLimiter := agd.NewDefaultRatelimiter(&agd.RatelimitConfig{
 		ClientSubnets: []netip.Prefix{netip.MustParsePrefix("5.5.5.0/24")},
 		RPS:           100,
@@ -568,7 +636,7 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 
 	return &agd.Profile{
 		FilterConfig: &filter.ConfigClient{
-			Custom:       wantCustom,
+			Custom:       wantCustomFilter,
 			Parental:     wantParental,
 			RuleList:     wantRuleList,
 			SafeBrowsing: wantSafeBrowsing,
@@ -592,6 +660,8 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 		FilteringEnabled:    true,
 		IPLogEnabled:        true,
 		QueryLogEnabled:     true,
+		CustomDomains:       wantCustomDomains,
+		AccountID:           TestAccountID,
 	}
 }
 

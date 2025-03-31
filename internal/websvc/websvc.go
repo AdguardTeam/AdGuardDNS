@@ -23,8 +23,9 @@ type Service struct {
 	generalBlockingBPS *blockPageServer
 	safeBrowsingBPS    *blockPageServer
 
-	dnsCheck      http.Handler
-	staticContent http.Handler
+	dnsCheck       http.Handler
+	staticContent  http.Handler
+	wellKnownProxy http.Handler
 
 	rootRedirectURL string
 
@@ -74,24 +75,7 @@ func New(c *Config) (svc *Service) {
 		svc.rootRedirectURL = c.RootRedirectURL.String()
 	}
 
-	if l := c.LinkedIP; l != nil {
-		logger := svc.logger.With(loggerKeyGroup, srvGrpLinkedIP)
-		for _, b := range l.Bind {
-			proxyLogger := logger.With("proxy_addr", b.Address)
-			h := httputil.Wrap(
-				newLinkedIPHandler(l.TargetURL, c.ErrColl, proxyLogger, c.Timeout),
-				httputil.NewLogMiddleware(logger, slog.LevelDebug),
-			)
-
-			svc.linkedIP = append(svc.linkedIP, newServer(&serverConfig{
-				BaseLogger:     logger,
-				TLSConf:        b.TLS,
-				Handler:        h,
-				InitialAddress: b.Address,
-				Timeout:        c.Timeout,
-			}))
-		}
-	}
+	svc.setLinkedIP(c)
 
 	for _, b := range c.NonDoHBind {
 		logger := svc.logger.With(loggerKeyGroup, srvGrpNonDoH)
@@ -111,6 +95,46 @@ func New(c *Config) (svc *Service) {
 	}
 
 	return svc
+}
+
+// setLinkedIP sets the linked-IP and well-known URL proxy handlers.
+func (svc *Service) setLinkedIP(c *Config) {
+	l := c.LinkedIP
+	if l == nil {
+		svc.wellKnownProxy = http.NotFoundHandler()
+
+		return
+	}
+
+	logger := svc.logger.With(loggerKeyGroup, srvGrpLinkedIP)
+	for _, b := range l.Bind {
+		proxyLogger := logger.With("proxy_addr", b.Address)
+		h := httputil.Wrap(
+			newLinkedIPHandler(l.TargetURL, c.ErrColl, proxyLogger, c.Timeout),
+			httputil.NewLogMiddleware(logger, slog.LevelDebug),
+		)
+
+		svc.linkedIP = append(svc.linkedIP, newServer(&serverConfig{
+			BaseLogger:     logger,
+			TLSConf:        b.TLS,
+			Handler:        h,
+			InitialAddress: b.Address,
+			Timeout:        c.Timeout,
+		}))
+	}
+
+	// TODO(a.garipov):  Document this dependency on the
+	// LINKED_IP_TARGET_URL.
+	//
+	// TODO(a.garipov):  Improve logging.
+	wkProxyLogger := svc.logger.With(
+		loggerKeyGroup, srvGrpNonDoH,
+		"subgroup", "well_known_proxy",
+	)
+	svc.wellKnownProxy = httputil.Wrap(
+		newLinkedIPHandler(l.TargetURL, c.ErrColl, wkProxyLogger, c.Timeout),
+		httputil.NewLogMiddleware(logger, slog.LevelInfo),
+	)
 }
 
 // serverGroup is a semantic alias for names of server groups.

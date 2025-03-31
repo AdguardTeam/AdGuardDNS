@@ -11,7 +11,7 @@
 
 Development is supported on Linux and macOS (aka Darwin) systems.
 
-1. Install Go 1.23 or later.
+1. Install Go 1.24 or later.
 
 2. Call `make init` to set up the Git pre-commit hook.
 

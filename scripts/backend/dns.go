@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // mockDNSServiceServer is the mock [backendpb.DNSServiceServer].
@@ -131,6 +132,52 @@ func newDNSProfile() (dp *backendpb.DNSProfile) {
 		HumanIdLower: "my-device-x--10",
 	}}
 
+	week := &backendpb.WeeklyRange{
+		Sun: nil,
+		Mon: dayRange,
+		Tue: dayRange,
+		Wed: dayRange,
+		Thu: dayRange,
+		Fri: dayRange,
+		Sat: nil,
+	}
+
+	customDomainCurrent := &backendpb.CustomDomain{
+		Domains: []string{
+			"current-1.domain.example",
+			"current-2.domain.example",
+		},
+		State: &backendpb.CustomDomain_Current_{
+			Current: &backendpb.CustomDomain_Current{
+				CertName:  "abcdefgh",
+				NotBefore: timestamppb.New(time.Now().Add(-24 * time.Hour)),
+				NotAfter:  timestamppb.New(time.Now().Add(24 * time.Hour)),
+				Enabled:   true,
+			},
+		},
+	}
+
+	customDomainPending := &backendpb.CustomDomain{
+		Domains: []string{
+			"pending-1.domain.example",
+			"pending-2.domain.example",
+		},
+		State: &backendpb.CustomDomain_Pending_{
+			Pending: &backendpb.CustomDomain_Pending{
+				WellKnownPath: "/.well-known/abc/def",
+				Expire:        timestamppb.New(time.Now().Add(24 * time.Hour)),
+			},
+		},
+	}
+
+	customDomain := &backendpb.CustomDomainSettings{
+		Domains: []*backendpb.CustomDomain{
+			customDomainCurrent,
+			customDomainPending,
+		},
+		Enabled: true,
+	}
+
 	return &backendpb.DNSProfile{
 		DnsId:              "mock1234",
 		FilteringEnabled:   true,
@@ -150,16 +197,8 @@ func newDNSProfile() (dp *backendpb.DNSProfile) {
 			YoutubeSafeSearch: false,
 			BlockedServices:   []string{"youtube"},
 			Schedule: &backendpb.ScheduleSettings{
-				Tmz: "GMT",
-				WeeklyRange: &backendpb.WeeklyRange{
-					Sun: nil,
-					Mon: dayRange,
-					Tue: dayRange,
-					Wed: dayRange,
-					Thu: dayRange,
-					Fri: dayRange,
-					Sat: nil,
-				},
+				Tmz:         "GMT",
+				WeeklyRange: week,
 			},
 		},
 		Access: &backendpb.AccessSettings{
@@ -199,5 +238,7 @@ func newDNSProfile() (dp *backendpb.DNSProfile) {
 			Rps:     100,
 			Enabled: true,
 		},
+		CustomDomain: customDomain,
+		AccountId:    "acc1234",
 	}
 }

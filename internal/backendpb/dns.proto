@@ -73,6 +73,18 @@ service RemoteKVService {
   rpc set(RemoteKVSetRequest) returns (RemoteKVSetResponse);
 }
 
+service CustomDomainService {
+
+  /*
+    Get certificate for custom domain.
+
+    This method may return the following errors:
+    - AuthenticationFailedError: If the authentication failed.
+    - BadRequestError: If the request is invalid: cert_name is empty or no certificate found.
+  */
+  rpc getCustomDomainCertificate(CustomDomainCertificateRequest) returns (CustomDomainCertificateResponse);
+}
+
 message RateLimitSettingsRequest {
 
 }
@@ -109,6 +121,38 @@ message DNSProfile {
   bool auto_devices_enabled = 19;
   RateLimitSettings rate_limit = 20;
   bool block_chrome_prefetch = 21;
+  CustomDomainSettings custom_domain = 22;
+  string account_id = 23;
+}
+
+message CustomDomainSettings {
+  repeated CustomDomain domains = 1;
+  bool enabled = 2;
+}
+
+/**
+ * Custom domain.
+ *
+ * <p>Field <code>domains</code> must not be empty</p>
+ */
+message CustomDomain {
+  message Pending {
+    string well_known_path = 1;
+    google.protobuf.Timestamp expire = 2;
+  }
+
+  message Current {
+    string cert_name = 1;
+    google.protobuf.Timestamp not_before = 2;
+    google.protobuf.Timestamp not_after = 3;
+    bool enabled = 4;
+  }
+
+  repeated string domains = 1;
+  oneof state {
+    Pending pending = 2;
+    Current current = 3;
+  }
 }
 
 message SafeBrowsingSettings {
@@ -269,4 +313,13 @@ message RemoteKVSetRequest {
 
 message RemoteKVSetResponse {
 
+}
+
+message CustomDomainCertificateRequest {
+  string cert_name = 1;
+}
+
+message CustomDomainCertificateResponse {
+  bytes certificate = 1;
+  bytes private_key = 2;
 }

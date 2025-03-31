@@ -289,128 +289,178 @@ var _ service.Refresher = (*Default)(nil)
 // Refresh implements the [service.Refresher] interface for *Default.  It
 // updates the internal maps and the synchronization time using the data it
 // receives from the storage.
-//
-// TODO(a.garipov): Consider splitting the full refresh logic into a separate
-// method.
 func (db *Default) Refresh(ctx context.Context) (err error) {
+	db.refreshMu.Lock()
+	defer db.refreshMu.Unlock()
+
+	if db.needsFullSync(ctx) {
+		return db.refreshFull(ctx)
+	}
+
 	db.logger.DebugContext(ctx, "refresh started")
 	defer db.logger.DebugContext(ctx, "refresh finished")
-
-	sinceLastAttempt, isFullSync := db.needsFullSync(ctx)
-
-	var profNum, devNum uint
-	startTime := time.Now()
-	defer func() {
-		dur := time.Since(startTime)
-
-		isSuccess := err == nil
-		if !isSuccess {
-			errcoll.Collect(ctx, db.errColl, db.logger, "refreshing profiledb", err)
-		}
-
-		db.metrics.HandleProfilesUpdate(ctx, &UpdateMetrics{
-			ProfilesNum: profNum,
-			DevicesNum:  devNum,
-			Duration:    dur,
-			IsSuccess:   isSuccess,
-			IsFullSync:  isFullSync,
-		})
-	}()
 
 	reqID := agd.NewRequestID()
 	ctx = agd.WithRequestID(ctx, reqID)
 
-	defer func() { err = errors.Annotate(err, "req %s: %w", reqID) }()
-
-	db.refreshMu.Lock()
-	defer db.refreshMu.Unlock()
-
+	var profNum, devNum uint
+	startTime := time.Now()
 	defer func() {
+		err = errors.Annotate(err, "req %s: %w", reqID)
+		if err != nil {
+			errcoll.Collect(ctx, db.errColl, db.logger, "refreshing profiledb", err)
+		}
+
 		db.metrics.SetProfilesAndDevicesNum(ctx, uint(len(db.profiles)), uint(len(db.devices)))
+		db.metrics.HandleProfilesUpdate(ctx, &UpdateMetrics{
+			ProfilesNum: profNum,
+			DevicesNum:  devNum,
+			Duration:    time.Since(startTime),
+			IsSuccess:   err == nil,
+			IsFullSync:  false,
+		})
 	}()
 
-	resp, err := db.fetchProfiles(ctx, sinceLastAttempt, isFullSync)
+	resp, err := db.fetchProfiles(ctx, false)
 	if err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		return err
+		return fmt.Errorf("fetching profiles: %w", err)
 	}
 
 	profiles := resp.Profiles
 	devices := resp.Devices
+
 	profNum = uint(len(profiles))
 	devNum = uint(len(devices))
 
-	db.logger.DebugContext(
-		ctx,
-		"storage request finished",
-		"req_id", reqID,
-		"prof_num", profNum,
-		"dev_num", devNum,
-	)
+	db.setProfiles(ctx, profiles, devices, false)
 
-	db.setProfiles(ctx, profiles, devices, isFullSync)
+	return nil
+}
 
-	db.syncTime = resp.SyncTime
-	if isFullSync {
-		db.lastFullSync = time.Now()
-		db.lastFullSyncError = time.Time{}
+// RefreshFull is a [service.RefresherFunc] that updates the internal maps and
+// the synchronization time using the data it receives from the storage.
+func (db *Default) RefreshFull(ctx context.Context) (err error) {
+	db.refreshMu.Lock()
+	defer db.refreshMu.Unlock()
 
-		err = db.cache.Store(ctx, &internal.FileCache{
-			SyncTime: resp.SyncTime,
-			Profiles: profiles,
-			Devices:  devices,
-			Version:  internal.FileCacheVersion,
-		})
+	return db.refreshFull(ctx)
+}
+
+// refreshFull updates the internal maps and the synchronization time using the
+// data it receives from the storage.  It must only be called under the
+// refreshMu lock.
+func (db *Default) refreshFull(ctx context.Context) (err error) {
+	db.logger.DebugContext(ctx, "full refresh started")
+	defer db.logger.DebugContext(ctx, "full refresh finished")
+
+	reqID := agd.NewRequestID()
+	ctx = agd.WithRequestID(ctx, reqID)
+
+	var profNum, devNum uint
+	startTime := time.Now()
+	defer func() {
+		err = errors.Annotate(err, "req %s: %w", reqID)
 		if err != nil {
-			return fmt.Errorf("saving cache: %w", err)
+			errcoll.Collect(ctx, db.errColl, db.logger, "full refreshing profiledb", err)
 		}
+
+		db.metrics.SetProfilesAndDevicesNum(ctx, uint(len(db.profiles)), uint(len(db.devices)))
+		db.metrics.HandleProfilesUpdate(ctx, &UpdateMetrics{
+			ProfilesNum: profNum,
+			DevicesNum:  devNum,
+			Duration:    time.Since(startTime),
+			IsSuccess:   err == nil,
+			IsFullSync:  true,
+		})
+	}()
+
+	resp, err := db.fetchProfiles(ctx, true)
+	if err != nil {
+		db.lastFullSyncError = time.Now()
+
+		return fmt.Errorf("fetching profiles: full sync: %w", err)
+	}
+
+	profiles := resp.Profiles
+	devices := resp.Devices
+
+	profNum = uint(len(profiles))
+	devNum = uint(len(devices))
+
+	db.setProfiles(ctx, profiles, devices, true)
+
+	db.lastFullSync = time.Now()
+	db.lastFullSyncError = time.Time{}
+
+	err = db.cache.Store(ctx, &internal.FileCache{
+		SyncTime: db.syncTime,
+		Profiles: profiles,
+		Devices:  devices,
+		Version:  internal.FileCacheVersion,
+	})
+	if err != nil {
+		return fmt.Errorf("saving cache: %w", err)
 	}
 
 	return nil
 }
 
+// syncTimeFull is the time used in full sync profile requests.
+var syncTimeFull = time.Time{}
+
+// requestSyncTime returns the time to use in the storage request.  It must only
+// be called under the refreshMu lock.
+func (db *Default) requestSyncTime(ctx context.Context, isFullSync bool) (syncTime time.Time) {
+	if !isFullSync {
+		return db.syncTime
+	}
+
+	sinceLastAttempt := db.sinceLastFull()
+	db.logger.InfoContext(ctx, "full sync", "since_last_attempt", sinceLastAttempt)
+
+	return syncTimeFull
+}
+
 // fetchProfiles fetches the profiles and devices from the storage.  It returns
-// the response and the error, if any.  If isFullSync is true, the last full
-// synchronization error time is updated on error.  It must only be called under
-// the refreshMu lock.
+// the response and the error, if any.  It must only be called under the
+// refreshMu lock.
 func (db *Default) fetchProfiles(
 	ctx context.Context,
-	sinceLastAttempt time.Duration,
 	isFullSync bool,
 ) (sr *StorageProfilesResponse, err error) {
-	syncTime := db.syncTime
-	if isFullSync {
-		db.logger.InfoContext(ctx, "full sync", "since_last_attempt", sinceLastAttempt)
-
-		syncTime = time.Time{}
-	}
-
 	sr, err = db.storage.Profiles(ctx, &StorageProfilesRequest{
-		SyncTime: syncTime,
+		SyncTime: db.requestSyncTime(ctx, isFullSync),
 	})
-	if err == nil {
-		return sr, nil
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			db.metrics.IncrementSyncTimeouts(ctx, isFullSync)
+		}
+
+		return nil, fmt.Errorf("updating profiles: %w", err)
 	}
 
-	if isFullSync {
-		db.lastFullSyncError = time.Now()
-	}
+	db.syncTime = sr.SyncTime
 
-	if errors.Is(err, context.DeadlineExceeded) {
-		db.metrics.IncrementSyncTimeouts(ctx, isFullSync)
-	}
+	db.logger.DebugContext(
+		ctx,
+		"storage request finished",
+		"prof_num", uint(len(sr.Profiles)),
+		"dev_num", uint(len(sr.Devices)),
+	)
 
-	return nil, fmt.Errorf("updating profiles: %w", err)
+	return sr, nil
 }
 
 // needsFullSync determines if a full synchronization is necessary.  If the last
 // full synchronization was successful, it returns true if it's time for a new
-// one.  Otherwise, it returns true if it's time for a retry.
-func (db *Default) needsFullSync(ctx context.Context) (sinceFull time.Duration, isFull bool) {
+// one.  Otherwise, it returns true if it's time for a retry.  It must only be
+// called under the refreshMu lock.
+func (db *Default) needsFullSync(ctx context.Context) (isFull bool) {
 	lastFull := db.lastFullSync
-	sinceFull = time.Since(lastFull)
+	sinceFull := time.Since(lastFull)
+
 	if db.lastFullSyncError.IsZero() {
-		return sinceFull, sinceFull >= db.fullSyncIvl
+		return sinceFull >= db.fullSyncIvl
 	}
 
 	db.logger.WarnContext(
@@ -422,7 +472,17 @@ func (db *Default) needsFullSync(ctx context.Context) (sinceFull time.Duration, 
 
 	sinceLastError := time.Since(db.lastFullSyncError)
 
-	return sinceLastError, sinceLastError >= db.fullSyncRetryIvl
+	return sinceLastError >= db.fullSyncRetryIvl
+}
+
+// sinceLastFull returns a time duration since the last full synchronization
+// attempt.
+func (db *Default) sinceLastFull() (sinceFull time.Duration) {
+	if !db.lastFullSyncError.IsZero() {
+		return time.Since(db.lastFullSyncError)
+	}
+
+	return time.Since(db.lastFullSync)
 }
 
 // loadFileCache loads the profiles data from the filesystem cache.

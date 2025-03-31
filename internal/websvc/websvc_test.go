@@ -3,8 +3,10 @@ package websvc_test
 import (
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -146,4 +148,28 @@ func startService(t *testing.T, c *websvc.Config) {
 	testutil.CleanupAndRequireSuccess(t, func() (err error) {
 		return svc.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
 	})
+}
+
+// assertResponse is a helper function that checks status code of HTTP
+// response.
+func assertResponse(
+	t *testing.T,
+	svc *websvc.Service,
+	path string,
+	statusCode int,
+) (rw *httptest.ResponseRecorder) {
+	t.Helper()
+
+	r := httptest.NewRequest(http.MethodGet, (&url.URL{
+		Scheme: urlutil.SchemeHTTP,
+		Host:   "127.0.0.1",
+		Path:   path,
+	}).String(), strings.NewReader(""))
+
+	rw = httptest.NewRecorder()
+	svc.ServeHTTP(rw, r)
+
+	assert.Equal(t, statusCode, rw.Code)
+
+	return rw
 }

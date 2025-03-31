@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"slices"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
@@ -54,6 +55,11 @@ func (x *DNSProfile) toInternal(
 		return nil, nil, fmt.Errorf("id: %w", err)
 	}
 
+	accID, err := agd.NewAccountID(x.AccountId)
+	if err != nil {
+		return nil, nil, fmt.Errorf("account id: %w", err)
+	}
+
 	var fltRespTTL time.Duration
 	if respTTL := x.FilteredResponseTtl; respTTL != nil {
 		fltRespTTL = respTTL.AsDuration()
@@ -70,15 +76,16 @@ func (x *DNSProfile) toInternal(
 		})
 	}
 
-	custom := &filter.ConfigCustom{
+	customConf := &filter.ConfigCustom{
 		Filter: customFilter,
 		// TODO(a.garipov):  Consider adding an explicit flag to the protocol.
 		Enabled: customEnabled,
 	}
 
 	return &agd.Profile{
+		CustomDomains: x.CustomDomain.toInternal(ctx, errColl, logger),
 		FilterConfig: &filter.ConfigClient{
-			Custom:       custom,
+			Custom:       customConf,
 			Parental:     parental,
 			RuleList:     x.RuleLists.toInternal(ctx, errColl, logger),
 			SafeBrowsing: x.SafeBrowsing.toInternal(),
@@ -86,6 +93,7 @@ func (x *DNSProfile) toInternal(
 		Access:              x.Access.toInternal(ctx, errColl, logger),
 		BlockingMode:        m,
 		Ratelimiter:         x.RateLimit.toInternal(ctx, errColl, logger, respSzEst),
+		AccountID:           accID,
 		ID:                  profID,
 		DeviceIDs:           deviceIds,
 		FilteredResponseTTL: fltRespTTL,
@@ -241,6 +249,101 @@ func blockedSvcsToInternal(
 	}
 
 	return ids
+}
+
+// toInternal converts protobuf custom-domain settings to an internal structure.
+// If x is nil, toInternal returns a non-nil config with Enabled set to false.
+func (x *CustomDomainSettings) toInternal(
+	ctx context.Context,
+	errColl errcoll.Interface,
+	logger *slog.Logger,
+) (c *agd.AccountCustomDomains) {
+	if x == nil || !x.Enabled {
+		return &agd.AccountCustomDomains{}
+	}
+
+	return &agd.AccountCustomDomains{
+		Domains: customDomainsToInternal(ctx, errColl, logger, x.Domains),
+		Enabled: x.Enabled,
+	}
+}
+
+// customDomainsToInternal is a helper that converts the settings for each
+// custom domain from the backend response to internal structures.  errColl and
+// logger must not be nil.
+func customDomainsToInternal(
+	ctx context.Context,
+	errColl errcoll.Interface,
+	logger *slog.Logger,
+	respDomains []*CustomDomain,
+) (domains []*agd.CustomDomainConfig) {
+	l := len(respDomains)
+	if l == 0 {
+		return nil
+	}
+
+	domains = make([]*agd.CustomDomainConfig, 0, l)
+	for i, respDom := range respDomains {
+		d, err := respDom.toInternal()
+		if err != nil {
+			err = fmt.Errorf("custom domains: at index %d: %w", i, err)
+			errcoll.Collect(ctx, errColl, logger, "converting custom domains", err)
+
+			continue
+		}
+
+		domains = append(domains, d)
+	}
+
+	return domains
+}
+
+// toInternal converts a protobuf custom-domain config to an internal structure.
+func (x *CustomDomain) toInternal() (c *agd.CustomDomainConfig, err error) {
+	if len(x.Domains) == 0 {
+		return nil, fmt.Errorf("domains: %w", errors.ErrEmptyValue)
+	}
+
+	c = &agd.CustomDomainConfig{
+		// TODO(a.garipov):  Validate domain names?
+		Domains: slices.Clone(x.Domains),
+	}
+
+	switch s := x.State.(type) {
+	case *CustomDomain_Current_:
+		st := &agd.CustomDomainStateCurrent{
+			CertName:  s.Current.CertName,
+			NotBefore: s.Current.NotBefore.AsTime(),
+			NotAfter:  s.Current.NotAfter.AsTime(),
+			Enabled:   s.Current.Enabled,
+		}
+
+		if st.NotBefore.After(st.NotAfter) || st.NotAfter.Equal(st.NotBefore) {
+			return nil, fmt.Errorf(
+				"current custom domain: cert %q: NotBefore=%s is not before NotAfter=%s",
+				st.CertName,
+				st.NotBefore,
+				st.NotAfter,
+			)
+		}
+
+		c.State = st
+	case *CustomDomain_Pending_:
+		st := &agd.CustomDomainStatePending{
+			WellKnownPath: s.Pending.WellKnownPath,
+			Expire:        s.Pending.Expire.AsTime(),
+		}
+
+		if st.WellKnownPath == "" {
+			return nil, fmt.Errorf("well_known_path: %w", errors.ErrEmptyValue)
+		}
+
+		c.State = st
+	default:
+		return nil, fmt.Errorf("bad pb custom domain state %T(%[1]v)", s)
+	}
+
+	return c, nil
 }
 
 // toInternal converts a protobuf protection-schedule structure to an internal
