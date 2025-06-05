@@ -15,6 +15,8 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/c2h5oh/datasize"
@@ -30,23 +32,26 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 	ctx := context.Background()
 
 	errColl := agdtest.NewErrorCollector()
+	wantDevChg := &profiledb.StorageDeviceChange{}
 
 	t.Run("success", func(t *testing.T) {
 		t.Parallel()
 
-		got, gotDevices, err := NewTestDNSProfile(t).toInternal(
+		got, gotDevices, gotDevChg, err := NewTestDNSProfile(t).toInternal(
 			ctx,
-			TestBind,
-			errColl,
 			TestLogger,
+			errColl,
+			TestBind,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
+			true,
 		)
 		require.NoError(t, err)
 
 		assert.Equal(t, newProfile(t), got)
 		assert.Equal(t, newDevices(t), gotDevices)
+		assert.Equal(t, wantDevChg, gotDevChg)
 	})
 
 	t.Run("success_bad_data", func(t *testing.T) {
@@ -58,14 +63,15 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 				errCollErr = err
 			},
 		}
-		got, gotDevices, err := newDNSProfileWithBadData(t).toInternal(
+		got, gotDevices, gotDevChg, err := newDNSProfileWithBadData(t).toInternal(
 			ctx,
-			TestBind,
-			savingErrColl,
 			TestLogger,
+			savingErrColl,
+			TestBind,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
+			true,
 		)
 		require.NoError(t, err)
 		testutil.AssertErrorMsg(
@@ -77,6 +83,7 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 
 		assert.Equal(t, newProfile(t), got)
 		assert.Equal(t, newDevices(t), gotDevices)
+		assert.Equal(t, wantDevChg, gotDevChg)
 	})
 
 	t.Run("invalid_device_ded_ip", func(t *testing.T) {
@@ -90,14 +97,15 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		}
 
 		bindSet := netip.MustParsePrefix("2.2.2.2/32")
-		got, gotDevices, err := NewTestDNSProfile(t).toInternal(
+		got, gotDevices, gotDevChg, err := NewTestDNSProfile(t).toInternal(
 			ctx,
-			bindSet,
-			savingErrColl,
 			TestLogger,
+			savingErrColl,
+			bindSet,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
+			true,
 		)
 		require.NoError(t, err)
 		testutil.AssertErrorMsg(
@@ -110,25 +118,27 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		assert.NotEqual(t, newProfile(t), got)
 		assert.NotEqual(t, newDevices(t), gotDevices)
 		assert.Len(t, gotDevices, 3)
+		assert.Equal(t, wantDevChg, gotDevChg)
 	})
 
 	t.Run("empty", func(t *testing.T) {
 		t.Parallel()
 
 		var emptyDNSProfile *DNSProfile
-		_, _, err := emptyDNSProfile.toInternal(
+		_, _, _, err := emptyDNSProfile.toInternal(
 			ctx,
-			TestBind,
-			errColl,
 			TestLogger,
+			errColl,
+			TestBind,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
+			true,
 		)
 		testutil.AssertErrorMsg(t, "profile is nil", err)
 	})
 
-	t.Run("deleted", func(t *testing.T) {
+	t.Run("deleted_profile", func(t *testing.T) {
 		t.Parallel()
 
 		dp := &DNSProfile{
@@ -136,14 +146,15 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 			Deleted: true,
 		}
 
-		got, gotDevices, err := dp.toInternal(
+		got, gotDevices, gotDevChg, err := dp.toInternal(
 			ctx,
-			TestBind,
-			errColl,
 			TestLogger,
+			errColl,
+			TestBind,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
+			true,
 		)
 		require.NoError(t, err)
 		require.NotNil(t, got)
@@ -151,6 +162,7 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		assert.Equal(t, got.ID, TestProfileID)
 		assert.True(t, got.Deleted)
 		assert.Empty(t, gotDevices)
+		assert.Equal(t, wantDevChg, gotDevChg)
 	})
 
 	t.Run("inv_parental_sch_tmz", func(t *testing.T) {
@@ -159,14 +171,15 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		dp := NewTestDNSProfile(t)
 		dp.Parental.Schedule.Tmz = "invalid"
 
-		_, _, err := dp.toInternal(
+		_, _, _, err := dp.toInternal(
 			ctx,
-			TestBind,
-			errColl,
 			TestLogger,
+			errColl,
+			TestBind,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
+			true,
 		)
 		testutil.AssertErrorMsg(
 			t,
@@ -184,14 +197,15 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 			End:   nil,
 		}
 
-		_, _, err := dp.toInternal(
+		_, _, _, err := dp.toInternal(
 			ctx,
-			TestBind,
-			errColl,
 			TestLogger,
+			errColl,
+			TestBind,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
+			true,
 		)
 		testutil.AssertErrorMsg(
 			t,
@@ -207,14 +221,15 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		bm := dp.BlockingMode.(*DNSProfile_BlockingModeCustomIp)
 		bm.BlockingModeCustomIp.Ipv4 = []byte("1")
 
-		_, _, err := dp.toInternal(
+		_, _, _, err := dp.toInternal(
 			ctx,
-			TestBind,
-			errColl,
 			TestLogger,
+			errColl,
+			TestBind,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
+			true,
 		)
 		testutil.AssertErrorMsg(t, "blocking mode: bad custom ipv4: unexpected slice size", err)
 	})
@@ -226,14 +241,15 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		bm := dp.BlockingMode.(*DNSProfile_BlockingModeCustomIp)
 		bm.BlockingModeCustomIp.Ipv6 = []byte("1")
 
-		_, _, err := dp.toInternal(
+		_, _, _, err := dp.toInternal(
 			ctx,
-			TestBind,
-			errColl,
 			TestLogger,
+			errColl,
+			TestBind,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
+			true,
 		)
 		testutil.AssertErrorMsg(t, "blocking mode: bad custom ipv6: unexpected slice size", err)
 	})
@@ -246,14 +262,15 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		bm.BlockingModeCustomIp.Ipv4 = nil
 		bm.BlockingModeCustomIp.Ipv6 = nil
 
-		_, _, err := dp.toInternal(
+		_, _, _, err := dp.toInternal(
 			ctx,
-			TestBind,
-			errColl,
 			TestLogger,
+			errColl,
+			TestBind,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
+			true,
 		)
 		testutil.AssertErrorMsg(t, "blocking mode: no valid custom ips found", err)
 	})
@@ -264,14 +281,15 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		dp := NewTestDNSProfile(t)
 		dp.BlockingMode = nil
 
-		got, gotDevices, err := dp.toInternal(
+		got, gotDevices, gotDevChg, err := dp.toInternal(
 			ctx,
-			TestBind,
-			errColl,
 			TestLogger,
+			errColl,
+			TestBind,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
+			true,
 		)
 		require.NoError(t, err)
 		require.NotNil(t, got)
@@ -281,6 +299,7 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 
 		assert.Equal(t, wantProf, got)
 		assert.Equal(t, newDevices(t), gotDevices)
+		assert.Equal(t, wantDevChg, gotDevChg)
 	})
 
 	t.Run("nil_access", func(t *testing.T) {
@@ -289,14 +308,15 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		dp := NewTestDNSProfile(t)
 		dp.Access = nil
 
-		got, _, err := dp.toInternal(
+		got, _, _, err := dp.toInternal(
 			ctx,
-			TestBind,
-			errColl,
 			TestLogger,
+			errColl,
+			TestBind,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
+			true,
 		)
 		require.NoError(t, err)
 		require.NotNil(t, got)
@@ -313,14 +333,15 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 			Enabled: false,
 		}
 
-		got, _, err := dp.toInternal(
+		got, _, _, err := dp.toInternal(
 			ctx,
-			TestBind,
-			errColl,
 			TestLogger,
+			errColl,
+			TestBind,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
+			true,
 		)
 		require.NoError(t, err)
 		require.NotNil(t, got)
@@ -645,12 +666,12 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 		BlockingMode: wantBlockingMode,
 		Ratelimiter:  wantRateLimiter,
 		ID:           TestProfileID,
-		DeviceIDs: []agd.DeviceID{
+		DeviceIDs: container.NewMapSet(
 			TestDeviceID,
 			"2222bbbb",
 			"3333cccc",
 			"4444dddd",
-		},
+		),
 		FilteredResponseTTL: 10 * time.Second,
 		AutoDevicesEnabled:  true,
 		BlockChromePrefetch: true,
@@ -715,38 +736,37 @@ func newDevices(t *testing.T) (d []*agd.Device) {
 	}}
 }
 
-var (
-	errSink  error
-	profSink *agd.Profile
-)
-
 func BenchmarkDNSProfile_ToInternal(b *testing.B) {
 	dp := NewTestDNSProfile(b)
 	ctx := context.Background()
 
 	errColl := agdtest.NewErrorCollector()
 
+	var prof *agd.Profile
+	var err error
+
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		profSink, _, errSink = dp.toInternal(
+	for b.Loop() {
+		prof, _, _, err = dp.toInternal(
 			ctx,
-			TestBind,
-			errColl,
 			TestLogger,
+			errColl,
+			TestBind,
 			TestLogger,
 			EmptyProfileDBMetrics{},
 			TestRespSzEst,
+			true,
 		)
 	}
 
-	require.NotNil(b, profSink)
-	require.NoError(b, errSink)
+	require.NotNil(b, prof)
+	require.NoError(b, err)
 
 	// Most recent results:
+	//
 	//	goos: linux
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/backendpb
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkDNSProfile_ToInternal-16      	   79732	     14686 ns/op	    3160 B/op	      59 allocs/op
+	//	BenchmarkDNSProfile_ToInternal-16    	   45411	     26183 ns/op	    3896 B/op	      76 allocs/op
 }

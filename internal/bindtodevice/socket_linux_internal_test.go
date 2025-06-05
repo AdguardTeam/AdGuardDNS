@@ -479,12 +479,6 @@ func (r *testMsgUDPReader) ReadMsgUDP(
 	return r.onReadMsgUDP(b, oob)
 }
 
-// Sinks for benchmarks.
-var (
-	sessSink *packetSession
-	errSink  error
-)
-
 func BenchmarkReadPacketSession(b *testing.B) {
 	bodyData := []byte("message body data")
 
@@ -522,23 +516,24 @@ func BenchmarkReadPacketSession(b *testing.B) {
 	body := make([]byte, dns.DefaultMsgSize)
 	oob := make([]byte, netext.IPDstOOBSize)
 
+	var sess *packetSession
+
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		sessSink, errSink = readPacketSession(c, body, oob)
+	for b.Loop() {
+		sess, err = readPacketSession(c, body, oob)
 	}
 
-	require.NoError(b, errSink)
-	require.NotNil(b, sessSink)
+	require.NoError(b, err)
 
-	assert.Equal(b, sessSink.raddr, testRAddr)
-	assert.Equal(b, sessSink.readBody, bodyData)
+	require.NotNil(b, sess)
+	assert.Equal(b, sess.raddr, testRAddr)
+	assert.Equal(b, sess.readBody, bodyData)
 
-	// Most recent result, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
-	//	goos: linux
-	//	goarch: amd64
-	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice
-	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkReadPacketSession
-	//	BenchmarkReadPacketSession-16            3311841               458.1 ns/op           224 B/op        5 allocs/op
+	// Most recent results:
+	//
+	// goos: linux
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice
+	// cpu: Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz
+	// BenchmarkReadPacketSession-8   	 7064631	       178.6 ns/op	     224 B/op	       5 allocs/op
 }

@@ -21,6 +21,7 @@ set -e -f -u
 go="${GO:-go}"
 readonly go
 
+# TODO(a.garipov):  Add the ability to generate things separately.
 (
 	cd ./internal/geoip/
 	"$go" run ./country_generate.go

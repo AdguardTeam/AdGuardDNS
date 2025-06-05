@@ -35,12 +35,13 @@ func TestService_ServeHTTP(t *testing.T) {
 	}
 
 	c := &websvc.Config{
-		Logger:          testLogger,
-		RootRedirectURL: rootRedirectURL,
-		StaticContent:   http.NotFoundHandler(),
-		DNSCheck:        mockHandler,
-		ErrColl:         agdtest.NewErrorCollector(),
-		Timeout:         testTimeout,
+		Logger:               testLogger,
+		RootRedirectURL:      rootRedirectURL,
+		CertificateValidator: testCertValidator,
+		StaticContent:        http.NotFoundHandler(),
+		DNSCheck:             mockHandler,
+		ErrColl:              agdtest.NewErrorCollector(),
+		Timeout:              testTimeout,
 	}
 
 	svc := websvc.New(c)
@@ -69,12 +70,30 @@ func TestService_ServeHTTP(t *testing.T) {
 	assertResponse(t, svc, "/other", http.StatusNotFound)
 }
 
+// testCertificateValidator is a [websvc.CertificateValidator] for tests.
+type testCertificateValidator struct {
+	onIsValidWellKnownRequest func(ctx context.Context, r *http.Request) (ok bool)
+}
+
+// type check
+var _ websvc.CertificateValidator = (*testCertificateValidator)(nil)
+
+// IsValidWellKnownRequest implements the [websvc.CertificateValidator]
+// interface for *testCertificateValidator.
+func (v *testCertificateValidator) IsValidWellKnownRequest(
+	ctx context.Context,
+	r *http.Request,
+) (ok bool) {
+	return v.onIsValidWellKnownRequest(ctx, r)
+}
+
 func TestService_ServeHTTP_wellKnown(t *testing.T) {
 	const (
-		wellKnownHost       = "well-known.example"
-		wellKnownHostPort   = wellKnownHost + ":80"
-		wellKnownPathProxy  = "/.well-known/pki-validation/abcd1234"
-		wellKnownPathStatic = "/.well-known/pki-validation/defg5678"
+		wellKnownHost        = "well-known.example"
+		wellKnownHostPort    = wellKnownHost + ":80"
+		wellKnownPathProxy   = "/.well-known/pki-validation/abcd1234"
+		wellKnownPathStatic  = "/.well-known/pki-validation/defg5678"
+		wellKnownPathNeither = "/.well-known/pki-validation/hijk9012"
 	)
 
 	var (
@@ -82,11 +101,11 @@ func TestService_ServeHTTP_wellKnown(t *testing.T) {
 		staticBody = []byte("static body")
 	)
 
-	var apiURL *url.URL
+	var targetURL *url.URL
 	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pt := testutil.PanicT{}
 
-		require.Equal(pt, apiURL.Host, r.Host)
+		require.Equal(pt, targetURL.Host, r.Host)
 		require.Equal(pt, wellKnownPathProxy, r.URL.Path)
 
 		hdr := r.Header
@@ -100,10 +119,16 @@ func TestService_ServeHTTP_wellKnown(t *testing.T) {
 	})
 
 	srv := httptest.NewServer(upstream)
-	apiURL, err := url.Parse(srv.URL)
+	targetURL, err := url.Parse(srv.URL)
 	require.NoError(t, err)
 
 	t.Cleanup(srv.Close)
+
+	cv := &testCertificateValidator{
+		onIsValidWellKnownRequest: func(_ context.Context, r *http.Request) (ok bool) {
+			return r.URL.Path == wellKnownPathProxy
+		},
+	}
 
 	staticContent := websvc.StaticContent{
 		wellKnownPathStatic: {
@@ -117,11 +142,12 @@ func TestService_ServeHTTP_wellKnown(t *testing.T) {
 	c := &websvc.Config{
 		Logger: testLogger,
 		LinkedIP: &websvc.LinkedIPServer{
-			TargetURL: apiURL,
+			TargetURL: targetURL,
 		},
-		StaticContent: staticContent,
-		DNSCheck:      http.NotFoundHandler(),
-		ErrColl:       agdtest.NewErrorCollector(),
+		CertificateValidator: cv,
+		StaticContent:        staticContent,
+		DNSCheck:             http.NotFoundHandler(),
+		ErrColl:              agdtest.NewErrorCollector(),
 		NonDoHBind: []*websvc.BindData{{
 			Address: netip.MustParseAddrPort("127.0.0.1:0"),
 		}},
@@ -192,5 +218,22 @@ func TestService_ServeHTTP_wellKnown(t *testing.T) {
 		require.NoError(t, resp.Body.Close())
 
 		assert.Equal(t, b, staticBody)
+	}))
+
+	require.True(t, t.Run("neither", func(t *testing.T) {
+		wkURL := &url.URL{
+			Scheme: urlutil.SchemeHTTP,
+			Host:   wellKnownHost,
+			Path:   wellKnownPathNeither,
+		}
+
+		resp, testErr := cli.Get(wkURL.String())
+		require.NoError(t, testErr)
+
+		b, testErr := io.ReadAll(resp.Body)
+		require.NoError(t, testErr)
+		require.NoError(t, resp.Body.Close())
+
+		assert.Equal(t, b, []byte(agdhttp.NotFoundString))
 	}))
 }

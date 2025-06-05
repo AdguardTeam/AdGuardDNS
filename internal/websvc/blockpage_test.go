@@ -28,7 +28,6 @@ const (
 )
 
 func TestBlockPageServers(t *testing.T) {
-	notFoundContent := []byte("404 page not found\n")
 	robotsContent := []byte(agdhttp.RobotsDisallowAll)
 
 	const (
@@ -75,18 +74,19 @@ func TestBlockPageServers(t *testing.T) {
 			}
 
 			conf := &websvc.Config{
-				Logger:        testLogger,
-				StaticContent: http.NotFoundHandler(),
-				DNSCheck:      http.NotFoundHandler(),
-				ErrColl:       agdtest.NewErrorCollector(),
-				Timeout:       testTimeout,
+				Logger:               testLogger,
+				CertificateValidator: testCertValidator,
+				StaticContent:        http.NotFoundHandler(),
+				DNSCheck:             http.NotFoundHandler(),
+				ErrColl:              agdtest.NewErrorCollector(),
+				Timeout:              testTimeout,
 			}
 			tc.updateConfig(conf, bps)
 
 			startService(t, conf)
 
 			assertContent(t, tc.addr, "/", contentStatus, []byte(blockPageContent))
-			assertContent(t, tc.addr, "/favicon.ico", faviconStatus, notFoundContent)
+			assertContent(t, tc.addr, "/favicon.ico", faviconStatus, []byte(agdhttp.NotFoundString))
 			assertContent(t, tc.addr, "/robots.txt", robotsStatus, robotsContent)
 		})
 	}
@@ -94,11 +94,12 @@ func TestBlockPageServers(t *testing.T) {
 
 func TestBlockPageServers_noBlockPages(t *testing.T) {
 	conf := &websvc.Config{
-		Logger:        testLogger,
-		StaticContent: http.NotFoundHandler(),
-		DNSCheck:      http.NotFoundHandler(),
-		ErrColl:       agdtest.NewErrorCollector(),
-		Timeout:       testTimeout,
+		Logger:               testLogger,
+		CertificateValidator: testCertValidator,
+		StaticContent:        http.NotFoundHandler(),
+		DNSCheck:             http.NotFoundHandler(),
+		ErrColl:              agdtest.NewErrorCollector(),
+		Timeout:              testTimeout,
 	}
 
 	svc := websvc.New(conf)
@@ -122,12 +123,13 @@ func TestBlockPageServers_gzip(t *testing.T) {
 	}
 
 	conf := &websvc.Config{
-		Logger:          testLogger,
-		GeneralBlocking: bps,
-		StaticContent:   http.NotFoundHandler(),
-		DNSCheck:        http.NotFoundHandler(),
-		ErrColl:         agdtest.NewErrorCollector(),
-		Timeout:         testTimeout,
+		Logger:               testLogger,
+		GeneralBlocking:      bps,
+		CertificateValidator: testCertValidator,
+		StaticContent:        http.NotFoundHandler(),
+		DNSCheck:             http.NotFoundHandler(),
+		ErrColl:              agdtest.NewErrorCollector(),
+		Timeout:              testTimeout,
 	}
 
 	startService(t, conf)

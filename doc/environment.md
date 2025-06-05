@@ -206,6 +206,8 @@ Paths to the files containing MaxMind GeoIP databases: for ASNs and for countrie
 
 The target HTTP(S) URL to which linked IP API requests are proxied. In case [linked IP and dynamic DNS][conf-web-linked_ip] web server is configured, the variable is required. See the [external HTTP API requirements section][ext-linked_ip].
 
+Certificate validation requests to DoH servers are also proxied to this URL when both DoH and profiles are enabled.
+
 **Default:** **Unset.**
 
 [conf-web-linked_ip]: configuration.md#web-linked_ip

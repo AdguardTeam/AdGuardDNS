@@ -27,13 +27,17 @@ const testTimeout = 1 * time.Second
 // testLogger is the common logger for tests.
 var testLogger = slogutil.NewDiscardLogger()
 
+// testCertValidator is the common certificate validator for tests.
+var testCertValidator = websvc.RejectCertificateValidator{}
+
 func TestNew(t *testing.T) {
 	startService(t, &websvc.Config{
-		Logger:        testLogger,
-		StaticContent: http.NotFoundHandler(),
-		DNSCheck:      http.NotFoundHandler(),
-		ErrColl:       agdtest.NewErrorCollector(),
-		Timeout:       testTimeout,
+		Logger:               testLogger,
+		CertificateValidator: testCertValidator,
+		StaticContent:        http.NotFoundHandler(),
+		DNSCheck:             http.NotFoundHandler(),
+		ErrColl:              agdtest.NewErrorCollector(),
+		Timeout:              testTimeout,
 	})
 }
 
@@ -57,13 +61,14 @@ func TestService_NonDoH(t *testing.T) {
 
 	notFoundContent := []byte("not found")
 	c := &websvc.Config{
-		Logger:        testLogger,
-		StaticContent: http.NotFoundHandler(),
-		DNSCheck:      mockHandler,
-		NonDoHBind:    nonDoHBind,
-		ErrColl:       agdtest.NewErrorCollector(),
-		Error404:      notFoundContent,
-		Timeout:       testTimeout,
+		Logger:               testLogger,
+		CertificateValidator: testCertValidator,
+		StaticContent:        http.NotFoundHandler(),
+		DNSCheck:             mockHandler,
+		NonDoHBind:           nonDoHBind,
+		ErrColl:              agdtest.NewErrorCollector(),
+		Error404:             notFoundContent,
+		Timeout:              testTimeout,
 	}
 
 	startService(t, c)

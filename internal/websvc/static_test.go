@@ -23,11 +23,12 @@ func TestService_ServeHTTP_static(t *testing.T) {
 	}
 
 	c := &websvc.Config{
-		Logger:        testLogger,
-		StaticContent: staticContent,
-		DNSCheck:      http.NotFoundHandler(),
-		ErrColl:       agdtest.NewErrorCollector(),
-		Timeout:       testTimeout,
+		Logger:               testLogger,
+		CertificateValidator: testCertValidator,
+		StaticContent:        staticContent,
+		DNSCheck:             http.NotFoundHandler(),
+		ErrColl:              agdtest.NewErrorCollector(),
+		Timeout:              testTimeout,
 	}
 
 	svc := websvc.New(c)

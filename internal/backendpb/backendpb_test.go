@@ -2,15 +2,36 @@ package backendpb_test
 
 import (
 	"context"
-	"time"
+	"net"
+	"net/url"
+	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
+	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-// testTimeout is the common timeout for tests.
-const testTimeout = 1 * time.Second
+// runLocalGRPCServer starts a gRPC server on localhost and returns its
+// endpoint.  It also registers a cleanup for graceful shutdown.
+func runLocalGRPCServer(tb testing.TB, srv *grpc.Server) (u *url.URL) {
+	tb.Helper()
+
+	l, err := net.Listen("tcp", "localhost:0")
+	require.NoError(tb, err)
+
+	go func() {
+		srvErr := srv.Serve(l)
+		require.NoError(testutil.PanicT{}, srvErr)
+	}()
+	tb.Cleanup(srv.GracefulStop)
+
+	return &url.URL{
+		Scheme: "grpc",
+		Host:   l.Addr().String(),
+	}
+}
 
 // testDNSServiceServer is the [backendpb.DNSServiceServer] for tests.
 //
@@ -66,6 +87,43 @@ func (s *testDNSServiceServer) SaveDevicesBillingStat(
 	return s.OnSaveDevicesBillingStat(srv)
 }
 
+// testRateLimitServiceServer is the [backendpb.RateLimitServiceServer] for
+// tests.
+type testRateLimitServiceServer struct {
+	backendpb.UnimplementedRateLimitServiceServer
+
+	OnGetRateLimitSettings func(
+		ctx context.Context,
+		req *backendpb.RateLimitSettingsRequest,
+	) (resp *backendpb.RateLimitSettingsResponse, err error)
+
+	OnGetGlobalAccessSettings func(
+		ctx context.Context,
+		req *backendpb.GlobalAccessSettingsRequest,
+	) (resp *backendpb.GlobalAccessSettingsResponse, err error)
+}
+
+// type check
+var _ backendpb.RateLimitServiceServer = (*testRateLimitServiceServer)(nil)
+
+// GetRateLimitSettings implements the [backendpb.RateLimitServiceServer]
+// interface for *testRateLimitServiceServer.
+func (s *testRateLimitServiceServer) GetRateLimitSettings(
+	ctx context.Context,
+	req *backendpb.RateLimitSettingsRequest,
+) (resp *backendpb.RateLimitSettingsResponse, err error) {
+	return s.OnGetRateLimitSettings(ctx, req)
+}
+
+// GetGlobalAccessSettings implements the [backendpb.RateLimitServiceServer]
+// interface for *testRateLimitServiceServer.
+func (s *testRateLimitServiceServer) GetGlobalAccessSettings(
+	ctx context.Context,
+	req *backendpb.GlobalAccessSettingsRequest,
+) (resp *backendpb.GlobalAccessSettingsResponse, err error) {
+	return s.OnGetGlobalAccessSettings(ctx, req)
+}
+
 // testRemoteKVServiceServer is the [backendpb.RemoteKVServiceServer] for tests.
 type testRemoteKVServiceServer struct {
 	backendpb.UnimplementedRemoteKVServiceServer
@@ -100,4 +158,27 @@ func (s *testRemoteKVServiceServer) Set(
 	req *backendpb.RemoteKVSetRequest,
 ) (resp *backendpb.RemoteKVSetResponse, err error) {
 	return s.OnSet(ctx, req)
+}
+
+// testSessionTicketServiceServer is the [backendpb.SessionTicketServiceServer]
+// for tests.
+type testSessionTicketServiceServer struct {
+	backendpb.UnimplementedSessionTicketServiceServer
+
+	OnGetSessionTickets func(
+		ctx context.Context,
+		req *backendpb.SessionTicketRequest,
+	) (resp *backendpb.SessionTicketResponse, err error)
+}
+
+// type check
+var _ backendpb.SessionTicketServiceServer = (*testSessionTicketServiceServer)(nil)
+
+// GetSessionTickets implements the [backendpb.SessionTicketServiceServer]
+// interface for *testSessionTicketServiceServer.
+func (s *testSessionTicketServiceServer) GetSessionTickets(
+	ctx context.Context,
+	req *backendpb.SessionTicketRequest,
+) (resp *backendpb.SessionTicketResponse, err error) {
+	return s.OnGetSessionTickets(ctx, req)
 }

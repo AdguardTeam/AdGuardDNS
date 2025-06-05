@@ -102,45 +102,42 @@ func BenchmarkServerMetricsListener(b *testing.B) {
 
 	rw := dnsserver.NewNonWriterResponseWriter(testUDPAddr, testUDPAddr)
 
-	b.Run("OnRequest", func(b *testing.B) {
+	b.Run("on_request", func(b *testing.B) {
 		b.ReportAllocs()
-		b.ResetTimer()
-		for range b.N {
+		for b.Loop() {
 			l.OnRequest(ctx, info, rw)
 		}
 	})
 
-	b.Run("OnInvalidMsg", func(b *testing.B) {
+	b.Run("on_invalid_msg", func(b *testing.B) {
 		b.ReportAllocs()
-		b.ResetTimer()
-		for range b.N {
+		for b.Loop() {
 			l.OnInvalidMsg(ctx)
 		}
 	})
 
-	b.Run("OnError", func(b *testing.B) {
+	b.Run("on_error", func(b *testing.B) {
 		b.ReportAllocs()
-		b.ResetTimer()
-		for range b.N {
+		for b.Loop() {
 			l.OnError(ctx, nil)
 		}
 	})
 
-	b.Run("OnPanic", func(b *testing.B) {
+	b.Run("on_panic", func(b *testing.B) {
 		b.ReportAllocs()
-		b.ResetTimer()
-		for range b.N {
+		for b.Loop() {
 			l.OnPanic(ctx, nil)
 		}
 	})
 
-	// Most recent result, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
-	//	goos: linux
-	//	goarch: amd64
-	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus
-	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkServerMetricsListener/OnRequest-16                	 1550391	       716.7 ns/op	       0 B/op	       0 allocs/op
-	//	BenchmarkServerMetricsListener/OnInvalidMsg-16             	13041940	        91.75 ns/op	       0 B/op	       0 allocs/op
-	//	BenchmarkServerMetricsListener/OnError-16                  	12297494	        97.04 ns/op	       0 B/op	       0 allocs/op
-	//	BenchmarkServerMetricsListener/OnPanic-16                  	14029394	        89.19 ns/op	       0 B/op	       0 allocs/op
+	// Most recent results:
+	//
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkServerMetricsListener/on_request-12         	 1645694	       716.9 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkServerMetricsListener/on_invalid_msg-12     	14245878	        86.15 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkServerMetricsListener/on_error-12           	13631739	        88.86 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkServerMetricsListener/on_panic-12           	13899312	        87.52 ns/op	       0 B/op	       0 allocs/op
 }

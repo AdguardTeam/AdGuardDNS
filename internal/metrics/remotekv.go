@@ -136,7 +136,7 @@ func NewBackendRemoteKV(
 		Subsystem: subsystemBackend,
 		Namespace: namespace,
 		Help: "Total number of lookups to the remote key-value storage. " +
-			"Lable hit is the lookup result, either 1 for hit or 0 for miss.",
+			"Label hit is the lookup result, either 1 for hit or 0 for miss.",
 	}, []string{"hit"})
 
 	m = &BackendRemoteKV{

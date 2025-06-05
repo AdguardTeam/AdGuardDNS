@@ -156,13 +156,15 @@ func (s *ProfileStorage) Profiles(
 	defer func() { err = errors.WithDeferred(err, stream.CloseSend()) }()
 
 	resp = &profiledb.StorageProfilesResponse{
-		Profiles: []*agd.Profile{},
-		Devices:  []*agd.Device{},
+		DeviceChanges: map[agd.ProfileID]*profiledb.StorageDeviceChange{},
+		Profiles:      []*agd.Profile{},
+		Devices:       []*agd.Device{},
 	}
 
+	isFullSync := req.SyncTime.IsZero()
 	stats := &profilesCallStats{
 		logger:     s.logger,
-		isFullSync: req.SyncTime.IsZero(),
+		isFullSync: isFullSync,
 	}
 
 	for n := 1; ; n++ {
@@ -182,14 +184,15 @@ func (s *ProfileStorage) Profiles(
 		stats.endRecv()
 
 		stats.startDec()
-		prof, devices, profErr := profile.toInternal(
+		prof, devices, devChg, profErr := profile.toInternal(
 			ctx,
-			s.bindSet,
-			s.errColl,
 			s.logger,
+			s.errColl,
+			s.bindSet,
 			s.baseCustomLogger,
 			s.metrics,
 			s.respSzEst,
+			isFullSync,
 		)
 		if profErr != nil {
 			errcoll.Collect(ctx, s.errColl, s.logger, "loading profile", profErr)
@@ -198,6 +201,7 @@ func (s *ProfileStorage) Profiles(
 		}
 		stats.endDec()
 
+		resp.DeviceChanges[prof.ID] = devChg
 		resp.Profiles = append(resp.Profiles, prof)
 		resp.Devices = append(resp.Devices, devices...)
 	}

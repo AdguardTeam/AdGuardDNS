@@ -23,6 +23,8 @@ type Service struct {
 	generalBlockingBPS *blockPageServer
 	safeBrowsingBPS    *blockPageServer
 
+	certValidator CertificateValidator
+
 	dnsCheck       http.Handler
 	staticContent  http.Handler
 	wellKnownProxy http.Handler
@@ -57,6 +59,8 @@ func New(c *Config) (svc *Service) {
 		adultBlockingBPS:   adultBlockingBPS,
 		generalBlockingBPS: generalBlockingBPS,
 		safeBrowsingBPS:    safeBrowsingBPS,
+
+		certValidator: c.CertificateValidator,
 
 		dnsCheck:      c.DNSCheck,
 		staticContent: c.StaticContent,
@@ -110,7 +114,13 @@ func (svc *Service) setLinkedIP(c *Config) {
 	for _, b := range l.Bind {
 		proxyLogger := logger.With("proxy_addr", b.Address)
 		h := httputil.Wrap(
-			newLinkedIPHandler(l.TargetURL, c.ErrColl, proxyLogger, c.Timeout),
+			newLinkedIPHandler(&linkedIPHandlerConfig{
+				targetURL:     l.TargetURL,
+				certValidator: nil,
+				errColl:       c.ErrColl,
+				proxyLogger:   proxyLogger,
+				timeout:       c.Timeout,
+			}),
 			httputil.NewLogMiddleware(logger, slog.LevelDebug),
 		)
 
@@ -123,16 +133,19 @@ func (svc *Service) setLinkedIP(c *Config) {
 		}))
 	}
 
-	// TODO(a.garipov):  Document this dependency on the
-	// LINKED_IP_TARGET_URL.
-	//
 	// TODO(a.garipov):  Improve logging.
 	wkProxyLogger := svc.logger.With(
 		loggerKeyGroup, srvGrpNonDoH,
 		"subgroup", "well_known_proxy",
 	)
 	svc.wellKnownProxy = httputil.Wrap(
-		newLinkedIPHandler(l.TargetURL, c.ErrColl, wkProxyLogger, c.Timeout),
+		newLinkedIPHandler(&linkedIPHandlerConfig{
+			targetURL:     l.TargetURL,
+			certValidator: c.CertificateValidator,
+			errColl:       c.ErrColl,
+			proxyLogger:   wkProxyLogger,
+			timeout:       c.Timeout,
+		}),
 		httputil.NewLogMiddleware(logger, slog.LevelInfo),
 	)
 }
@@ -275,4 +288,18 @@ func (svc *Service) Refresh(ctx context.Context) (err error) {
 	}
 
 	return errors.Join(errs...)
+}
+
+// Handler returns a handler that wraps svc with [httputil.LogMiddleware].
+//
+// TODO(a.garipov):  Ensure logging in module dnssvc and remove this crutch.
+func (svc *Service) Handler() (h http.Handler) {
+	// Keep in sync with [New].
+	logger := svc.logger.With(loggerKeyGroup, srvGrpNonDoH)
+
+	return httputil.Wrap(
+		svc,
+		httputil.ServerHeaderMiddleware(agdhttp.UserAgent()),
+		httputil.NewLogMiddleware(logger, slog.LevelDebug),
+	)
 }

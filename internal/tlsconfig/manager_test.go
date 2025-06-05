@@ -162,10 +162,9 @@ func TestDefaultManager_RotateTickets(t *testing.T) {
 	writeSessionKey(t, sessKeyPath)
 
 	m, err := tlsconfig.NewDefaultManager(&tlsconfig.DefaultManagerConfig{
-		Logger:             slogutil.NewDiscardLogger(),
-		ErrColl:            agdtest.NewErrorCollector(),
-		Metrics:            tlsconfig.EmptyMetrics{},
-		SessionTicketPaths: []string{sessKeyPath},
+		Logger:  slogutil.NewDiscardLogger(),
+		ErrColl: agdtest.NewErrorCollector(),
+		Metrics: tlsconfig.EmptyMetrics{},
 	})
 	require.NoError(t, err)
 
@@ -180,7 +179,11 @@ func TestDefaultManager_RotateTickets(t *testing.T) {
 	err = m.Add(ctx, certPath, keyPath)
 	require.NoError(t, err)
 
-	err = m.RotateTickets(ctx)
+	db := tlsconfig.NewLocalTicketDB(&tlsconfig.LocalTicketDBConfig{
+		Paths: []string{sessKeyPath},
+	})
+
+	err = m.RotateTickets(ctx, db)
 	require.NoError(t, err)
 
 	// TODO(s.chzhen):  Find a way to test session ticket changes.

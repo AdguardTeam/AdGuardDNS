@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
@@ -48,4 +49,15 @@ func (s *mockRateLimitServiceServer) GetRateLimitSettings(
 			Prefix:  8,
 		}},
 	}, nil
+}
+
+// GetGlobalAccessSettings implements the [backendpb.RateLimitServiceServer]
+// interface for *mockRateLimitServiceServer.
+//
+// TODO(a.garipov):  Implement this method.
+func (s *mockRateLimitServiceServer) GetGlobalAccessSettings(
+	_ context.Context,
+	_ *backendpb.GlobalAccessSettingsRequest,
+) (_ *backendpb.GlobalAccessSettingsResponse, _ error) {
+	panic(fmt.Errorf("unexpected call to GetGlobalAccessSettings"))
 }

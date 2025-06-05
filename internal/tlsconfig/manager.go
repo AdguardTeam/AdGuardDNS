@@ -43,9 +43,6 @@ type DefaultManagerConfig struct {
 
 	// KeyLogFilename, if not empty, is the name of the TLS key log file.
 	KeyLogFilename string
-
-	// SessionTicketPaths are paths to files containing the TLS session tickets.
-	SessionTicketPaths []string
 }
 
 // DefaultManager is the default implementation of [Manager].
@@ -60,7 +57,6 @@ type DefaultManager struct {
 	original          *tls.Config
 	clones            []*tls.Config
 	clonesWithMetrics []*tls.Config
-	sessTicketPaths   []string
 }
 
 // NewDefaultManager returns a new initialized *DefaultManager.
@@ -75,12 +71,11 @@ func NewDefaultManager(conf *DefaultManagerConfig) (m *DefaultManager, err error
 	}
 
 	m = &DefaultManager{
-		mu:              &sync.Mutex{},
-		logger:          conf.Logger,
-		errColl:         conf.ErrColl,
-		metrics:         conf.Metrics,
-		certStorage:     &certStorage{},
-		sessTicketPaths: conf.SessionTicketPaths,
+		mu:          &sync.Mutex{},
+		logger:      conf.Logger,
+		errColl:     conf.ErrColl,
+		metrics:     conf.Metrics,
+		certStorage: &certStorage{},
 	}
 
 	m.original = &tls.Config{
@@ -248,23 +243,18 @@ func (m *DefaultManager) Refresh(ctx context.Context) (err error) {
 	return nil
 }
 
-// sessTickLen is the length of a single TLS session ticket key in bytes.
-//
-// NOTE: Unlike Nginx, Go's crypto/tls doesn't use the random bytes from the
-// session ticket keys as-is, but instead hashes these bytes and uses the first
-// 48 bytes of the hashed data as the key name, the AES key, and the HMAC key.
-const sessTickLen = 32
-
-// sessionTicket is a type alias for a single TLS session ticket.
-type sessionTicket = [sessTickLen]byte
-
 // RotateTickets rereads and resets TLS session tickets.
-func (m *DefaultManager) RotateTickets(ctx context.Context) (err error) {
+func (m *DefaultManager) RotateTickets(ctx context.Context, db TicketDB) (err error) {
 	m.logger.DebugContext(ctx, "ticket rotation started")
 	defer m.logger.DebugContext(ctx, "ticket rotation finished")
 
-	files := m.sessTicketPaths
-	if len(files) == 0 {
+	err = db.Refresh(ctx)
+	if err != nil {
+		m.errColl.Collect(ctx, fmt.Errorf("refreshing ticket database: %w", err))
+	}
+
+	paths := db.Paths(ctx)
+	if len(paths) == 0 {
 		return nil
 	}
 
@@ -276,12 +266,12 @@ func (m *DefaultManager) RotateTickets(ctx context.Context) (err error) {
 		}
 	}()
 
-	tickets := make([]sessionTicket, 0, len(files))
-	for _, fileName := range files {
-		var ticket sessionTicket
-		ticket, err = readSessionTicketKey(fileName)
+	tickets := make([]SessionTicket, 0, len(paths))
+	for _, filePath := range paths {
+		var ticket SessionTicket
+		ticket, err = readSessionTicketFile(filePath)
 		if err != nil {
-			return fmt.Errorf("reading sesion ticket: %w", err)
+			return fmt.Errorf("reading session ticket: %w", err)
 		}
 
 		tickets = append(tickets, ticket)
@@ -306,28 +296,6 @@ func (m *DefaultManager) RotateTickets(ctx context.Context) (err error) {
 	)
 
 	return nil
-}
-
-// readSessionTicketKey reads a single TLS session ticket from a file.
-func readSessionTicketKey(fn string) (ticket sessionTicket, err error) {
-	// #nosec G304 -- Trust the file paths that are given to us in the
-	// configuration file.
-	b, err := os.ReadFile(fn)
-	if err != nil {
-		return ticket, fmt.Errorf("reading session ticket: %w", err)
-	}
-
-	tickLen := len(b)
-	if tickLen < sessTickLen {
-		return ticket, fmt.Errorf(
-			"session ticket in %q: bad len %d, want no less than %d",
-			fn,
-			tickLen,
-			sessTickLen,
-		)
-	}
-
-	return sessionTicket(b), nil
 }
 
 // tlsKeyLogWriter returns a writer for logging TLS secrets to keyLogFilename.

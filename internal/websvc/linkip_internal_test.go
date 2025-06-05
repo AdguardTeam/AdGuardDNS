@@ -28,8 +28,8 @@ func TestLinkedIPProxy_ServeHTTP(t *testing.T) {
 	)
 
 	var (
-		apiURL *url.URL
-		numReq atomic.Uint64
+		targetURL *url.URL
+		numReq    atomic.Uint64
 	)
 
 	upstream := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
@@ -40,7 +40,7 @@ func TestLinkedIPProxy_ServeHTTP(t *testing.T) {
 		require.Equal(pt, agdhttp.UserAgent(), hdr.Get(httphdr.UserAgent))
 		require.NotEmpty(pt, hdr.Get(httphdr.XRequestID))
 
-		require.Equal(pt, apiURL.Host, r.Host)
+		require.Equal(pt, targetURL.Host, r.Host)
 		require.Equal(pt, realRemoteIP, hdr.Get(httphdr.XForwardedFor))
 		require.Equal(pt, realRemoteIP, hdr.Get(httphdr.XConnectingIP))
 		require.Equal(pt, realHost, hdr.Get(httphdr.XForwardedHost))
@@ -57,10 +57,16 @@ func TestLinkedIPProxy_ServeHTTP(t *testing.T) {
 	srv := httptest.NewServer(upstream)
 	t.Cleanup(srv.Close)
 
-	apiURL, err := url.Parse(srv.URL)
+	targetURL, err := url.Parse(srv.URL)
 	require.NoError(t, err)
 
-	h := newLinkedIPHandler(apiURL, agdtest.NewErrorCollector(), testLogger, testTimeout)
+	h := newLinkedIPHandler(&linkedIPHandlerConfig{
+		targetURL:     targetURL,
+		certValidator: nil,
+		errColl:       agdtest.NewErrorCollector(),
+		proxyLogger:   testLogger,
+		timeout:       testTimeout,
+	})
 
 	testCases := []struct {
 		name                    string

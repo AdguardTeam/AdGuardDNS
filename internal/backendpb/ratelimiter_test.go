@@ -2,11 +2,9 @@ package backendpb_test
 
 import (
 	"context"
-	"net"
+	"fmt"
 	"net/netip"
-	"net/url"
 	"testing"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/consul"
@@ -17,29 +15,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
-
-// testRateLimitServiceServer is the [backendpb.RateLimitServiceServer] for
-// tests.
-type testRateLimitServiceServer struct {
-	backendpb.UnimplementedRateLimitServiceServer
-
-	OnGetRateLimitSettings func(
-		ctx context.Context,
-		req *backendpb.RateLimitSettingsRequest,
-	) (resp *backendpb.RateLimitSettingsResponse, err error)
-}
-
-// type check
-var _ backendpb.DNSServiceServer = (*testDNSServiceServer)(nil)
-
-// GetRateLimitSettings implements the [backendpb.RateLimitServiceServer]
-// interface for *testRateLimitServiceServer.
-func (s *testRateLimitServiceServer) GetRateLimitSettings(
-	ctx context.Context,
-	req *backendpb.RateLimitSettingsRequest,
-) (resp *backendpb.RateLimitSettingsResponse, err error) {
-	return s.OnGetRateLimitSettings(ctx, req)
-}
 
 func TestRateLimiter_Refresh(t *testing.T) {
 	var (
@@ -61,24 +36,21 @@ func TestRateLimiter_Refresh(t *testing.T) {
 				AllowedSubnets: []*backendpb.CidrRange{cidr},
 			}, nil
 		},
+		// TODO(e.burkov):  Use and test.
+		OnGetGlobalAccessSettings: func(
+			_ context.Context,
+			_ *backendpb.GlobalAccessSettingsRequest,
+		) (_ *backendpb.GlobalAccessSettingsResponse, _ error) {
+			panic(fmt.Errorf("unexpected call to GetGlobalAccessSettings"))
+		},
 	}
 
-	ln, err := net.Listen("tcp", "localhost:0")
-	require.NoError(t, err)
-
 	grpcSrv := grpc.NewServer(
-		grpc.ConnectionTimeout(1*time.Second),
+		grpc.ConnectionTimeout(backendpb.TestTimeout),
 		grpc.Creds(insecure.NewCredentials()),
 	)
 	backendpb.RegisterRateLimitServiceServer(grpcSrv, srv)
-
-	go func() {
-		pt := testutil.PanicT{}
-
-		srvErr := grpcSrv.Serve(ln)
-		require.NoError(pt, srvErr)
-	}()
-	t.Cleanup(grpcSrv.GracefulStop)
+	endpoint := runLocalGRPCServer(t, grpcSrv)
 
 	allowlist := ratelimit.NewDynamicAllowlist(nil, nil)
 	l, err := backendpb.NewRateLimiter(&backendpb.RateLimiterConfig{
@@ -86,14 +58,11 @@ func TestRateLimiter_Refresh(t *testing.T) {
 		Metrics:     consul.EmptyMetrics{},
 		GRPCMetrics: backendpb.EmptyGRPCMetrics{},
 		Allowlist:   allowlist,
-		Endpoint: &url.URL{
-			Scheme: "grpc",
-			Host:   ln.Addr().String(),
-		},
+		Endpoint:    endpoint,
 	})
 	require.NoError(t, err)
 
-	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	ctx := testutil.ContextWithTimeout(t, backendpb.TestTimeout)
 	err = l.Refresh(ctx)
 	require.NoError(t, err)
 

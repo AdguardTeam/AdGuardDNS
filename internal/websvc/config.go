@@ -1,6 +1,7 @@
 package websvc
 
 import (
+	"context"
 	"crypto/tls"
 	"log/slog"
 	"net/http"
@@ -32,6 +33,10 @@ type Config struct {
 	// RootRedirectURL is the optional URL to which root HTTP requests are
 	// redirected.  If not set, these requests are responded with a 404 page.
 	RootRedirectURL *url.URL
+
+	// CertificateValidator checks if an HTTP request is a TLS-certificate
+	// validation request.  It must not be nil.
+	CertificateValidator CertificateValidator
 
 	// StaticContent is the content that is served statically at the given
 	// paths.  It must not be nil; use [http.NotFoundHandler] if not needed.
@@ -90,4 +95,28 @@ type LinkedIPServer struct {
 	// Bind are the addresses on which to serve the linked IP API.  At least one
 	// must be provided.  All items must not be nil.
 	Bind []*BindData
+}
+
+// CertificateValidator checks if an HTTP request is a TLS-certificate
+// validation request.
+type CertificateValidator interface {
+	// IsValidWellKnownRequest returns true if r is a valid HTTP request for
+	// certificate validation.  r must not be nil.
+	IsValidWellKnownRequest(ctx context.Context, r *http.Request) (ok bool)
+}
+
+// RejectCertificateValidator is a [CertificateValidator] which rejects all HTTP
+// requests.
+type RejectCertificateValidator struct{}
+
+// type check
+var _ CertificateValidator = RejectCertificateValidator{}
+
+// IsValidWellKnownRequest implements the [CertificateValidator] interface for
+// RejectCertificateValidator.  It always returns false.
+func (RejectCertificateValidator) IsValidWellKnownRequest(
+	_ context.Context,
+	_ *http.Request,
+) (ok bool) {
+	return false
 }

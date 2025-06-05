@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
 )
 
@@ -56,6 +57,13 @@ var _ error = (*DeviceQuotaExceededError)(nil)
 func (err *DeviceQuotaExceededError) Error() (msg string) {
 	return err.Message
 }
+
+// type check
+var _ errcoll.SentryReportableError = (*DeviceQuotaExceededError)(nil)
+
+// IsSentryReportable implements the [errcoll.SentryReportableError] interface
+// for *DeviceQuotaExceededError.
+func (err *DeviceQuotaExceededError) IsSentryReportable() (ok bool) { return false }
 
 // RateLimitedError is returned by methods of [Storage] when the requests are
 // made too often.

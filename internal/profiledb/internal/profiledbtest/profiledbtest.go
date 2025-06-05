@@ -14,6 +14,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/c2h5oh/datasize"
 	"github.com/stretchr/testify/require"
@@ -39,6 +40,9 @@ const (
 
 // RespSzEst is a response-size estimate for tests.
 const RespSzEst datasize.ByteSize = 1 * datasize.KB
+
+// WellKnownPath is the well-known certificate validation path for tests.
+const WellKnownPath = "/.well-known/pki-validation/abcd1234"
 
 // NewProfile returns the common profile and device for tests.  The profile has
 // ID [ProfileID] and the device, [DeviceID].  The response size estimate for
@@ -96,7 +100,7 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 			},
 		}, {
 			State: &agd.CustomDomainStatePending{
-				WellKnownPath: "/.well-known/abc/def",
+				WellKnownPath: WellKnownPath,
 				Expire:        time.Date(2022, 1, 1, 0, 0, 0, 0, time.UTC),
 			},
 			Domains: []string{
@@ -145,7 +149,7 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 		}, RespSzEst),
 		AccountID:           AccountID,
 		ID:                  ProfileID,
-		DeviceIDs:           []agd.DeviceID{dev.ID},
+		DeviceIDs:           container.NewMapSet(dev.ID),
 		FilteredResponseTTL: 10 * time.Second,
 		AutoDevicesEnabled:  true,
 		BlockChromePrefetch: true,

@@ -118,14 +118,14 @@ func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
 		defer mw.fltCtxPool.Put(fctx)
 
 		ri := agd.MustRequestInfoFromContext(ctx)
-		optslog.Debug2(
+		optslog.Trace2(
 			ctx,
 			mw.logger,
 			"processing request",
 			"req_id", ri.ID,
 			"remote_ip", ri.RemoteIP,
 		)
-		defer optslog.Debug2(
+		defer optslog.Trace2(
 			ctx,
 			mw.logger,
 			"finished processing request",

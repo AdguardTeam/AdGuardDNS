@@ -161,10 +161,14 @@ func TestUpstreamPlain_Exchange_fallbackFail(t *testing.T) {
 
 	var resp *dns.Msg
 	var err error
+
 	go func() {
 		ctx := testutil.ContextWithTimeout(t, testTimeout)
 		resp, _, err = u.Exchange(ctx, req)
-		testutil.RequireSend(pt, respCh, struct{}{}, testTimeout)
+		// Don't use [testutil.RequireSend] as it fails the test earlier than we
+		// get a more informative error message to see where the test failed in
+		// main goroutine.
+		close(respCh)
 	}()
 
 	// First attempt should use UDP and fail due to bad ID.

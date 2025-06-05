@@ -9,6 +9,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/service"
 	"github.com/AdguardTeam/golibs/validate"
 )
 
@@ -176,4 +177,18 @@ func (certs tlsConfigCerts) Validate() (err error) {
 	}
 
 	return errors.Join(errs...)
+}
+
+// newTicketRotator creates a new session ticket refresher.
+func (b *builder) newTicketRotator(ctx context.Context) (tickRot service.RefresherFunc) {
+	b.logger.DebugContext(ctx, "using local session tickets")
+
+	ticketPaths := b.conf.ServerGroups.collectSessTicketPaths()
+	db := tlsconfig.NewLocalTicketDB(&tlsconfig.LocalTicketDBConfig{
+		Paths: ticketPaths,
+	})
+
+	return service.RefresherFunc(func(ctx context.Context) (err error) {
+		return b.tlsManager.RotateTickets(ctx, db)
+	})
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/devicefinder"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
@@ -39,8 +40,12 @@ func TestMain(m *testing.M) {
 
 // Common requests for tests.
 var (
-	reqNormal = dnsservertest.NewReq(dnssvctest.DomainFQDN, dns.TypeA, dns.ClassINET)
-	reqEDNS   = dnsservertest.NewReq(
+	reqNormal = dnsservertest.NewReq(
+		dnssvctest.DomainFQDN,
+		dns.TypeA,
+		dns.ClassINET,
+	)
+	reqEDNS = dnsservertest.NewReq(
 		dnssvctest.DomainFQDN,
 		dns.TypeA,
 		dns.ClassINET,
@@ -117,14 +122,14 @@ var (
 	profNormal = &agd.Profile{
 		BlockingMode: &dnsmsg.BlockingModeNullIP{},
 		ID:           dnssvctest.ProfileID,
-		DeviceIDs:    []agd.DeviceID{dnssvctest.DeviceID},
+		DeviceIDs:    container.NewMapSet(dnssvctest.DeviceID),
 		Deleted:      false,
 	}
 
 	profDeleted = &agd.Profile{
 		BlockingMode: &dnsmsg.BlockingModeNullIP{},
 		ID:           dnssvctest.ProfileID,
-		DeviceIDs:    []agd.DeviceID{dnssvctest.DeviceID},
+		DeviceIDs:    container.NewMapSet(dnssvctest.DeviceID),
 		Deleted:      true,
 	}
 
@@ -267,11 +272,6 @@ func TestDefault_Find_dnscrypt(t *testing.T) {
 	assert.Nil(t, r)
 }
 
-// Common sinks for benchmarks.
-var (
-	sinkDevResult agd.DeviceResult
-)
-
 func BenchmarkDefault(b *testing.B) {
 	profDB := &agdtest.ProfileDB{
 		OnCreateAutoDevice: func(
@@ -405,10 +405,11 @@ func BenchmarkDefault(b *testing.B) {
 			ctx := testutil.ContextWithTimeout(b, dnssvctest.Timeout)
 			ctx = dnsserver.ContextWithRequestInfo(ctx, bc.srvReqInfo)
 
+			var devRes agd.DeviceResult
+
 			b.ReportAllocs()
-			b.ResetTimer()
-			for range b.N {
-				sinkDevResult = df.Find(
+			for b.Loop() {
+				devRes = df.Find(
 					ctx,
 					bc.req,
 					dnssvctest.ClientAddrPort,
@@ -416,19 +417,20 @@ func BenchmarkDefault(b *testing.B) {
 				)
 			}
 
-			_ = testutil.RequireTypeAssert[*agd.DeviceResultOK](b, sinkDevResult)
+			_ = testutil.RequireTypeAssert[*agd.DeviceResultOK](b, devRes)
 		})
 	}
 
-	// Most recent result:
-	//	goos: linux
-	//	goarch: amd64
-	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/devicefinder
-	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkDefault/dot-16         	 5258900	       300.3 ns/op	      16 B/op	       1 allocs/op
-	//	BenchmarkDefault/doh_domain-16  	 1996458	       621.0 ns/op	      64 B/op	       3 allocs/op
-	//	BenchmarkDefault/doh_path-16    	 2376877	       655.0 ns/op	      80 B/op	       3 allocs/op
-	//	BenchmarkDefault/dns_edns-16    	 4566312	       289.3 ns/op	      24 B/op	       2 allocs/op
-	//	BenchmarkDefault/dns_laddr-16   	 6154356	       198.7 ns/op	      16 B/op	       1 allocs/op
-	//	BenchmarkDefault/dns_raddr-16   	 7268647	       183.3 ns/op	      16 B/op	       1 allocs/op
+	// Most recent results:
+	//
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/devicefinder
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkDefault/dot-12         	 6321766	       202.5 ns/op	      16 B/op	       1 allocs/op
+	// BenchmarkDefault/doh_domain-12  	 3415054	       336.6 ns/op	      64 B/op	       3 allocs/op
+	// BenchmarkDefault/doh_path-12    	 3806800	       298.3 ns/op	      80 B/op	       3 allocs/op
+	// BenchmarkDefault/dns_edns-12    	 8531654	       140.9 ns/op	      24 B/op	       2 allocs/op
+	// BenchmarkDefault/dns_laddr-12   	15130734	        81.73 ns/op	      16 B/op	       1 allocs/op
+	// BenchmarkDefault/dns_raddr-12   	14949520	        78.55 ns/op	      16 B/op	       1 allocs/op
 }

@@ -2,8 +2,6 @@ package backendpb_test
 
 import (
 	"context"
-	"net"
-	"net/url"
 	"testing"
 	"time"
 
@@ -49,30 +47,20 @@ func TestRemoteKV_Get(t *testing.T) {
 		},
 	}
 
-	l, err := net.Listen("tcp", "localhost:0")
-	require.NoError(t, err)
-
 	grpcSrv := grpc.NewServer(
-		grpc.ConnectionTimeout(1*time.Second),
+		grpc.ConnectionTimeout(backendpb.TestTimeout),
 		grpc.Creds(insecure.NewCredentials()),
 	)
 	backendpb.RegisterRemoteKVServiceServer(grpcSrv, srv)
 
-	go func() {
-		srvErr := grpcSrv.Serve(l)
-		require.NoError(pt, srvErr)
-	}()
-	t.Cleanup(grpcSrv.GracefulStop)
+	endpoint := runLocalGRPCServer(t, grpcSrv)
 
 	kv, err := backendpb.NewRemoteKV(&backendpb.RemoteKVConfig{
 		GRPCMetrics: backendpb.EmptyGRPCMetrics{},
 		Metrics:     backendpb.EmptyRemoteKVMetrics{},
-		Endpoint: &url.URL{
-			Scheme: "grpc",
-			Host:   l.Addr().String(),
-		},
-		APIKey: "apikey",
-		TTL:    testTTL,
+		Endpoint:    endpoint,
+		APIKey:      "apikey",
+		TTL:         testTTL,
 	})
 	require.NoError(t, err)
 
@@ -83,7 +71,7 @@ func TestRemoteKV_Get(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		val := []byte("value")
-		ctx := testutil.ContextWithTimeout(t, testTimeout)
+		ctx := testutil.ContextWithTimeout(t, backendpb.TestTimeout)
 
 		setErr := kv.Set(ctx, keyWithData, val)
 		require.NoError(t, setErr)
@@ -96,7 +84,7 @@ func TestRemoteKV_Get(t *testing.T) {
 	})
 
 	t.Run("not_found", func(t *testing.T) {
-		ctx := testutil.ContextWithTimeout(t, testTimeout)
+		ctx := testutil.ContextWithTimeout(t, backendpb.TestTimeout)
 
 		val, ok, getErr := kv.Get(ctx, keyNoData)
 		require.NoError(t, getErr)

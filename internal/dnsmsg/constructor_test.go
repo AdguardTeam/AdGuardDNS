@@ -188,9 +188,6 @@ func TestConstructor_AppendDebugExtra(t *testing.T) {
 	}
 }
 
-// errSink is a sink for benchmark results.
-var errSink error
-
 func BenchmarkConstructor_AppendDebugExtra(b *testing.B) {
 	msgs := agdtest.NewConstructor(b)
 
@@ -207,16 +204,16 @@ func BenchmarkConstructor_AppendDebugExtra(b *testing.B) {
 		}},
 	}
 
-	resp := &dns.Msg{}
-	resp = resp.SetReply(req)
+	resp := (&dns.Msg{}).SetReply(req)
+
+	var err error
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		errSink = msgs.AppendDebugExtra(req, resp, longText)
+	for b.Loop() {
+		err = msgs.AppendDebugExtra(req, resp, longText)
 	}
 
-	assert.NoError(b, errSink)
+	assert.NoError(b, err)
 
 	// Most recent results:
 	//

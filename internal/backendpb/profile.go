@@ -16,6 +16,9 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
+	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/c2h5oh/datasize"
@@ -27,37 +30,61 @@ import (
 // TODO(a.garipov):  Refactor into methods of [*ProfileStorage].
 func (x *DNSProfile) toInternal(
 	ctx context.Context,
-	bindSet netutil.SubnetSet,
-	errColl errcoll.Interface,
 	logger *slog.Logger,
+	errColl errcoll.Interface,
+	bindSet netutil.SubnetSet,
 	baseCustomLogger *slog.Logger,
 	mtrc ProfileDBMetrics,
 	respSzEst datasize.ByteSize,
-) (profile *agd.Profile, devices []*agd.Device, err error) {
+	isFullSync bool,
+) (profile *agd.Profile, devices []*agd.Device, devChg *profiledb.StorageDeviceChange, err error) {
 	if x == nil {
-		return nil, nil, fmt.Errorf("profile is nil")
+		return nil, nil, nil, fmt.Errorf("profile is nil")
 	}
 
 	parental, err := x.Parental.toInternal(ctx, errColl, logger)
 	if err != nil {
-		return nil, nil, fmt.Errorf("parental: %w", err)
+		return nil, nil, nil, fmt.Errorf("parental: %w", err)
 	}
 
 	m, err := blockingModeToInternal(x.BlockingMode)
 	if err != nil {
-		return nil, nil, fmt.Errorf("blocking mode: %w", err)
+		return nil, nil, nil, fmt.Errorf("blocking mode: %w", err)
 	}
 
-	devices, deviceIds := devicesToInternal(ctx, x.Devices, bindSet, errColl, logger, mtrc)
+	devChg = &profiledb.StorageDeviceChange{}
+	var deviceIDs []agd.DeviceID
+	if l := len(x.Devices); l != 0 {
+		optslog.Trace2(ctx, logger, "got devices", "profile_id", x.DnsId, "len", l)
+
+		devices, deviceIDs = devicesToInternal(ctx, x.Devices, bindSet, errColl, logger, mtrc)
+	} else if l = len(x.DeviceChanges); l != 0 {
+		optslog.Trace2(ctx, logger, "got device changes", "profile_id", x.DnsId, "len", l)
+
+		devChg.IsPartial = true
+		devices, deviceIDs, devChg.DeletedDeviceIDs = deviceChangesToInternal(
+			ctx,
+			x.DeviceChanges,
+			bindSet,
+			errColl,
+			logger,
+			mtrc,
+		)
+	} else {
+		// If the sync is full, the absence of devices shows that a profile has
+		// no devices, however in a partial sync it shows the absence of changes
+		// in the devices.
+		devChg.IsPartial = !isFullSync
+	}
 
 	profID, err := agd.NewProfileID(x.DnsId)
 	if err != nil {
-		return nil, nil, fmt.Errorf("id: %w", err)
+		return nil, nil, nil, fmt.Errorf("id: %w", err)
 	}
 
 	accID, err := agd.NewAccountID(x.AccountId)
 	if err != nil {
-		return nil, nil, fmt.Errorf("account id: %w", err)
+		return nil, nil, nil, fmt.Errorf("account id: %w", err)
 	}
 
 	var fltRespTTL time.Duration
@@ -84,6 +111,7 @@ func (x *DNSProfile) toInternal(
 
 	return &agd.Profile{
 		CustomDomains: x.CustomDomain.toInternal(ctx, errColl, logger),
+		DeviceIDs:     container.NewMapSet(deviceIDs...),
 		FilterConfig: &filter.ConfigClient{
 			Custom:       customConf,
 			Parental:     parental,
@@ -95,7 +123,6 @@ func (x *DNSProfile) toInternal(
 		Ratelimiter:         x.RateLimit.toInternal(ctx, errColl, logger, respSzEst),
 		AccountID:           accID,
 		ID:                  profID,
-		DeviceIDs:           deviceIds,
 		FilteredResponseTTL: fltRespTTL,
 		AutoDevicesEnabled:  x.AutoDevicesEnabled,
 		BlockChromePrefetch: x.BlockChromePrefetch,
@@ -105,7 +132,7 @@ func (x *DNSProfile) toInternal(
 		FilteringEnabled:    x.FilteringEnabled,
 		IPLogEnabled:        x.IpLogEnabled,
 		QueryLogEnabled:     x.QueryLogEnabled,
-	}, devices, nil
+	}, devices, devChg, nil
 }
 
 // toInternal converts a protobuf parental-protection settings structure to an

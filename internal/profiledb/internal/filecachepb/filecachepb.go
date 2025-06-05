@@ -18,6 +18,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/c2h5oh/datasize"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -155,7 +156,9 @@ func (x *Profile) toInternal(
 		ID:        agd.ProfileID(x.ProfileId),
 
 		// Consider device IDs to have been prevalidated.
-		DeviceIDs: unsafelyConvertStrSlice[string, agd.DeviceID](x.DeviceIds),
+		DeviceIDs: container.NewMapSet(
+			unsafelyConvertStrSlice[string, agd.DeviceID](x.DeviceIds)...,
+		),
 
 		// Consider rule-list IDs to have been prevalidated.
 		FilteredResponseTTL: x.FilteredResponseTtl.AsDuration(),
@@ -471,7 +474,7 @@ func profileToProtobuf(p *agd.Profile) (pbProf *Profile) {
 		Ratelimiter:         ratelimiterToProtobuf(p.Ratelimiter.Config()),
 		AccountId:           string(p.AccountID),
 		ProfileId:           string(p.ID),
-		DeviceIds:           unsafelyConvertStrSlice[agd.DeviceID, string](p.DeviceIDs),
+		DeviceIds:           unsafelyConvertStrSlice[agd.DeviceID, string](p.DeviceIDs.Values()),
 		FilteredResponseTtl: durationpb.New(p.FilteredResponseTTL),
 		AutoDevicesEnabled:  p.AutoDevicesEnabled,
 		BlockChromePrefetch: p.BlockChromePrefetch,

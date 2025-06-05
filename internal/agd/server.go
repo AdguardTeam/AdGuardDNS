@@ -204,7 +204,7 @@ type QUICConfig struct {
 // TLSConfig is the TLS configuration of a DNS server.  Metrics and ALPs must be
 // set for saved configurations.
 type TLSConfig struct {
-	// Default is the defult TLS configuration.  It must not be nil.
+	// Default is the default TLS configuration.  It must not be nil.
 	Default *tls.Config
 
 	// H3 is the TLS configuration for DoH3.

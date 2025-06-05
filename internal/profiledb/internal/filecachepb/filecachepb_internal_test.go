@@ -17,36 +17,28 @@ import (
 // testLogger is the common logger for tests.
 var testLogger = slogutil.NewDiscardLogger()
 
-// Sinks for benchmarks
-var (
-	bytesSink     []byte
-	cacheSink     = &internal.FileCache{}
-	errSink       error
-	fileCacheSink = &FileCache{}
-)
-
 // envVarName is the environment variable name the presence and value of which
 // define whether to run the benchmarks with the data from the given file.
 //
 // The path should be an absolute path.
 const envVarName = "ADGUARD_DNS_TEST_PROFILEDB_JSON"
 
-// setCacheSink is a helper that allows using a prepared JSON file for loading
-// the data for benchmarks from the environment.
-func setCacheSink(tb testing.TB) {
+// newCache is a helper that allows using a prepared JSON file for loading the
+// data for benchmarks from the environment.
+func newCache(tb testing.TB) (cache *internal.FileCache) {
 	tb.Helper()
 
 	filePath := os.Getenv(envVarName)
 	if filePath == "" {
 		prof, dev := profiledbtest.NewProfile(tb)
-		cacheSink = &internal.FileCache{
+		cache = &internal.FileCache{
 			SyncTime: time.Now().Round(0).UTC(),
 			Profiles: []*agd.Profile{prof},
 			Devices:  []*agd.Device{dev},
 			Version:  internal.FileCacheVersion,
 		}
 
-		return
+		return cache
 	}
 
 	tb.Logf("using %q as source for profiledb data", filePath)
@@ -54,66 +46,69 @@ func setCacheSink(tb testing.TB) {
 	data, err := os.ReadFile(filePath)
 	require.NoError(tb, err)
 
-	err = json.Unmarshal(data, cacheSink)
+	err = json.Unmarshal(data, cache)
 	require.NoError(tb, err)
+
+	return cache
 }
 
 func BenchmarkCache(b *testing.B) {
-	setCacheSink(b)
+	cache := newCache(b)
+	var err error
+	var fileCache *FileCache
 
 	b.Run("to_protobuf", func(b *testing.B) {
 		b.ReportAllocs()
-		b.ResetTimer()
-		for range b.N {
-			fileCacheSink = toProtobuf(cacheSink)
+		for b.Loop() {
+			fileCache = toProtobuf(cache)
 		}
 
-		require.NoError(b, errSink)
-		require.NotEmpty(b, fileCacheSink)
+		require.NoError(b, err)
+		require.NotEmpty(b, fileCache)
 	})
 
 	b.Run("from_protobuf", func(b *testing.B) {
 		var gotCache *internal.FileCache
 
 		b.ReportAllocs()
-		b.ResetTimer()
-		for range b.N {
-			gotCache, errSink = toInternal(fileCacheSink, testLogger, profiledbtest.RespSzEst)
+		for b.Loop() {
+			gotCache, err = toInternal(fileCache, testLogger, profiledbtest.RespSzEst)
 		}
 
-		require.NoError(b, errSink)
+		require.NoError(b, err)
 		require.NotEmpty(b, gotCache)
 	})
 
+	var data []byte
+
 	b.Run("encode", func(b *testing.B) {
 		b.ReportAllocs()
-		b.ResetTimer()
-		for range b.N {
-			bytesSink, errSink = proto.Marshal(fileCacheSink)
+		for b.Loop() {
+			data, err = proto.Marshal(fileCache)
 		}
 
-		require.NoError(b, errSink)
-		require.NotEmpty(b, bytesSink)
+		require.NoError(b, err)
+		require.NotEmpty(b, data)
 	})
 
 	b.Run("decode", func(b *testing.B) {
 		b.ReportAllocs()
-		b.ResetTimer()
-		for range b.N {
-			errSink = proto.Unmarshal(bytesSink, fileCacheSink)
+		for b.Loop() {
+			err = proto.Unmarshal(data, fileCache)
 		}
 
-		require.NoError(b, errSink)
-		require.NotEmpty(b, fileCacheSink)
+		require.NoError(b, err)
+		require.NotEmpty(b, fileCache)
 	})
 
-	// Most recent result, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
-	//	goos: linux
-	//	goarch: amd64
-	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecachepb
-	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkCache/to_protobuf-16         	  280604	      4696 ns/op	    2232 B/op	      45 allocs/op
-	//	BenchmarkCache/from_protobuf-16       	   48144	     26794 ns/op	    8832 B/op	      45 allocs/op
-	//	BenchmarkCache/encode-16              	  258315	      4802 ns/op	     288 B/op	       1 allocs/op
-	//	BenchmarkCache/decode-16              	  112821	     11422 ns/op	    2064 B/op	      50 allocs/op
+	// Most recent results:
+	//
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecachepb
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkCache/to_protobuf-12         	  542451	      2133 ns/op	    2984 B/op	      59 allocs/op
+	// BenchmarkCache/from_protobuf-12       	   23119	     54038 ns/op	    9400 B/op	      66 allocs/op
+	// BenchmarkCache/encode-12              	  381763	      2982 ns/op	     480 B/op	       1 allocs/op
+	// BenchmarkCache/decode-12              	  206245	      5791 ns/op	    2992 B/op	      74 allocs/op
 }

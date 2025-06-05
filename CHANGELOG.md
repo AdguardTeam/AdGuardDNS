@@ -7,6 +7,27 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 [kec]: https://keepachangelog.com/en/1.0.0/
 [sem]: https://semver.org/spec/v2.0.0.html
 
+## AGDNS-2748 / Build 987
+
+- The object `upstream.healthcheck` has a new optional property, `network_override`. To use it, replace this:
+
+    ```yaml
+    upstream:
+        # …
+        healthcheck:
+            # …
+    ```
+
+    with this:
+
+    ```yaml
+    upstream:
+        # …
+        healthcheck:
+            # …
+            network_override: 'tcp'
+    ```
+
 ## AGDNS-2478 / Build 974
 
 - Profiles’ file cache version has been incremented. Custom-domain data is now saved.

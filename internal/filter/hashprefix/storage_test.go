@@ -75,12 +75,6 @@ func TestStorage_Reset(t *testing.T) {
 	assert.True(t, s.Matches(filtertest.Host))
 }
 
-// Sinks for benchmarks.
-var (
-	errSink  error
-	strsSink []string
-)
-
 func BenchmarkStorage_Hashes(b *testing.B) {
 	const N = 10_000
 
@@ -100,25 +94,27 @@ func BenchmarkStorage_Hashes(b *testing.B) {
 	for n := 1; n <= 4; n++ {
 		b.Run(strconv.FormatInt(int64(n), 10), func(b *testing.B) {
 			hps := hashPrefixes[:n]
+			var strs []string
 
 			b.ReportAllocs()
-			b.ResetTimer()
-			for range b.N {
-				strsSink = s.Hashes(hps)
+			for b.Loop() {
+				strs = s.Hashes(hps)
 			}
+
+			assert.NotEmpty(b, strs)
 		})
 	}
 
 	// Most recent results, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
 	//
-	//	goos: linux
-	//	goarch: amd64
-	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix
-	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkStorage_Hashes/1-16      	156682185	        40.31 ns/op	       0 B/op	       0 allocs/op
-	//	BenchmarkStorage_Hashes/2-16      	81397060	        67.39 ns/op	       0 B/op	       0 allocs/op
-	//	BenchmarkStorage_Hashes/3-16      	61833548	       104.3 ns/op	       0 B/op	       0 allocs/op
-	//	BenchmarkStorage_Hashes/4-16      	44809807	       146.9 ns/op	       0 B/op	       0 allocs/op
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkStorage_Hashes/1-12  	 7134991	       173.2 ns/op	      80 B/op	       2 allocs/op
+	// BenchmarkStorage_Hashes/2-12  	 6062851	       200.0 ns/op	      80 B/op	       2 allocs/op
+	// BenchmarkStorage_Hashes/3-12  	 5138690	       233.9 ns/op	      80 B/op	       2 allocs/op
+	// BenchmarkStorage_Hashes/4-12  	 4361190	       271.8 ns/op	      80 B/op	       2 allocs/op
 }
 
 func BenchmarkStorage_ResetHosts(b *testing.B) {
@@ -134,18 +130,17 @@ func BenchmarkStorage_ResetHosts(b *testing.B) {
 	require.NoError(b, err)
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		_, errSink = s.Reset(hostnames)
+	for b.Loop() {
+		_, err = s.Reset(hostnames)
 	}
 
-	require.NoError(b, errSink)
+	require.NoError(b, err)
 
-	// Most recent results, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
+	// Most recent results:
 	//
-	//	goos: linux
-	//	goarch: amd64
-	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix
-	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkStorage_ResetHosts-16    	   16890	    344785 ns/op	  101968 B/op	    1006 allocs/op
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkStorage_ResetHosts-12    	    3814	    313231 ns/op	  118385 B/op	    1009 allocs/op
 }

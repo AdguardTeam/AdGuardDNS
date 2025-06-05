@@ -36,8 +36,6 @@ type Config struct {
 }
 
 // Default is the default device finder.
-//
-// TODO(a.garipov): Use.
 type Default struct {
 	logger        *slog.Logger
 	db            profiledb.Interface

@@ -26,6 +26,8 @@ const (
 
 // GRPCMetrics is an interface that is used for the collection of the protobuf
 // communication statistics.
+//
+// TODO(a.garipov):  Consider adding a label indicating the source.
 type GRPCMetrics interface {
 	// IncrementErrorCount increments the gRPC error count of errType.  errType
 	// must be one of [GRPCError] values.
@@ -42,6 +44,30 @@ var _ GRPCMetrics = EmptyGRPCMetrics{}
 // IncrementErrorCount implements the [GRPCMetrics] interface for
 // EmptyGRPCMetrics.
 func (EmptyGRPCMetrics) IncrementErrorCount(_ context.Context, _ GRPCError) {}
+
+// CustomDomainStorageMetrics is an interface that is used for the collection of
+// the statistics of the custom-domain storage.
+type CustomDomainStorageMetrics interface {
+	// ObserveRequest updates the custom-domain storage statistics.  dur must be
+	// positive.
+	ObserveRequest(ctx context.Context, dur time.Duration, err error)
+}
+
+// EmptyCustomDomainStorageMetrics is the implementation of the
+// [CustomDomainStorageMetrics] interface that does nothing.
+type EmptyCustomDomainStorageMetrics struct{}
+
+// type check
+var _ CustomDomainStorageMetrics = EmptyCustomDomainStorageMetrics{}
+
+// ObserveRequest implements the [CustomDomainStorageMetrics] interface for
+// EmptyCustomDomainStorageMetrics.
+func (EmptyCustomDomainStorageMetrics) ObserveRequest(
+	_ context.Context,
+	_ time.Duration,
+	_ error,
+) {
+}
 
 // ProfileDBMetrics is an interface that is used for the collection of the
 // profile database statistics.
@@ -111,3 +137,33 @@ func (EmptyRemoteKVMetrics) ObserveOperation(_ context.Context, _ string, _ time
 // IncrementLookups implements the [RemoteKVMetrics] interface for
 // EmptyRemoteKVMetrics.
 func (EmptyRemoteKVMetrics) IncrementLookups(_ context.Context, _ bool) {}
+
+// TicketStorageMetrics is an interface that is used for the collection of
+// session ticket storage statistics.
+type TicketStorageMetrics interface {
+	// SetTicketStatus sets the status of the session ticket update operation
+	// for the given ticket.
+	SetTicketStatus(
+		ctx context.Context,
+		name string,
+		updTime time.Time,
+		err error,
+	)
+}
+
+// EmptyTicketStorageMetrics is the implementation of the [TicketStorageMetrics]
+// interface that does nothing.
+type EmptyTicketStorageMetrics struct{}
+
+// type check
+var _ TicketStorageMetrics = EmptyTicketStorageMetrics{}
+
+// SetTicketStatus implements the [TicketStorageMetrics] interface for
+// EmptyTicketStorageMetrics.
+func (EmptyTicketStorageMetrics) SetTicketStatus(
+	_ context.Context,
+	_ string,
+	_ time.Time,
+	_ error,
+) {
+}

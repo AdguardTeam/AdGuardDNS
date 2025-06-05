@@ -61,7 +61,9 @@ type environment struct {
 	RedisKeyPrefix         string `env:"REDIS_KEY_PREFIX" envDefault:"agdns"`
 	SSLKeyLogFile          string `env:"SSL_KEY_LOG_FILE"`
 	SentryDSN              string `env:"SENTRY_DSN" envDefault:"stderr"`
-	WebStaticDir           string `env:"WEB_STATIC_DIR"`
+	// TODO(a.garipov):  Consider renaming to "WEB_STATIC_PATH" or something
+	// similar.
+	WebStaticDir string `env:"WEB_STATIC_DIR"`
 
 	ListenAddr net.IP `env:"LISTEN_ADDR" envDefault:"127.0.0.1"`
 

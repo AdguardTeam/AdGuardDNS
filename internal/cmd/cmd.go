@@ -133,6 +133,10 @@ func Main(plugins *plugin.Registry) {
 
 	errors.Check(b.initHealthCheck(ctx))
 
+	errors.Check(b.initPluginServices(ctx))
+
+	b.initPluginRefreshers()
+
 	b.mustStartDNS(ctx)
 
 	b.mustInitDebugSvc(ctx)

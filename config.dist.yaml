@@ -113,6 +113,7 @@ upstream:
         timeout: 1s
         backoff_duration: 30s
         domain_template: '${RANDOM}.neverssl.com'
+        network_override: ''
 
 # Common DNS settings.
 #

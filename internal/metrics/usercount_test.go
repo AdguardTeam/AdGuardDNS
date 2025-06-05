@@ -212,9 +212,6 @@ func TestUserCounter_simple(t *testing.T) {
 	assert.InEpsilon(t, uint64(ipsPerMinute*24*60), daily, 0.02)
 }
 
-// uint64Sink is a sink for uint64 values returned from benchmarks.
-var uint64Sink uint64
-
 func BenchmarkUserCounter_Estimate(b *testing.B) {
 	const n = 100
 
@@ -241,25 +238,24 @@ func BenchmarkUserCounter_Estimate(b *testing.B) {
 
 	b.Run("sparse", func(b *testing.B) {
 		b.ReportAllocs()
-		b.ResetTimer()
-		for range b.N {
-			uint64Sink, uint64Sink = sparseCounter.Estimate()
+		for b.Loop() {
+			_, _ = sparseCounter.Estimate()
 		}
 	})
 
 	b.Run("sequential", func(b *testing.B) {
 		b.ReportAllocs()
-		b.ResetTimer()
-		for range b.N {
-			uint64Sink, uint64Sink = seqCounter.Estimate()
+		for b.Loop() {
+			_, _ = seqCounter.Estimate()
 		}
 	})
 
 	// Most recent results:
-	//	goos: linux
-	//	goarch: amd64
-	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/metrics
-	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkUserCounter_Estimate/sparse-16         	    3166	    354701 ns/op	    6052 B/op	      50 allocs/op
-	//	BenchmarkUserCounter_Estimate/sequential-16     	    4057	    346637 ns/op	    6054 B/op	      50 allocs/op
+	//
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/metrics
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkUserCounter_Estimate/sparse-12         	   17648	     68332 ns/op	   10384 B/op	      38 allocs/op
+	// BenchmarkUserCounter_Estimate/sequential-12     	   17542	     68500 ns/op	   10384 B/op	      38 allocs/op
 }

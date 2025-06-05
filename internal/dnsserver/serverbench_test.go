@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -23,129 +24,123 @@ import (
 
 // TODO(ameshkov, a.garipov):  Move into the corresponding files.
 
-func BenchmarkServeDNS(b *testing.B) {
-	testCases := []struct {
-		name    string
-		network dnsserver.Network
-	}{{
-		name:    "udp",
-		network: dnsserver.NetworkUDP,
-	}, {
-		name:    "tcp",
-		network: dnsserver.NetworkTCP,
-	}}
-
-	for _, tc := range testCases {
-		b.Run(tc.name, func(b *testing.B) {
-			_, addr := dnsservertest.RunDNSServer(b, dnsservertest.NewDefaultHandler())
-
-			// Prepare a test message.
-			m := new(dns.Msg)
-			m.SetQuestion("example.org.", dns.TypeA)
-			var msg []byte
-			msgPacket, _ := m.Pack()
-			if tc.network == dnsserver.NetworkTCP {
-				msg = make([]byte, 2+len(msgPacket))
-				binary.BigEndian.PutUint16(msg, uint16(len(msgPacket)))
-				copy(msg[2:], msgPacket)
-			} else {
-				msg, _ = m.Pack()
-			}
-
-			// Open connection (using one to avoid client-side allocations).
-			conn, err := net.Dial(string(tc.network), addr)
-			require.NoError(b, err)
-
-			// Prepare a buffer to read responses.
-			resBuf := make([]byte, 512)
-
-			b.ReportAllocs()
-			b.ResetTimer()
-			for range b.N {
-				_, err = conn.Write(msg)
-				require.NoError(b, err)
-
-				err = readMsg(resBuf, tc.network, conn)
-				require.NoError(b, err)
-			}
-		})
-	}
-}
-
 // readMsg is a helper function for reading DNS responses from a plain DNS
-// connection.
-func readMsg(resBuf []byte, network dnsserver.Network, conn net.Conn) (err error) {
-	defer func() { err = errors.Annotate(err, "failed to read DNS msg: %w") }()
+// connection.  network must be either [dnsserver.NetworkUDP] or
+// [dnsserver.NetworkTCP].
+func readMsg(tb testing.TB, resBuf []byte, network dnsserver.Network, conn net.Conn) {
+	tb.Helper()
 
 	var n int
 
-	if network == dnsserver.NetworkTCP {
+	switch network {
+	case dnsserver.NetworkUDP:
+		var err error
+		n, err = conn.Read(resBuf)
+		require.NoError(tb, err)
+	case dnsserver.NetworkTCP:
 		var length uint16
-		if err = binary.Read(conn, binary.BigEndian, &length); err != nil {
-			return err
-		}
+		err := binary.Read(conn, binary.BigEndian, &length)
+		require.NoError(tb, err)
 
 		n, err = io.ReadFull(conn, resBuf[:length])
-		if err != nil {
-			return err
-		}
-	} else {
-		n, err = conn.Read(resBuf)
-		if err != nil {
-			return err
-		}
+		require.NoError(tb, err)
+	default:
+		panic(fmt.Errorf("network type: %w: %q", errors.ErrBadEnumValue, network))
 	}
 
-	if n < dnsserver.DNSHeaderSize {
-		return dns.ErrShortRead
+	require.GreaterOrEqual(tb, n, dnsserver.DNSHeaderSize)
+}
+
+func BenchmarkServeDNS(b *testing.B) {
+	msg := (&dns.Msg{}).SetQuestion("example.org.", dns.TypeA)
+
+	udpPacket, packErr := msg.Pack()
+	require.NoError(b, packErr)
+
+	tcpPacket := make([]byte, 2+len(udpPacket))
+	binary.BigEndian.PutUint16(tcpPacket, uint16(len(udpPacket)))
+	copy(tcpPacket[2:], udpPacket)
+
+	benchCases := []struct {
+		network dnsserver.Network
+		name    string
+		packet  []byte
+	}{{
+		network: dnsserver.NetworkUDP,
+		name:    "udp",
+		packet:  udpPacket,
+	}, {
+		network: dnsserver.NetworkTCP,
+		name:    "tcp",
+		packet:  tcpPacket,
+	}}
+
+	for _, bc := range benchCases {
+		_, addr := dnsservertest.RunDNSServer(b, dnsservertest.NewDefaultHandler())
+
+		// Open connection (using one to avoid client-side allocations).
+		conn, err := net.Dial(string(bc.network), addr)
+		require.NoError(b, err)
+
+		// Prepare a buffer to read responses.
+		resBuf := make([]byte, 512)
+
+		b.Run(bc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				_, err = conn.Write(bc.packet)
+				require.NoError(b, err)
+
+				readMsg(b, resBuf, bc.network, conn)
+			}
+		})
 	}
 
-	return nil
+	// Most recent results:
+	//
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsserver
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkServeDNS/udp-12         	   25738	     47458 ns/op	    2414 B/op	      36 allocs/op
+	// BenchmarkServeDNS/tcp-12         	   28801	     40789 ns/op	    2317 B/op	      35 allocs/op
 }
 
 func BenchmarkServeTLS(b *testing.B) {
 	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
 	addr := dnsservertest.RunTLSServer(b, dnsservertest.NewDefaultHandler(), tlsConfig)
 
-	// Prepare a test message
-	m := new(dns.Msg)
-	m.SetQuestion("example.org.", dns.TypeA)
+	m := (&dns.Msg{}).SetQuestion("example.org.", dns.TypeA)
+
 	data, _ := m.Pack()
 	msg := make([]byte, 2+len(data))
 	binary.BigEndian.PutUint16(msg, uint16(len(data)))
 	copy(msg[2:], data)
 
-	// Open a TCP connection (using one to avoid client-side allocations)
 	tcpConn, err := net.DialTCP("tcp", nil, addr)
 	require.NoError(b, err)
 
-	// Now create a TLS connection over that TCP one
 	conn := tls.Client(tcpConn, tlsConfig)
 	err = conn.Handshake()
 	require.NoError(b, err)
 
-	// Prepare a buffer to read responses
 	resBuf := make([]byte, 512)
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_, err = conn.Write(msg)
 		require.NoError(b, err)
 
-		var length uint16
-		if err = binary.Read(conn, binary.BigEndian, &length); err != nil {
-			b.Fatalf("failed to read the DNS query response: %v", err)
-		}
-
-		var n int
-		n, err = io.ReadFull(conn, resBuf[:length])
-		if err != nil {
-			b.Fatalf("failed to read the DNS query response: %v", err)
-		}
-
-		require.GreaterOrEqual(b, n, dnsserver.DNSHeaderSize)
+		readMsg(b, resBuf, dnsserver.NetworkTCP, conn)
 	}
+
+	// Most recent results:
+	//
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsserver
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkServeTLS-12    	   26343	     45694 ns/op	    2367 B/op	      37 allocs/op
 }
 
 func BenchmarkServeDoH(b *testing.B) {
@@ -165,7 +160,7 @@ func BenchmarkServeDoH(b *testing.B) {
 	}, {
 		tlsConfig:    nil,
 		name:         "plain_http",
-		http3Enabled: true,
+		http3Enabled: false,
 	}}
 
 	for _, tc := range testCases {
@@ -178,10 +173,9 @@ func BenchmarkServeDoH(b *testing.B) {
 			require.NoError(b, err)
 
 			testutil.CleanupAndRequireSuccess(b, func() (err error) {
-				return srv.Shutdown(context.Background())
+				return srv.Shutdown(testutil.ContextWithTimeout(b, testTimeout))
 			})
 
-			// Prepare a test message.
 			m := (&dns.Msg{}).SetQuestion("example.org.", dns.TypeA)
 			data, err := m.Pack()
 			require.NoError(b, err)
@@ -190,7 +184,6 @@ func BenchmarkServeDoH(b *testing.B) {
 			binary.BigEndian.PutUint16(msg, uint16(len(data)))
 			copy(msg[2:], data)
 
-			// Prepare client.
 			addr := srv.LocalTCPAddr()
 			if tc.http3Enabled {
 				addr = srv.LocalUDPAddr()
@@ -199,18 +192,17 @@ func BenchmarkServeDoH(b *testing.B) {
 			client, err := newDoHClient(addr, tc.tlsConfig)
 			require.NoError(b, err)
 
-			// Prepare http.Request.
 			req, err := newDoHRequest(http.MethodPost, m, tc.tlsConfig != nil)
 			require.NoError(b, err)
 
+			var res *http.Response
+			var buf []byte
+
 			b.ReportAllocs()
-			b.ResetTimer()
-			for range b.N {
-				var res *http.Response
+			for b.Loop() {
 				res, err = client.Do(req)
 				require.NoError(b, err)
 
-				var buf []byte
 				buf, err = io.ReadAll(res.Body)
 				require.NoError(b, err)
 
@@ -220,6 +212,16 @@ func BenchmarkServeDoH(b *testing.B) {
 			}
 		})
 	}
+
+	// Most recent results:
+	//
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsserver
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkServeDoH/doh2-12         	    8448	    144691 ns/op	   11987 B/op	     125 allocs/op
+	// BenchmarkServeDoH/doh3-12         	    6675	    179742 ns/op	   27085 B/op	     289 allocs/op
+	// BenchmarkServeDoH/plain_http-12   	    5023	    244999 ns/op	   25639 B/op	     212 allocs/op
 }
 
 func BenchmarkServeDNSCrypt(b *testing.B) {
@@ -235,41 +237,39 @@ func BenchmarkServeDNSCrypt(b *testing.B) {
 	}}
 
 	for _, tc := range testCases {
+		req := (&dns.Msg{
+			MsgHdr: dns.MsgHdr{
+				Id:               dns.Id(),
+				RecursionDesired: true,
+			},
+			Question: []dns.Question{{
+				Name:   "example.org.",
+				Qtype:  dns.TypeA,
+				Qclass: dns.ClassINET,
+			}},
+		})
+		client := &dnscrypt.Client{
+			Timeout: 1 * time.Second,
+			Net:     string(tc.network),
+		}
+		s := dnsservertest.RunDNSCryptServer(b, dnsservertest.NewDefaultHandler())
+		stamp := dnsstamps.ServerStamp{
+			ServerAddrStr: s.ServerAddr,
+			ServerPk:      s.ResolverPk,
+			ProviderName:  s.ProviderName,
+			Proto:         dnsstamps.StampProtoTypeDNSCrypt,
+		}
+
+		ri, err := client.DialStamp(stamp)
+		require.NoError(b, err)
+		require.NotNil(b, ri)
+
+		conn, err := net.Dial(string(tc.network), stamp.ServerAddrStr)
+		require.NoError(b, err)
+
 		b.Run(tc.name, func(b *testing.B) {
-			// Create a test message
-			req := new(dns.Msg)
-			req.Id = dns.Id()
-			req.RecursionDesired = true
-			name := "example.org."
-			req.Question = []dns.Question{
-				{Name: name, Qtype: dns.TypeA, Qclass: dns.ClassINET},
-			}
-
-			client := &dnscrypt.Client{
-				Timeout: 1 * time.Second,
-				Net:     string(tc.network),
-			}
-
-			s := dnsservertest.RunDNSCryptServer(b, dnsservertest.NewDefaultHandler())
-			stamp := dnsstamps.ServerStamp{
-				ServerAddrStr: s.ServerAddr,
-				ServerPk:      s.ResolverPk,
-				ProviderName:  s.ProviderName,
-				Proto:         dnsstamps.StampProtoTypeDNSCrypt,
-			}
-
-			// Load server info
-			ri, err := client.DialStamp(stamp)
-			require.NoError(b, err)
-			require.NotNil(b, ri)
-
-			// Open a single connection
-			conn, err := net.Dial(string(tc.network), stamp.ServerAddrStr)
-			require.NoError(b, err)
-
 			b.ReportAllocs()
-			b.ResetTimer()
-			for range b.N {
+			for b.Loop() {
 				var resp *dns.Msg
 				resp, err = client.ExchangeConn(conn, req, ri)
 				require.NoError(b, err)
@@ -277,6 +277,15 @@ func BenchmarkServeDNSCrypt(b *testing.B) {
 			}
 		})
 	}
+
+	// Most recent results:
+	//
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsserver
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkServeDNSCrypt/udp-12         	    4213	    268778 ns/op	    6887 B/op	      80 allocs/op
+	// BenchmarkServeDNSCrypt/tcp-12         	    5266	    242573 ns/op	    5371 B/op	      75 allocs/op
 }
 
 func BenchmarkServeQUIC(b *testing.B) {
@@ -291,27 +300,36 @@ func BenchmarkServeQUIC(b *testing.B) {
 		return srv.Shutdown(context.Background())
 	})
 
-	// Create a test message
-	req := new(dns.Msg)
-	req.Id = dns.Id()
-	req.RecursionDesired = true
-	name := "example.org."
-	req.Question = []dns.Question{
-		{Name: name, Qtype: dns.TypeA, Qclass: dns.ClassINET},
-	}
+	req := (&dns.Msg{
+		MsgHdr: dns.MsgHdr{
+			Id:               dns.Id(),
+			RecursionDesired: true,
+		},
+		Question: []dns.Question{{
+			Name:   "example.org.",
+			Qtype:  dns.TypeA,
+			Qclass: dns.ClassINET,
+		}},
+	})
 
-	// Open QUIC session
 	sess, err := quic.DialAddr(context.Background(), addr.String(), tlsConfig, nil)
 	require.NoError(b, err)
-	defer func() {
-		err = sess.CloseWithError(0, "")
-	}()
+	testutil.CleanupAndRequireSuccess(b, func() (err error) {
+		return sess.CloseWithError(0, "")
+	})
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		resp := requireSendQUICMessage(b, sess, req)
 		require.NotNil(b, resp)
 		require.True(b, resp.Response)
 	}
+
+	// Most recent results:
+	//
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsserver
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkServeQUIC-12    	    7291	    166588 ns/op	  101835 B/op	     153 allocs/op
 }

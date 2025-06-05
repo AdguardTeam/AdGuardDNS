@@ -44,6 +44,8 @@ func TestSyncTimeFromTrailer(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			syncTime, err := syncTimeFromTrailer(tc.in)
 			testutil.AssertErrorMsg(t, tc.wantError, err)
 			assert.True(t, tc.want.Equal(syncTime), "want %s; got %s", tc.want, syncTime)

@@ -145,16 +145,12 @@ func (s *server) serve(ctx context.Context, baseLogger *slog.Logger) {
 	}()
 
 	s.logger.InfoContext(ctx, "starting")
-	defer s.logger.InfoContext(ctx, "started")
-
 	err = s.http.Serve(listener)
-	if err == nil || errors.Is(err, http.ErrServerClosed) {
-		return
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		s.logger.ErrorContext(ctx, "serving", slogutil.KeyError, err)
+
+		panic(fmt.Errorf("websvc: serving: %w", err))
 	}
-
-	s.logger.ErrorContext(ctx, "serving", slogutil.KeyError, err)
-
-	panic(fmt.Errorf("websvc: serving: %w", err))
 }
 
 // shutdown shuts s down.

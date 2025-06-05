@@ -230,36 +230,38 @@ func BenchmarkDefaultProfile_IsBlocked(b *testing.B) {
 
 	a := access.NewDefaultProfile(conf)
 
-	passReq := dnsservertest.NewReq("pass.test", dns.TypeA, dns.ClassINET)
+	benchCases := []struct {
+		want assert.BoolAssertionFunc
+		req  *dns.Msg
+		name string
+	}{{
+		want: assert.False,
+		req:  dnsservertest.NewReq("pass.test", dns.TypeA, dns.ClassINET),
+		name: "pass",
+	}, {
+		want: assert.True,
+		req:  dnsservertest.NewReq("block.test", dns.TypeA, dns.ClassINET),
+		name: "block",
+	}}
 
-	b.Run("pass", func(b *testing.B) {
-		b.ReportAllocs()
-		b.ResetTimer()
+	for _, bc := range benchCases {
+		b.Run(bc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			var blocked bool
+			for b.Loop() {
+				blocked = a.IsBlocked(bc.req, passAddrPort, nil)
+			}
 
-		for range b.N {
-			_ = a.IsBlocked(passReq, passAddrPort, nil)
-		}
-	})
+			bc.want(b, blocked)
+		})
+	}
 
-	blockReq := dnsservertest.NewReq("block.test", dns.TypeA, dns.ClassINET)
-
-	b.Run("block", func(b *testing.B) {
-		b.ReportAllocs()
-		b.ResetTimer()
-
-		for range b.N {
-			_ = a.IsBlocked(blockReq, passAddrPort, nil)
-		}
-	})
-
-	// Most recent results, on a MBP 14 with Apple M1 Pro chip:
+	// Most recent results:
 	//
-	//	goos: darwin
-	//  goarch: arm64
-	//  pkg: github.com/AdguardTeam/AdGuardDNS/internal/access
-	//  BenchmarkDefaultProfile_IsBlocked
-	//  BenchmarkDefaultProfile_IsBlocked/pass
-	//  BenchmarkDefaultProfile_IsBlocked/pass-8         	 2935430	       357.7 ns/op	     384 B/op	       4 allocs/op
-	//  BenchmarkDefaultProfile_IsBlocked/block
-	//  BenchmarkDefaultProfile_IsBlocked/block-8        	 2706435	       443.7 ns/op	     416 B/op	       6 allocs/op
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/access
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkDefaultProfile_IsBlocked/pass-12         	 2761741	       421.9 ns/op	      96 B/op	       2 allocs/op
+	// BenchmarkDefaultProfile_IsBlocked/block-12        	 2143516	       556.1 ns/op	     128 B/op	       4 allocs/op
 }

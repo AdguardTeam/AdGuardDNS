@@ -32,25 +32,18 @@ type upstreamConfig struct {
 	Servers []*upstreamServerConfig `yaml:"servers"`
 }
 
-// toInternal converts c to the data storage configuration for the DNS server.
-// c must be valid.
+// toInternal converts c to the upstream configuration for the DNS server.  c
+// must be valid.
 func (c *upstreamConfig) toInternal(
 	logger *slog.Logger,
 	mtrcListener *dnssvcprom.ForwardMetricsListener,
 ) (fwdConf *forward.HandlerConfig) {
-	var hcInit time.Duration
-	if c.Healthcheck.Enabled {
-		hcInit = time.Duration(c.Healthcheck.Timeout)
-	}
-
 	return &forward.HandlerConfig{
-		Logger:                     logger.With(slogutil.KeyPrefix, "forward"),
-		MetricsListener:            mtrcListener,
-		HealthcheckDomainTmpl:      c.Healthcheck.DomainTmpl,
-		UpstreamsAddresses:         toUpstreamConfigs(c.Servers),
-		FallbackAddresses:          toUpstreamConfigs(c.Fallback.Servers),
-		HealthcheckBackoffDuration: time.Duration(c.Healthcheck.BackoffDuration),
-		HealthcheckInitDuration:    hcInit,
+		Logger:             logger.With(slogutil.KeyPrefix, "forward"),
+		MetricsListener:    mtrcListener,
+		Healthcheck:        c.Healthcheck.toInternal(),
+		UpstreamsAddresses: toUpstreamConfigs(c.Servers),
+		FallbackAddresses:  toUpstreamConfigs(c.Fallback.Servers),
 	}
 }
 
@@ -87,20 +80,16 @@ func splitUpstreamURL(raw string) (upsNet forward.Network, addrPort netip.AddrPo
 			return upsNet, addrPort, fmt.Errorf("bad server url: %q: %w", raw, err)
 		}
 
-		addr = u.Host
-		upsNet = forward.Network(u.Scheme)
-
-		switch upsNet {
-		case forward.NetworkTCP, forward.NetworkUDP:
-			// Go on.
-			break
-		default:
-			return upsNet, addrPort, fmt.Errorf("bad server protocol: %q", u.Scheme)
+		upsNet, err = forward.NewNetwork(u.Scheme)
+		if err != nil {
+			return upsNet, addrPort, fmt.Errorf("bad server protocol: %w", err)
 		}
+
+		addr = u.Host
 	}
 
 	if addrPort, err = netip.ParseAddrPort(addr); err != nil {
-		return upsNet, addrPort, fmt.Errorf("bad server address: %q", addr)
+		return upsNet, addrPort, fmt.Errorf("bad server address %q: %w", addr, err)
 	}
 
 	return upsNet, addrPort, nil
@@ -109,8 +98,13 @@ func splitUpstreamURL(raw string) (upsNet forward.Network, addrPort netip.AddrPo
 // upstreamHealthcheckConfig is the configuration for the upstream healthcheck
 // feature.
 type upstreamHealthcheckConfig struct {
-	// DomainTmpl is the interval of upstream healthcheck probes.
-	DomainTmpl string `yaml:"domain_template"`
+	// DomainTemplate is the interval of upstream healthcheck probes.
+	DomainTemplate string `yaml:"domain_template"`
+
+	// NetworkOverride is the network type used for healthcheck queries.  If not
+	// empty, it overrides the upstream's own network type for healthcheck
+	// queries.
+	NetworkOverride string `yaml:"network_override"`
 
 	// Interval is the interval of upstream healthcheck probes.
 	Interval timeutil.Duration `yaml:"interval"`
@@ -140,12 +134,37 @@ func (c *upstreamHealthcheckConfig) Validate() (err error) {
 		return nil
 	}
 
+	var netErr error
+	if c.NetworkOverride != "" {
+		_, netErr = forward.NewNetwork(c.NetworkOverride)
+	}
+
 	return errors.Join(
-		validate.NotEmpty("domain_template", c.DomainTmpl),
+		errors.Annotate(netErr, "network_override: %w"),
+		validate.NotEmpty("domain_template", c.DomainTemplate),
 		validate.Positive("backoff_duration", c.BackoffDuration),
 		validate.Positive("interval", c.Interval),
 		validate.Positive("timeout", c.Timeout),
 	)
+}
+
+// toInternal converts c to the upstream healthcheck configuration for the DNS
+// server.  c must be valid.
+func (c *upstreamHealthcheckConfig) toInternal() (hc *forward.HealthcheckConfig) {
+	if !c.Enabled {
+		return &forward.HealthcheckConfig{
+			Enabled: false,
+		}
+	}
+
+	return &forward.HealthcheckConfig{
+		Enabled:         true,
+		DomainTempalate: c.DomainTemplate,
+		BackoffDuration: time.Duration(c.BackoffDuration),
+		InitDuration:    time.Duration(c.Timeout),
+		// Should've been validated in [upstreamHealthcheckConfig.Validate].
+		NetworkOverride: errors.Must(forward.NewNetwork(c.NetworkOverride)),
+	}
 }
 
 // newUpstreamHealthcheck returns refresher worker service that performs

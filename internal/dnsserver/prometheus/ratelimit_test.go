@@ -88,25 +88,24 @@ func BenchmarkRateLimitMetricsListener(b *testing.B) {
 
 	b.Run("OnAllowlisted", func(b *testing.B) {
 		b.ReportAllocs()
-		b.ResetTimer()
-		for range b.N {
+		for b.Loop() {
 			l.OnAllowlisted(ctx, req, rw)
 		}
 	})
 
 	b.Run("OnRateLimited", func(b *testing.B) {
 		b.ReportAllocs()
-		b.ResetTimer()
-		for range b.N {
+		for b.Loop() {
 			l.OnRateLimited(ctx, req, rw)
 		}
 	})
 
-	// Most recent result, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
-	//	goos: linux
-	//	goarch: amd64
-	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus
-	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkRateLimitMetricsListener/OnAllowlisted-16         	 6025423	       209.5 ns/op	       0 B/op	       0 allocs/op
-	//	BenchmarkRateLimitMetricsListener/OnRateLimited-16         	 5798031	       209.4 ns/op	       0 B/op	       0 allocs/op
+	// Most recent results:
+	//
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkRateLimitMetricsListener/OnAllowlisted-12         	 6340504	       191.4 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkRateLimitMetricsListener/OnRateLimited-12         	 6053877	       198.2 ns/op	       0 B/op	       0 allocs/op
 }

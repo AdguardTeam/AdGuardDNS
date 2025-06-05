@@ -257,7 +257,7 @@ The `upstream` object has the following properties:
 
 ### <a href="#upstream-healthcheck" id="upstream-healthcheck" name="upstream-healthcheck">Healthcheck</a>
 
-If `enabled` is true, the upstream healthcheck is enabled. The healthcheck worker probes the main upstream with an `A` query for a domain created from `domain_template`. If there is an error, timeout, or a response different from a `NOERROR` one then the main upstream is considered down, and all requests are redirected to fallback upstream servers for the time set by `backoff_duration`. Afterwards, if a worker probe is successful, AdGuard DNS considers the connection to the main upstream as restored, and requests are routed back to it.
+If `enabled` is true, the upstream healthcheck is enabled. The healthcheck worker probes the main upstreams with an `A` query for a domain created from `domain_template`. If there is an error, timeout, or a response different from a `NOERROR` one then the main upstream is considered down, and all requests are redirected to fallback upstream servers for the time set by `backoff_duration`. Afterwards, if a worker probe is successful, AdGuard DNS considers the connection to the main upstream as restored, and requests are routed back to it.
 
 - <a href="#u-h-enabled" id="u-h-enabled" name="u-h-enabled">`enabled`</a>: If true, the upstream healthcheck is enabled.
 
@@ -278,6 +278,10 @@ If `enabled` is true, the upstream healthcheck is enabled. The healthcheck worke
 - <a href="#u-h-domain_template" id="u-h-domain_template" name="u-h-domain_template">`domain_template`</a>: The template for domains used to perform healthcheck queries. If the `domain_template` contains the string `${RANDOM}`, all occurrences of this string are replaced with a random string (currently, a hexadecimal form of a 64-bit integer) on every healthcheck query. Queries must return a `NOERROR` response.
 
     **Example:** `${RANDOM}.neverssl.com`.
+
+- <a href="#u-h-network_override" id="u-h-network_override" name="u-h-network_override">`network_override`</a>: If not empty, it overrides the upstream's own network type for healthcheck queries.
+
+    **Example:** `tcp`.
 
 ## <a href="#dns" id="dns" name="dns">DNS</a>
 
