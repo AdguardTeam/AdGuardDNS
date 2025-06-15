@@ -2,6 +2,7 @@ package websvc_test
 
 import (
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -15,6 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
@@ -27,17 +29,31 @@ const testTimeout = 1 * time.Second
 // testLogger is the common logger for tests.
 var testLogger = slogutil.NewDiscardLogger()
 
+// testCertValidator is the common certificate validator for tests.
+var testCertValidator = websvc.RejectCertificateValidator{}
+
+// localhostZeroPort is a common used default host and dynamic port.
+var localhostZeroPort = netip.AddrPortFrom(netutil.IPv4Localhost(), 0)
+
 func TestNew(t *testing.T) {
-	startService(t, &websvc.Config{
-		Logger:        testLogger,
-		StaticContent: http.NotFoundHandler(),
-		DNSCheck:      http.NotFoundHandler(),
-		ErrColl:       agdtest.NewErrorCollector(),
-		Timeout:       testTimeout,
-	})
+	t.Parallel()
+
+	c := &websvc.Config{
+		Logger:               testLogger,
+		CertificateValidator: testCertValidator,
+		StaticContent:        http.NotFoundHandler(),
+		DNSCheck:             http.NotFoundHandler(),
+		ErrColl:              agdtest.NewErrorCollector(),
+		Timeout:              testTimeout,
+	}
+
+	svc := websvc.New(c)
+	startService(t, svc)
 }
 
 func TestService_NonDoH(t *testing.T) {
+	t.Parallel()
+
 	robotsContent := []byte(agdhttp.RobotsDisallowAll)
 
 	content := []byte("content")
@@ -48,28 +64,32 @@ func TestService_NonDoH(t *testing.T) {
 		require.NoError(pt, err)
 	})
 
-	// TODO(a.garipov):  Do not use hardcoded ports.
-	nonDoHPort := netip.MustParseAddrPort("127.0.0.1:3003")
 	nonDoHBind := []*websvc.BindData{{
 		TLS:     nil,
-		Address: nonDoHPort,
+		Address: localhostZeroPort,
 	}}
 
 	notFoundContent := []byte("not found")
 	c := &websvc.Config{
-		Logger:        testLogger,
-		StaticContent: http.NotFoundHandler(),
-		DNSCheck:      mockHandler,
-		NonDoHBind:    nonDoHBind,
-		ErrColl:       agdtest.NewErrorCollector(),
-		Error404:      notFoundContent,
-		Timeout:       testTimeout,
+		Logger:               testLogger,
+		CertificateValidator: testCertValidator,
+		StaticContent:        http.NotFoundHandler(),
+		DNSCheck:             mockHandler,
+		NonDoHBind:           nonDoHBind,
+		ErrColl:              agdtest.NewErrorCollector(),
+		Metrics:              websvc.EmptyMetrics{},
+		Error404:             notFoundContent,
+		Timeout:              testTimeout,
 	}
 
-	startService(t, c)
+	svc := websvc.New(c)
+	startService(t, svc)
 
-	assertContent(t, nonDoHPort, "/dnscheck/test", http.StatusOK, content)
-	assertContent(t, nonDoHPort, "/robots.txt", http.StatusOK, robotsContent)
+	addr := requireServerGroupAddr(t, svc, websvc.ServerGroupNonDoH)
+	a := addr.AddrPort()
+
+	assertContent(t, a, "/dnscheck/test", http.StatusOK, content)
+	assertContent(t, a, "/robots.txt", http.StatusOK, robotsContent)
 
 	client := http.Client{
 		Timeout: testTimeout,
@@ -77,7 +97,7 @@ func TestService_NonDoH(t *testing.T) {
 
 	resp, err := client.Get((&url.URL{
 		Scheme: urlutil.SchemeHTTP,
-		Host:   nonDoHPort.String(),
+		Host:   a.String(),
 		Path:   "/other",
 	}).String())
 	require.NoError(t, err)
@@ -94,31 +114,25 @@ func TestService_NonDoH(t *testing.T) {
 func assertContent(t *testing.T, addr netip.AddrPort, path string, status int, expected []byte) {
 	t.Helper()
 
-	c := http.Client{
+	cl := http.Client{
 		Timeout: testTimeout,
 	}
 
-	var resp *http.Response
-	var err error
-	var body []byte
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
 
 	u := &url.URL{
 		Scheme: urlutil.SchemeHTTP,
 		Host:   addr.String(),
 		Path:   path,
 	}
-	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	require.NoError(t, err)
 
-	// First check health-check service URL.  As the service could not be ready
-	// yet, check for it periodically.
-	require.Eventually(t, func() (ok bool) {
-		resp, err = c.Do(req)
+	resp, err := cl.Do(req)
+	require.NoError(t, err)
 
-		return err == nil
-	}, testTimeout, testTimeout/10)
-
-	body, err = io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
 	assert.Equal(t, expected, body)
@@ -126,12 +140,10 @@ func assertContent(t *testing.T, addr netip.AddrPort, path string, status int, e
 	assert.Equal(t, agdhttp.UserAgent(), resp.Header.Get(httphdr.Server))
 }
 
-// startService creates and starts an instance of [*websvc.Service] from the
-// provided configuration.
-func startService(t *testing.T, c *websvc.Config) {
+// startService starts and validates an existed instance of [*websvc.Service].
+func startService(t *testing.T, svc *websvc.Service) {
 	t.Helper()
 
-	svc := websvc.New(c)
 	require.NotNil(t, svc)
 
 	var err error
@@ -172,4 +184,24 @@ func assertResponse(
 	assert.Equal(t, statusCode, rw.Code)
 
 	return rw
+}
+
+// requireServerGroupAddr is a helper function that waits for [*websvc.Service]
+// instance getting address(es), validates the 1st one and returns it. It uses
+// EventuallyWithT with global testTimeout as duration.
+func requireServerGroupAddr(
+	t *testing.T,
+	svc *websvc.Service,
+	sg websvc.ServerGroup,
+) (addr *net.TCPAddr) {
+	t.Helper()
+
+	var addrs []net.Addr
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		addrs = svc.LocalAddrs(sg)
+		require.NotEmpty(c, addrs)
+		require.NotNil(c, addrs[0])
+	}, testTimeout, testTimeout/10)
+
+	return testutil.RequireTypeAssert[*net.TCPAddr](t, addrs[0])
 }

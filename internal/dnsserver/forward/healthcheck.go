@@ -54,6 +54,16 @@ func (h *Handler) healthcheck(ctx context.Context, mustReport bool) (err error) 
 
 	req := newProbeReq(domain)
 
+	if h.hcNetworkOverride != "" {
+		ctx = withNetworkOverride(ctx, h.hcNetworkOverride)
+		h.logger.Log(
+			ctx,
+			slogutil.LevelTrace,
+			"overriding healthcheck protocol",
+			"net", h.hcNetworkOverride,
+		)
+	}
+
 	var activeUps []Upstream
 	var errs []error
 	for _, status := range h.upstreams {

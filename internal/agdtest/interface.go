@@ -471,6 +471,24 @@ func (s *ProfileStorage) Profiles(
 	return s.OnProfiles(ctx, req)
 }
 
+// NewProfileStorage returns a new *ProfileStorage all methods of which panic.
+func NewProfileStorage() (s *ProfileStorage) {
+	return &ProfileStorage{
+		OnCreateAutoDevice: func(
+			_ context.Context,
+			req *profiledb.StorageCreateAutoDeviceRequest,
+		) (resp *profiledb.StorageCreateAutoDeviceResponse, err error) {
+			panic(fmt.Errorf("unexpected call to ProfileStorage.CreateAutoDevice(%v)", req))
+		},
+		OnProfiles: func(
+			_ context.Context,
+			req *profiledb.StorageProfilesRequest,
+		) (resp *profiledb.StorageProfilesResponse, err error) {
+			panic(fmt.Errorf("unexpected call to ProfileStorage.Profiles(%v)", req))
+		},
+	}
+}
+
 // Package querylog
 
 // type check

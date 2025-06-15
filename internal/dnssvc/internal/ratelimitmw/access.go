@@ -41,7 +41,7 @@ func (mw *Middleware) isBlockedByAccess(
 		return false
 	}
 
-	if p.Access.IsBlocked(req, raddr, ri.Location) {
+	if p.Access.IsBlocked(ctx, req, raddr, ri.Location) {
 		mw.metrics.IncrementAccessBlockedByProfile(ctx)
 		optslog.Debug2(
 			ctx,

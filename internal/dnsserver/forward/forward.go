@@ -1,27 +1,25 @@
-/*
-Package forward implements a [dnsserver.Handler] that forwards DNS queries to
-the specified DNS server.
-
-The easiest way to use it is to create a new handler using NewHandler and then
-use it in your DNS server:
-
-	conf.Handler = forward.NewHandler(&forward.HandlerConfig{
-		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
-			Network: forward.NetworkAny,
-			Address: netip.MustParseAddrPort("94.140.14.140:53"),
-			Timeout: 5 * time.Second,
-		}},
-		FallbackAddresses: []*forward.UpstreamPlainConfig{{
-			Network: forward.NetworkAny,
-			Address: netip.MustParseAddrPort("1.1.1.1:53"),
-			Timeout: 5 * time.Second,
-		}},
-	})
-	srv := dnsserver.NewServerDNS(conf)
-	err := srv.Start(context.Background())
-
-That's it, you now have a working DNS forwarder.
-*/
+// Package forward implements a [dnsserver.Handler] that forwards DNS queries to
+// the specified DNS server.
+//
+// The easiest way to use it is to create a new handler using NewHandler and
+// then use it in your DNS server:
+//
+//	conf.Handler = forward.NewHandler(&forward.HandlerConfig{
+//	    UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
+//	        Network: forward.NetworkAny,
+//	        Address: netip.MustParseAddrPort("94.140.14.140:53"),
+//	        Timeout: 5 * time.Second,
+//	    }},
+//	    FallbackAddresses: []*forward.UpstreamPlainConfig{{
+//	        Network: forward.NetworkAny,
+//	        Address: netip.MustParseAddrPort("1.1.1.1:53"),
+//	        Timeout: 5 * time.Second,
+//	    }},
+//	})
+//	srv := dnsserver.NewServerDNS(conf)
+//	err := srv.Start(context.Background())
+//
+// That's it, you now have a working DNS forwarder.
 package forward
 
 import (
@@ -35,16 +33,78 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdrand"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/service"
 	"github.com/miekg/dns"
 )
 
+// HandlerConfig is the configuration structure for [NewHandler].
+type HandlerConfig struct {
+	// Logger is used for logging the operation of the forwarding handler.  If
+	// Logger is nil, [slog.Default] is used.
+	Logger *slog.Logger
+
+	// MetricsListener is the optional listener for the handler events.  Set it
+	// if you want to keep track of what the handler does and record performance
+	// metrics.  If not set, EmptyMetricsListener is used.
+	MetricsListener MetricsListener
+
+	// RandSource is used for randomized upstream selection and other
+	// non-sensitive tasks.  If it is nil, [rand.ChaCha8] is used.
+	RandSource rand.Source
+
+	// Healthcheck is the handler's health checking configuration.  Nil
+	// healthcheck is treated as disabled.
+	Healthcheck *HealthcheckConfig
+
+	// UpstreamsAddresses is a list of upstream configurations of the main
+	// upstreams where the handler forwards all DNS queries.  Items must no be
+	// nil.
+	UpstreamsAddresses []*UpstreamPlainConfig
+
+	// FallbackAddresses are the optional fallback upstream configurations.  A
+	// fallback server is used either the main upstream returns an error or when
+	// the main upstream returns a SERVFAIL response.
+	FallbackAddresses []*UpstreamPlainConfig
+}
+
+// HealthcheckConfig is the configuration for the [Handler]'s healthcheck.
+type HealthcheckConfig struct {
+	// DomainTempalate is the template for domains used to perform healthcheck
+	// queries.  If it contains the substring "${RANDOM}", all its occurrences
+	// are replaced with a random string on every healthcheck query.  Queries to
+	// the resulting domains must return a NOERROR response.
+	DomainTempalate string
+
+	// NetworkOverride is the network used for healthcheck queries.  If not
+	// empty, it overrides the network type of the upstream for healthcheck
+	// queries.
+	NetworkOverride Network
+
+	// BackoffDuration is the healthcheck query backoff duration.  If the main
+	// upstream is down, queries will not be routed there until this time has
+	// passed.  If the healthcheck is still performed, each failed check
+	// advances the backoff.  If the value is not positive, the backoff is
+	// disabled.
+	BackoffDuration time.Duration
+
+	// InitDuration is the time duration for initial upstream healthcheck.  The
+	// initial healthcheck is performed only if it's positive.
+	//
+	// TODO(e.burkov):  Rename to InitTimeout.
+	InitDuration time.Duration
+
+	// Enabled enables healthcheck, if true.
+	Enabled bool
+}
+
 // Handler is a struct that implements [dnsserver.Handler] and forwards DNS
 // queries to the specified upstreams.  It also implements [io.Closer], allowing
 // resource reuse.
+//
+// TODO(e.burkov):  Perhaps, healthcheck logic worths a separate type.
 type Handler struct {
 	// logger is used for logging the operation of the forwarding handler.
 	logger *slog.Logger
@@ -63,6 +123,10 @@ type Handler struct {
 	// hcDomainTmpl is the template for domains used to perform healthcheck
 	// requests.
 	hcDomainTmpl string
+
+	// hcNetworkOverride is the enforced network type used for healthcheck
+	// queries, if not empty.
+	hcNetworkOverride Network
 
 	// upstreams is a list of all upstreams where this handler can forward DNS
 	// queries with its last failed healthcheck timestamps.
@@ -93,79 +157,48 @@ type upstreamStatus struct {
 // ErrNoResponse is returned from Handler's methods when the desired response
 // isn't received and no incidental errors occurred.  In theory, this must not
 // happen, but we prefer to return an error instead of panicking.
-const ErrNoResponse = errors.Error("no response")
-
-// HandlerConfig is the configuration structure for [NewHandler].
-type HandlerConfig struct {
-	// Logger is used for logging the operation of the forwarding handler.  If
-	// Logger is nil, [slog.Default] is used.
-	Logger *slog.Logger
-
-	// MetricsListener is the optional listener for the handler events.  Set it
-	// if you want to keep track of what the handler does and record performance
-	// metrics.  If not set, EmptyMetricsListener is used.
-	MetricsListener MetricsListener
-
-	// RandSource is used for randomized upstream selection and other
-	// non-sensitive tasks.  If it is nil, [rand.ChaCha8] is used.
-	RandSource rand.Source
-
-	// HealthcheckDomainTmpl is the template for domains used to perform
-	// healthcheck queries.  If the HealthcheckDomainTmpl contains the string
-	// "${RANDOM}", all occurrences of this string are replaced with a random
-	// string on every healthcheck query.  Queries to the resulting domains must
-	// return a NOERROR response.
-	HealthcheckDomainTmpl string
-
-	// UpstreamsAddresses is a list of upstream configurations of the main
-	// upstreams where the handler forwards all DNS queries.  Items must no be
-	// nil.
-	UpstreamsAddresses []*UpstreamPlainConfig
-
-	// FallbackAddresses are the optional fallback upstream configurations.  A
-	// fallback server is used either the main upstream returns an error or when
-	// the main upstream returns a SERVFAIL response.
-	FallbackAddresses []*UpstreamPlainConfig
-
-	// HealthcheckBackoffDuration is the healthcheck query backoff duration.  If
-	// the main upstream is down, queries will not be routed back to the main
-	// upstream until this time has passed.  If the healthcheck is still
-	// performed, each failed check advances the backoff.
-	HealthcheckBackoffDuration time.Duration
-
-	// HealthcheckInitDuration is the time duration for initial upstream
-	// healthcheck.
-	HealthcheckInitDuration time.Duration
-}
+const ErrNoResponse errors.Error = "no response"
 
 // NewHandler initializes a new instance of Handler.  It also performs a health
 // check afterwards if c.HealthcheckInitDuration is not zero.  Note, that this
 // handler only support plain DNS upstreams.  c must not be nil.
-func NewHandler(c *HandlerConfig) (h *Handler) {
-	src := c.RandSource
+func NewHandler(conf *HandlerConfig) (h *Handler) {
+	src := conf.RandSource
 	if src == nil {
 		// Do not initialize through [cmp.Or], as the default value could panic.
-		src = rand.NewChaCha8(agdrand.MustNewSeed())
+		src = rand.NewChaCha8(mustNewSeed())
+	}
+
+	hcConf := conf.Healthcheck
+	if hcConf == nil {
+		hcConf = &HealthcheckConfig{}
 	}
 
 	h = &Handler{
-		logger: cmp.Or(c.Logger, slog.Default()),
+		logger: cmp.Or(conf.Logger, slog.Default()),
 		// #nosec G404 -- We don't need a real random, pseudorandom is enough.
-		rand:              rand.New(agdrand.NewLockedSource(src)),
+		rand: rand.New(&lockedSource{
+			mu:  &sync.Mutex{},
+			src: src,
+		}),
 		activeUpstreamsMu: &sync.RWMutex{},
-		hcDomainTmpl:      c.HealthcheckDomainTmpl,
-		hcBackoff:         c.HealthcheckBackoffDuration,
 	}
 
-	if l := c.MetricsListener; l != nil {
+	if hcConf.Enabled {
+		h.hcDomainTmpl = hcConf.DomainTempalate
+		h.hcNetworkOverride = hcConf.NetworkOverride
+		h.hcBackoff = hcConf.BackoffDuration
+	}
+
+	if l := conf.MetricsListener; l != nil {
 		h.metrics = l
 	} else {
 		h.metrics = &EmptyMetricsListener{}
 	}
 
-	h.upstreams = make([]*upstreamStatus, 0, len(c.UpstreamsAddresses))
-	h.activeUpstreams = make([]Upstream, 0, len(c.UpstreamsAddresses))
-	for _, upsConf := range c.UpstreamsAddresses {
+	h.upstreams = make([]*upstreamStatus, 0, len(conf.UpstreamsAddresses))
+	h.activeUpstreams = make([]Upstream, 0, len(conf.UpstreamsAddresses))
+	for _, upsConf := range conf.UpstreamsAddresses {
 		u := NewUpstreamPlain(upsConf)
 		h.activeUpstreams = append(h.activeUpstreams, u)
 		h.upstreams = append(h.upstreams, &upstreamStatus{
@@ -174,13 +207,13 @@ func NewHandler(c *HandlerConfig) (h *Handler) {
 		})
 	}
 
-	h.fallbacks = make([]Upstream, 0, len(c.FallbackAddresses))
-	for _, upsConf := range c.FallbackAddresses {
+	h.fallbacks = make([]Upstream, 0, len(conf.FallbackAddresses))
+	for _, upsConf := range conf.FallbackAddresses {
 		h.fallbacks = append(h.fallbacks, NewUpstreamPlain(upsConf))
 	}
 
-	if c.HealthcheckInitDuration > 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), c.HealthcheckInitDuration)
+	if hcConf.Enabled && hcConf.InitDuration > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), hcConf.InitDuration)
 		defer cancel()
 
 		// Ignore the error since it's considered non-critical and also should
@@ -288,8 +321,8 @@ var _ service.Refresher = (*Handler)(nil)
 // is detected to be up again, requests are redirected back to the main
 // upstreams.
 func (h *Handler) Refresh(ctx context.Context) (err error) {
-	h.logger.DebugContext(ctx, "healthcheck refresh started")
-	defer h.logger.DebugContext(ctx, "healthcheck refresh finished")
+	h.logger.Log(ctx, slogutil.LevelTrace, "healthcheck refresh started")
+	defer h.logger.Log(ctx, slogutil.LevelTrace, "healthcheck refresh finished")
 
 	return h.refresh(ctx, false)
 }

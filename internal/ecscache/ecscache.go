@@ -15,6 +15,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/miekg/dns"
@@ -321,7 +322,7 @@ func (mh *mwHandler) ServeDNS(
 			)
 		}
 
-		optslog.Debug3(
+		optslog.Trace3(
 			ctx,
 			mw.logger,
 			"request data",
@@ -336,7 +337,7 @@ func (mh *mwHandler) ServeDNS(
 	// metrics, and return.  See also [writeCachedResponse].
 	resp, respIsECS := mw.get(ctx, req, cr)
 	if resp != nil {
-		optslog.Debug1(ctx, mw.logger, "using cached response", "ecs_aware", respIsECS)
+		optslog.Trace1(ctx, mw.logger, "using cached response", "ecs_aware", respIsECS)
 
 		// Increment the hits metrics here, since we already know if the domain
 		// name supports ECS or not from the cache data.  Increment the misses
@@ -348,7 +349,7 @@ func (mh *mwHandler) ServeDNS(
 		return writeCachedResponse(ctx, rw, req, resp, ri.ECS, ecsFam)
 	}
 
-	mw.logger.DebugContext(ctx, "no cached response")
+	mw.logger.Log(ctx, slogutil.LevelTrace, "no cached response")
 
 	// Perform an upstream request with the ECS data for the location or zero
 	// one on circumstances described above.  If successful, write, increment

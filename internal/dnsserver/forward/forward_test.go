@@ -9,6 +9,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,7 @@ func TestHandler_ServeDNS(t *testing.T) {
 
 	// No-fallbacks handler.
 	handler := forward.NewHandler(&forward.HandlerConfig{
+		Logger: slogutil.NewDiscardLogger(),
 		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
 			Network: forward.NetworkAny,
 			Address: netip.MustParseAddrPort(addr),
@@ -36,14 +38,13 @@ func TestHandler_ServeDNS(t *testing.T) {
 	err := handler.ServeDNS(testutil.ContextWithTimeout(t, testTimeout), rw, req)
 	require.NoError(t, err)
 
-	res := rw.Msg()
-	require.NotNil(t, res)
-	dnsservertest.RequireResponse(t, req, res, 1, dns.RcodeSuccess, false)
+	dnsservertest.RequireResponse(t, req, rw.Msg(), 1, dns.RcodeSuccess, false)
 }
 
 func TestHandler_ServeDNS_fallbackNetError(t *testing.T) {
 	srv, _ := dnsservertest.RunDNSServer(t, dnsservertest.NewDefaultHandler())
 	handler := forward.NewHandler(&forward.HandlerConfig{
+		Logger: slogutil.NewDiscardLogger(),
 		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
 			Network: forward.NetworkAny,
 			Address: netip.MustParseAddrPort("127.0.0.1:0"),
@@ -63,7 +64,5 @@ func TestHandler_ServeDNS_fallbackNetError(t *testing.T) {
 	err := handler.ServeDNS(context.Background(), rw, req)
 	require.NoError(t, err)
 
-	res := rw.Msg()
-	require.NotNil(t, res)
-	dnsservertest.RequireResponse(t, req, res, 1, dns.RcodeSuccess, false)
+	dnsservertest.RequireResponse(t, req, rw.Msg(), 1, dns.RcodeSuccess, false)
 }

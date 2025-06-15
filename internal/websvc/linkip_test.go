@@ -1,17 +1,17 @@
-package websvc
+package websvc_test
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
-	"sync/atomic"
+	"sync"
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/httphdr"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
@@ -19,17 +19,17 @@ import (
 )
 
 func TestLinkedIPProxy_ServeHTTP(t *testing.T) {
+	t.Parallel()
+
 	const (
 		badRemoteIP = "192.0.2.2"
-
-		realRemoteIP   = "192.0.2.1"
-		realRemoteAddr = realRemoteIP + ":12345"
-		realHost       = "link-ip.example"
+		receivedIP  = "127.0.0.1"
 	)
 
 	var (
-		apiURL *url.URL
-		numReq atomic.Uint64
+		proxyAddr          *net.TCPAddr
+		targetURL          *url.URL
+		collectedTestNames sync.Map
 	)
 
 	upstream := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
@@ -40,10 +40,10 @@ func TestLinkedIPProxy_ServeHTTP(t *testing.T) {
 		require.Equal(pt, agdhttp.UserAgent(), hdr.Get(httphdr.UserAgent))
 		require.NotEmpty(pt, hdr.Get(httphdr.XRequestID))
 
-		require.Equal(pt, apiURL.Host, r.Host)
-		require.Equal(pt, realRemoteIP, hdr.Get(httphdr.XForwardedFor))
-		require.Equal(pt, realRemoteIP, hdr.Get(httphdr.XConnectingIP))
-		require.Equal(pt, realHost, hdr.Get(httphdr.XForwardedHost))
+		require.Equal(pt, targetURL.Host, r.Host)
+		require.Equal(pt, receivedIP, hdr.Get(httphdr.XForwardedFor))
+		require.Equal(pt, receivedIP, hdr.Get(httphdr.XConnectingIP))
+		require.Equal(pt, proxyAddr.String(), hdr.Get(httphdr.XForwardedHost))
 		require.Equal(pt, urlutil.SchemeHTTP, hdr.Get(httphdr.XForwardedProto))
 
 		require.Empty(pt, hdr.Get(httphdr.CFConnectingIP))
@@ -51,101 +51,127 @@ func TestLinkedIPProxy_ServeHTTP(t *testing.T) {
 		require.Empty(pt, hdr.Get(httphdr.TrueClientIP))
 		require.Empty(pt, hdr.Get(httphdr.XRealIP))
 
-		numReq.Add(1)
+		collectedTestNames.Store(r.Method+" "+r.URL.Path, struct{}{})
 	})
 
 	srv := httptest.NewServer(upstream)
 	t.Cleanup(srv.Close)
 
-	apiURL, err := url.Parse(srv.URL)
-	require.NoError(t, err)
+	targetURL, errParse := url.Parse(srv.URL)
+	require.NoError(t, errParse)
 
-	h := newLinkedIPHandler(apiURL, agdtest.NewErrorCollector(), testLogger, testTimeout)
+	c := &websvc.Config{
+		Logger:               testLogger,
+		CertificateValidator: testCertValidator,
+		StaticContent:        http.NotFoundHandler(),
+		DNSCheck:             http.NotFoundHandler(),
+		ErrColl:              agdtest.NewErrorCollector(),
+		Metrics:              websvc.EmptyMetrics{},
+		Timeout:              testTimeout,
+		LinkedIP: &websvc.LinkedIPServer{
+			TargetURL: targetURL,
+			Bind: []*websvc.BindData{{
+				Address: localhostZeroPort,
+				TLS:     nil,
+			}},
+		},
+	}
+
+	svc := websvc.New(c)
+	startService(t, svc)
+
+	proxyAddr = requireServerGroupAddr(t, svc, websvc.ServerGroupLinkedIP)
+
+	cl := http.Client{
+		Timeout: testTimeout,
+	}
 
 	testCases := []struct {
+		wantReceived            assert.BoolAssertionFunc
 		name                    string
 		method                  string
 		path                    string
 		wantAccessControlHdrVal string
-		diff                    uint64
 		wantCode                int
 	}{{
+		wantReceived:            assert.True,
 		name:                    "linkip",
 		method:                  http.MethodGet,
 		path:                    "/linkip/dev1234/0123456789/status",
-		diff:                    +1,
 		wantCode:                http.StatusOK,
 		wantAccessControlHdrVal: agdhttp.HdrValWildcard,
 	}, {
+		wantReceived:            assert.True,
 		name:                    "ddns",
 		method:                  http.MethodPost,
 		path:                    "/ddns/dev1234/0123456789/example.com",
-		diff:                    +1,
 		wantCode:                http.StatusOK,
 		wantAccessControlHdrVal: agdhttp.HdrValWildcard,
 	}, {
+		wantReceived:            assert.False,
 		name:                    "other",
 		method:                  http.MethodGet,
 		path:                    "/some/other/path",
-		diff:                    0,
 		wantCode:                http.StatusNotFound,
 		wantAccessControlHdrVal: "",
 	}, {
+		wantReceived:            assert.False,
 		name:                    "robots_txt",
 		method:                  http.MethodGet,
 		path:                    "/robots.txt",
-		diff:                    0,
 		wantCode:                http.StatusOK,
 		wantAccessControlHdrVal: "",
 	}, {
+		wantReceived:            assert.False,
 		name:                    "linkip_bad_path",
 		method:                  http.MethodGet,
 		path:                    "/linkip/dev1234/0123456789/status/more/stuff",
-		diff:                    0,
 		wantCode:                http.StatusNotFound,
 		wantAccessControlHdrVal: "",
 	}, {
+		wantReceived:            assert.False,
 		name:                    "linkip_bad_method",
 		method:                  http.MethodDelete,
 		path:                    "/linkip/dev1234/0123456789/status",
-		diff:                    0,
 		wantCode:                http.StatusNotFound,
 		wantAccessControlHdrVal: "",
 	}}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			ctx := testutil.ContextWithTimeout(t, testTimeout)
-			ctx = slogutil.ContextWithLogger(ctx, testLogger)
 
-			r := httptest.NewRequestWithContext(ctx, tc.method, (&url.URL{
+			u := &url.URL{
 				Scheme: urlutil.SchemeHTTP,
-				Host:   realHost,
+				Host:   proxyAddr.String(),
 				Path:   tc.path,
-			}).String(), strings.NewReader(""))
+			}
 
-			// Set the IP address that should be proxied.
-			r.RemoteAddr = realRemoteAddr
+			req, err := http.NewRequestWithContext(ctx, tc.method, u.String(), nil)
+			require.NoError(t, err)
 
 			// Set some test headers to make sure they're not proxied.
-			r.Header.Set(httphdr.CFConnectingIP, badRemoteIP)
-			r.Header.Set(httphdr.Forwarded, badRemoteIP)
-			r.Header.Set(httphdr.TrueClientIP, badRemoteIP)
-			r.Header.Set(httphdr.XForwardedFor, badRemoteIP)
-			r.Header.Set(httphdr.XForwardedHost, "bad.example")
-			r.Header.Set(httphdr.XForwardedProto, "foo")
-			r.Header.Set(httphdr.XRealIP, badRemoteIP)
+			req.Header.Set(httphdr.CFConnectingIP, badRemoteIP)
+			req.Header.Set(httphdr.Forwarded, badRemoteIP)
+			req.Header.Set(httphdr.TrueClientIP, badRemoteIP)
+			req.Header.Set(httphdr.XForwardedFor, badRemoteIP)
+			req.Header.Set(httphdr.XForwardedHost, "bad.example")
+			req.Header.Set(httphdr.XForwardedProto, "foo")
+			req.Header.Set(httphdr.XRealIP, badRemoteIP)
 
-			rw := httptest.NewRecorder()
+			resp, err := cl.Do(req)
+			require.NoError(t, err)
+			require.NotNil(t, resp, "response should not be nil")
+			require.Equal(t, tc.wantCode, resp.StatusCode)
 
-			prev := numReq.Load()
-			h.ServeHTTP(rw, r)
-			assert.Equal(t, prev+tc.diff, numReq.Load(), "req was not expected")
-			assert.Equal(t, tc.wantCode, rw.Code)
-
-			hdr := rw.Header()
+			hdr := resp.Header
 			assert.Equal(t, agdhttp.UserAgent(), hdr.Get(httphdr.Server))
 			assert.Equal(t, tc.wantAccessControlHdrVal, hdr.Get(httphdr.AccessControlAllowOrigin))
+
+			_, found := collectedTestNames.Load(tc.method + " " + tc.path)
+			tc.wantReceived(t, found)
 		})
 	}
 }

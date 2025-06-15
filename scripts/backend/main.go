@@ -34,7 +34,10 @@ func main() {
 	rateLimitSrv := newMockRateLimitServiceServer(l.With(slogutil.KeyPrefix, "rate_limiter"))
 	backendpb.RegisterRateLimitServiceServer(grpcSrv, rateLimitSrv)
 
-	l.Info("staring serving", "laddr", listenAddr)
+	sessTickSrv := newMockSessionTicketServiceServer(l.With(slogutil.KeyPrefix, "session_ticket"))
+	backendpb.RegisterSessionTicketServiceServer(grpcSrv, sessTickSrv)
+
+	l.Info("starting serving", "laddr", listenAddr)
 	err = grpcSrv.Serve(lsnr)
 	if err != nil {
 		l.Error("serving grpc", slogutil.KeyError, err)

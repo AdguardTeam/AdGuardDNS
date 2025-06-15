@@ -1,6 +1,7 @@
 package access
 
 import (
+	"context"
 	"net/netip"
 	"slices"
 
@@ -10,12 +11,18 @@ import (
 
 // Profile is the profile access manager interface.
 type Profile interface {
-	// Config returns profile access configuration.
+	// Config returns the profile access configuration, excluding the
+	// [ProfileConfig.Metrics] property.
 	Config() (conf *ProfileConfig)
 
 	// IsBlocked returns true if the req should be blocked.  req must not be
 	// nil, and req.Question must have one item.
-	IsBlocked(req *dns.Msg, rAddr netip.AddrPort, l *geoip.Location) (blocked bool)
+	IsBlocked(
+		ctx context.Context,
+		req *dns.Msg,
+		rAddr netip.AddrPort,
+		l *geoip.Location,
+	) (blocked bool)
 }
 
 // EmptyProfile is an empty profile implementation that does nothing.
@@ -30,7 +37,12 @@ func (EmptyProfile) Config() (conf *ProfileConfig) { return nil }
 
 // IsBlocked implements the [Profile] interface for EmptyProfile.  It always
 // returns false.
-func (EmptyProfile) IsBlocked(_ *dns.Msg, _ netip.AddrPort, _ *geoip.Location) (blocked bool) {
+func (EmptyProfile) IsBlocked(
+	_ context.Context,
+	_ *dns.Msg,
+	_ netip.AddrPort,
+	_ *geoip.Location,
+) (blocked bool) {
 	return false
 }
 
@@ -39,6 +51,10 @@ func (EmptyProfile) IsBlocked(_ *dns.Msg, _ netip.AddrPort, _ *geoip.Location) (
 // NOTE: Do not change fields of this structure without incrementing
 // [internal/profiledb/internal.FileCacheVersion].
 type ProfileConfig struct {
+	// Metrics is used for the collection of the profile access engine
+	// statistics.  It must not be nil.
+	Metrics ProfileMetrics
+
 	// AllowedNets is slice of CIDRs to be allowed.
 	AllowedNets []netip.Prefix
 
@@ -72,7 +88,7 @@ type DefaultProfile struct {
 }
 
 // NewDefaultProfile creates a new *DefaultProfile.  conf is assumed to be
-// valid.
+// valid.  mtrc must not be nil.
 func NewDefaultProfile(conf *ProfileConfig) (p *DefaultProfile) {
 	return &DefaultProfile{
 		allowedNets:          conf.AllowedNets,
@@ -80,14 +96,15 @@ func NewDefaultProfile(conf *ProfileConfig) (p *DefaultProfile) {
 		allowedASN:           conf.AllowedASN,
 		blockedASN:           conf.BlockedASN,
 		blocklistDomainRules: conf.BlocklistDomainRules,
-		blockedHostsEng:      newBlockedHostEngine(conf.BlocklistDomainRules),
+		blockedHostsEng:      newBlockedHostEngine(conf.Metrics, conf.BlocklistDomainRules),
 	}
 }
 
 // type check
 var _ Profile = (*DefaultProfile)(nil)
 
-// Config implements the [Profile] interface for *DefaultProfile.
+// Config implements the [Profile] interface for *DefaultProfile.  It excludes
+// the Metrics property.
 func (p *DefaultProfile) Config() (conf *ProfileConfig) {
 	return &ProfileConfig{
 		AllowedNets:          slices.Clone(p.allowedNets),
@@ -99,10 +116,15 @@ func (p *DefaultProfile) Config() (conf *ProfileConfig) {
 }
 
 // IsBlocked implements the [Profile] interface for *DefaultProfile.
-func (p *DefaultProfile) IsBlocked(req *dns.Msg, rAddr netip.AddrPort, l *geoip.Location) (blocked bool) {
+func (p *DefaultProfile) IsBlocked(
+	ctx context.Context,
+	req *dns.Msg,
+	rAddr netip.AddrPort,
+	l *geoip.Location,
+) (blocked bool) {
 	ip := rAddr.Addr()
 
-	return p.isBlockedByNets(ip, l) || p.isBlockedByHostsEng(req)
+	return p.isBlockedByNets(ip, l) || p.isBlockedByHostsEng(ctx, req)
 }
 
 // isBlockedByNets returns true if ip or l is blocked by current profile.
@@ -132,6 +154,6 @@ func matchASNs(asns []geoip.ASN, l *geoip.Location) (ok bool) {
 
 // isBlockedByHostsEng returns true if the req is blocked by
 // BlocklistDomainRules.  req must have exactly one question.
-func (p *DefaultProfile) isBlockedByHostsEng(req *dns.Msg) (blocked bool) {
-	return p.blockedHostsEng.isBlocked(req)
+func (p *DefaultProfile) isBlockedByHostsEng(ctx context.Context, req *dns.Msg) (blocked bool) {
+	return p.blockedHostsEng.isBlocked(ctx, req)
 }

@@ -120,7 +120,12 @@ func newDefault(tb testing.TB) (s *filterstorage.Default) {
 	s, err := filterstorage.New(c)
 	require.NoError(tb, err)
 
-	ctx := testutil.ContextWithTimeout(tb, filtertest.Timeout)
+	// initialTimeout is the maximum time to wait for a filter storage
+	// initialization.  A separate timeout is used to make the tests using this
+	// helper pass on older, slower machines.
+	const initialTimeout = 2 * filtertest.Timeout
+
+	ctx := testutil.ContextWithTimeout(tb, initialTimeout)
 	err = s.RefreshInitial(ctx)
 	require.NoError(tb, err)
 

@@ -74,6 +74,7 @@ func (c *webConfig) toInternal(
 	errColl errcoll.Interface,
 	baseLogger *slog.Logger,
 	tlsMgr tlsconfig.Manager,
+	mtrc websvc.Metrics,
 ) (conf *websvc.Config, err error) {
 	if c == nil {
 		return nil, nil
@@ -82,6 +83,7 @@ func (c *webConfig) toInternal(
 	conf = &websvc.Config{
 		Logger:  baseLogger.With(slogutil.KeyPrefix, "websvc"),
 		ErrColl: errColl,
+		Metrics: mtrc,
 		Timeout: time.Duration(c.Timeout),
 	}
 

@@ -4,11 +4,16 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 )
+
+// testTimeout is the common timeout for tests.
+const testTimeout = 1 * time.Second
 
 func TestBlockedHostEngine_IsBlocked(t *testing.T) {
 	t.Parallel()
@@ -21,7 +26,7 @@ func TestBlockedHostEngine_IsBlocked(t *testing.T) {
 		"@@||allow.allowlist.test^",
 	}
 
-	engine := newBlockedHostEngine(rules)
+	engine := newBlockedHostEngine(EmptyProfileMetrics{}, rules)
 
 	testCases := []struct {
 		want assert.BoolAssertionFunc
@@ -76,7 +81,7 @@ func TestBlockedHostEngine_IsBlocked(t *testing.T) {
 
 			req := dnsservertest.NewReq(tc.host, tc.qt, dns.ClassINET)
 
-			blocked := engine.isBlocked(req)
+			blocked := engine.isBlocked(testutil.ContextWithTimeout(t, testTimeout), req)
 			tc.want(t, blocked)
 		})
 	}
@@ -86,7 +91,7 @@ func TestBlockedHostEngine_IsBlocked_concurrent(t *testing.T) {
 	const routinesLimit = 50
 
 	rules := []string{"||block.test^"}
-	engine := newBlockedHostEngine(rules)
+	engine := newBlockedHostEngine(EmptyProfileMetrics{}, rules)
 
 	wg := &sync.WaitGroup{}
 	for i := range routinesLimit {
@@ -98,7 +103,7 @@ func TestBlockedHostEngine_IsBlocked_concurrent(t *testing.T) {
 			defer wg.Done()
 
 			req := dnsservertest.NewReq(host, dns.TypeA, dns.ClassINET)
-			assert.True(t, engine.isBlocked(req))
+			assert.True(t, engine.isBlocked(testutil.ContextWithTimeout(t, testTimeout), req))
 		}()
 	}
 

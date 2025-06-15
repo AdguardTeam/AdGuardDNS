@@ -164,7 +164,7 @@ func (c *configuration) Validate() (err error) {
 }
 
 // isProfilesEnabled returns true if there is at least one server group with
-// profiles enabled.  conf must be valid.
+// profiles enabled.  c must be valid.
 func (c *configuration) isProfilesEnabled() (ok bool) {
 	for _, s := range c.ServerGroups {
 		if s.ProfilesEnabled {

@@ -4,7 +4,6 @@ import (
 	"compress/gzip"
 	"io"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"path/filepath"
 	"testing"
@@ -28,7 +27,8 @@ const (
 )
 
 func TestBlockPageServers(t *testing.T) {
-	notFoundContent := []byte("404 page not found\n")
+	t.Parallel()
+
 	robotsContent := []byte(agdhttp.RobotsDisallowAll)
 
 	const (
@@ -37,68 +37,69 @@ func TestBlockPageServers(t *testing.T) {
 		robotsStatus  = http.StatusOK
 	)
 
-	// TODO(a.garipov):  Do not use hardcoded ports.
+	bps := &websvc.BlockPageServerConfig{
+		ContentFilePath: filepath.Join("testdata", blockPageFileName),
+		Bind: []*websvc.BindData{{
+			TLS:     nil,
+			Address: localhostZeroPort,
+		}},
+	}
+
+	conf := &websvc.Config{
+		Logger:               testLogger,
+		CertificateValidator: testCertValidator,
+		StaticContent:        http.NotFoundHandler(),
+		DNSCheck:             http.NotFoundHandler(),
+		ErrColl:              agdtest.NewErrorCollector(),
+		Metrics:              websvc.EmptyMetrics{},
+		Timeout:              testTimeout,
+		AdultBlocking:        bps,
+		GeneralBlocking:      bps,
+		SafeBrowsing:         bps,
+	}
+
+	svc := websvc.New(conf)
+	startService(t, svc)
+
 	testCases := []struct {
-		updateConfig func(c *websvc.Config, bps *websvc.BlockPageServerConfig)
-		addr         netip.AddrPort
-		name         string
+		name        string
+		serverGroup websvc.ServerGroup
 	}{{
-		updateConfig: func(c *websvc.Config, bps *websvc.BlockPageServerConfig) {
-			c.AdultBlocking = bps
-		},
-		addr: netip.MustParseAddrPort("127.0.0.1:3000"),
-		name: "adult_blocking",
+		name:        "adult_blocking",
+		serverGroup: websvc.ServerGroupAdultBlockingPage,
 	}, {
-		updateConfig: func(c *websvc.Config, bps *websvc.BlockPageServerConfig) {
-			c.GeneralBlocking = bps
-		},
-		addr: netip.MustParseAddrPort("127.0.0.1:3001"),
-		name: "general_blocking",
+		name:        "general_blocking",
+		serverGroup: websvc.ServerGroupGeneralBlockingPage,
 	}, {
-		updateConfig: func(c *websvc.Config, bps *websvc.BlockPageServerConfig) {
-			c.SafeBrowsing = bps
-		},
-		addr: netip.MustParseAddrPort("127.0.0.1:3002"),
-		name: "safe_browsing",
+		name:        "safe_browsing",
+		serverGroup: websvc.ServerGroupSafeBrowsingPage,
 	}}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			bps := &websvc.BlockPageServerConfig{
-				ContentFilePath: filepath.Join("testdata", blockPageFileName),
-				Bind: []*websvc.BindData{{
-					TLS:     nil,
-					Address: tc.addr,
-				}},
-			}
+			addr := requireServerGroupAddr(t, svc, tc.serverGroup)
+			a := addr.AddrPort()
 
-			conf := &websvc.Config{
-				Logger:        testLogger,
-				StaticContent: http.NotFoundHandler(),
-				DNSCheck:      http.NotFoundHandler(),
-				ErrColl:       agdtest.NewErrorCollector(),
-				Timeout:       testTimeout,
-			}
-			tc.updateConfig(conf, bps)
-
-			startService(t, conf)
-
-			assertContent(t, tc.addr, "/", contentStatus, []byte(blockPageContent))
-			assertContent(t, tc.addr, "/favicon.ico", faviconStatus, notFoundContent)
-			assertContent(t, tc.addr, "/robots.txt", robotsStatus, robotsContent)
+			assertContent(t, a, "/", contentStatus, []byte(blockPageContent))
+			assertContent(t, a, "/favicon.ico", faviconStatus, []byte(agdhttp.NotFoundString))
+			assertContent(t, a, "/robots.txt", robotsStatus, robotsContent)
 		})
 	}
 }
 
 func TestBlockPageServers_noBlockPages(t *testing.T) {
+	t.Parallel()
+
 	conf := &websvc.Config{
-		Logger:        testLogger,
-		StaticContent: http.NotFoundHandler(),
-		DNSCheck:      http.NotFoundHandler(),
-		ErrColl:       agdtest.NewErrorCollector(),
-		Timeout:       testTimeout,
+		Logger:               testLogger,
+		CertificateValidator: testCertValidator,
+		StaticContent:        http.NotFoundHandler(),
+		DNSCheck:             http.NotFoundHandler(),
+		ErrColl:              agdtest.NewErrorCollector(),
+		Metrics:              websvc.EmptyMetrics{},
+		Timeout:              testTimeout,
 	}
 
 	svc := websvc.New(conf)
@@ -111,49 +112,51 @@ func TestBlockPageServers_noBlockPages(t *testing.T) {
 }
 
 func TestBlockPageServers_gzip(t *testing.T) {
-	// TODO(a.garipov):  Do not use hardcoded ports.
-	addr := netip.MustParseAddrPort("127.0.0.1:3001")
+	t.Parallel()
+
 	bps := &websvc.BlockPageServerConfig{
 		ContentFilePath: filepath.Join("testdata", blockPageFileName),
 		Bind: []*websvc.BindData{{
 			TLS:     nil,
-			Address: addr,
+			Address: localhostZeroPort,
 		}},
 	}
 
 	conf := &websvc.Config{
-		Logger:          testLogger,
-		GeneralBlocking: bps,
-		StaticContent:   http.NotFoundHandler(),
-		DNSCheck:        http.NotFoundHandler(),
-		ErrColl:         agdtest.NewErrorCollector(),
-		Timeout:         testTimeout,
+		Logger:               testLogger,
+		GeneralBlocking:      bps,
+		CertificateValidator: testCertValidator,
+		StaticContent:        http.NotFoundHandler(),
+		DNSCheck:             http.NotFoundHandler(),
+		ErrColl:              agdtest.NewErrorCollector(),
+		Metrics:              websvc.EmptyMetrics{},
+		Timeout:              testTimeout,
 	}
 
-	startService(t, conf)
+	svc := websvc.New(conf)
+	startService(t, svc)
 
-	c := http.Client{
+	addr := requireServerGroupAddr(t, svc, websvc.ServerGroupGeneralBlockingPage)
+
+	cl := http.Client{
 		Timeout: testTimeout,
 	}
+
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
 
 	u := &url.URL{
 		Scheme: urlutil.SchemeHTTP,
 		Host:   addr.String(),
 		Path:   "/",
 	}
-	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	require.NoError(t, err)
 
 	req.Header.Set(httphdr.AcceptEncoding, agdhttp.HdrValGzip)
 
-	// First check health-check service URL.  As the service could not be ready
-	// yet, check for it periodically.
-	var resp *http.Response
-	require.Eventually(t, func() (ok bool) {
-		resp, err = c.Do(req)
-
-		return err == nil
-	}, testTimeout, testTimeout/10)
+	resp, err := cl.Do(req)
+	require.NoError(t, err)
 
 	zr, err := gzip.NewReader(resp.Body)
 	require.NoError(t, err)

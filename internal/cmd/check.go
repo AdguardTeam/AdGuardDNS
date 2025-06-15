@@ -20,6 +20,7 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/redisutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/AdguardTeam/golibs/validate"
 	"github.com/c2h5oh/datasize"
@@ -66,7 +67,7 @@ func (c *checkConfig) toInternal(
 		return nil, fmt.Errorf("dnscheck metrics: %w", err)
 	}
 
-	kv, err := c.KV.newRemoteKV(envs, namespace, reg, grpcMtrc)
+	kv, err := c.KV.newRemoteKV(envs, namespace, reg, grpcMtrc, baseLogger)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
@@ -105,19 +106,11 @@ func (c *remoteKVConfig) newRemoteKV(
 	namespace string,
 	reg prometheus.Registerer,
 	grpcMtrc backendpb.GRPCMetrics,
+	baseLogger *slog.Logger,
 ) (kv remotekv.Interface, err error) {
 	switch c.Type {
 	case kvModeBackend:
-		var backendKVMtrc *metrics.BackendRemoteKV
-		backendKVMtrc, err = metrics.NewBackendRemoteKV(namespace, reg)
-		if err != nil {
-			return nil, fmt.Errorf("registering backend kv metrics: %w", err)
-		}
-
-		kv, err = c.newBackendRemoteKV(envs, backendKVMtrc, grpcMtrc)
-		if err != nil {
-			return nil, fmt.Errorf("initializing backend dnscheck kv: %w", err)
-		}
+		return newBackendRemoteKV(envs, namespace, reg, grpcMtrc, c.TTL)
 	case kvModeCache:
 		// TODO(e.burkov): The local cache in [dnscheck.RemoteKV] becomes
 		// pointless with this mode.
@@ -127,25 +120,9 @@ func (c *remoteKVConfig) newRemoteKV(
 			}),
 		}), nil
 	case kvModeRedis:
-		var redisKVMtrc *metrics.RedisKV
-		redisKVMtrc, err = metrics.NewRedisKV(namespace, reg)
-		if err != nil {
-			return nil, fmt.Errorf("registering redis kv metrics: %w", err)
-		}
-
-		kv = rediskv.NewRedisKV(&rediskv.RedisKVConfig{
-			Metrics: redisKVMtrc,
-			Addr: &netutil.HostPort{
-				Host: envs.RedisAddr,
-				Port: envs.RedisPort,
-			},
-			MaxActive:   envs.RedisMaxActive,
-			MaxIdle:     envs.RedisMaxIdle,
-			IdleTimeout: time.Duration(envs.RedisIdleTimeout),
-			TTL:         time.Duration(c.TTL),
-		})
+		return newRedisRemoteKV(envs, namespace, reg, baseLogger, c.TTL)
 	case kvModeConsul:
-		kv, err = c.newConsulRemoteKV(envs)
+		kv, err = newConsulRemoteKV(envs, c.TTL)
 		if err != nil {
 			return nil, fmt.Errorf("initializing consul dnscheck kv: %w", err)
 		}
@@ -155,25 +132,33 @@ func (c *remoteKVConfig) newRemoteKV(
 
 	return remotekv.NewKeyNamespace(&remotekv.KeyNamespaceConfig{
 		KV:     kv,
-		Prefix: newRemoveKVPrefix(envs, c.Type),
+		Prefix: newRemoteKVPrefix(envs, c.Type),
 	}), nil
 }
 
 // newBackendRemoteKV returns a new properly initialized backend remote
-// key-value storage.  c must be valid.
+// key-value storage.
 //
 // TODO(e.burkov):  Add key namespace.
-func (c *remoteKVConfig) newBackendRemoteKV(
+func newBackendRemoteKV(
 	envs *environment,
-	backendKVMtrc *metrics.BackendRemoteKV,
+	namespace string,
+	reg prometheus.Registerer,
 	grpcMtrc backendpb.GRPCMetrics,
-) (kv *backendpb.RemoteKV, err error) {
+	ttl timeutil.Duration,
+) (remotekv.Interface, error) {
+	backendKVMtrc, err := metrics.NewBackendRemoteKV(namespace, reg)
+	if err != nil {
+		return nil, fmt.Errorf("registering backend kv metrics: %w", err)
+	}
+
+	var kv *backendpb.RemoteKV
 	kv, err = backendpb.NewRemoteKV(&backendpb.RemoteKVConfig{
 		GRPCMetrics: grpcMtrc,
 		Metrics:     backendKVMtrc,
 		Endpoint:    &envs.DNSCheckRemoteKVURL.URL,
 		APIKey:      envs.DNSCheckRemoteKVAPIKey,
-		TTL:         time.Duration(c.TTL),
+		TTL:         time.Duration(ttl),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("initializing backend dnscheck kv: %w", err)
@@ -182,21 +167,65 @@ func (c *remoteKVConfig) newBackendRemoteKV(
 	return kv, nil
 }
 
-// newRemoveKVPrefix returns a remote KV custom prefix for the keys.
-func newRemoveKVPrefix(envs *environment, kvType string) (pref string) {
-	switch kvType {
-	case kvModeBackend, kvModeCache, kvModeConsul:
-		return fmt.Sprintf("%s:%s:", kvType, keyNamespaceCheck)
-	case kvModeRedis:
-		return fmt.Sprintf("%s:%s:", envs.RedisKeyPrefix, keyNamespaceCheck)
-	default:
-		panic(fmt.Errorf("dnscheck kv type: %w: %q", errors.ErrBadEnumValue, kvType))
+// newRedisRemoteKV returns a new properly initialized Redis-based remote
+// key-value storage.
+func newRedisRemoteKV(
+	envs *environment,
+	namespace string,
+	reg prometheus.Registerer,
+	baseLogger *slog.Logger,
+	ttl timeutil.Duration,
+) (remotekv.Interface, error) {
+	mtrc, err := metrics.NewRedisKV(namespace, reg)
+	if err != nil {
+		return nil, fmt.Errorf("registering redis kv metrics: %w", err)
 	}
+
+	var dialer *redisutil.DefaultDialer
+	dialer, err = redisutil.NewDefaultDialer(&redisutil.DefaultDialerConfig{
+		Addr: &netutil.HostPort{
+			Host: envs.RedisAddr,
+			Port: envs.RedisPort,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("initializing redisutil dialer: %w", err)
+	}
+
+	var connTester *redisutil.RoleChecker
+	connTester, err = redisutil.NewRoleChecker(&redisutil.RoleCheckerConfig{
+		Logger: baseLogger.With(slogutil.KeyPrefix, "redis_role_checker"),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("initializing redisutil role checker: %w", err)
+	}
+
+	var pool *redisutil.DefaultPool
+	pool, err = redisutil.NewDefaultPool(&redisutil.DefaultPoolConfig{
+		Logger:           baseLogger.With(slogutil.KeyPrefix, "redis_pool"),
+		ConnectionTester: connTester,
+		Dialer:           dialer,
+		Metrics:          mtrc,
+		IdleTimeout:      time.Duration(envs.RedisIdleTimeout),
+		MaxActive:        envs.RedisMaxActive,
+		MaxIdle:          envs.RedisMaxIdle,
+		Wait:             true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("initializing redisutil pool: %w", err)
+	}
+
+	kv := rediskv.NewRedisKV(&rediskv.RedisKVConfig{
+		Pool: pool,
+		TTL:  time.Duration(ttl),
+	})
+
+	return kv, nil
 }
 
 // newConsulRemoteKV returns a new properly initialized Consul-based remote
-// key-value storage.  c must be valid.
-func (c *remoteKVConfig) newConsulRemoteKV(envs *environment) (kv remotekv.Interface, err error) {
+// key-value storage.
+func newConsulRemoteKV(envs *environment, ttl timeutil.Duration) (kv remotekv.Interface, err error) {
 	consulKVURL := envs.ConsulDNSCheckKVURL
 	consulSessionURL := envs.ConsulDNSCheckSessionURL
 	if consulKVURL == nil || consulSessionURL == nil {
@@ -212,7 +241,7 @@ func (c *remoteKVConfig) newConsulRemoteKV(envs *environment) (kv remotekv.Inter
 		}),
 		// TODO(ameshkov): Consider making configurable.
 		Limiter:     rate.NewLimiter(rate.Limit(200)/60, 1),
-		TTL:         time.Duration(c.TTL),
+		TTL:         time.Duration(ttl),
 		MaxRespSize: maxRespSize,
 	})
 	if err != nil {
@@ -220,6 +249,18 @@ func (c *remoteKVConfig) newConsulRemoteKV(envs *environment) (kv remotekv.Inter
 	}
 
 	return kv, nil
+}
+
+// newRemoteKVPrefix returns a remote KV custom prefix for the keys.
+func newRemoteKVPrefix(envs *environment, kvType string) (pref string) {
+	switch kvType {
+	case kvModeBackend, kvModeCache, kvModeConsul:
+		return fmt.Sprintf("%s:%s:", kvType, keyNamespaceCheck)
+	case kvModeRedis:
+		return fmt.Sprintf("%s:%s:", envs.RedisKeyPrefix, keyNamespaceCheck)
+	default:
+		panic(fmt.Errorf("dnscheck kv type: %w: %q", errors.ErrBadEnumValue, kvType))
+	}
 }
 
 // type check

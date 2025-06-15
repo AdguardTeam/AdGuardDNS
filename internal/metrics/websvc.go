@@ -1,75 +1,83 @@
 package metrics
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-var (
-	webSvcRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name:      "websvc_requests_total",
+// WebSvcReqType is a type alias for a string that represents the web service
+// request type.
+type WebSvcReqType = string
+
+// Web service requests of [WebSvcReqType] type.
+//
+// NOTE:  Keep in sync with [websvc.RequestType].
+const (
+	WebSvcReqTypeError404            WebSvcReqType = "error404"
+	WebSvcReqTypeError500            WebSvcReqType = "error500"
+	WebSvcReqTypeStaticContent       WebSvcReqType = "static_content"
+	WebSvcReqTypeDNSCheckTest        WebSvcReqType = "dnscheck_test"
+	WebSvcReqTypeRobotsTxt           WebSvcReqType = "robots_txt"
+	WebSvcReqTypeRootRedirect        WebSvcReqType = "root_redirect"
+	WebSvcReqTypeLinkedIPProxy       WebSvcReqType = "linkip"
+	WebSvcReqTypeAdultBlockingPage   WebSvcReqType = "adult_blocking_page"
+	WebSvcReqTypeGeneralBlockingPage WebSvcReqType = "general_blocking_page"
+	WebSvcReqTypeSafeBrowsingPage    WebSvcReqType = "safe_browsing_page"
+)
+
+// WebSvc is the Prometheus-based implementation of the [websvc.Metrics]
+// interface.
+type WebSvc struct {
+	// webSvcReqCounters maps each web service request type to its corresponding
+	// Prometheus counter.
+	webSvcReqCounters map[WebSvcReqType]prometheus.Counter
+}
+
+// NewWebSvc registers the web service metrics in reg and returns a properly
+// initialized [*WebSvc].
+func NewWebSvc(namespace string, reg prometheus.Registerer) (m *WebSvc, err error) {
+	// TODO(s.chzhen):  Rename this to avoid sharing a prefix with
+	// [subsystemWebSvc].
+	const webSvcReqTotal = "websvc_requests_total"
+
+	// reqCV is a Prometheus counter vector that tracks the number of web
+	// service requests, categorized by request type.
+	reqCV := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name:      webSvcReqTotal,
 		Namespace: namespace,
 		Subsystem: subsystemWebSvc,
 		Help:      "The number of HTTP requests for websvc.",
 	}, []string{"kind"})
 
-	// WebSvcError404RequestsTotal is a counter with total number of
-	// requests with error 404.
-	WebSvcError404RequestsTotal = webSvcRequestsTotal.With(prometheus.Labels{
-		"kind": "error404",
-	})
+	webSvcReqCounters := map[WebSvcReqType]prometheus.Counter{
+		WebSvcReqTypeError404:            reqCV.WithLabelValues(WebSvcReqTypeError404),
+		WebSvcReqTypeError500:            reqCV.WithLabelValues(WebSvcReqTypeError500),
+		WebSvcReqTypeStaticContent:       reqCV.WithLabelValues(WebSvcReqTypeStaticContent),
+		WebSvcReqTypeDNSCheckTest:        reqCV.WithLabelValues(WebSvcReqTypeDNSCheckTest),
+		WebSvcReqTypeRobotsTxt:           reqCV.WithLabelValues(WebSvcReqTypeRobotsTxt),
+		WebSvcReqTypeRootRedirect:        reqCV.WithLabelValues(WebSvcReqTypeRootRedirect),
+		WebSvcReqTypeLinkedIPProxy:       reqCV.WithLabelValues(WebSvcReqTypeLinkedIPProxy),
+		WebSvcReqTypeAdultBlockingPage:   reqCV.WithLabelValues(WebSvcReqTypeAdultBlockingPage),
+		WebSvcReqTypeGeneralBlockingPage: reqCV.WithLabelValues(WebSvcReqTypeGeneralBlockingPage),
+		WebSvcReqTypeSafeBrowsingPage:    reqCV.WithLabelValues(WebSvcReqTypeSafeBrowsingPage),
+	}
 
-	// WebSvcError500RequestsTotal is a counter with total number of
-	// requests with error 500.
-	WebSvcError500RequestsTotal = webSvcRequestsTotal.With(prometheus.Labels{
-		"kind": "error500",
-	})
+	err = reg.Register(reqCV)
+	if err != nil {
+		return nil, fmt.Errorf("registering metrics %q: %w", webSvcReqTotal, err)
+	}
 
-	// WebSvcStaticContentRequestsTotal is a counter with total number of
-	// requests for static content.
-	WebSvcStaticContentRequestsTotal = webSvcRequestsTotal.With(prometheus.Labels{
-		"kind": "static_content",
-	})
+	return &WebSvc{webSvcReqCounters: webSvcReqCounters}, nil
+}
 
-	// WebSvcDNSCheckTestRequestsTotal is a counter with total number of
-	// requests for dnscheck_test.
-	WebSvcDNSCheckTestRequestsTotal = webSvcRequestsTotal.With(prometheus.Labels{
-		"kind": "dnscheck_test",
-	})
+// IncrementReqCount implements the [websvc.Metrics] interface for *WebSvc.
+func (m *WebSvc) IncrementReqCount(_ context.Context, reqType WebSvcReqType) {
+	ctr, ok := m.webSvcReqCounters[reqType]
+	if !ok {
+		panic(fmt.Errorf("incrementing req counter: bad type %q", reqType))
+	}
 
-	// WebSvcRobotsTxtRequestsTotal is a counter with total number of
-	// requests for robots_txt.
-	WebSvcRobotsTxtRequestsTotal = webSvcRequestsTotal.With(prometheus.Labels{
-		"kind": "robots_txt",
-	})
-
-	// WebSvcRootRedirectRequestsTotal is a counter with total number of
-	// root redirected requests.
-	WebSvcRootRedirectRequestsTotal = webSvcRequestsTotal.With(prometheus.Labels{
-		"kind": "root_redirect",
-	})
-
-	// WebSvcLinkedIPProxyRequestsTotal is a counter with total number of
-	// requests with linked ip.
-	WebSvcLinkedIPProxyRequestsTotal = webSvcRequestsTotal.With(prometheus.Labels{
-		"kind": "linkip",
-	})
-
-	// WebSvcAdultBlockingPageRequestsTotal is a counter with total number
-	// of requests for adult blocking page.
-	WebSvcAdultBlockingPageRequestsTotal = webSvcRequestsTotal.With(prometheus.Labels{
-		"kind": "adult_blocking_page",
-	})
-
-	// WebSvcGeneralBlockingPageRequestsTotal is a counter with total number
-	// of requests for general blocking page.
-	WebSvcGeneralBlockingPageRequestsTotal = webSvcRequestsTotal.With(prometheus.Labels{
-		"kind": "general_blocking_page",
-	})
-
-	// WebSvcSafeBrowsingPageRequestsTotal is a counter with total number
-	// of requests for safe browsing page.
-	WebSvcSafeBrowsingPageRequestsTotal = webSvcRequestsTotal.With(prometheus.Labels{
-		"kind": "safe_browsing_page",
-	})
-)
+	ctr.Inc()
+}

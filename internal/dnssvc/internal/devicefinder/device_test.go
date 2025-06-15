@@ -13,7 +13,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -84,12 +83,9 @@ func TestDefault_Find_plainAddrs(t *testing.T) {
 			profDB.OnProfileByDedicatedIP = newOnProfileByDedicatedIP(dnssvctest.DedicatedAddr)
 			profDB.OnProfileByLinkedIP = newOnProfileByLinkedIP(dnssvctest.LinkedAddr)
 
-			df := devicefinder.NewDefault(&devicefinder.Config{
-				Logger:        slogutil.NewDiscardLogger(),
-				ProfileDB:     profDB,
-				HumanIDParser: agd.NewHumanIDParser(),
-				Server:        tc.srv,
-				DeviceDomains: nil,
+			df := newDefault(t, &devicefinder.Config{
+				Server:    tc.srv,
+				ProfileDB: profDB,
 			})
 
 			ctx := testutil.ContextWithTimeout(t, dnssvctest.Timeout)
@@ -104,15 +100,14 @@ func TestDefault_Find_plainEDNS(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		req        *dns.Msg
-		srv        *agd.Server
-		wantRes    agd.DeviceResult
-		wantProf   *agd.Profile
-		wantDev    *agd.Device
-		wantErrMsg string
-		laddr      netip.AddrPort
-		raddr      netip.AddrPort
-		name       string
+		req      *dns.Msg
+		srv      *agd.Server
+		wantRes  agd.DeviceResult
+		wantProf *agd.Profile
+		wantDev  *agd.Device
+		laddr    netip.AddrPort
+		raddr    netip.AddrPort
+		name     string
 	}{{
 		req:     reqNormal,
 		srv:     srvPlain,
@@ -154,12 +149,9 @@ func TestDefault_Find_plainEDNS(t *testing.T) {
 			profDB := agdtest.NewProfileDB()
 			profDB.OnProfileByDeviceID = newOnProfileByDeviceID(dnssvctest.DeviceID)
 
-			df := devicefinder.NewDefault(&devicefinder.Config{
-				Logger:        slogutil.NewDiscardLogger(),
-				ProfileDB:     profDB,
-				HumanIDParser: agd.NewHumanIDParser(),
-				Server:        tc.srv,
-				DeviceDomains: nil,
+			df := newDefault(t, &devicefinder.Config{
+				Server:    tc.srv,
+				ProfileDB: profDB,
 			})
 
 			ctx := testutil.ContextWithTimeout(t, dnssvctest.Timeout)
@@ -181,11 +173,9 @@ func TestDefault_Find_deleted(t *testing.T) {
 		return profDeleted, devNormal, nil
 	}
 
-	df := devicefinder.NewDefault(&devicefinder.Config{
-		Logger:        slogutil.NewDiscardLogger(),
-		ProfileDB:     profDB,
-		HumanIDParser: agd.NewHumanIDParser(),
-		Server:        srvPlainWithLinkedIP,
+	df := newDefault(t, &devicefinder.Config{
+		Server:    srvPlainWithLinkedIP,
+		ProfileDB: profDB,
 	})
 
 	ctx := testutil.ContextWithTimeout(t, dnssvctest.Timeout)
@@ -219,11 +209,9 @@ func TestDefault_Find_byHumanID(t *testing.T) {
 		return nil, nil, profiledb.ErrDeviceNotFound
 	}
 
-	df := devicefinder.NewDefault(&devicefinder.Config{
-		Logger:        slogutil.NewDiscardLogger(),
-		ProfileDB:     profDB,
-		HumanIDParser: agd.NewHumanIDParser(),
+	df := newDefault(t, &devicefinder.Config{
 		Server:        srvDoT,
+		ProfileDB:     profDB,
 		DeviceDomains: []string{dnssvctest.DomainForDevices},
 	})
 
@@ -232,10 +220,6 @@ func TestDefault_Find_byHumanID(t *testing.T) {
 		TLSServerName: extIDStr + "." + dnssvctest.DomainForDevices,
 	})
 
-	want := &agd.DeviceResultOK{
-		Device:  devAuto,
-		Profile: profNormal,
-	}
 	got := df.Find(ctx, reqNormal, dnssvctest.ClientAddrPort, dnssvctest.ServerAddrPort)
-	require.Equal(t, want, got)
+	require.Equal(t, resAuto, got)
 }

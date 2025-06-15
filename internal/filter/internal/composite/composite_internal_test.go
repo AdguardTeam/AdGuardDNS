@@ -8,11 +8,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/miekg/dns"
-)
-
-// Sinks for benchmarks.
-var (
-	resultSink filter.Result
+	"github.com/stretchr/testify/assert"
 )
 
 func BenchmarkFilter_FilterReqWithRuleLists(b *testing.B) {
@@ -30,18 +26,20 @@ func BenchmarkFilter_FilterReqWithRuleLists(b *testing.B) {
 	ctx := context.Background()
 	req := filtertest.NewRequest(b, "", filtertest.HostBlocked, filtertest.IPv4Client, dns.TypeA)
 
-	b.ReportAllocs()
-	b.ResetTimer()
+	var result filter.Result
 
-	for range b.N {
-		resultSink = f.filterReqWithRuleLists(ctx, req)
+	b.ReportAllocs()
+	for b.Loop() {
+		result = f.filterReqWithRuleLists(ctx, req)
 	}
+
+	assert.NotNil(b, result)
 
 	// Most recent results:
 	//
-	//	goos: darwin
-	//	goarch: amd64
-	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/composite
-	//	cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
-	//	BenchmarkFilter_FilterReqWithRuleLists-12	1023186		1144 ns/op	186 B/op	7 allocs/op
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/composite
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkFilter_FilterReqWithRuleLists-12    	  760046	      1336 ns/op	     592 B/op	      12 allocs/op
 }

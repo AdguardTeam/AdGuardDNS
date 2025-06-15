@@ -40,7 +40,7 @@ func (c *limitConn) Close() (err error) {
 
 	ctx := context.Background()
 	connLife := time.Since(c.start)
-	optslog.Debug2(ctx, c.logger, "closed conn", "raddr", c.RemoteAddr(), "conn_life", connLife)
+	optslog.Trace2(ctx, c.logger, "closed conn", "raddr", c.RemoteAddr(), "conn_life", connLife)
 
 	c.metrics.ObserveLifeDuration(ctx, c.connInfo, connLife)
 

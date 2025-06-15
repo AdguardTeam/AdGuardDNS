@@ -10,6 +10,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 )
 
@@ -82,6 +83,7 @@ func (r *indexResp) toInternal(
 	logger *slog.Logger,
 	errColl errcoll.Interface,
 ) (fls []*indexData) {
+	ids := container.NewMapSet[filter.ID]()
 	fls = make([]*indexData, 0, len(r.Filters))
 	for i, rf := range r.Filters {
 		err := rf.validate()
@@ -100,11 +102,21 @@ func (r *indexResp) toInternal(
 			continue
 		}
 
+		// Use a simple conversion, since [*indexRespFilter.validate] has
+		// already made sure that the ID is valid.
+		id := filter.ID(rf.Key)
+		if ids.Has(id) {
+			err = fmt.Errorf("rule-list id: %w: %q", errors.ErrDuplicated, rf.Key)
+			errcoll.Collect(ctx, errColl, logger, "index response", err)
+
+			continue
+		}
+
+		ids.Add(id)
+
 		fls = append(fls, &indexData{
 			url: u,
-			// Use a simple conversion, since [*indexRespFilter.validate] has
-			// already made sure that the ID is valid.
-			id: filter.ID(rf.Key),
+			id:  id,
 		})
 	}
 

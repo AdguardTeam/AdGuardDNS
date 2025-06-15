@@ -16,20 +16,6 @@ import (
 	"github.com/miekg/dns"
 )
 
-// Network is a enumeration of networks UpstreamPlain supports.
-type Network string
-
-const (
-	// NetworkAny means that UpstreamPlain will use the regular way of sending
-	// a DNS query. First, it will send it over UDP. If for the response will
-	// be truncated, it will automatically switch to using TCP.
-	NetworkAny Network = ""
-	// NetworkUDP means that UpstreamPlain will only use UDP.
-	NetworkUDP Network = "udp"
-	// NetworkTCP means that UpstreamPlain will only use TCP.
-	NetworkTCP Network = "tcp"
-)
-
 const (
 	// ErrQuestion is returned if the response from the upstream is invalid,
 	// i.e. this is a response to a different query.
@@ -128,19 +114,48 @@ func (u *UpstreamPlain) Exchange(
 		defer cancel()
 	}
 
-	// First, we should try sending a DNS query over UDP.
-	var fallbackToTCP bool
-	fallbackToTCP, resp, err = u.exchangeUDP(ctx, req)
-	if !fallbackToTCP {
-		return resp, NetworkUDP, err
+	nw, networkOverriden := networkOverrideFromContext(ctx)
+	if !networkOverriden {
+		nw = u.network
 	}
 
-	resp, err = u.exchangeNet(ctx, req, NetworkTCP)
+	isUDPOnly := nw == NetworkUDP
+	doUDP := isUDPOnly || nw == NetworkAny
+	doTCP := nw == NetworkTCP
 
-	return resp, NetworkTCP, err
+	if doUDP {
+		nw = NetworkUDP
+		resp, err = u.exchangeNet(ctx, req, NetworkUDP)
+		if err != nil {
+			// The network error always causes the subsequent query attempt
+			// using fresh UDP connection, so if it happened again, the upstream
+			// is likely dead and using TCP appears meaningless.  See
+			// [exchangeNet].
+			//
+			// Thus, non-network errors are considered being related to the
+			// response.  It may also happen the received response is intended
+			// for another timed out request sent from the same source port, but
+			// falling back to TCP in this case shouldn't hurt.
+			//
+			// TODO(e.burkov):  Investigate, why UDP-only upstreams are using
+			// TCP.
+			doTCP = !isExpectedConnErr(err)
+		} else {
+			// Also, fallback to TCP if the received response is truncated and
+			// the network isn't UDP-only.
+			doTCP = !isUDPOnly && resp != nil && resp.Truncated
+		}
+	}
+
+	if doTCP {
+		nw = NetworkTCP
+		resp, err = u.exchangeNet(ctx, req, NetworkTCP)
+	}
+
+	return resp, nw, err
 }
 
-// Close implements the io.Closer interface for *UpstreamPlain.
+// Close implements the [io.Closer] interface for *UpstreamPlain.
 func (u *UpstreamPlain) Close() (err error) {
 	udpErr := u.connsPoolUDP.Close()
 	tcpErr := u.connsPoolTCP.Close()
@@ -148,51 +163,16 @@ func (u *UpstreamPlain) Close() (err error) {
 	return errors.Annotate(errors.Join(udpErr, tcpErr), "closing upstream: %w")
 }
 
-// String implements the fmt.Stringer interface for *UpstreamPlain.
-// If upstream's network is NetworkAny, it will simply return the IP:port.
-// If the network is specified, it will return address in the
-// "network://IP:port" format.
+// String implements the [fmt.Stringer] interface for *UpstreamPlain.
+//   - If upstream's network is [NetworkAny], it will simply return the IP:port.
+//   - If the network is specified, it will return address in the
+//     "network://IP:port" format.
 func (u *UpstreamPlain) String() (str string) {
 	if u.network == NetworkAny {
 		return u.addr.String()
 	}
 
 	return fmt.Sprintf("%s://%s", u.network, u.addr)
-}
-
-// exchangeUDP attempts to send the DNS request over UDP.  It returns a
-// fallbackToTCP flag to signal if the caller should fallback to using TCP
-// instead.  This may happen if the response received over UDP was truncated and
-// TCP is enabled for this upstream or if UDP is disabled.
-func (u *UpstreamPlain) exchangeUDP(
-	ctx context.Context,
-	req *dns.Msg,
-) (fallbackToTCP bool, resp *dns.Msg, err error) {
-	if u.network == NetworkTCP {
-		// Fallback to TCP immediately.
-		return true, nil, nil
-	}
-
-	resp, err = u.exchangeNet(ctx, req, NetworkUDP)
-	if err != nil {
-		// The network error always causes the subsequent query attempt using
-		// fresh UDP connection, so if it happened again, the upstream is likely
-		// dead and using TCP appears meaningless.  See [exchangeNet].
-		//
-		// Thus, non-network errors are considered being related to the
-		// response.  It may also happen the received response is intended for
-		// another timed out request sent from the same source port, but falling
-		// back to TCP in this case shouldn't hurt.
-		fallbackToTCP = !isExpectedConnErr(err)
-
-		return fallbackToTCP, resp, err
-	}
-
-	// Also, fallback to TCP if the received response is truncated and the
-	// upstream isn't UDP-only.
-	fallbackToTCP = u.network != NetworkUDP && resp != nil && resp.Truncated
-
-	return fallbackToTCP, resp, nil
 }
 
 // exchangeNet sends a DNS query using the specified network (either TCP or UDP).

@@ -13,6 +13,8 @@ import (
 )
 
 func TestService_ServeHTTP_static(t *testing.T) {
+	t.Parallel()
+
 	staticContent := websvc.StaticContent{
 		"/favicon.ico": {
 			Content: []byte{},
@@ -23,11 +25,13 @@ func TestService_ServeHTTP_static(t *testing.T) {
 	}
 
 	c := &websvc.Config{
-		Logger:        testLogger,
-		StaticContent: staticContent,
-		DNSCheck:      http.NotFoundHandler(),
-		ErrColl:       agdtest.NewErrorCollector(),
-		Timeout:       testTimeout,
+		Logger:               testLogger,
+		CertificateValidator: testCertValidator,
+		StaticContent:        staticContent,
+		DNSCheck:             http.NotFoundHandler(),
+		ErrColl:              agdtest.NewErrorCollector(),
+		Metrics:              websvc.EmptyMetrics{},
+		Timeout:              testTimeout,
 	}
 
 	svc := websvc.New(c)

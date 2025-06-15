@@ -1,6 +1,7 @@
 package devicefinder_test
 
 import (
+	"cmp"
 	"context"
 	"net/netip"
 	"net/url"
@@ -17,6 +18,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/devicefinder"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
@@ -37,10 +39,17 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// testLogger is the common logger for tests.
+var testLogger = slogutil.NewDiscardLogger()
+
 // Common requests for tests.
 var (
-	reqNormal = dnsservertest.NewReq(dnssvctest.DomainFQDN, dns.TypeA, dns.ClassINET)
-	reqEDNS   = dnsservertest.NewReq(
+	reqNormal = dnsservertest.NewReq(
+		dnssvctest.DomainFQDN,
+		dns.TypeA,
+		dns.ClassINET,
+	)
+	reqEDNS = dnsservertest.NewReq(
 		dnssvctest.DomainFQDN,
 		dns.TypeA,
 		dns.ClassINET,
@@ -117,14 +126,14 @@ var (
 	profNormal = &agd.Profile{
 		BlockingMode: &dnsmsg.BlockingModeNullIP{},
 		ID:           dnssvctest.ProfileID,
-		DeviceIDs:    []agd.DeviceID{dnssvctest.DeviceID},
+		DeviceIDs:    container.NewMapSet(dnssvctest.DeviceID),
 		Deleted:      false,
 	}
 
 	profDeleted = &agd.Profile{
 		BlockingMode: &dnsmsg.BlockingModeNullIP{},
 		ID:           dnssvctest.ProfileID,
-		DeviceIDs:    []agd.DeviceID{dnssvctest.DeviceID},
+		DeviceIDs:    container.NewMapSet(dnssvctest.DeviceID),
 		Deleted:      true,
 	}
 
@@ -146,6 +155,11 @@ var (
 
 	resNormal = &agd.DeviceResultOK{
 		Device:  devNormal,
+		Profile: profNormal,
+	}
+
+	resAuto = &agd.DeviceResultOK{
+		Device:  devAuto,
 		Profile: profNormal,
 	}
 )
@@ -251,12 +265,30 @@ func assertEqualResult(tb testing.TB, want, got agd.DeviceResult) {
 	}
 }
 
+// newDefault is is a helper for creating the device finders for tests.  c may
+// be nil, and all zero-value fields in c are replaced with defaults for tests.
+// The default server is [srvDoH].
+func newDefault(tb testing.TB, c *devicefinder.Config) (f *devicefinder.Default) {
+	tb.Helper()
+
+	c = cmp.Or(c, &devicefinder.Config{})
+
+	c.HumanIDParser = cmp.Or(c.HumanIDParser, agd.NewHumanIDParser())
+	c.Logger = cmp.Or(c.Logger, testLogger)
+	c.Server = cmp.Or(c.Server, srvDoH)
+	c.CustomDomainDB = cmp.Or[devicefinder.CustomDomainDB](
+		c.CustomDomainDB,
+		devicefinder.EmptyCustomDomainDB{},
+	)
+	c.ProfileDB = cmp.Or[profiledb.Interface](c.ProfileDB, agdtest.NewProfileDB())
+
+	return devicefinder.NewDefault(c)
+}
+
 func TestDefault_Find_dnscrypt(t *testing.T) {
 	t.Parallel()
 
-	df := devicefinder.NewDefault(&devicefinder.Config{
-		Logger:        slogutil.NewDiscardLogger(),
-		HumanIDParser: agd.NewHumanIDParser(),
+	df := newDefault(t, &devicefinder.Config{
 		Server: &agd.Server{
 			Protocol: agd.ProtoDNSCrypt,
 		},
@@ -266,11 +298,6 @@ func TestDefault_Find_dnscrypt(t *testing.T) {
 	r := df.Find(ctx, reqNormal, dnssvctest.ClientAddrPort, dnssvctest.ServerAddrPort)
 	assert.Nil(t, r)
 }
-
-// Common sinks for benchmarks.
-var (
-	sinkDevResult agd.DeviceResult
-)
 
 func BenchmarkDefault(b *testing.B) {
 	profDB := &agdtest.ProfileDB{
@@ -320,10 +347,8 @@ func BenchmarkDefault(b *testing.B) {
 		name       string
 	}{{
 		conf: &devicefinder.Config{
-			Logger:        slogutil.NewDiscardLogger(),
-			ProfileDB:     profDB,
-			HumanIDParser: agd.NewHumanIDParser(),
 			Server:        srvDoT,
+			ProfileDB:     profDB,
 			DeviceDomains: []string{dnssvctest.DomainForDevices},
 		},
 		req: reqNormal,
@@ -333,10 +358,7 @@ func BenchmarkDefault(b *testing.B) {
 		name: "dot",
 	}, {
 		conf: &devicefinder.Config{
-			Logger:        slogutil.NewDiscardLogger(),
 			ProfileDB:     profDB,
-			HumanIDParser: agd.NewHumanIDParser(),
-			Server:        srvDoH,
 			DeviceDomains: []string{dnssvctest.DomainForDevices},
 		},
 		req: reqNormal,
@@ -349,10 +371,7 @@ func BenchmarkDefault(b *testing.B) {
 		name: "doh_domain",
 	}, {
 		conf: &devicefinder.Config{
-			Logger:        slogutil.NewDiscardLogger(),
 			ProfileDB:     profDB,
-			HumanIDParser: agd.NewHumanIDParser(),
-			Server:        srvDoH,
 			DeviceDomains: []string{dnssvctest.DomainForDevices},
 		},
 		req: reqNormal,
@@ -365,10 +384,8 @@ func BenchmarkDefault(b *testing.B) {
 		name: "doh_path",
 	}, {
 		conf: &devicefinder.Config{
-			Logger:        slogutil.NewDiscardLogger(),
-			ProfileDB:     profDB,
-			HumanIDParser: agd.NewHumanIDParser(),
 			Server:        srvPlain,
+			ProfileDB:     profDB,
 			DeviceDomains: nil,
 		},
 		req:        reqEDNSDevID,
@@ -376,10 +393,8 @@ func BenchmarkDefault(b *testing.B) {
 		name:       "dns_edns",
 	}, {
 		conf: &devicefinder.Config{
-			Logger:        slogutil.NewDiscardLogger(),
-			ProfileDB:     profDB,
-			HumanIDParser: agd.NewHumanIDParser(),
 			Server:        srvPlainWithBindData,
+			ProfileDB:     profDB,
 			DeviceDomains: nil,
 		},
 		req:        reqNormal,
@@ -387,10 +402,8 @@ func BenchmarkDefault(b *testing.B) {
 		name:       "dns_laddr",
 	}, {
 		conf: &devicefinder.Config{
-			Logger:        slogutil.NewDiscardLogger(),
-			ProfileDB:     profDB,
-			HumanIDParser: agd.NewHumanIDParser(),
 			Server:        srvPlainWithLinkedIP,
+			ProfileDB:     profDB,
 			DeviceDomains: nil,
 		},
 		req:        reqNormal,
@@ -400,15 +413,16 @@ func BenchmarkDefault(b *testing.B) {
 
 	for _, bc := range benchCases {
 		b.Run(bc.name, func(b *testing.B) {
-			df := devicefinder.NewDefault(bc.conf)
+			df := newDefault(b, bc.conf)
 
 			ctx := testutil.ContextWithTimeout(b, dnssvctest.Timeout)
 			ctx = dnsserver.ContextWithRequestInfo(ctx, bc.srvReqInfo)
 
+			var devRes agd.DeviceResult
+
 			b.ReportAllocs()
-			b.ResetTimer()
-			for range b.N {
-				sinkDevResult = df.Find(
+			for b.Loop() {
+				devRes = df.Find(
 					ctx,
 					bc.req,
 					dnssvctest.ClientAddrPort,
@@ -416,19 +430,20 @@ func BenchmarkDefault(b *testing.B) {
 				)
 			}
 
-			_ = testutil.RequireTypeAssert[*agd.DeviceResultOK](b, sinkDevResult)
+			_ = testutil.RequireTypeAssert[*agd.DeviceResultOK](b, devRes)
 		})
 	}
 
-	// Most recent result:
-	//	goos: linux
-	//	goarch: amd64
-	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/devicefinder
-	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkDefault/dot-16         	 5258900	       300.3 ns/op	      16 B/op	       1 allocs/op
-	//	BenchmarkDefault/doh_domain-16  	 1996458	       621.0 ns/op	      64 B/op	       3 allocs/op
-	//	BenchmarkDefault/doh_path-16    	 2376877	       655.0 ns/op	      80 B/op	       3 allocs/op
-	//	BenchmarkDefault/dns_edns-16    	 4566312	       289.3 ns/op	      24 B/op	       2 allocs/op
-	//	BenchmarkDefault/dns_laddr-16   	 6154356	       198.7 ns/op	      16 B/op	       1 allocs/op
-	//	BenchmarkDefault/dns_raddr-16   	 7268647	       183.3 ns/op	      16 B/op	       1 allocs/op
+	// Most recent results:
+	//
+	// goos: linux
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/devicefinder
+	// cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
+	// BenchmarkDefault/dot-16         	 2654976	       406.5 ns/op	      32 B/op	       2 allocs/op
+	// BenchmarkDefault/doh_domain-16  	 1560818	       758.5 ns/op	      80 B/op	       4 allocs/op
+	// BenchmarkDefault/doh_path-16    	 1922390	       639.2 ns/op	      96 B/op	       4 allocs/op
+	// BenchmarkDefault/dns_edns-16    	 3430594	       396.1 ns/op	      40 B/op	       3 allocs/op
+	// BenchmarkDefault/dns_laddr-16   	 6179818	       206.0 ns/op	      16 B/op	       1 allocs/op
+	// BenchmarkDefault/dns_raddr-16   	 6360699	       184.4 ns/op	      16 B/op	       1 allocs/op
 }

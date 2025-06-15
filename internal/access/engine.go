@@ -1,13 +1,13 @@
 package access
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/stringutil"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/AdguardTeam/urlfilter/filterlist"
@@ -18,14 +18,16 @@ import (
 //
 // TODO(a.garipov):  Replace/merge with [custom.Filter].
 type blockedHostEngine struct {
+	metrics    ProfileMetrics
 	lazyEngine *urlfilter.DNSEngine
 	initOnce   *sync.Once
 	rules      []string
 }
 
-// newBlockedHostEngine creates a new blockedHostEngine.
-func newBlockedHostEngine(rules []string) (e *blockedHostEngine) {
+// newBlockedHostEngine creates a new blockedHostEngine.  mtrc must not be nil.
+func newBlockedHostEngine(mtrc ProfileMetrics, rules []string) (e *blockedHostEngine) {
 	return &blockedHostEngine{
+		metrics:  mtrc,
 		rules:    rules,
 		initOnce: &sync.Once{},
 	}
@@ -33,13 +35,16 @@ func newBlockedHostEngine(rules []string) (e *blockedHostEngine) {
 
 // isBlocked returns true if the req is blocked by this engine.  req must have
 // exactly one question.
-func (e *blockedHostEngine) isBlocked(req *dns.Msg) (blocked bool) {
+//
+// TODO(s.chzhen):  Use config.
+func (e *blockedHostEngine) isBlocked(ctx context.Context, req *dns.Msg) (blocked bool) {
 	e.initOnce.Do(func() {
+		// TODO(s.chzhen):  Use [timeutil.Clock].
 		start := time.Now()
 
 		e.lazyEngine = e.init()
 
-		metrics.AccessProfileInitDuration.Observe(time.Since(start).Seconds())
+		e.metrics.ObserveProfileInit(ctx, time.Since(start))
 	})
 
 	q := req.Question[0]

@@ -329,11 +329,6 @@ func TestCloner_Clone(t *testing.T) {
 	}
 }
 
-// Sinks for benchmarks
-var (
-	msgSink *dns.Msg
-)
-
 func BenchmarkClone(b *testing.B) {
 	for _, tc := range clonerTestCases {
 		b.Run(tc.name, func(b *testing.B) {
@@ -341,13 +336,14 @@ func BenchmarkClone(b *testing.B) {
 				b.Skip("not handled by dnsmsg.Clone, skipping")
 			}
 
+			var msg *dns.Msg
+
 			b.ReportAllocs()
-			b.ResetTimer()
-			for range b.N {
-				msgSink = dnsmsg.Clone(tc.msg)
+			for b.Loop() {
+				msg = dnsmsg.Clone(tc.msg)
 			}
 
-			require.Equal(b, tc.msg, msgSink)
+			require.Equal(b, tc.msg, msg)
 		})
 	}
 
@@ -357,24 +353,24 @@ func BenchmarkClone(b *testing.B) {
 	// goarch: amd64
 	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg
 	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
-	// BenchmarkClone/req_a-12						9118897		121.4 ns/op		168 B/op	2 allocs/op
-	// BenchmarkClone/resp_a-12						5334396		227.5 ns/op		256 B/op	5 allocs/op
-	// BenchmarkClone/resp_a_many-12				4033717		292.6 ns/op		344 B/op	7 allocs/op
-	// BenchmarkClone/resp_a_soa-12					4341570		277.6 ns/op		368 B/op	6 allocs/op
-	// BenchmarkClone/req_aaaa-12					10129573	120.7 ns/op		168 B/op	2 allocs/op
-	// BenchmarkClone/resp_aaaa-12					5004459		244.0 ns/op		264 B/op	5 allocs/op
-	// BenchmarkClone/resp_cname_a-12				4403502		286.2 ns/op		320 B/op	6 allocs/op
-	// BenchmarkClone/resp_mx-12					5897042		202.6 ns/op		248 B/op	4 allocs/op
-	// BenchmarkClone/resp_ptr-12					6380095		202.3 ns/op		232 B/op	4 allocs/op
-	// BenchmarkClone/resp_txt-12					4603141		252.0 ns/op		296 B/op	5 allocs/op
-	// BenchmarkClone/resp_srv-12					6082226		196.2 ns/op		248 B/op	4 allocs/op
-	// BenchmarkClone/resp_not_full-12				6113926		221.0 ns/op		248 B/op	4 allocs/op
-	// BenchmarkClone/resp_https-12					1231680		993.9 ns/op		896 B/op	24 allocs/op
-	// BenchmarkClone/resp_https_empty_hint-12		3256345		388.6 ns/op		424 B/op	8 allocs/op
-	// BenchmarkClone/resp_https_empty_mandatory-12	3727749		327.3 ns/op		384 B/op	7 allocs/op
-	// BenchmarkClone/resp_https_empty_values-12	4124431		291.7 ns/op		376 B/op	6 allocs/op
-	// BenchmarkClone/resp_a_ede-12					3487443		362.5 ns/op		376 B/op	8 allocs/op
-	// BenchmarkClone/resp_a_ecs-12					3461348		354.5 ns/op		384 B/op	8 allocs/op
+	// BenchmarkClone/req_a-12         	11258578	       113.8 ns/op	     168 B/op	       2 allocs/op
+	// BenchmarkClone/resp_a-12        	 5499727	       216.9 ns/op	     256 B/op	       5 allocs/op
+	// BenchmarkClone/resp_a_many-12   	 4598515	       261.6 ns/op	     344 B/op	       7 allocs/op
+	// BenchmarkClone/resp_a_soa-12    	 4752478	       250.7 ns/op	     368 B/op	       6 allocs/op
+	// BenchmarkClone/req_aaaa-12      	11107689	       109.1 ns/op	     168 B/op	       2 allocs/op
+	// BenchmarkClone/resp_aaaa-12     	 6002679	       202.2 ns/op	     264 B/op	       5 allocs/op
+	// BenchmarkClone/resp_cname_a-12  	 4930591	       244.0 ns/op	     320 B/op	       6 allocs/op
+	// BenchmarkClone/resp_mx-12       	 7221193	       170.3 ns/op	     248 B/op	       4 allocs/op
+	// BenchmarkClone/resp_ptr-12      	 6939520	       170.0 ns/op	     232 B/op	       4 allocs/op
+	// BenchmarkClone/resp_txt-12      	 5417080	       220.0 ns/op	     296 B/op	       5 allocs/op
+	// BenchmarkClone/resp_srv-12      	 6915786	       172.1 ns/op	     248 B/op	       4 allocs/op
+	// BenchmarkClone/resp_not_full-12 	 7069098	       174.4 ns/op	     248 B/op	       4 allocs/op
+	// BenchmarkClone/resp_https-12    	 1307004	       900.9 ns/op	     896 B/op	      24 allocs/op
+	// BenchmarkClone/resp_https_empty_hint-12         	 3733401	       320.1 ns/op	     424 B/op	       8 allocs/op
+	// BenchmarkClone/resp_https_empty_mandatory-12    	 4423299	       276.4 ns/op	     384 B/op	       7 allocs/op
+	// BenchmarkClone/resp_https_empty_values-12       	 4753354	       254.8 ns/op	     376 B/op	       6 allocs/op
+	// BenchmarkClone/resp_a_ede-12                    	 3880430	       307.9 ns/op	     376 B/op	       8 allocs/op
+	// BenchmarkClone/resp_a_ecs-12                    	 3925056	       306.6 ns/op	     384 B/op	       8 allocs/op
 }
 
 func BenchmarkCloner_Clone(b *testing.B) {
@@ -387,18 +383,19 @@ func BenchmarkCloner_Clone(b *testing.B) {
 				},
 			})
 
+			var msg *dns.Msg
+
 			b.ReportAllocs()
-			b.ResetTimer()
-			for i := range b.N {
-				msgSink = c.Clone(tc.msg)
+			for i := 0; b.Loop(); i++ {
+				msg = c.Clone(tc.msg)
 				if i < b.N-1 {
 					// Don't dispose of the last one to be sure that we can
 					// compare that one.
-					c.Dispose(msgSink)
+					c.Dispose(msg)
 				}
 			}
 
-			require.Equal(b, tc.msg, msgSink)
+			require.Equal(b, tc.msg, msg)
 			tc.wantFull(b, gotIsFull)
 		})
 	}
@@ -409,26 +406,26 @@ func BenchmarkCloner_Clone(b *testing.B) {
 	// goarch: amd64
 	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg
 	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
-	// BenchmarkCloner_Clone/req_a-12						31715055	38.49 ns/op		0 B/op		0 allocs/op
-	// BenchmarkCloner_Clone/resp_a-12						18687192	63.54 ns/op		0 B/op		0 allocs/op
-	// BenchmarkCloner_Clone/resp_a_many-12					11271697	106.1 ns/op		0 B/op		0 allocs/op
-	// BenchmarkCloner_Clone/resp_a_soa-12					14223168	86.84 ns/op		0 B/op		0 allocs/op
-	// BenchmarkCloner_Clone/req_aaaa-12					34427011	36.71 ns/op		0 B/op		0 allocs/op
-	// BenchmarkCloner_Clone/resp_aaaa-12					17106201	70.00 ns/op		0 B/op		0 allocs/op
-	// BenchmarkCloner_Clone/resp_cname_a-12				13871018	90.77 ns/op		0 B/op		0 allocs/op
-	// BenchmarkCloner_Clone/resp_mx-12						19302285	60.72 ns/op		0 B/op		0 allocs/op
-	// BenchmarkCloner_Clone/resp_ptr-12					16765956	61.46 ns/op		0 B/op		0 allocs/op
-	// BenchmarkCloner_Clone/resp_txt-12					15391646	69.11 ns/op		0 B/op		0 allocs/op
-	// BenchmarkCloner_Clone/resp_srv-12					18169714	63.77 ns/op		0 B/op		0 allocs/op
-	// BenchmarkCloner_Clone/resp_not_full-12				11640886	96.60 ns/op		64 B/op		1 allocs/op
-	// BenchmarkCloner_Clone/resp_https-12					2804174		423.1 ns/op		0 B/op		0 allocs/op
-	// BenchmarkCloner_Clone/resp_https_empty_hint-12		9666168		123.2 ns/op		0 B/op		0 allocs/op
-	// BenchmarkCloner_Clone/resp_https_empty_mandatory-12	12752148	90.44 ns/op		0 B/op		0 allocs/op
-	// BenchmarkCloner_Clone/resp_https_empty_values-12		13501873	82.30 ns/op		0 B/op		0 allocs/op
-	// BenchmarkCloner_Clone/resp_https_nil_hint-12			19396582	67.07 ns/op		0 B/op		0 allocs/op
-	// BenchmarkCloner_Clone/resp_a_ede-12					10744064	114.9 ns/op		0 B/op		0 allocs/op
-	// BenchmarkCloner_Clone/resp_a_ecs-12					10467579	113.8 ns/op		0 B/op		0 allocs/op
-	// BenchmarkCloner_Clone/resp_a_ecs_nil-12				13105382	90.48 ns/op		0 B/op		0 allocs/op
+	// BenchmarkCloner_Clone/req_a-12         	28275442	        37.26 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkCloner_Clone/resp_a-12        	18342632	        64.39 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkCloner_Clone/resp_a_many-12   	10710085	       109.2 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkCloner_Clone/resp_a_soa-12    	14162871	        83.86 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkCloner_Clone/req_aaaa-12      	34467613	        34.51 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkCloner_Clone/resp_aaaa-12     	18931807	        66.29 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkCloner_Clone/resp_cname_a-12  	14390145	        85.42 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkCloner_Clone/resp_mx-12       	20001261	        62.32 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkCloner_Clone/resp_ptr-12      	20160054	        58.82 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkCloner_Clone/resp_txt-12      	17733576	        66.57 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkCloner_Clone/resp_srv-12      	19402333	        65.16 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkCloner_Clone/resp_not_full-12 	14437783	        85.34 ns/op	      64 B/op	       1 allocs/op
+	// BenchmarkCloner_Clone/resp_https-12    	 2977766	       400.5 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkCloner_Clone/resp_https_empty_hint-12         	10115376	       125.4 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkCloner_Clone/resp_https_empty_mandatory-12    	14589234	        81.28 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkCloner_Clone/resp_https_empty_values-12       	15754087	        78.18 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkCloner_Clone/resp_https_nil_hint-12           	20840847	        57.92 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkCloner_Clone/resp_a_ede-12                    	11952685	       103.0 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkCloner_Clone/resp_a_ecs-12                    	11749768	       107.0 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkCloner_Clone/resp_a_ecs_nil-12                	14267554	        86.06 ns/op	       0 B/op	       0 allocs/op
 }
 
 func FuzzCloner_Clone(f *testing.F) {

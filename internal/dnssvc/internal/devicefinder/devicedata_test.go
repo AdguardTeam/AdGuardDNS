@@ -13,7 +13,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 )
 
@@ -72,7 +71,8 @@ func TestDefault_Find_DoHAuth(t *testing.T) {
 	}, {
 		wantRes: &agd.DeviceResultError{
 			Err: errors.Error(
-				`basic auth device id check: bad device id "!!!": bad hostname label rune '!'`,
+				`extracting device data: basic auth device id check: bad device id "!!!": ` +
+					`bad hostname label rune '!'`,
 			),
 		},
 		profDBDev: devAuthSuccess,
@@ -99,12 +99,8 @@ func TestDefault_Find_DoHAuth(t *testing.T) {
 				return nil, nil, profiledb.ErrDeviceNotFound
 			}
 
-			df := devicefinder.NewDefault(&devicefinder.Config{
-				Logger:        slogutil.NewDiscardLogger(),
-				ProfileDB:     profDB,
-				HumanIDParser: agd.NewHumanIDParser(),
-				Server:        srvDoH,
-				DeviceDomains: []string{},
+			df := newDefault(t, &devicefinder.Config{
+				ProfileDB: profDB,
 			})
 
 			ctx := testutil.ContextWithTimeout(t, dnssvctest.Timeout)
@@ -195,11 +191,9 @@ func TestDefault_Find_DoHAuthOnly(t *testing.T) {
 				return profNormal, tc.profDBDev, nil
 			}
 
-			df := devicefinder.NewDefault(&devicefinder.Config{
-				Logger:        slogutil.NewDiscardLogger(),
-				ProfileDB:     profDB,
-				HumanIDParser: agd.NewHumanIDParser(),
+			df := newDefault(t, &devicefinder.Config{
 				Server:        tc.srv,
+				ProfileDB:     profDB,
 				DeviceDomains: []string{dnssvctest.DomainForDevices},
 			})
 
@@ -235,7 +229,7 @@ func TestDefault_Find_DoH(t *testing.T) {
 	}, {
 		wantRes: &agd.DeviceResultError{
 			Err: errors.Error(
-				`http url path device id check: bad path "/dns-query/` +
+				`extracting device data: http url path device id check: bad path "/dns-query/` +
 					dnssvctest.DeviceIDStr + `/extra": ` + `1 extra path elems`,
 			),
 		},
@@ -246,7 +240,8 @@ func TestDefault_Find_DoH(t *testing.T) {
 	}, {
 		wantRes: &agd.DeviceResultError{
 			Err: errors.Error(
-				`http url path device id check: bad device id "!!!": bad hostname label rune '!'`,
+				`extracting device data: http url path device id check: bad device id "!!!": ` +
+					`bad hostname label rune '!'`,
 			),
 		},
 		reqURL: &url.URL{
@@ -261,7 +256,10 @@ func TestDefault_Find_DoH(t *testing.T) {
 		name: "no_id",
 	}, {
 		wantRes: &agd.DeviceResultError{
-			Err: errors.Error(`http url path device id check: bad path "/": path elems: no value`),
+			Err: errors.Error(
+				`extracting device data: http url path device id check: bad path "/": ` +
+					`path elems: no value`,
+			),
 		},
 		reqURL: &url.URL{
 			Path: "/",
@@ -269,17 +267,17 @@ func TestDefault_Find_DoH(t *testing.T) {
 		name: "empty_path",
 	}, {
 		wantRes: &agd.DeviceResultError{
-			Err: errors.Error(`http url path device id check: bad path "/other": not a dns path`),
+			Err: errors.Error(
+				`extracting device data: http url path device id check: bad path "/other": ` +
+					`not a dns path`,
+			),
 		},
 		reqURL: &url.URL{
 			Path: "/other",
 		},
 		name: "not_dns_path",
 	}, {
-		wantRes: &agd.DeviceResultOK{
-			Device:  devAuto,
-			Profile: profNormal,
-		},
+		wantRes: resAuto,
 		reqURL: &url.URL{
 			Path: path.Join(dnsserver.PathDoH, dnssvctest.HumanIDPath),
 		},
@@ -294,12 +292,8 @@ func TestDefault_Find_DoH(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			df := devicefinder.NewDefault(&devicefinder.Config{
-				Logger:        slogutil.NewDiscardLogger(),
-				ProfileDB:     profDB,
-				HumanIDParser: agd.NewHumanIDParser(),
-				Server:        srvDoH,
-				DeviceDomains: []string{},
+			df := newDefault(t, &devicefinder.Config{
+				ProfileDB: profDB,
 			})
 
 			ctx := testutil.ContextWithTimeout(t, dnssvctest.Timeout)
@@ -344,17 +338,15 @@ func TestDefault_Find_stdEncrypted(t *testing.T) {
 	}, {
 		wantRes: &agd.DeviceResultError{
 			Err: errors.Error(
-				`tls server name device id check: bad device id "!!!": bad hostname label rune '!'`,
+				`extracting device data: tls server name device id check: bad device id "!!!": ` +
+					`bad hostname label rune '!'`,
 			),
 		},
 		cliSrvName:    "!!!.d.dns.example",
 		name:          "bad_id",
 		deviceDomains: []string{dnssvctest.DomainForDevices},
 	}, {
-		wantRes: &agd.DeviceResultOK{
-			Device:  devAuto,
-			Profile: profNormal,
-		},
+		wantRes:       resAuto,
 		cliSrvName:    dnssvctest.HumanIDSrvName,
 		name:          "human_id_match",
 		deviceDomains: []string{dnssvctest.DomainForDevices},
@@ -389,11 +381,9 @@ func TestDefault_Find_stdEncrypted(t *testing.T) {
 			t.Run(sd.name+"_"+tc.name, func(t *testing.T) {
 				t.Parallel()
 
-				df := devicefinder.NewDefault(&devicefinder.Config{
-					Logger:        slogutil.NewDiscardLogger(),
-					ProfileDB:     profDB,
-					HumanIDParser: agd.NewHumanIDParser(),
+				df := newDefault(t, &devicefinder.Config{
 					Server:        sd.srv,
+					ProfileDB:     profDB,
 					DeviceDomains: tc.deviceDomains,
 				})
 
@@ -407,5 +397,160 @@ func TestDefault_Find_stdEncrypted(t *testing.T) {
 				assertEqualResult(t, tc.wantRes, got)
 			})
 		}
+	}
+}
+
+// testCustomDomainDB is an [CustomDomainDB] for tests.
+type testCustomDomainDB struct {
+	onMatch func(
+		ctx context.Context,
+		cliSrvName string,
+	) (matchedDomain string, profID agd.ProfileID)
+}
+
+// type check
+var _ devicefinder.CustomDomainDB = (*testCustomDomainDB)(nil)
+
+// Match implements the [CustomDomainDB] interface for *testCustomDomainDB.
+func (db *testCustomDomainDB) Match(
+	ctx context.Context,
+	cliSrvName string,
+) (matchedDomain string, profID agd.ProfileID) {
+	return db.onMatch(ctx, cliSrvName)
+}
+
+// newTestCustomDomainDB returns a *testCustomDomainDB that returns the given
+// data.
+func newTestCustomDomainDB(domain string, id agd.ProfileID) (db *testCustomDomainDB) {
+	return &testCustomDomainDB{
+		onMatch: func(_ context.Context, _ string) (matchedDomain string, profID agd.ProfileID) {
+			return domain, id
+		},
+	}
+}
+
+// TODO(a.garipov):  Add tests for DoH.
+func TestDefault_Find_customDomainDoT(t *testing.T) {
+	t.Parallel()
+
+	const customDomain = "custom.example"
+
+	var (
+		customDBMatch   = newTestCustomDomainDB(customDomain, dnssvctest.ProfileID)
+		customDBMatchWk = newTestCustomDomainDB("*."+customDomain, dnssvctest.ProfileID)
+		customDBNoMatch = newTestCustomDomainDB("", "")
+	)
+
+	const profIDOtherStr = "prof5678"
+	profOther := &agd.Profile{}
+	*profOther = *profNormal
+	profOther.ID = agd.ProfileID(profIDOtherStr)
+
+	profDBDefault := agdtest.NewProfileDB()
+
+	profDBFoundDevID := agdtest.NewProfileDB()
+	profDBFoundDevID.OnProfileByDeviceID = newOnProfileByDeviceID(dnssvctest.DeviceID)
+
+	profDBFoundHumanID := agdtest.NewProfileDB()
+	profDBFoundHumanID.OnProfileByHumanID = newOnProfileByHumanID(
+		dnssvctest.ProfileID,
+		dnssvctest.HumanIDLower,
+	)
+
+	profDBFoundOtherDevID := agdtest.NewProfileDB()
+	profDBFoundOtherDevID.OnProfileByDeviceID = func(
+		ctx context.Context,
+		id agd.DeviceID,
+	) (p *agd.Profile, d *agd.Device, err error) {
+		return profOther, devNormal, err
+	}
+
+	const devIDOtherStr = "dev5678"
+
+	profDBNotFoundDevID := agdtest.NewProfileDB()
+	profDBNotFoundDevID.OnProfileByDeviceID = newOnProfileByDeviceID(devIDOtherStr)
+
+	const cliSrvNameDev = dnssvctest.DeviceIDStr + "." + customDomain
+
+	const errStrMismatch errors.Error = `wrapping custom domains: custom domain device id check: ` +
+		`profile id in ext id: not equal to expected value: ` +
+		`got ` + profIDOtherStr + `, want ` + dnssvctest.ProfileIDStr
+
+	testCases := []struct {
+		customDB   devicefinder.CustomDomainDB
+		profDB     profiledb.Interface
+		wantRes    agd.DeviceResult
+		cliSrvName string
+		name       string
+	}{{
+		customDB:   customDBMatchWk,
+		profDB:     profDBFoundDevID,
+		wantRes:    resNormal,
+		cliSrvName: cliSrvNameDev,
+		name:       "custom_device_match",
+	}, {
+		customDB:   customDBNoMatch,
+		profDB:     profDBDefault,
+		wantRes:    nil,
+		cliSrvName: cliSrvNameDev,
+		name:       "custom_device_domain_mismatch",
+	}, {
+		customDB:   customDBMatch,
+		profDB:     profDBDefault,
+		wantRes:    nil,
+		cliSrvName: cliSrvNameDev,
+		name:       "custom_device_domain_not_wk",
+	}, {
+		customDB:   customDBMatchWk,
+		profDB:     profDBFoundOtherDevID,
+		wantRes:    nil,
+		cliSrvName: cliSrvNameDev,
+		name:       "custom_device_device_mismatch",
+	}, {
+		customDB:   customDBMatchWk,
+		profDB:     profDBNotFoundDevID,
+		wantRes:    nil,
+		cliSrvName: cliSrvNameDev,
+		name:       "custom_device_not_found",
+	}, {
+		customDB:   customDBMatchWk,
+		profDB:     profDBFoundHumanID,
+		wantRes:    resAuto,
+		cliSrvName: dnssvctest.HumanIDPath + "." + customDomain,
+		name:       "custom_human_match",
+	}, {
+		customDB: customDBMatchWk,
+		profDB:   profDBFoundHumanID,
+		wantRes: &agd.DeviceResultError{
+			Err: errors.Error(errStrMismatch),
+		},
+		cliSrvName: "otr-" + profIDOtherStr + "-" + dnssvctest.HumanIDStr + "." + customDomain,
+		name:       "custom_human_profile_mismatch",
+	}, {
+		name:       "custom_empty",
+		cliSrvName: customDomain,
+		customDB:   customDBMatch,
+		profDB:     agdtest.NewProfileDB(),
+		wantRes:    nil,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			df := newDefault(t, &devicefinder.Config{
+				Server:         srvDoT,
+				CustomDomainDB: tc.customDB,
+				ProfileDB:      tc.profDB,
+			})
+
+			ctx := testutil.ContextWithTimeout(t, dnssvctest.Timeout)
+			ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
+				TLSServerName: tc.cliSrvName,
+			})
+
+			got := df.Find(ctx, reqNormal, dnssvctest.ClientAddrPort, dnssvctest.ServerAddrPort)
+			assertEqualResult(t, tc.wantRes, got)
+		})
 	}
 }

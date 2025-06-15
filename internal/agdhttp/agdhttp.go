@@ -22,6 +22,12 @@ const (
 // RobotsDisallowAll is a predefined robots disallow all content.
 const RobotsDisallowAll = "User-agent: *\nDisallow: /\n"
 
+// NotFoundString is the text used by the standard library in
+// [http.NotFoundHandler].
+//
+// TODO(a.garipov):  Move to golibs.
+const NotFoundString = "404 page not found\n"
+
 // userAgent is the cached User-Agent string for AdGuardDNS.
 var userAgent = version.Name() + "/" + version.Version()
 

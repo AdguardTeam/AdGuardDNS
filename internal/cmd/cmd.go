@@ -69,23 +69,28 @@ func Main(plugins *plugin.Registry) {
 
 	errors.Check(c.Validate())
 
-	errors.Check(envs.validateFromValidConfig(c))
+	profilesEnabled := c.isProfilesEnabled()
+
+	errors.Check(envs.validateFromValidConfig(c, profilesEnabled))
 
 	metrics.SetAdditionalInfo(c.AdditionalMetricsInfo)
 
 	// Building and running the server
 
 	b := newBuilder(&builderConfig{
-		envs:       envs,
-		conf:       c,
-		baseLogger: baseLogger,
-		plugins:    plugins,
-		errColl:    errColl,
+		envs:            envs,
+		conf:            c,
+		baseLogger:      baseLogger,
+		plugins:         plugins,
+		errColl:         errColl,
+		profilesEnabled: profilesEnabled,
 	})
 
 	b.startGeoIP(ctx)
 
 	errors.Check(os.MkdirAll(envs.FilterCachePath, agd.DefaultDirPerm))
+
+	errors.Check(b.initMsgCloner(ctx))
 
 	errors.Check(b.initHashPrefixFilters(ctx))
 
@@ -103,15 +108,19 @@ func Main(plugins *plugin.Registry) {
 
 	errors.Check(b.initMsgConstructor(ctx))
 
+	errors.Check(b.initGRPCMetrics(ctx))
+
 	errors.Check(b.initTLSManager(ctx))
+
+	// TODO(a.garipov):  Check the errors when the methods starts returning
+	// them.
+	b.initCustomDomainDB(ctx)
 
 	errors.Check(b.initServerGroups(ctx))
 
-	errors.Check(b.startBindToDevice(ctx))
-
 	errors.Check(b.initTicketRotator(ctx))
 
-	errors.Check(b.initGRPCMetrics(ctx))
+	errors.Check(b.startBindToDevice(ctx))
 
 	errors.Check(b.initBillStat(ctx))
 
@@ -132,6 +141,10 @@ func Main(plugins *plugin.Registry) {
 	errors.Check(b.performConnCheck(ctx))
 
 	errors.Check(b.initHealthCheck(ctx))
+
+	errors.Check(b.initPluginServices(ctx))
+
+	b.initPluginRefreshers()
 
 	b.mustStartDNS(ctx)
 

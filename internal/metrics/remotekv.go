@@ -7,10 +7,12 @@ import (
 
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/redisutil"
+	"github.com/gomodule/redigo/redis"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// RedisKV is the Prometheus-based implementation of the [rediskv.Metrics]
+// RedisKV is the Prometheus-based implementation of the [redisutil.PoolMetrics]
 // interface.
 type RedisKV struct {
 	// activeConnections is a gauge with the total number of active connections
@@ -23,7 +25,7 @@ type RedisKV struct {
 }
 
 // NewRedisKV registers the Redis KV metrics in reg and returns a properly
-// initialized [RedisKV].
+// initialized [*RedisKV].
 func NewRedisKV(namespace string, reg prometheus.Registerer) (m *RedisKV, err error) {
 	const (
 		redisActiveConnections = "redis_active_connections"
@@ -68,9 +70,12 @@ func NewRedisKV(namespace string, reg prometheus.Registerer) (m *RedisKV, err er
 	return m, nil
 }
 
-// UpdateMetrics implements the [rediskv.Metrics] interface for *RedisKV.
-func (m *RedisKV) UpdateMetrics(_ context.Context, val uint, err error) {
-	m.activeConnections.Set(float64(val))
+// type check
+var _ redisutil.PoolMetrics = (*RedisKV)(nil)
+
+// Update implements the [redisutil.PoolMetrics] interface for *RedisKV.
+func (m *RedisKV) Update(_ context.Context, s redis.PoolStats, err error) {
+	m.activeConnections.Set(float64(s.ActiveCount))
 
 	if err != nil {
 		m.errors.Inc()
@@ -136,7 +141,7 @@ func NewBackendRemoteKV(
 		Subsystem: subsystemBackend,
 		Namespace: namespace,
 		Help: "Total number of lookups to the remote key-value storage. " +
-			"Lable hit is the lookup result, either 1 for hit or 0 for miss.",
+			"Label hit is the lookup result, either 1 for hit or 0 for miss.",
 	}, []string{"hit"})
 
 	m = &BackendRemoteKV{

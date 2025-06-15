@@ -14,99 +14,10 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/c2h5oh/datasize"
 )
-
-// toInternal converts the protobuf-encoded data into a profile structure and
-// its device structures.
-//
-// TODO(a.garipov):  Refactor into methods of [*ProfileStorage].
-func (x *DNSProfile) toInternal(
-	ctx context.Context,
-	bindSet netutil.SubnetSet,
-	errColl errcoll.Interface,
-	logger *slog.Logger,
-	baseCustomLogger *slog.Logger,
-	mtrc ProfileDBMetrics,
-	respSzEst datasize.ByteSize,
-) (profile *agd.Profile, devices []*agd.Device, err error) {
-	if x == nil {
-		return nil, nil, fmt.Errorf("profile is nil")
-	}
-
-	parental, err := x.Parental.toInternal(ctx, errColl, logger)
-	if err != nil {
-		return nil, nil, fmt.Errorf("parental: %w", err)
-	}
-
-	m, err := blockingModeToInternal(x.BlockingMode)
-	if err != nil {
-		return nil, nil, fmt.Errorf("blocking mode: %w", err)
-	}
-
-	devices, deviceIds := devicesToInternal(ctx, x.Devices, bindSet, errColl, logger, mtrc)
-
-	profID, err := agd.NewProfileID(x.DnsId)
-	if err != nil {
-		return nil, nil, fmt.Errorf("id: %w", err)
-	}
-
-	accID, err := agd.NewAccountID(x.AccountId)
-	if err != nil {
-		return nil, nil, fmt.Errorf("account id: %w", err)
-	}
-
-	var fltRespTTL time.Duration
-	if respTTL := x.FilteredResponseTtl; respTTL != nil {
-		fltRespTTL = respTTL.AsDuration()
-	}
-
-	customRules := rulesToInternal(ctx, x.CustomRules, errColl, logger)
-	customEnabled := len(customRules) > 0
-
-	var customFilter filter.Custom
-	if customEnabled {
-		customFilter = custom.New(&custom.Config{
-			Logger: baseCustomLogger.With("client_id", string(profID)),
-			Rules:  customRules,
-		})
-	}
-
-	customConf := &filter.ConfigCustom{
-		Filter: customFilter,
-		// TODO(a.garipov):  Consider adding an explicit flag to the protocol.
-		Enabled: customEnabled,
-	}
-
-	return &agd.Profile{
-		CustomDomains: x.CustomDomain.toInternal(ctx, errColl, logger),
-		FilterConfig: &filter.ConfigClient{
-			Custom:       customConf,
-			Parental:     parental,
-			RuleList:     x.RuleLists.toInternal(ctx, errColl, logger),
-			SafeBrowsing: x.SafeBrowsing.toInternal(),
-		},
-		Access:              x.Access.toInternal(ctx, errColl, logger),
-		BlockingMode:        m,
-		Ratelimiter:         x.RateLimit.toInternal(ctx, errColl, logger, respSzEst),
-		AccountID:           accID,
-		ID:                  profID,
-		DeviceIDs:           deviceIds,
-		FilteredResponseTTL: fltRespTTL,
-		AutoDevicesEnabled:  x.AutoDevicesEnabled,
-		BlockChromePrefetch: x.BlockChromePrefetch,
-		BlockFirefoxCanary:  x.BlockFirefoxCanary,
-		BlockPrivateRelay:   x.BlockPrivateRelay,
-		Deleted:             x.Deleted,
-		FilteringEnabled:    x.FilteringEnabled,
-		IPLogEnabled:        x.IpLogEnabled,
-		QueryLogEnabled:     x.QueryLogEnabled,
-	}, devices, nil
-}
 
 // toInternal converts a protobuf parental-protection settings structure to an
 // internal one.  If x is nil, toInternal returns a disabled configuration.
@@ -174,6 +85,7 @@ func (x *SafeBrowsingSettings) toInternal() (c *filter.ConfigSafeBrowsing) {
 func (x *AccessSettings) toInternal(
 	ctx context.Context,
 	errColl errcoll.Interface,
+	mtrc access.ProfileMetrics,
 	logger *slog.Logger,
 ) (a access.Profile) {
 	if x == nil || !x.Enabled {
@@ -181,6 +93,7 @@ func (x *AccessSettings) toInternal(
 	}
 
 	return access.NewDefaultProfile(&access.ProfileConfig{
+		Metrics:              mtrc,
 		AllowedNets:          cidrRangeToInternal(ctx, errColl, logger, x.AllowlistCidr),
 		BlockedNets:          cidrRangeToInternal(ctx, errColl, logger, x.BlocklistCidr),
 		AllowedASN:           asnToInternal(x.AllowlistAsn),

@@ -3,8 +3,6 @@ package backendpb_test
 import (
 	"context"
 	"io"
-	"net"
-	"net/url"
 	"testing"
 	"time"
 
@@ -82,22 +80,12 @@ func TestBillStat_Upload(t *testing.T) {
 		},
 	}
 
-	l, err := net.Listen("tcp", "localhost:0")
-	require.NoError(t, err)
-
 	grpcSrv := grpc.NewServer(
-		grpc.ConnectionTimeout(1*time.Second),
+		grpc.ConnectionTimeout(backendpb.TestTimeout),
 		grpc.Creds(insecure.NewCredentials()),
 	)
 	backendpb.RegisterDNSServiceServer(grpcSrv, srv)
-
-	go func() {
-		pt := &testutil.PanicT{}
-
-		srvErr := grpcSrv.Serve(l)
-		require.NoError(pt, srvErr)
-	}()
-	t.Cleanup(grpcSrv.GracefulStop)
+	endpoint := runLocalGRPCServer(t, grpcSrv)
 
 	errColl := &agdtest.ErrorCollector{
 		OnCollect: func(_ context.Context, err error) {
@@ -109,10 +97,7 @@ func TestBillStat_Upload(t *testing.T) {
 		Logger:      backendpb.TestLogger,
 		ErrColl:     errColl,
 		GRPCMetrics: backendpb.EmptyGRPCMetrics{},
-		Endpoint: &url.URL{
-			Scheme: "grpc",
-			Host:   l.Addr().String(),
-		},
+		Endpoint:    endpoint,
 	})
 	require.NoError(t, err)
 

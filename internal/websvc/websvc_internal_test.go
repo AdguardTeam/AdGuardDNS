@@ -3,37 +3,23 @@ package websvc
 import (
 	"fmt"
 	"net"
-	"time"
 
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 )
-
-// testTimeout is the common timeout for tests.
-//
-// TODO(a.garipov):  Make the test external and DRY with one in websvc_test.go
-const testTimeout = 1 * time.Second
-
-// testLogger is the common logger for tests.
-//
-// TODO(a.garipov):  Make the test external and DRY with one in websvc_test.go
-var testLogger = slogutil.NewDiscardLogger()
 
 // LocalAddrs returns the local addresses of the servers in group g.  Addrs may
 // contain nils.
-//
-// TODO(a.garipov):  Use in tests.
-func (svc *Service) LocalAddrs(g serverGroup) (addrs []net.Addr) {
+func (svc *Service) LocalAddrs(g ServerGroup) (addrs []net.Addr) {
 	switch g {
-	case srvGrpAdultBlockingPage:
+	case ServerGroupAdultBlockingPage:
 		return serverAddrs(svc.adultBlocking)
-	case srvGrpGeneralBlockingPage:
+	case ServerGroupGeneralBlockingPage:
 		return serverAddrs(svc.generalBlocking)
-	case srvGrpLinkedIP:
+	case ServerGroupLinkedIP:
 		return serverAddrs(svc.linkedIP)
-	case srvGrpNonDoH:
+	case ServerGroupNonDoH:
 		return serverAddrs(svc.nonDoH)
-	case srvGrpSafeBrowsingPage:
+	case ServerGroupSafeBrowsingPage:
 		return serverAddrs(svc.safeBrowsing)
 	default:
 		panic(fmt.Errorf("server group: %w: %q", errors.ErrBadEnumValue, g))

@@ -23,9 +23,13 @@ type Service struct {
 	generalBlockingBPS *blockPageServer
 	safeBrowsingBPS    *blockPageServer
 
+	certValidator CertificateValidator
+
 	dnsCheck       http.Handler
 	staticContent  http.Handler
 	wellKnownProxy http.Handler
+
+	metrics Metrics
 
 	rootRedirectURL string
 
@@ -47,9 +51,23 @@ func New(c *Config) (svc *Service) {
 		return nil
 	}
 
-	adultBlockingBPS := newBlockPageServer(c.AdultBlocking, c.Logger, srvGrpAdultBlockingPage)
-	generalBlockingBPS := newBlockPageServer(c.GeneralBlocking, c.Logger, srvGrpGeneralBlockingPage)
-	safeBrowsingBPS := newBlockPageServer(c.SafeBrowsing, c.Logger, srvGrpSafeBrowsingPage)
+	adultBlockingBPS := newBlockPageServer(
+		c.AdultBlocking,
+		c.Logger,
+		c.Metrics,
+		ServerGroupAdultBlockingPage,
+	)
+	generalBlockingBPS := newBlockPageServer(
+		c.GeneralBlocking,
+		c.Logger,
+		c.Metrics,
+		ServerGroupGeneralBlockingPage)
+	safeBrowsingBPS := newBlockPageServer(
+		c.SafeBrowsing,
+		c.Logger,
+		c.Metrics,
+		ServerGroupSafeBrowsingPage,
+	)
 
 	svc = &Service{
 		logger: c.Logger,
@@ -58,8 +76,12 @@ func New(c *Config) (svc *Service) {
 		generalBlockingBPS: generalBlockingBPS,
 		safeBrowsingBPS:    safeBrowsingBPS,
 
+		certValidator: c.CertificateValidator,
+
 		dnsCheck:      c.DNSCheck,
 		staticContent: c.StaticContent,
+
+		metrics: c.Metrics,
 
 		error404: c.Error404,
 		error500: c.Error500,
@@ -78,7 +100,7 @@ func New(c *Config) (svc *Service) {
 	svc.setLinkedIP(c)
 
 	for _, b := range c.NonDoHBind {
-		logger := svc.logger.With(loggerKeyGroup, srvGrpNonDoH)
+		logger := svc.logger.With(loggerKeyGroup, ServerGroupNonDoH)
 		h := httputil.Wrap(
 			svc,
 			httputil.ServerHeaderMiddleware(agdhttp.UserAgent()),
@@ -106,11 +128,18 @@ func (svc *Service) setLinkedIP(c *Config) {
 		return
 	}
 
-	logger := svc.logger.With(loggerKeyGroup, srvGrpLinkedIP)
+	logger := svc.logger.With(loggerKeyGroup, ServerGroupLinkedIP)
 	for _, b := range l.Bind {
 		proxyLogger := logger.With("proxy_addr", b.Address)
 		h := httputil.Wrap(
-			newLinkedIPHandler(l.TargetURL, c.ErrColl, proxyLogger, c.Timeout),
+			newLinkedIPHandler(&linkedIPHandlerConfig{
+				targetURL:     l.TargetURL,
+				certValidator: nil,
+				errColl:       c.ErrColl,
+				proxyLogger:   proxyLogger,
+				metrics:       c.Metrics,
+				timeout:       c.Timeout,
+			}),
 			httputil.NewLogMiddleware(logger, slog.LevelDebug),
 		)
 
@@ -123,34 +152,23 @@ func (svc *Service) setLinkedIP(c *Config) {
 		}))
 	}
 
-	// TODO(a.garipov):  Document this dependency on the
-	// LINKED_IP_TARGET_URL.
-	//
 	// TODO(a.garipov):  Improve logging.
 	wkProxyLogger := svc.logger.With(
-		loggerKeyGroup, srvGrpNonDoH,
+		loggerKeyGroup, ServerGroupNonDoH,
 		"subgroup", "well_known_proxy",
 	)
 	svc.wellKnownProxy = httputil.Wrap(
-		newLinkedIPHandler(l.TargetURL, c.ErrColl, wkProxyLogger, c.Timeout),
+		newLinkedIPHandler(&linkedIPHandlerConfig{
+			targetURL:     l.TargetURL,
+			certValidator: c.CertificateValidator,
+			errColl:       c.ErrColl,
+			proxyLogger:   wkProxyLogger,
+			metrics:       c.Metrics,
+			timeout:       c.Timeout,
+		}),
 		httputil.NewLogMiddleware(logger, slog.LevelInfo),
 	)
 }
-
-// serverGroup is a semantic alias for names of server groups.
-type serverGroup = string
-
-// Valid server groups.
-const (
-	srvGrpAdultBlockingPage   serverGroup = "adult_blocking_page"
-	srvGrpGeneralBlockingPage serverGroup = "general_blocking_page"
-	srvGrpLinkedIP            serverGroup = "linked_ip"
-	srvGrpNonDoH              serverGroup = "non_doh"
-	srvGrpSafeBrowsingPage    serverGroup = "safe_browsing_page"
-)
-
-// loggerKeyGroup is the key used by server groups
-const loggerKeyGroup = "group"
 
 // type check
 var _ service.Interface = (*Service)(nil)
@@ -169,27 +187,27 @@ func (svc *Service) Start(ctx context.Context) (err error) {
 	defer svc.logger.InfoContext(ctx, "started")
 
 	for _, srv := range svc.linkedIP {
-		logger := svc.logger.With(loggerKeyGroup, srvGrpLinkedIP)
+		logger := svc.logger.With(loggerKeyGroup, ServerGroupLinkedIP)
 		go srv.serve(ctx, logger)
 	}
 
 	for _, srv := range svc.adultBlocking {
-		logger := svc.logger.With(loggerKeyGroup, srvGrpAdultBlockingPage)
+		logger := svc.logger.With(loggerKeyGroup, ServerGroupAdultBlockingPage)
 		go srv.serve(ctx, logger)
 	}
 
 	for _, srv := range svc.generalBlocking {
-		logger := svc.logger.With(loggerKeyGroup, srvGrpGeneralBlockingPage)
+		logger := svc.logger.With(loggerKeyGroup, ServerGroupGeneralBlockingPage)
 		go srv.serve(ctx, logger)
 	}
 
 	for _, srv := range svc.safeBrowsing {
-		logger := svc.logger.With(loggerKeyGroup, srvGrpSafeBrowsingPage)
+		logger := svc.logger.With(loggerKeyGroup, ServerGroupSafeBrowsingPage)
 		go srv.serve(ctx, logger)
 	}
 
 	for _, srv := range svc.nonDoH {
-		logger := svc.logger.With(loggerKeyGroup, srvGrpNonDoH)
+		logger := svc.logger.With(loggerKeyGroup, ServerGroupNonDoH)
 		go srv.serve(ctx, logger)
 	}
 
@@ -206,20 +224,20 @@ func (svc *Service) Shutdown(ctx context.Context) (err error) {
 	svc.logger.InfoContext(ctx, "shutting down")
 	defer svc.logger.InfoContext(ctx, "shut down")
 
-	serverGroups := container.KeyValues[serverGroup, []*server]{{
-		Key:   srvGrpLinkedIP,
+	serverGroups := container.KeyValues[ServerGroup, []*server]{{
+		Key:   ServerGroupLinkedIP,
 		Value: svc.linkedIP,
 	}, {
-		Key:   srvGrpAdultBlockingPage,
+		Key:   ServerGroupAdultBlockingPage,
 		Value: svc.adultBlocking,
 	}, {
-		Key:   srvGrpGeneralBlockingPage,
+		Key:   ServerGroupGeneralBlockingPage,
 		Value: svc.generalBlocking,
 	}, {
-		Key:   srvGrpSafeBrowsingPage,
+		Key:   ServerGroupSafeBrowsingPage,
 		Value: svc.safeBrowsing,
 	}, {
-		Key:   srvGrpNonDoH,
+		Key:   ServerGroupNonDoH,
 		Value: svc.nonDoH,
 	}}
 
@@ -235,7 +253,7 @@ func (svc *Service) Shutdown(ctx context.Context) (err error) {
 }
 
 // shutdownServers is a helper function that shuts down srvs.
-func shutdownServers(ctx context.Context, srvs []*server, g serverGroup) (err error) {
+func shutdownServers(ctx context.Context, srvs []*server, g ServerGroup) (err error) {
 	var errs []error
 	for i, srv := range srvs {
 		err = srv.shutdown(ctx)
@@ -275,4 +293,18 @@ func (svc *Service) Refresh(ctx context.Context) (err error) {
 	}
 
 	return errors.Join(errs...)
+}
+
+// Handler returns a handler that wraps svc with [httputil.LogMiddleware].
+//
+// TODO(a.garipov):  Ensure logging in module dnssvc and remove this crutch.
+func (svc *Service) Handler() (h http.Handler) {
+	// Keep in sync with [New].
+	logger := svc.logger.With(loggerKeyGroup, ServerGroupNonDoH)
+
+	return httputil.Wrap(
+		svc,
+		httputil.ServerHeaderMiddleware(agdhttp.UserAgent()),
+		httputil.NewLogMiddleware(logger, slog.LevelDebug),
+	)
 }

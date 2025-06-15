@@ -15,6 +15,8 @@ import (
 //
 // It also updates the backend gRPC metrics depending on the type, see
 // [GRPCMetrics.IncrementErrorCount].
+//
+// TODO(e.burkov):  Move error types to this package.
 func fixGRPCError(ctx context.Context, mtrc GRPCMetrics, err error) (res error) {
 	metricsType := GRPCErrOther
 	defer func() { mtrc.IncrementErrorCount(ctx, metricsType) }()

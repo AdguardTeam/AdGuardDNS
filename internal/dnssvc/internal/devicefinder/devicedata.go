@@ -11,25 +11,138 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/validate"
 	"github.com/miekg/dns"
 )
 
+// deviceData is the sum type of various pieces of data AdGuard DNS can use to
+// recognize a client from the DNS message or TLS data.
+//
+// The implementations are:
+//   - [*deviceDataCustomDomain]
+//   - [*deviceDataExtHumanID]
+//   - [*deviceDataID]
+type deviceData interface {
+	// isDeviceData is a marker method.
+	isDeviceData()
+}
+
+// deviceDataExtHumanID is a [deviceData] that can be parsed from an extended
+// human-readable device identifier.
+//
+// TODO(a.garipov):  Optimize its allocation and freeing.
+type deviceDataExtHumanID struct {
+	// humanID is the human-readable ID part of an extended humanID.  It must
+	// not be empty.
+	humanID agd.HumanID
+
+	// profileID is the profile ID part of an extended HumanID.  It must not be
+	// empty.
+	profileID agd.ProfileID
+
+	// deviceType is the device type of an extended HumanID.  It must be a valid
+	// device type and must not be [agd.DeviceTypeNone].
+	deviceType agd.DeviceType
+}
+
+// type check
+var _ deviceData = (*deviceDataExtHumanID)(nil)
+
+// isDeviceData implements the [deviceData] interface for *deviceDataExtHumanID.
+func (*deviceDataExtHumanID) isDeviceData() {}
+
+// deviceDataID is a [deviceData] that only contains the ID of the device.
+//
+// TODO(a.garipov):  Optimize its allocation and freeing.
+type deviceDataID struct {
+	// id is the ID of the device as parsed from the request.  It must not be
+	// empty.
+	id agd.DeviceID
+}
+
+// type check
+var _ deviceData = (*deviceDataID)(nil)
+
+// isDeviceData implements the [deviceData] interface for *deviceDataID.
+func (*deviceDataID) isDeviceData() {}
+
+// deviceDataCustomDomain is a [deviceData] that can be derived from the domain
+// name.
+//
+// TODO(a.garipov):  Optimize its allocation and freeing.
+type deviceDataCustomDomain struct {
+	// deviceData is the underlying device data, which must be either a
+	// [deviceDataID] or a [deviceDataExtHumanID].  If it's the latter, the
+	// profile IDs must match.
+	deviceData deviceData
+
+	// domain is the domain or wildcard that has matched the request.  It must
+	// not be empty and must be a valid domain name.
+	domain string
+
+	// profileID is the ID of the profile owning the custom domain.  It must not
+	// be empty.
+	profileID agd.ProfileID
+}
+
+// type check
+var _ deviceData = (*deviceDataCustomDomain)(nil)
+
+// isDeviceData implements the [deviceData] interface for
+// *deviceDataCustomDomain.
+func (*deviceDataCustomDomain) isDeviceData() {}
+
 // deviceData extracts the device data from the given parameters.  If the device
-// data are not found, all results will be empty, as the lookup could also be
-// done later by remote and local addresses.
+// data are not found, dd and err will be nil, as the lookup could also be done
+// later by remote and local addresses.
 func (f *Default) deviceData(
 	ctx context.Context,
 	req *dns.Msg,
 	srvReqInfo *dnsserver.RequestInfo,
-) (id agd.DeviceID, extID *extHumanID, err error) {
+) (dd deviceData, err error) {
 	if f.srv.Protocol.IsStdEncrypted() {
-		return f.deviceDataFromSrvReqInfo(ctx, srvReqInfo)
+		return f.deviceDataFromEncrypted(ctx, srvReqInfo)
 	}
 
-	id, err = deviceIDFromEDNS(req)
+	id, err := deviceIDFromEDNS(req)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return nil, err
+	} else if id == "" {
+		return nil, nil
+	}
 
-	return id, nil, err
+	return &deviceDataID{
+		id: id,
+	}, nil
+}
+
+// deviceDataFromEncrypted extracts device data from the arguments and checks if
+// it's consistent with the custom domains.  srvReqInfo must not be nil.
+func (f *Default) deviceDataFromEncrypted(
+	ctx context.Context,
+	srvReqInfo *dnsserver.RequestInfo,
+) (dd deviceData, err error) {
+	cliSrvName := srvReqInfo.TLSServerName
+	var customDomain string
+	var requiredProfileID agd.ProfileID
+	if cliSrvName != "" {
+		customDomain, requiredProfileID = f.customDomainDB.Match(ctx, cliSrvName)
+	}
+
+	dd, err = f.deviceDataFromSrvReqInfo(ctx, srvReqInfo, customDomain)
+	if err != nil {
+		return nil, fmt.Errorf("extracting device data: %w", err)
+	}
+
+	dd, err = f.wrapCustomDomain(ctx, dd, customDomain, requiredProfileID)
+	if err != nil {
+		return nil, fmt.Errorf("wrapping custom domains: %w", err)
+	}
+
+	return dd, nil
 }
 
 // deviceDataFromSrvReqInfo extracts device data from the arguments.  The data
@@ -42,28 +155,51 @@ func (f *Default) deviceData(
 //     configured for the device finder.
 //
 // Any returned errors will have the underlying type of [*deviceDataError].
+//
+// If customDomain is not empty, it must be a domain name or wildcard matching
+// srvReqInfo.TLSServerName.
 func (f *Default) deviceDataFromSrvReqInfo(
 	ctx context.Context,
 	srvReqInfo *dnsserver.RequestInfo,
-) (id agd.DeviceID, extID *extHumanID, err error) {
+	customDomain string,
+) (dd deviceData, err error) {
 	if f.srv.Protocol == agd.ProtoDoH {
-		id, extID, err = f.deviceDataForDoH(srvReqInfo)
-		if id != "" || extID != nil || err != nil {
+		dd, err = f.deviceDataForDoH(srvReqInfo)
+		if dd != nil || err != nil {
 			// Don't wrap the error, because it's informative enough as is.
-			return id, extID, err
+			return dd, err
 		}
+
+		// Go on and recheck the TLS parameters.
 	}
 
-	if len(f.deviceDomains) == 0 {
-		return "", nil, nil
+	if len(f.deviceDomains) == 0 && customDomain == "" {
+		// Not matched by URL path and there are neither default nor custom
+		// domains.
+		f.logger.Log(ctx, slogutil.LevelTrace, "no default or custom domains")
+
+		return nil, nil
+	} else if customDomain != "" && !strings.HasPrefix(customDomain, "*.") {
+		// The custom domain is not a wildcard, so there cannot be device data
+		// in the client server name.
+		optslog.Debug1(
+			ctx,
+			f.logger,
+			"domain is not wildcard; not checking tls",
+			"matched_domain", customDomain,
+		)
+
+		return nil, nil
 	}
 
-	id, extID, err = f.deviceDataFromCliSrvName(ctx, srvReqInfo.TLSServerName)
+	customDomain = strings.TrimPrefix(customDomain, "*.")
+
+	dd, err = f.deviceDataFromCliSrvName(ctx, srvReqInfo.TLSServerName, customDomain)
 	if err != nil {
-		return "", nil, newDeviceDataError(err, "tls server name")
+		return nil, newDeviceDataError(err, "tls server name")
 	}
 
-	return id, extID, nil
+	return dd, nil
 }
 
 // deviceDataForDoH extracts the device data from the DoH request information.
@@ -71,38 +207,37 @@ func (f *Default) deviceDataFromSrvReqInfo(
 // from the URL path.  srvReqInfo must not be nil.
 //
 // Any returned errors will have the underlying type of [*deviceDataError].
-func (f *Default) deviceDataForDoH(
-	srvReqInfo *dnsserver.RequestInfo,
-) (id agd.DeviceID, extID *extHumanID, err error) {
+func (f *Default) deviceDataForDoH(srvReqInfo *dnsserver.RequestInfo) (dd deviceData, err error) {
 	if userinfo := srvReqInfo.Userinfo; userinfo != nil {
+		var id agd.DeviceID
 		// Don't scan the userinfo for human-readable IDs, since they're not
 		// supported there.
 		id, err = agd.NewDeviceID(userinfo.Username())
 		if err != nil {
-			return "", nil, newDeviceDataError(err, "basic auth")
+			return nil, newDeviceDataError(err, "basic auth")
 		}
 
-		return id, nil, nil
+		return &deviceDataID{
+			id: id,
+		}, nil
 	}
 
-	id, extID, err = f.deviceDataFromDoHURL(srvReqInfo.URL)
+	dd, err = f.deviceDataFromDoHURL(srvReqInfo.URL)
 	if err != nil {
-		return "", nil, newDeviceDataError(err, "http url path")
+		return nil, newDeviceDataError(err, "http url path")
 	}
 
 	// In case of empty device data, will continue the lookup process.
-	return id, extID, nil
+	return dd, nil
 }
 
 // deviceDataFromDoHURL extracts the device data from the path of the DoH
 // request.
-func (f *Default) deviceDataFromDoHURL(
-	u *url.URL,
-) (id agd.DeviceID, extID *extHumanID, err error) {
+func (f *Default) deviceDataFromDoHURL(u *url.URL) (dd deviceData, err error) {
 	elems, err := pathElements(u.Path)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
-		return "", nil, err
+		return nil, err
 	}
 
 	if len(elems) == 2 {
@@ -112,7 +247,50 @@ func (f *Default) deviceDataFromDoHURL(
 
 	// pathElements guarantees that if there aren't two elements, there's only
 	// one, and it is a valid DNS path.
-	return "", nil, nil
+	return nil, nil
+}
+
+// wrapCustomDomain wraps dd into a [*deviceDataCustomDomain] if necessary.
+func (f *Default) wrapCustomDomain(
+	ctx context.Context,
+	dd deviceData,
+	matchedDomain string,
+	requiredProfileID agd.ProfileID,
+) (wrapped deviceData, err error) {
+	if requiredProfileID == "" {
+		return dd, nil
+	}
+
+	switch dd := dd.(type) {
+	case nil:
+		return nil, nil
+	case *deviceDataExtHumanID:
+		err = validate.Equal("profile id in ext id", dd.profileID, requiredProfileID)
+		if err != nil {
+			const msg = "custom domain profile and ext id mismatch"
+			optslog.Debug2(ctx, f.logger, msg, "got", dd.profileID, "want", requiredProfileID)
+
+			return nil, newDeviceDataError(err, "custom domain")
+		}
+
+		return &deviceDataCustomDomain{
+			domain:     matchedDomain,
+			profileID:  requiredProfileID,
+			deviceData: dd,
+		}, nil
+	case *deviceDataID:
+		return &deviceDataCustomDomain{
+			domain:     matchedDomain,
+			profileID:  requiredProfileID,
+			deviceData: dd,
+		}, nil
+	default:
+		panic(fmt.Errorf(
+			"wrapping custom domain: device data: %w: %T(%[2]v)",
+			errors.ErrBadEnumValue,
+			dd,
+		))
+	}
 }
 
 // pathElements splits and validates urlPath.  If err is nil, elems has either one
@@ -141,28 +319,34 @@ func pathElements(urlPath string) (elems []string, err error) {
 }
 
 // deviceDataFromCliSrvName extracts and validates device data.  cliSrvName is
-// the server name as sent by the client.
+// the server name as sent by the client.  If customDomain is not empty, it
+// must be a domain name matching cliSrvName and not a wildcard.
 func (f *Default) deviceDataFromCliSrvName(
 	ctx context.Context,
 	cliSrvName string,
-) (id agd.DeviceID, extID *extHumanID, err error) {
+	customDomain string,
+) (dd deviceData, err error) {
 	if cliSrvName == "" {
 		// No server name in ClientHello, so the request is probably made on the
 		// IP address.
-		return "", nil, nil
+		return nil, nil
 	}
 
-	matchedDomain := matchDomain(cliSrvName, f.deviceDomains)
+	matchedDomain := customDomain
 	if matchedDomain == "" {
-		return "", nil, nil
+		matchedDomain = matchDomain(cliSrvName, f.deviceDomains)
+	}
+
+	if matchedDomain == "" {
+		return nil, nil
 	}
 
 	optslog.Debug2(
 		ctx,
 		f.logger,
 		"matched device id from domain",
-		"domain", matchedDomain,
-		"domains", f.deviceDomains,
+		"matched_domain", matchedDomain,
+		"server_domains", f.deviceDomains,
 	)
 
 	idStr := cliSrvName[:len(cliSrvName)-len(matchedDomain)-1]

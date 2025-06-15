@@ -242,10 +242,13 @@ func newDeviceFinder(c *HandlersConfig, g *ServerGroupConfig, s *agd.Server) (df
 	}
 
 	return devicefinder.NewDefault(&devicefinder.Config{
-		Logger:        c.BaseLogger.With(slogutil.KeyPrefix, "devicefinder"),
-		ProfileDB:     c.ProfileDB,
 		HumanIDParser: c.HumanIDParser,
+		Logger:        c.BaseLogger.With(slogutil.KeyPrefix, "devicefinder"),
 		Server:        s,
-		DeviceDomains: g.DeviceDomains,
+		// TODO(a.garipov):  Use a real one after implementing the interface in
+		// package tlsconfig.
+		CustomDomainDB: devicefinder.EmptyCustomDomainDB{},
+		ProfileDB:      c.ProfileDB,
+		DeviceDomains:  g.DeviceDomains,
 	})
 }

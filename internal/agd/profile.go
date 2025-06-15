@@ -8,6 +8,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdvalidate"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/golibs/container"
 )
 
 // Profile contains information about an AdGuard DNS profile.  In other parts of
@@ -23,6 +24,10 @@ type Profile struct {
 	// CustomDomains is the configuration of the custom domains belonging to the
 	// account of this profile.  It must not be nil.
 	CustomDomains *AccountCustomDomains
+
+	// DeviceIDs are the IDs of devices attached to this profile.  It must not
+	// be nil and all items must not be empty and must be valid.
+	DeviceIDs *container.MapSet[DeviceID]
 
 	// FilterConfig is the configuration of the filters used for this profile
 	// and all its devices that don't have filtering disabled.  It must not be
@@ -47,10 +52,6 @@ type Profile struct {
 	// ID is the unique ID of this profile.  It must not be empty and must be
 	// valid.
 	ID ProfileID
-
-	// DeviceIDs are the IDs of devices attached to this profile.  All items
-	// must not be empty and must be valid.
-	DeviceIDs []DeviceID
 
 	// FilteredResponseTTL is the time-to-live value used for responses sent to
 	// the devices of this profile.

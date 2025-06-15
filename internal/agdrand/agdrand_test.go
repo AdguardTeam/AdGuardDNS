@@ -68,51 +68,45 @@ func TestLockedSource_race(t *testing.T) {
 // testSeed is a seed for tests.
 var testSeed = [32]byte{}
 
-// Sinks for benchmarks.
-var (
-	errSink    error
-	intSink    int
-	uint64Sink uint64
-)
-
 func BenchmarkReader_Read(b *testing.B) {
 	const length = 16
 
 	reader := agdrand.NewReader(testSeed)
 
-	b.ReportAllocs()
-	b.ResetTimer()
+	var n int
+	var err error
 
+	b.ReportAllocs()
 	buf := make([]byte, length)
-	for range b.N {
-		intSink, errSink = reader.Read(buf)
+	for b.Loop() {
+		n, err = reader.Read(buf)
 	}
 
-	require.Equal(b, length, intSink)
-	require.NoError(b, errSink)
+	require.Equal(b, length, n)
+	require.NoError(b, err)
 
 	// Most recent results:
-	//	goos: darwin
-	//	goarch: arm64
-	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/agdrand
-	//	cpu: Apple M1 Pro
-	//	BenchmarkReader_Read-8   	57008931	        20.60 ns/op	       0 B/op	       0 allocs/op
+	//
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/agdrand
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkReader_Read-12    	38364720	        28.48 ns/op	       0 B/op	       0 allocs/op
 }
 
 func BenchmarkLockedSource_Uint64(b *testing.B) {
 	src := agdrand.NewLockedSource(rand.NewChaCha8(testSeed))
 
 	b.ReportAllocs()
-	b.ResetTimer()
-
 	for range b.N {
-		uint64Sink = src.Uint64()
+		_ = src.Uint64()
 	}
 
 	// Most recent results:
-	//	goos: darwin
-	//	goarch: arm64
-	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/agdrand
-	//	cpu: Apple M1 Pro
-	//	BenchmarkLockedSource_Uint64-8   	77621248	        15.35 ns/op	       0 B/op	       0 allocs/op
+	//
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/agdrand
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkLockedSource_Uint64-12    	59585797	        18.13 ns/op	       0 B/op	       0 allocs/op
 }

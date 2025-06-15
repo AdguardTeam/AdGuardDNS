@@ -198,12 +198,6 @@ func TestHumanIDParser_ParseNormalized(t *testing.T) {
 	}
 }
 
-// Sinks for benchmarks.
-var (
-	humanIDSink agd.HumanID
-	errSink     error
-)
-
 func BenchmarkHumanIDParser_ParseNormalized(b *testing.B) {
 	benchCases := []struct {
 		name           string
@@ -228,34 +222,37 @@ func BenchmarkHumanIDParser_ParseNormalized(b *testing.B) {
 	}}
 
 	for _, bc := range benchCases {
+		p := agd.NewHumanIDParser()
+
 		b.Run(bc.name, func(b *testing.B) {
-			p := agd.NewHumanIDParser()
+			var humanID agd.HumanID
+			var err error
 
 			b.ReportAllocs()
-			b.ResetTimer()
-			for range b.N {
-				humanIDSink, errSink = p.ParseNormalized(bc.in)
+			for b.Loop() {
+				humanID, err = p.ParseNormalized(bc.in)
 			}
 
 			if bc.wantErrPresent {
-				require.Empty(b, humanIDSink)
-				require.Error(b, errSink)
+				require.Empty(b, humanID)
+				require.Error(b, err)
 			} else {
-				require.NotEmpty(b, humanIDSink)
-				require.NoError(b, errSink)
+				require.NotEmpty(b, humanID)
+				require.NoError(b, err)
 			}
 		})
 	}
 
-	// Most recent result, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
-	//	goos: linux
-	//	goarch: amd64
-	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/agd
-	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkHumanIDParser_ParseNormalized/valid-16         	23716176	        51.48 ns/op	       0 B/op	       0 allocs/op
-	//	BenchmarkHumanIDParser_ParseNormalized/normalized-16    	 1000000	      1071 ns/op	      88 B/op	       3 allocs/op
-	//	BenchmarkHumanIDParser_ParseNormalized/normalized_long-16         	  504042	      4086 ns/op	     128 B/op	       4 allocs/op
-	//	BenchmarkHumanIDParser_ParseNormalized/bad-16                     	  752247	      1361 ns/op	     184 B/op	       5 allocs/op
+	// Most recent results:
+	//
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/agd
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkHumanIDParser_ParseNormalized/valid-12         	25985392	        46.38 ns/op	       0 B/op	       0 allocs/op
+	// BenchmarkHumanIDParser_ParseNormalized/normalized-12    	 2751919	       417.7 ns/op	      88 B/op	       3 allocs/op
+	// BenchmarkHumanIDParser_ParseNormalized/normalized_long-12         	  499377	      2464 ns/op	     128 B/op	       4 allocs/op
+	// BenchmarkHumanIDParser_ParseNormalized/bad-12                     	 2880829	       415.0 ns/op	     184 B/op	       5 allocs/op
 }
 
 func FuzzHumanIDParser_ParseNormalized(f *testing.F) {

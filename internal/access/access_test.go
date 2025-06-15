@@ -3,12 +3,19 @@ package access_test
 import (
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// testTimeout is the common timeout for tests.
+const testTimeout = 1 * time.Second
+
+// testAccessMtrc is the common profile access engine metrics for tests.
+var testAccessMtrc = access.EmptyProfileMetrics{}
 
 func TestGlobal_IsBlockedHost(t *testing.T) {
 	global, err := access.NewGlobal([]string{

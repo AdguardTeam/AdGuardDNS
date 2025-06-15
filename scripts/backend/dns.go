@@ -23,13 +23,14 @@ import (
 // mockDNSServiceServer is the mock [backendpb.DNSServiceServer].
 type mockDNSServiceServer struct {
 	backendpb.UnimplementedDNSServiceServer
-	log *slog.Logger
+	logger *slog.Logger
 }
 
 // newMockDNSServiceServer creates a new instance of *mockDNSServiceServer.
-func newMockDNSServiceServer(log *slog.Logger) (srv *mockDNSServiceServer) {
+// logger must not be nil.
+func newMockDNSServiceServer(logger *slog.Logger) (srv *mockDNSServiceServer) {
 	return &mockDNSServiceServer{
-		log: log,
+		logger: logger,
 	}
 }
 
@@ -45,14 +46,14 @@ func (s *mockDNSServiceServer) CreateDeviceByHumanId(
 	req *backendpb.CreateDeviceRequest,
 ) (resp *backendpb.CreateDeviceResponse, err error) {
 	md, _ := metadata.FromIncomingContext(ctx)
-	s.log.InfoContext(
+	s.logger.InfoContext(
 		ctx,
 		"creating by id",
 		"auth", md.Get(httphdr.Authorization),
 		"req", req,
 	)
 
-	p := newDNSProfile()
+	p := s.newDNSProfile(true)
 
 	return &backendpb.CreateDeviceResponse{
 		Device: p.Devices[1],
@@ -67,11 +68,14 @@ func (s *mockDNSServiceServer) GetDNSProfiles(
 ) (err error) {
 	ctx := srv.Context()
 	md, _ := metadata.FromIncomingContext(ctx)
-	s.log.InfoContext(
+	reqSyncTime := req.SyncTime.AsTime()
+	isFullSync := reqSyncTime.IsZero()
+	s.logger.InfoContext(
 		ctx,
 		"getting dns profiles",
 		"auth", md.Get(httphdr.Authorization),
-		"sync_time", req.SyncTime.AsTime(),
+		"sync_time", reqSyncTime,
+		"is_full", isFullSync,
 	)
 
 	t := time.Now()
@@ -81,9 +85,10 @@ func (s *mockDNSServiceServer) GetDNSProfiles(
 	}
 
 	srv.SetTrailer(trailerMD)
-	err = srv.Send(newDNSProfile())
+
+	err = srv.Send(s.newDNSProfile(isFullSync))
 	if err != nil {
-		s.log.WarnContext(ctx, "sending dns profile", slogutil.KeyError, err)
+		s.logger.WarnContext(ctx, "sending dns profile", slogutil.KeyError, err)
 	}
 
 	return nil
@@ -96,7 +101,7 @@ func (s *mockDNSServiceServer) SaveDevicesBillingStat(
 ) (err error) {
 	ctx := srv.Context()
 	md, _ := metadata.FromIncomingContext(ctx)
-	s.log.InfoContext(ctx, "saving devices", "auth", md.Get(httphdr.Authorization))
+	s.logger.InfoContext(ctx, "saving devices", "auth", md.Get(httphdr.Authorization))
 
 	for {
 		var bs *backendpb.DeviceBillingStat
@@ -109,28 +114,56 @@ func (s *mockDNSServiceServer) SaveDevicesBillingStat(
 			}
 		}
 
-		s.log.InfoContext(ctx, "saving billing stat", "device_id", bs.DeviceId)
+		s.logger.InfoContext(ctx, "saving billing stat", "device_id", bs.DeviceId)
 	}
 }
 
-// newDNSProfile returns a mock instance of [*backendpb.DNSProfile].
-func newDNSProfile() (dp *backendpb.DNSProfile) {
+// newDNSProfile returns a mock instance of [*backendpb.DNSProfile].  If
+// isFullSync is true, it returns a full profile; otherwise, it returns device
+// changes.
+func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *backendpb.DNSProfile) {
 	dayRange := &backendpb.DayRange{
 		Start: durationpb.New(0),
 		End:   durationpb.New(59 * time.Minute),
 	}
 
-	devices := []*backendpb.DeviceSettings{{
-		Id:               "test",
-		Name:             "test-name",
+	const (
+		devIDAuto = "didauto1"
+		devIDTest = "didtest1"
+	)
+
+	devTest := &backendpb.DeviceSettings{
+		Id:               devIDTest,
+		Name:             time.Now().Format("Test Name 2006-01-02T15:04:05"),
 		FilteringEnabled: false,
 		LinkedIp:         []byte{1, 1, 1, 1},
 		DedicatedIps:     [][]byte{{127, 0, 0, 1}},
-	}, {
-		Id:           "auto",
-		Name:         "My Device X-10",
-		HumanIdLower: "my-device-x--10",
-	}}
+	}
+
+	var (
+		devices       []*backendpb.DeviceSettings
+		deviceChanges []*backendpb.DeviceSettingsChange
+	)
+	if isFullSync {
+		devices = []*backendpb.DeviceSettings{
+			devTest,
+			{
+				Id:           devIDAuto,
+				Name:         "My Device X-10",
+				HumanIdLower: "my-device-x--10",
+			},
+		}
+	} else {
+		deviceChanges = []*backendpb.DeviceSettingsChange{{
+			Change: &backendpb.DeviceSettingsChange_Upserted_{
+				Upserted: &backendpb.DeviceSettingsChange_Upserted{Device: devTest},
+			},
+		}, {
+			Change: &backendpb.DeviceSettingsChange_Deleted_{
+				Deleted: &backendpb.DeviceSettingsChange_Deleted{DeviceId: devIDAuto},
+			},
+		}}
+	}
 
 	week := &backendpb.WeeklyRange{
 		Sun: nil,
@@ -238,7 +271,8 @@ func newDNSProfile() (dp *backendpb.DNSProfile) {
 			Rps:     100,
 			Enabled: true,
 		},
-		CustomDomain: customDomain,
-		AccountId:    "acc1234",
+		CustomDomain:  customDomain,
+		AccountId:     "acc1234",
+		DeviceChanges: deviceChanges,
 	}
 }

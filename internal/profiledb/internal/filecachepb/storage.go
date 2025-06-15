@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/c2h5oh/datasize"
@@ -15,6 +16,7 @@ import (
 
 // Storage is the file-cache storage that encodes data using protobuf.
 type Storage struct {
+	profileMetrics   access.ProfileMetrics
 	logger           *slog.Logger
 	baseCustomLogger *slog.Logger
 	path             string
@@ -24,6 +26,10 @@ type Storage struct {
 // Config is the configuration structure for the protobuf-encoded file-cache
 // storage.
 type Config struct {
+	// ProfileMetrics is used for the collection of the profile access engine
+	// statistics.  It must not be nil.
+	ProfileMetrics access.ProfileMetrics
+
 	// Logger is used for logging the operation of profile database.  It must
 	// not be nil.
 	Logger *slog.Logger
@@ -45,6 +51,7 @@ type Config struct {
 // must be valid.
 func New(c *Config) (s *Storage) {
 	return &Storage{
+		profileMetrics:   c.ProfileMetrics,
 		logger:           c.Logger,
 		baseCustomLogger: c.BaseCustomLogger,
 		path:             c.CacheFilePath,
@@ -86,7 +93,7 @@ func (s *Storage) Load(ctx context.Context) (c *internal.FileCache, err error) {
 		)
 	}
 
-	return toInternal(fc, s.baseCustomLogger, s.respSzEst)
+	return toInternal(fc, s.profileMetrics, s.baseCustomLogger, s.respSzEst)
 }
 
 // Store implements the [internal.FileCacheStorage] interface for *Storage.

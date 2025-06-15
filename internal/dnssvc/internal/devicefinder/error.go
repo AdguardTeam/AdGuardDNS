@@ -8,6 +8,9 @@ import (
 )
 
 // Authentication errors.
+//
+// TODO(a.garipov):  Consider using errors from package [errors] instead of some
+// of these.
 const (
 	ErrAuthenticationFailed errors.Error = "basic authentication failed"
 	ErrNoPassword           errors.Error = "no password"

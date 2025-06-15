@@ -7,12 +7,14 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestDefaultProfile_Config(t *testing.T) {
 	conf := &access.ProfileConfig{
+		Metrics:              testAccessMtrc,
 		AllowedNets:          []netip.Prefix{netip.MustParsePrefix("1.1.1.0/24")},
 		BlockedNets:          []netip.Prefix{netip.MustParsePrefix("2.2.2.0/24")},
 		AllowedASN:           []geoip.ASN{1},
@@ -22,13 +24,18 @@ func TestDefaultProfile_Config(t *testing.T) {
 
 	a := access.NewDefaultProfile(conf)
 	got := a.Config()
-	assert.Equal(t, conf, got)
+	assert.Equal(t, conf.AllowedNets, got.AllowedNets)
+	assert.Equal(t, conf.BlockedNets, got.BlockedNets)
+	assert.Equal(t, conf.AllowedASN, got.AllowedASN)
+	assert.Equal(t, conf.BlockedASN, got.BlockedASN)
+	assert.Equal(t, conf.BlocklistDomainRules, got.BlocklistDomainRules)
 }
 
 func TestDefaultProfile_IsBlocked(t *testing.T) {
 	passAddrPort := netip.MustParseAddrPort("3.3.3.3:3333")
 
 	conf := &access.ProfileConfig{
+		Metrics:     testAccessMtrc,
 		AllowedNets: []netip.Prefix{netip.MustParsePrefix("1.1.1.1/32")},
 		BlockedNets: []netip.Prefix{netip.MustParsePrefix("1.1.1.0/24")},
 		AllowedASN:  []geoip.ASN{1},
@@ -155,7 +162,8 @@ func TestDefaultProfile_IsBlocked(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			req := dnsservertest.NewReq(tc.host, tc.qt, dns.ClassINET)
 
-			blocked := a.IsBlocked(req, tc.rAddr, tc.loc)
+			ctx := testutil.ContextWithTimeout(t, testTimeout)
+			blocked := a.IsBlocked(ctx, req, tc.rAddr, tc.loc)
 			tc.want(t, blocked)
 		})
 	}
@@ -163,6 +171,7 @@ func TestDefaultProfile_IsBlocked(t *testing.T) {
 
 func TestDefaultProfile_IsBlocked_prefixAllowlist(t *testing.T) {
 	conf := &access.ProfileConfig{
+		Metrics: testAccessMtrc,
 		AllowedNets: []netip.Prefix{
 			netip.MustParsePrefix("2.2.2.0/24"),
 			netip.MustParsePrefix("3.3.0.0/16"),
@@ -205,7 +214,8 @@ func TestDefaultProfile_IsBlocked_prefixAllowlist(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			req := dnsservertest.NewReq("pass.test", dns.TypeA, dns.ClassINET)
 
-			blocked := a.IsBlocked(req, tc.rAddr, nil)
+			ctx := testutil.ContextWithTimeout(t, testTimeout)
+			blocked := a.IsBlocked(ctx, req, tc.rAddr, nil)
 			tc.want(t, blocked)
 		})
 	}
@@ -215,6 +225,7 @@ func BenchmarkDefaultProfile_IsBlocked(b *testing.B) {
 	passAddrPort := netip.MustParseAddrPort("3.3.3.3:3333")
 
 	conf := &access.ProfileConfig{
+		Metrics:     testAccessMtrc,
 		AllowedNets: []netip.Prefix{netip.MustParsePrefix("1.1.1.1/32")},
 		BlockedNets: []netip.Prefix{netip.MustParsePrefix("1.1.1.0/24")},
 		AllowedASN:  []geoip.ASN{1},
@@ -230,36 +241,40 @@ func BenchmarkDefaultProfile_IsBlocked(b *testing.B) {
 
 	a := access.NewDefaultProfile(conf)
 
-	passReq := dnsservertest.NewReq("pass.test", dns.TypeA, dns.ClassINET)
+	ctx := testutil.ContextWithTimeout(b, testTimeout)
 
-	b.Run("pass", func(b *testing.B) {
-		b.ReportAllocs()
-		b.ResetTimer()
+	benchCases := []struct {
+		want assert.BoolAssertionFunc
+		req  *dns.Msg
+		name string
+	}{{
+		want: assert.False,
+		req:  dnsservertest.NewReq("pass.test", dns.TypeA, dns.ClassINET),
+		name: "pass",
+	}, {
+		want: assert.True,
+		req:  dnsservertest.NewReq("block.test", dns.TypeA, dns.ClassINET),
+		name: "block",
+	}}
 
-		for range b.N {
-			_ = a.IsBlocked(passReq, passAddrPort, nil)
-		}
-	})
+	for _, bc := range benchCases {
+		b.Run(bc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			var blocked bool
+			for b.Loop() {
+				blocked = a.IsBlocked(ctx, bc.req, passAddrPort, nil)
+			}
 
-	blockReq := dnsservertest.NewReq("block.test", dns.TypeA, dns.ClassINET)
+			bc.want(b, blocked)
+		})
+	}
 
-	b.Run("block", func(b *testing.B) {
-		b.ReportAllocs()
-		b.ResetTimer()
-
-		for range b.N {
-			_ = a.IsBlocked(blockReq, passAddrPort, nil)
-		}
-	})
-
-	// Most recent results, on a MBP 14 with Apple M1 Pro chip:
+	// Most recent results:
 	//
-	//	goos: darwin
-	//  goarch: arm64
-	//  pkg: github.com/AdguardTeam/AdGuardDNS/internal/access
-	//  BenchmarkDefaultProfile_IsBlocked
-	//  BenchmarkDefaultProfile_IsBlocked/pass
-	//  BenchmarkDefaultProfile_IsBlocked/pass-8         	 2935430	       357.7 ns/op	     384 B/op	       4 allocs/op
-	//  BenchmarkDefaultProfile_IsBlocked/block
-	//  BenchmarkDefaultProfile_IsBlocked/block-8        	 2706435	       443.7 ns/op	     416 B/op	       6 allocs/op
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/access
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkDefaultProfile_IsBlocked/pass-12         	 2761741	       421.9 ns/op	      96 B/op	       2 allocs/op
+	// BenchmarkDefaultProfile_IsBlocked/block-12        	 2143516	       556.1 ns/op	     128 B/op	       4 allocs/op
 }

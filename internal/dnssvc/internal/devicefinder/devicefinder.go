@@ -15,20 +15,23 @@ import (
 
 // Config is the configuration structure for the default device finder.
 type Config struct {
-	// Logger is used to log the operation of the device finder.  It must not be
-	// nil.
-	Logger *slog.Logger
-
-	// ProfileDB is used to find the profiles.  It must not be nil.
-	ProfileDB profiledb.Interface
-
 	// HumanIDParser is used to normalize and parse human-readable device
 	// identifiers.  It must not be nil.
 	HumanIDParser *agd.HumanIDParser
 
+	// Logger is used to log the operation of the device finder.  It must not be
+	// nil.
+	Logger *slog.Logger
+
 	// Server contains the data of the server for which the profiles are found.
 	// It must not be nil.
 	Server *agd.Server
+
+	// CustomDomainDB is used to match custom domains.  It must not be nil.
+	CustomDomainDB CustomDomainDB
+
+	// ProfileDB is used to find the profiles.  It must not be nil.
+	ProfileDB profiledb.Interface
 
 	// DeviceDomains, if any, provides the domain names to use for looking up
 	// device ID from TLS server names.
@@ -36,24 +39,24 @@ type Config struct {
 }
 
 // Default is the default device finder.
-//
-// TODO(a.garipov): Use.
 type Default struct {
-	logger        *slog.Logger
-	db            profiledb.Interface
-	humanIDParser *agd.HumanIDParser
-	srv           *agd.Server
-	deviceDomains []string
+	humanIDParser  *agd.HumanIDParser
+	logger         *slog.Logger
+	srv            *agd.Server
+	customDomainDB CustomDomainDB
+	profileDB      profiledb.Interface
+	deviceDomains  []string
 }
 
 // NewDefault returns a new default device finder.  c must be valid and non-nil.
 func NewDefault(c *Config) (f *Default) {
 	return &Default{
-		logger:        c.Logger,
-		db:            c.ProfileDB,
-		humanIDParser: c.HumanIDParser,
-		srv:           c.Server,
-		deviceDomains: c.DeviceDomains,
+		humanIDParser:  c.HumanIDParser,
+		logger:         c.Logger,
+		srv:            c.Server,
+		customDomainDB: c.CustomDomainDB,
+		profileDB:      c.ProfileDB,
+		deviceDomains:  c.DeviceDomains,
 	}
 }
 
@@ -73,7 +76,7 @@ func (f *Default) Find(
 	}
 
 	srvReqInfo := dnsserver.MustRequestInfoFromContext(ctx)
-	id, extID, err := f.deviceData(ctx, req, srvReqInfo)
+	dd, err := f.deviceData(ctx, req, srvReqInfo)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return &agd.DeviceResultError{
@@ -81,7 +84,7 @@ func (f *Default) Find(
 		}
 	}
 
-	r = f.findDevice(ctx, laddr, raddr.Addr(), id, extID)
+	r = f.findDevice(ctx, laddr, raddr.Addr(), dd)
 	if r, ok := r.(*agd.DeviceResultOK); ok {
 		return f.authenticatedResult(ctx, srvReqInfo, r)
 	}

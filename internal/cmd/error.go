@@ -19,10 +19,9 @@ func reportPanics(ctx context.Context, errColl errcoll.Interface, l *slog.Logger
 		return
 	}
 
-	err := errors.FromRecovered(v)
-	l.ErrorContext(ctx, "recovered from panic", slogutil.KeyError, err)
-	slogutil.PrintStack(ctx, l, slog.LevelError)
+	slogutil.PrintRecovered(ctx, l, v)
 
+	err := errors.FromRecovered(v)
 	errColl.Collect(ctx, err)
 	errFlushColl, ok := errColl.(errcoll.ErrorFlushCollector)
 	if ok {

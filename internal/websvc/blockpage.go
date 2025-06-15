@@ -13,13 +13,11 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil/httputil"
 	"github.com/AdguardTeam/golibs/service"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 // blockPageServer serves the blocking page contents.
@@ -29,6 +27,10 @@ type blockPageServer struct {
 
 	// mu protects content and gzipContent.
 	mu *sync.RWMutex
+
+	// metrics is used for the collection of the web service requests
+	// statistics.  It must not be nil.
+	metrics Metrics
 
 	// content is the content of the HTML block page.
 	content []byte
@@ -40,7 +42,7 @@ type blockPageServer struct {
 	contentFilePath string
 
 	// group is the server group used for logging and metrics.
-	group serverGroup
+	group ServerGroup
 
 	// bind are the addresses on which to serve the block page.
 	bind []*BindData
@@ -52,7 +54,8 @@ type blockPageServer struct {
 func newBlockPageServer(
 	conf *BlockPageServerConfig,
 	baseLogger *slog.Logger,
-	g serverGroup,
+	mtrc Metrics,
+	g ServerGroup,
 ) (srv *blockPageServer) {
 	if conf == nil {
 		return nil
@@ -61,6 +64,7 @@ func newBlockPageServer(
 	return &blockPageServer{
 		logger:          baseLogger.With(loggerKeyGroup, g),
 		mu:              &sync.RWMutex{},
+		metrics:         mtrc,
 		contentFilePath: conf.ContentFilePath,
 		group:           g,
 		bind:            conf.Bind,
@@ -141,12 +145,12 @@ func (srv *blockPageServer) blockPageHandler() (h http.Handler) {
 		case "/robots.txt":
 			// Don't serve the HTML page to the robots.txt requests.  Serve the
 			// predefined response instead.
-			serveRobotsDisallow(r.Context(), w.Header(), w)
+			serveRobotsDisallow(r.Context(), srv.metrics, w.Header(), w)
 		default:
 			srv.mu.RLock()
 			defer srv.mu.RUnlock()
 
-			serveBlockPage(w, r, srv.group, srv.content, srv.gzipContent)
+			srv.serve(w, r)
 		}
 	}
 
@@ -178,13 +182,12 @@ func mustGzip(name string, b []byte) (compressed []byte) {
 	return buf.Bytes()
 }
 
-// serveBlockPage serves the block-page content taking compression headers into
-// account.
-func serveBlockPage(w http.ResponseWriter, r *http.Request, g serverGroup, orig, gzipped []byte) {
+// serve serves the block-page content taking compression headers into account.
+func (srv *blockPageServer) serve(w http.ResponseWriter, r *http.Request) {
 	respHdr := w.Header()
 	respHdr.Set(httphdr.ContentType, agdhttp.HdrValTextHTML)
 
-	content := orig
+	content := srv.content
 
 	// TODO(a.garipov): Parse the quality value.
 	//
@@ -192,7 +195,7 @@ func serveBlockPage(w http.ResponseWriter, r *http.Request, g serverGroup, orig,
 	reqHdr := r.Header
 	if strings.Contains(reqHdr.Get(httphdr.AcceptEncoding), agdhttp.HdrValGzip) {
 		respHdr.Set(httphdr.ContentEncoding, agdhttp.HdrValGzip)
-		content = gzipped
+		content = srv.gzipContent
 	}
 
 	// Use HTTP 500 status code to signal that this is a block page.  See
@@ -206,23 +209,20 @@ func serveBlockPage(w http.ResponseWriter, r *http.Request, g serverGroup, orig,
 		l.Log(ctx, levelForError(err), "writing block page", slogutil.KeyError, err)
 	}
 
-	incBlockPageMetrics(g)
+	incBlockPageMetrics(r.Context(), srv.metrics, srv.group)
 }
 
 // incBlockPageMetrics increments the metrics for the block-page view counts
 // depending on the server group.
-func incBlockPageMetrics(g serverGroup) {
-	var totalCtr prometheus.Counter
+func incBlockPageMetrics(ctx context.Context, mtrc Metrics, g ServerGroup) {
 	switch g {
-	case srvGrpAdultBlockingPage:
-		totalCtr = metrics.WebSvcAdultBlockingPageRequestsTotal
-	case srvGrpGeneralBlockingPage:
-		totalCtr = metrics.WebSvcGeneralBlockingPageRequestsTotal
-	case srvGrpSafeBrowsingPage:
-		totalCtr = metrics.WebSvcSafeBrowsingPageRequestsTotal
+	case ServerGroupAdultBlockingPage:
+		mtrc.IncrementReqCount(ctx, RequestTypeAdultBlockingPage)
+	case ServerGroupGeneralBlockingPage:
+		mtrc.IncrementReqCount(ctx, RequestTypeGeneralBlockingPage)
+	case ServerGroupSafeBrowsingPage:
+		mtrc.IncrementReqCount(ctx, RequestTypeSafeBrowsingPage)
 	default:
 		panic(fmt.Errorf("metrics: block-page server group: %w: %q", errors.ErrBadEnumValue, g))
 	}
-
-	totalCtr.Inc()
 }

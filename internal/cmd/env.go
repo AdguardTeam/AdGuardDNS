@@ -44,6 +44,7 @@ type environment struct {
 	ProfilesURL              *urlutil.URL `env:"PROFILES_URL"`
 	RuleStatURL              *urlutil.URL `env:"RULESTAT_URL"`
 	SafeBrowsingURL          *urlutil.URL `env:"SAFE_BROWSING_URL"`
+	SessionTicketURL         *urlutil.URL `env:"SESSION_TICKET_URL"`
 	YoutubeSafeSearchURL     *urlutil.URL `env:"YOUTUBE_SAFE_SEARCH_URL"`
 
 	BackendRateLimitAPIKey string `env:"BACKEND_RATELIMIT_API_KEY"`
@@ -61,13 +62,21 @@ type environment struct {
 	RedisKeyPrefix         string `env:"REDIS_KEY_PREFIX" envDefault:"agdns"`
 	SSLKeyLogFile          string `env:"SSL_KEY_LOG_FILE"`
 	SentryDSN              string `env:"SENTRY_DSN" envDefault:"stderr"`
-	WebStaticDir           string `env:"WEB_STATIC_DIR"`
+	SessionTicketCachePath string `env:"SESSION_TICKET_CACHE_PATH"`
+	SessionTicketType      string `env:"SESSION_TICKET_TYPE"`
+	SessionTicketAPIKey    string `env:"SESSION_TICKET_API_KEY"`
+	SessionTicketIndexName string `env:"SESSION_TICKET_INDEX_NAME"`
+
+	// TODO(a.garipov):  Consider renaming to "WEB_STATIC_PATH" or something
+	// similar.
+	WebStaticDir string `env:"WEB_STATIC_DIR"`
 
 	ListenAddr net.IP `env:"LISTEN_ADDR" envDefault:"127.0.0.1"`
 
 	ProfilesMaxRespSize datasize.ByteSize `env:"PROFILES_MAX_RESP_SIZE" envDefault:"64MB"`
 
-	RedisIdleTimeout timeutil.Duration `env:"REDIS_IDLE_TIMEOUT" envDefault:"30s"`
+	RedisIdleTimeout        timeutil.Duration `env:"REDIS_IDLE_TIMEOUT" envDefault:"30s"`
+	SessionTicketRefreshIvl timeutil.Duration `env:"SESSION_TICKET_REFRESH_INTERVAL"`
 
 	// TODO(a.garipov):  Rename to DNSCHECK_CACHE_KV_COUNT?
 	DNSCheckCacheKVSize int `env:"DNSCHECK_CACHE_KV_SIZE"`
@@ -131,6 +140,8 @@ func (envs *environment) Validate() (err error) {
 	if err != nil {
 		errs = append(errs, fmt.Errorf("VERBOSE: %w", err))
 	}
+
+	errs = envs.validateSessionTickets(errs)
 
 	return errors.Join(errs...)
 }
@@ -234,9 +245,54 @@ func (envs *environment) validateWebStaticDir() (err error) {
 	return nil
 }
 
+// validateSessionTickets appends validation errors to the given errs if
+// environment variables for session tickets contain errors.
+func (envs *environment) validateSessionTickets(errs []error) (res []error) {
+	res = errs
+
+	err := validate.Positive("env SESSION_TICKET_REFRESH_INTERVAL", envs.SessionTicketRefreshIvl)
+	if err != nil {
+		res = append(res, err)
+	}
+
+	err = validate.NotEmpty("env SESSION_TICKET_TYPE", envs.SessionTicketType)
+	if err != nil {
+		return append(res, err)
+	}
+
+	switch typ := envs.SessionTicketType; typ {
+	case sessionTicketLocal:
+		return res
+	case sessionTicketRemote:
+		// Go on.
+	default:
+		err = fmt.Errorf("env SESSION_TICKET_TYPE: %w: %q", errors.ErrBadEnumValue, typ)
+
+		return append(res, err)
+	}
+
+	res = append(
+		res,
+		validate.NotEmpty("env SESSION_TICKET_API_KEY", envs.SessionTicketAPIKey),
+		validate.NotEmpty("env SESSION_TICKET_CACHE_PATH", envs.SessionTicketCachePath),
+		validate.NotEmpty("env SESSION_TICKET_INDEX_NAME", envs.SessionTicketIndexName),
+	)
+
+	if err = validate.NotNil("env SESSION_TICKET_URL", envs.SessionTicketURL); err != nil {
+		res = append(res, err)
+	} else if err = urlutil.ValidateGRPCURL(&envs.SessionTicketURL.URL); err != nil {
+		res = append(res, fmt.Errorf("env SESSION_TICKET_URL: %w", err))
+	}
+
+	return res
+}
+
 // validateFromValidConfig returns an error if environment variables that depend
 // on configuration properties contain errors.  conf is expected to be valid.
-func (envs *environment) validateFromValidConfig(conf *configuration) (err error) {
+func (envs *environment) validateFromValidConfig(
+	conf *configuration,
+	profilesEnabled bool,
+) (err error) {
 	var errs []error
 
 	switch typ := conf.Check.KV.Type; typ {
@@ -250,7 +306,7 @@ func (envs *environment) validateFromValidConfig(conf *configuration) (err error
 		// Probably consul.
 	}
 
-	if conf.isProfilesEnabled() {
+	if profilesEnabled {
 		errs = envs.validateProfilesURLs(errs)
 
 		err = validate.NoGreaterThan(

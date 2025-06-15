@@ -57,9 +57,25 @@ type StorageProfilesResponse struct {
 	// [ProfilesRequest.SyncTime].
 	SyncTime time.Time
 
+	// DeviceChanges defines the device changes committed in this response.
+	//
+	// TODO(a.garipov):  This is currently rather badly designed.  Find ways of
+	// making this less awkward.
+	DeviceChanges map[agd.ProfileID]*StorageDeviceChange
+
 	// Profiles are the profiles data from the [Storage].
 	Profiles []*agd.Profile
 
 	// Devices are the device data from the [Storage].
 	Devices []*agd.Device
+}
+
+// StorageDeviceChange describes changes in the devices of a profile.
+type StorageDeviceChange struct {
+	// DeletedDeviceIDs are the IDs of devices deleted during a partial update
+	// of a profile.
+	DeletedDeviceIDs []agd.DeviceID
+
+	// IsPartial is true when the profile has been updated partially.
+	IsPartial bool
 }

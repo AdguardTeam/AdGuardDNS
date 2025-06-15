@@ -12,6 +12,12 @@ import (
 	"github.com/AdguardTeam/golibs/validate"
 )
 
+// Possible values of the SESSION_TICKET_TYPE environment variable.
+const (
+	sessionTicketLocal  = "local"
+	sessionTicketRemote = "remote"
+)
+
 // tlsConfig are the TLS settings of a DNS server, if any.
 type tlsConfig struct {
 	// Certificates are TLS certificates for this server.

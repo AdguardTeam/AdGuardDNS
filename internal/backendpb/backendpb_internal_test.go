@@ -11,7 +11,8 @@ import (
 
 // Common IDs for tests and their string forms.
 //
-// TODO(a.garipov):  Move all or most tests into external and unexport these.
+// TODO(a.garipov):  Move the generated code into a separate subpackage and move
+// all or most of these into external tests of that package.
 const (
 	TestAccountIDStr    = "acc1234"
 	TestDeviceIDStr     = "dev1234"
@@ -25,6 +26,9 @@ const (
 	TestHumanIDLower agd.HumanIDLower = TestHumanIDLowerStr
 	TestProfileID    agd.ProfileID    = TestProfileIDStr
 )
+
+// TestTimeout is the common timeout for tests.
+const TestTimeout = 1 * time.Second
 
 var (
 	// TestSyncTime is the common update time for tests.

@@ -252,8 +252,8 @@ func (s *ServerBase) serveDNSMsg(
 	logHdlr := s.baseLogger.Handler().WithAttrs(*attrsPtr)
 	logger := slog.New(logHdlr)
 
-	logger.DebugContext(ctx, "started processing")
-	defer logger.DebugContext(ctx, "finished processing")
+	logger.Log(ctx, slogutil.LevelTrace, "started processing")
+	defer logger.Log(ctx, slogutil.LevelTrace, "finished processing")
 
 	ctx = slogutil.ContextWithLogger(ctx, logger)
 

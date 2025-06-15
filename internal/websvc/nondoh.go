@@ -4,13 +4,12 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
@@ -36,7 +35,7 @@ func (svc *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rec := httptest.NewRecorder()
 	svc.serveHTTP(ctx, rec, r)
 
-	action, body := svc.processRec(w.Header(), rec)
+	action, body := svc.processRec(ctx, w.Header(), rec)
 	w.WriteHeader(rec.Code)
 	_, err := w.Write(body)
 	if err != nil {
@@ -66,32 +65,33 @@ func (svc *Service) serveHTTP(
 	case "/dnscheck/test":
 		svc.dnsCheck.ServeHTTP(rec, r)
 
-		metrics.WebSvcDNSCheckTestRequestsTotal.Inc()
+		svc.metrics.IncrementReqCount(ctx, RequestTypeDNSCheckTest)
 	case "/robots.txt":
-		serveRobotsDisallow(ctx, rec.Header(), rec)
+		serveRobotsDisallow(ctx, svc.metrics, rec.Header(), rec)
 	case "/":
 		if svc.rootRedirectURL == "" {
 			http.NotFound(rec, r)
 		} else {
 			http.Redirect(rec, r, svc.rootRedirectURL, http.StatusFound)
 
-			metrics.WebSvcRootRedirectRequestsTotal.Inc()
+			svc.metrics.IncrementReqCount(ctx, RequestTypeRootRedirect)
 		}
 	default:
-		svc.serveDefaultNonDoH(rec, r)
+		svc.serveDefaultNonDoH(ctx, rec, r)
 	}
 }
 
 // serveDefaultNonDoH serves either the static content, the well-known proxy
 // handler's result, or a 404 page.
-func (svc *Service) serveDefaultNonDoH(rec *httptest.ResponseRecorder, r *http.Request) {
+func (svc *Service) serveDefaultNonDoH(
+	ctx context.Context,
+	rec *httptest.ResponseRecorder,
+	r *http.Request,
+) {
 	svc.staticContent.ServeHTTP(rec, r)
 	if rec.Code != http.StatusNotFound {
-		metrics.WebSvcStaticContentRequestsTotal.Inc()
-	} else if isWellKnown(r) {
-		// TODO(a.garipov):  Remove the /.well-known/ crutch once the data about
-		// the actual URLs becomes available.
-		//
+		svc.metrics.IncrementReqCount(ctx, RequestTypeStaticContent)
+	} else if svc.certValidator.IsValidWellKnownRequest(ctx, r) {
 		// TODO(a.garipov):  Find a better way to reset the result?
 		*rec = *httptest.NewRecorder()
 		svc.wellKnownProxy.ServeHTTP(rec, r)
@@ -103,20 +103,11 @@ func (svc *Service) serveDefaultNonDoH(rec *httptest.ResponseRecorder, r *http.R
 	}
 }
 
-// isWellKnown returns true if the request should be proxied to the well-known
-// proxy.
-//
-// TODO(a.garipov):  Remove of improve.
-func isWellKnown(r *http.Request) (ok bool) {
-	return r.TLS == nil &&
-		r.Method == http.MethodGet &&
-		strings.HasPrefix(r.URL.Path, "/.well-known/pki-validation/")
-}
-
 // processRec processes the response code in rec and returns the appropriate
 // body and a description of the action for logging.  It also sets the necessary
 // headers in respHdr.
 func (svc *Service) processRec(
+	ctx context.Context,
 	respHdr http.Header,
 	rec *httptest.ResponseRecorder,
 ) (action string, body []byte) {
@@ -128,7 +119,7 @@ func (svc *Service) processRec(
 			respHdr.Set(httphdr.ContentType, agdhttp.HdrValTextHTML)
 		}
 
-		metrics.WebSvcError404RequestsTotal.Inc()
+		svc.metrics.IncrementReqCount(ctx, RequestTypeError404)
 	case http.StatusInternalServerError:
 		action = "500 page"
 		if len(svc.error500) != 0 {
@@ -136,12 +127,10 @@ func (svc *Service) processRec(
 			respHdr.Set(httphdr.ContentType, agdhttp.HdrValTextHTML)
 		}
 
-		metrics.WebSvcError500RequestsTotal.Inc()
+		svc.metrics.IncrementReqCount(ctx, RequestTypeError500)
 	default:
 		action = "response"
-		for k, v := range rec.Header() {
-			respHdr[k] = v
-		}
+		maps.Copy(respHdr, rec.Header())
 	}
 
 	if body == nil {
@@ -152,7 +141,12 @@ func (svc *Service) processRec(
 }
 
 // serveRobotsDisallow writes predefined disallow-all response.
-func serveRobotsDisallow(ctx context.Context, hdr http.Header, w http.ResponseWriter) {
+func serveRobotsDisallow(
+	ctx context.Context,
+	mtrc Metrics,
+	hdr http.Header,
+	w http.ResponseWriter,
+) {
 	hdr.Set(httphdr.ContentType, agdhttp.HdrValTextPlain)
 
 	_, err := io.WriteString(w, agdhttp.RobotsDisallowAll)
@@ -160,7 +154,7 @@ func serveRobotsDisallow(ctx context.Context, hdr http.Header, w http.ResponseWr
 		logWriteError(ctx, "robots.txt", err)
 	}
 
-	metrics.WebSvcRobotsTxtRequestsTotal.Inc()
+	mtrc.IncrementReqCount(ctx, RequestTypeRobotsTxt)
 }
 
 // levelForError returns a logging level depending on whether err is a network

@@ -44,6 +44,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/contextutil"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
@@ -65,6 +66,9 @@ const (
 	debugIDTicketRotator = "ticket_rotator"
 	debugIDTLSConfig     = "tlsconfig"
 	debugIDWebSvc        = "websvc"
+
+	// debugIDPrefixPlugin is the prefix for plugin debug identifiers.
+	debugIDPrefixPlugin = "plugin/"
 )
 
 // builder contains the logic of configuring and combining together AdGuard DNS
@@ -81,7 +85,6 @@ type builder struct {
 
 	baseLogger     *slog.Logger
 	cacheManager   *agdcache.DefaultManager
-	cloner         *dnsmsg.Cloner
 	conf           *configuration
 	debugRefrs     debugsvc.Refreshers
 	env            *environment
@@ -104,8 +107,10 @@ type builder struct {
 	billStat            billstat.Recorder
 	bindSet             netutil.SubnetSet
 	btdManager          *bindtodevice.Manager
+	cloner              *dnsmsg.Cloner
 	connLimit           *connlimiter.Limiter
 	controlConf         *netext.ControlConfig
+	customDomainDB      profiledb.CustomDomainDB
 	dnsCheck            dnscheck.Interface
 	dnsDB               dnsdb.Interface
 	dnsSvc              *dnssvc.Service
@@ -154,6 +159,10 @@ type builderConfig struct {
 
 	// errColl is used to collect errors in the entities.  It must not be nil.
 	errColl errcoll.Interface
+
+	// profilesEnabled is true if the configuration implies that the profiles
+	// are enabled.
+	profilesEnabled bool
 }
 
 // shutdownTimeout is the default shutdown timeout for all services.
@@ -161,12 +170,9 @@ const shutdownTimeout = 5 * time.Second
 
 // newBuilder returns a new properly initialized builder.  c must not be nil.
 func newBuilder(c *builderConfig) (b *builder) {
-	cloner := dnsmsg.NewCloner(metrics.ClonerStat{})
-
 	return &builder{
 		baseLogger:     c.baseLogger,
 		cacheManager:   agdcache.NewDefaultManager(),
-		cloner:         cloner,
 		conf:           c.conf,
 		env:            c.envs,
 		errColl:        c.errColl,
@@ -184,6 +190,7 @@ func newBuilder(c *builderConfig) (b *builder) {
 			Logger:          c.baseLogger.With(slogutil.KeyPrefix, service.SignalHandlerPrefix),
 			ShutdownTimeout: shutdownTimeout,
 		}),
+		profilesEnabled: c.profilesEnabled,
 	}
 }
 
@@ -239,7 +246,23 @@ func (b *builder) initGeoIP(ctx context.Context) {
 	b.logger.DebugContext(ctx, "initialized geoip")
 }
 
+// initMsgCloner initializes the DNS message cloner.
+func (b *builder) initMsgCloner(ctx context.Context) (err error) {
+	mtrc, err := metrics.NewClonerStat(b.mtrcNamespace, b.promRegisterer)
+	if err != nil {
+		return fmt.Errorf("initializing cloner: %w", err)
+	}
+
+	b.cloner = dnsmsg.NewCloner(mtrc)
+
+	b.logger.DebugContext(ctx, "initialized cloner")
+
+	return nil
+}
+
 // initHashPrefixFilters initializes the hashprefix storages and filters.
+//
+// [builder.initMsgCloner] must be called before this method.
 func (b *builder) initHashPrefixFilters(ctx context.Context) (err error) {
 	// TODO(a.garipov):  Make a separate max_size config for hashprefix filters.
 	maxSize := b.conf.Filters.MaxSize
@@ -797,6 +820,8 @@ var (
 )
 
 // initMsgConstructor initializes the common DNS message constructor.
+//
+// [builder.initMsgCloner] must be called before this method.
 func (b *builder) initMsgConstructor(ctx context.Context) (err error) {
 	fltConf := b.conf.Filters
 	b.sdeConf = &dnsmsg.StructuredDNSErrorsConfig{
@@ -826,10 +851,17 @@ func (b *builder) initMsgConstructor(ctx context.Context) (err error) {
 
 // initTLSManager initializes the TLS manager and the TLS-related metrics.  It
 // also adds the refresher with ID [debugIDTLSConfig] to the debug refreshers.
+//
+// [builder.initGRPCMetrics] must be called before this method.
 func (b *builder) initTLSManager(ctx context.Context) (err error) {
 	mtrc, err := metrics.NewTLSConfig(b.mtrcNamespace, b.promRegisterer)
 	if err != nil {
 		return fmt.Errorf("registering tls metrics: %w", err)
+	}
+
+	tickDB, err := b.newTicketDB(ctx)
+	if err != nil {
+		return fmt.Errorf("creating ticket refresher: %w", err)
 	}
 
 	logFile := b.env.SSLKeyLogFile
@@ -837,14 +869,12 @@ func (b *builder) initTLSManager(ctx context.Context) (err error) {
 		b.logger.WarnContext(ctx, "tls key logging is enabled", "file", logFile)
 	}
 
-	ticketPaths := b.conf.ServerGroups.collectSessTicketPaths()
-
 	mgr, err := tlsconfig.NewDefaultManager(&tlsconfig.DefaultManagerConfig{
-		Logger:             b.baseLogger.With(slogutil.KeyPrefix, "tlsconfig"),
-		ErrColl:            b.errColl,
-		Metrics:            mtrc,
-		KeyLogFilename:     logFile,
-		SessionTicketPaths: ticketPaths,
+		Logger:         b.baseLogger.With(slogutil.KeyPrefix, "tlsconfig"),
+		ErrColl:        b.errColl,
+		Metrics:        mtrc,
+		TicketDB:       tickDB,
+		KeyLogFilename: logFile,
 	})
 	if err != nil {
 		return fmt.Errorf("initializing tls manager: %w", err)
@@ -856,6 +886,80 @@ func (b *builder) initTLSManager(ctx context.Context) (err error) {
 	b.logger.DebugContext(ctx, "initialized tls manager")
 
 	return nil
+}
+
+// newTicketDB creates a new session ticket database depending on the session
+// ticket type.
+func (b *builder) newTicketDB(ctx context.Context) (db tlsconfig.TicketDB, err error) {
+	switch typ := b.env.SessionTicketType; typ {
+	case sessionTicketLocal:
+		b.logger.InfoContext(ctx, "using local session tickets storage")
+
+		ticketPaths := b.conf.ServerGroups.collectSessTicketPaths()
+		db = tlsconfig.NewLocalTicketDB(&tlsconfig.LocalTicketDBConfig{
+			Paths: ticketPaths,
+		})
+	case sessionTicketRemote:
+		b.logger.InfoContext(ctx, "using remote session tickets storage")
+
+		var mtrc backendpb.TicketStorageMetrics
+		mtrc, err = metrics.NewBackendTicketStorage(b.mtrcNamespace, b.promRegisterer)
+		if err != nil {
+			return nil, fmt.Errorf("registering session ticket storage metrics: %w", err)
+		}
+
+		var strg *backendpb.TicketStorage
+		strg, err = backendpb.NewSessionTicketStorage(&backendpb.TicketStorageConfig{
+			Logger:      b.baseLogger.With(slogutil.KeyPrefix, "ticket storage"),
+			Endpoint:    &b.env.SessionTicketURL.URL,
+			GRPCMetrics: b.backendGRPCMtrc,
+			Metrics:     mtrc,
+			Clock:       timeutil.SystemClock{},
+			APIKey:      b.env.SessionTicketAPIKey,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("creating remote session ticket storage: %w", err)
+		}
+
+		db, err = tlsconfig.NewRemoteTicketDB(&tlsconfig.RemoteTicketDBConfig{
+			Logger:        b.baseLogger.With(slogutil.KeyPrefix, "ticket database"),
+			Storage:       strg,
+			Clock:         timeutil.SystemClock{},
+			CacheDirPath:  b.env.SessionTicketCachePath,
+			IndexFileName: b.env.SessionTicketIndexName,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("creating session ticket database: %w", err)
+		}
+	default:
+		panic(fmt.Errorf("env SESSION_TICKET_TYPE: %w: %q", errors.ErrBadEnumValue, typ))
+	}
+
+	return db, nil
+}
+
+// initCustomDomainDB initializes the database for the custom domains.
+//
+// [builder.initTLSManager] must be called before this method.
+func (b *builder) initCustomDomainDB(ctx context.Context) {
+	if !b.profilesEnabled {
+		b.customDomainDB = profiledb.EmptyCustomDomainDB{}
+
+		return
+	}
+
+	b.customDomainDB = tlsconfig.NewCustomDomainDB(&tlsconfig.CustomDomainDBConfig{
+		Logger:  b.baseLogger.With(slogutil.KeyPrefix, "custom_domain_db"),
+		Clock:   timeutil.SystemClock{},
+		ErrColl: b.errColl,
+		// TODO(a.garipov): Init and set the gRPC storage.
+		Storage: tlsconfig.EmptyCustomDomainStorage{},
+		// TODO(a.garipov): Set the TLS manager.
+	})
+
+	// TODO(a.garipov):  Add a refresher and refresh initially.
+
+	b.logger.DebugContext(ctx, "initialized custom domain db")
 }
 
 // initServerGroups initializes the server groups.
@@ -887,14 +991,45 @@ func (b *builder) initServerGroups(ctx context.Context) (err error) {
 	return nil
 }
 
+// initTicketRotator initializes the TLS session ticket rotator.  It also adds
+// the refresher with ID [debugIDTicketRotator] to the debug refreshers.
+//
+// [builder.initServerGroups] must be called before this method.
+func (b *builder) initTicketRotator(ctx context.Context) (err error) {
+	tickRot := service.RefresherFunc(b.tlsManager.RotateTickets)
+
+	err = tickRot.Refresh(ctx)
+	if err != nil {
+		return fmt.Errorf("initial session ticket refresh: %w", err)
+	}
+
+	refr := service.NewRefreshWorker(&service.RefreshWorkerConfig{
+		ContextConstructor: contextutil.NewTimeoutConstructor(defaultTimeout),
+		ErrorHandler:       newSlogErrorHandler(b.baseLogger, "tickrot_refresh"),
+		Refresher:          tickRot,
+		Schedule:           timeutil.NewConstSchedule(time.Duration(b.env.SessionTicketRefreshIvl)),
+		RefreshOnShutdown:  false,
+	})
+	err = refr.Start(ctx)
+	if err != nil {
+		return fmt.Errorf("starting ticket rotator refresh: %w", err)
+	}
+
+	b.sigHdlr.Add(refr)
+
+	b.debugRefrs[debugIDTicketRotator] = tickRot
+
+	b.logger.DebugContext(ctx, "initialized tls")
+
+	return nil
+}
+
 // setServerGroupProperties sets b.profilesEnabled and b.bindSet depending on
 // the server-group data.
 func (b *builder) setServerGroupProperties(ctx context.Context) {
 	var serverPrefixes []netip.Prefix
 	allSingleIP := true
 	for _, grp := range b.serverGroups {
-		b.profilesEnabled = b.profilesEnabled || grp.ProfilesEnabled
-
 		for _, srv := range grp.Servers {
 			for _, p := range srv.BindDataPrefixes() {
 				allSingleIP = allSingleIP && p.IsSingleIP()
@@ -945,49 +1080,16 @@ func (b *builder) startBindToDevice(ctx context.Context) (err error) {
 	return nil
 }
 
-// initTicketRotator initializes the TLS session ticket rotator.  It also adds
-// the refresher with ID [debugIDTicketRotator] to the debug refreshers.
-//
-// [builder.initTLSManager] must be called before this method.
-func (b *builder) initTicketRotator(ctx context.Context) (err error) {
-	tickRot := service.RefresherFunc(b.tlsManager.RotateTickets)
-	err = tickRot.Refresh(ctx)
-	if err != nil {
-		return fmt.Errorf("initial session ticket refresh: %w", err)
-	}
-
-	refr := service.NewRefreshWorker(&service.RefreshWorkerConfig{
-		ContextConstructor: contextutil.NewTimeoutConstructor(defaultTimeout),
-		ErrorHandler:       newSlogErrorHandler(b.baseLogger, "tickrot_refresh"),
-		Refresher:          tickRot,
-		// TODO(a.garipov):  Make configurable.
-		Schedule:          timeutil.NewConstSchedule(1 * time.Minute),
-		RefreshOnShutdown: false,
-	})
-	err = refr.Start(ctx)
-	if err != nil {
-		return fmt.Errorf("starting ticket rotator refresh: %w", err)
-	}
-
-	b.sigHdlr.Add(refr)
-
-	b.debugRefrs[debugIDTicketRotator] = tickRot
-
-	b.logger.DebugContext(ctx, "initialized tls")
-
-	return nil
-}
-
 // defaultTimeout is the timeout used for some operations where another timeout
 // hasn't been defined yet.
 const defaultTimeout = 30 * time.Second
 
 // initGRPCMetrics initializes the gRPC metrics if necessary.
-// [builder.initServerGroups] must be called before this method.
 func (b *builder) initGRPCMetrics(ctx context.Context) (err error) {
 	switch {
 	case
 		b.profilesEnabled,
+		b.env.SessionTicketType == sessionTicketRemote,
 		b.conf.Check.KV.Type == kvModeBackend,
 		b.conf.RateLimit.Allowlist.Type == rlAllowlistTypeBackend:
 		// Go on.
@@ -1095,6 +1197,11 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 		return fmt.Errorf("profile api url: %w", err)
 	}
 
+	profileMtrc, err := metrics.NewAccessProfile(b.mtrcNamespace, b.promRegisterer)
+	if err != nil {
+		return fmt.Errorf("registering profile access engine metrics: %w", err)
+	}
+
 	backendProfileDBMtrc, err := metrics.NewBackendProfileDB(b.mtrcNamespace, b.promRegisterer)
 	if err != nil {
 		return fmt.Errorf("registering backend grpc profile metrics: %w", err)
@@ -1107,6 +1214,7 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 		ErrColl:              b.errColl,
 		Logger:               b.baseLogger.With(slogutil.KeyPrefix, "profilestorage"),
 		BaseCustomLogger:     customLogger,
+		ProfileMetrics:       profileMtrc,
 		GRPCMetrics:          b.backendGRPCMtrc,
 		Metrics:              backendProfileDBMtrc,
 		Endpoint:             apiURL,
@@ -1128,9 +1236,12 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 	profDB, err := profiledb.New(&profiledb.Config{
 		Logger:               b.baseLogger.With(slogutil.KeyPrefix, "profiledb"),
 		BaseCustomLogger:     customLogger,
-		Storage:              strg,
+		Clock:                timeutil.SystemClock{},
+		CustomDomainDB:       b.customDomainDB,
 		ErrColl:              b.errColl,
+		ProfileMetrics:       profileMtrc,
 		Metrics:              profDBMtrc,
+		Storage:              strg,
 		CacheFilePath:        b.env.ProfilesCachePath,
 		FullSyncIvl:          time.Duration(c.FullRefreshIvl),
 		FullSyncRetryIvl:     time.Duration(c.FullRefreshRetryIvl),
@@ -1217,6 +1328,13 @@ func (b *builder) initDNSCheck(ctx context.Context) (err error) {
 // initRuleStat initializes the rule statistics.  It also adds the refresher
 // with ID [debugIDRuleStat] to the debug refreshers.
 func (b *builder) initRuleStat(ctx context.Context) (err error) {
+	b.ruleStat = b.plugins.RuleStat()
+	if b.ruleStat != nil {
+		b.logger.DebugContext(ctx, "initialized rulestat from plugin")
+
+		return nil
+	}
+
 	u := b.env.RuleStatURL
 	if u == nil {
 		b.logger.WarnContext(ctx, "not collecting rule statistics")
@@ -1354,12 +1472,35 @@ func (b *builder) initConnLimit(ctx context.Context, conf *connLimitConfig) (err
 }
 
 // initWeb initializes the web service, starts it, and registers it in the
-// signal handler.  [builder.initDNSCheck] must be call before this method.
+// signal handler.  [builder.initDNSCheck] and [builder.initProfileDB] must be
+// called before this method.
 func (b *builder) initWeb(ctx context.Context) (err error) {
+	webSvcMtrc, err := metrics.NewWebSvc(b.mtrcNamespace, b.promRegisterer)
+	if err != nil {
+		return fmt.Errorf("initializing web service: %w", err)
+	}
+
 	c := b.conf.Web
-	webConf, err := c.toInternal(ctx, b.env, b.dnsCheck, b.errColl, b.baseLogger, b.tlsManager)
+	webConf, err := c.toInternal(
+		ctx,
+		b.env,
+		b.dnsCheck,
+		b.errColl,
+		b.baseLogger,
+		b.tlsManager,
+		webSvcMtrc,
+	)
 	if err != nil {
 		return fmt.Errorf("converting web configuration: %w", err)
+	}
+
+	if b.profilesEnabled {
+		// If profiles are enabled, the custom-domain database must also
+		// implement [websvc.CertificateValidator], as these are parts of the
+		// same feature.
+		webConf.CertificateValidator = b.customDomainDB.(websvc.CertificateValidator)
+	} else {
+		webConf.CertificateValidator = websvc.RejectCertificateValidator{}
 	}
 
 	b.webSvc = websvc.New(webConf)
@@ -1439,9 +1580,10 @@ func (b *builder) waitGeoIP(ctx context.Context) (err error) {
 //   - [builder.initDNSDB]
 //   - [builder.initFilterStorage]
 //   - [builder.initFilteringGroups]
+//   - [builder.initMsgCloner]
 //   - [builder.initMsgConstructor]
-//   - [builder.initQueryLog]
 //   - [builder.initProfileDB]
+//   - [builder.initQueryLog]
 //   - [builder.initRateLimiter]
 //   - [builder.initRuleStat]
 //   - [builder.initWeb]
@@ -1498,7 +1640,7 @@ func (b *builder) initDNS(ctx context.Context) (err error) {
 		Cloner:               b.cloner,
 		ControlConf:          b.controlConf,
 		ConnLimiter:          b.connLimit,
-		NonDNS:               b.webSvc,
+		NonDNS:               b.webSvc.Handler(),
 		ErrColl:              b.errColl,
 		PrometheusRegisterer: b.promRegisterer,
 		MetricsNamespace:     b.mtrcNamespace,
@@ -1547,6 +1689,32 @@ func (b *builder) initHealthCheck(ctx context.Context) (err error) {
 	b.logger.DebugContext(ctx, "initialized healthcheck")
 
 	return nil
+}
+
+// initPluginRefreshers initializes plugin refresher workers.  It adds each
+// refresher to builder's debug refreshers.
+func (b *builder) initPluginRefreshers() {
+	for id, r := range b.plugins.Refreshers() {
+		b.debugRefrs[debugIDPrefixPlugin+id] = r
+	}
+}
+
+// initPluginServices initializes plugin services.  It starts each service and
+// adds them to the signal handler.
+func (b *builder) initPluginServices(ctx context.Context) (err error) {
+	var errs []error
+	for id, svc := range b.plugins.Services() {
+		err = svc.Start(ctx)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("starting plugin service %q: %w", id, err))
+
+			continue
+		}
+
+		b.sigHdlr.Add(svc)
+	}
+
+	return errors.Join(errs...)
 }
 
 // mustStartDNS starts the DNS service and registers it in the signal handler.

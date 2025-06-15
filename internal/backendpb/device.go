@@ -15,6 +15,8 @@ import (
 
 // devicesToInternal is a helper that converts the devices from protobuf to
 // AdGuard DNS devices.
+//
+// TODO(a.garipov):  Refactor into a method of [*ProfileStorage].
 func devicesToInternal(
 	ctx context.Context,
 	ds []*DeviceSettings,
@@ -32,12 +34,12 @@ func devicesToInternal(
 	for _, d := range ds {
 		dev, err := d.toInternal(bindSet)
 		if err != nil {
-			var id string
+			var idStr string
 			if d != nil {
-				id = d.Id
+				idStr = d.Id
 			}
 
-			err = fmt.Errorf("bad settings for device with id %q: %w", id, err)
+			err = fmt.Errorf("bad settings for device with id %q: %w", idStr, err)
 			errcoll.Collect(ctx, errColl, logger, "converting device", err)
 
 			// TODO(s.chzhen):  Add a return result structure and move the

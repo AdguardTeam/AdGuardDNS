@@ -20,20 +20,18 @@ func (f *Default) findDevice(
 	ctx context.Context,
 	laddr netip.AddrPort,
 	remoteIP netip.Addr,
-	id agd.DeviceID,
-	extID *extHumanID,
+	dd deviceData,
 ) (r agd.DeviceResult) {
-	optslog.Debug4(
+	optslog.Debug3(
 		ctx,
 		f.logger,
 		"finding device",
-		"dev_id", id,
-		"ext_id_present", extID != nil,
+		"dev_data", dd,
 		"remote_ip", remoteIP,
 		"laddr", laddr,
 	)
 
-	r = f.deviceFromDB(ctx, laddr, remoteIP, id, extID)
+	r = f.deviceFromDB(ctx, laddr, remoteIP, dd)
 	switch r := r.(type) {
 	case nil:
 		f.logger.DebugContext(ctx, "profile or device not found")
@@ -56,26 +54,28 @@ func (f *Default) deviceFromDB(
 	ctx context.Context,
 	laddr netip.AddrPort,
 	remoteIP netip.Addr,
-	id agd.DeviceID,
-	extID *extHumanID,
+	dd deviceData,
 ) (r agd.DeviceResult) {
-	if id != "" {
-		prof, dev, err := f.db.ProfileByDeviceID(ctx, id)
+	switch dd := dd.(type) {
+	case nil:
+		if f.srv.Protocol == agd.ProtoDNS {
+			return f.deviceByAddrs(ctx, laddr, remoteIP)
+		}
+
+		return nil
+	case *deviceDataID:
+		prof, dev, err := f.profileDB.ProfileByDeviceID(ctx, dd.id)
 
 		return f.newDeviceResult(ctx, prof, dev, "device id", err)
-	}
-
-	if extID != nil {
-		prof, dev, err := f.deviceByExtID(ctx, extID)
+	case *deviceDataExtHumanID:
+		prof, dev, err := f.deviceByExtID(ctx, dd)
 
 		return f.newDeviceResult(ctx, prof, dev, "human id", err)
+	case *deviceDataCustomDomain:
+		return f.deviceResultByCustomDomain(ctx, dd)
+	default:
+		panic(fmt.Errorf("device data: %w: %T(%[2]v)", errors.ErrBadEnumValue, dd))
 	}
-
-	if f.srv.Protocol == agd.ProtoDNS {
-		return f.deviceByAddrs(ctx, laddr, remoteIP)
-	}
-
-	return nil
 }
 
 // newDeviceResult is a helper that returns a result based on the error and the
@@ -109,15 +109,50 @@ func (f *Default) newDeviceResult(
 	}
 }
 
+// deviceResultByCustomDomain converts custom-domain device data into a device
+// result.  cd must not be nil and must be valid.
+func (f *Default) deviceResultByCustomDomain(
+	ctx context.Context,
+	cd *deviceDataCustomDomain,
+) (r agd.DeviceResult) {
+	switch dd := cd.deviceData.(type) {
+	case *deviceDataID:
+		prof, dev, err := f.profileDB.ProfileByDeviceID(ctx, dd.id)
+		if err != nil || (prof != nil && prof.ID == cd.profileID) {
+			return f.newDeviceResult(ctx, prof, dev, "custom domain and device id", err)
+		}
+
+		optslog.Debug4(
+			ctx,
+			f.logger,
+			"custom-domain device and required profile mismatch",
+			"domain", cd.domain,
+			"required_profile_id", cd.profileID,
+			"dev_id", dev.ID,
+			"dev_prof_id", prof.ID,
+		)
+
+		return nil
+	case *deviceDataExtHumanID:
+		// Assume that dd.ProfileID has already been validated and matches
+		// cd.ProfileID.
+		prof, dev, err := f.deviceByExtID(ctx, dd)
+
+		return f.newDeviceResult(ctx, prof, dev, "custom domain and human id", err)
+	default:
+		panic(fmt.Errorf("custom-domain device data: %w: %T(%[2]v)", errors.ErrBadEnumValue, dd))
+	}
+}
+
 // deviceByExtID queries the profile DB for the profile and device by the
 // extended human-readable device identifier.  extID must not be nil.  err is
 // only not nil when it's not a not-found error from the profile database.
 func (f *Default) deviceByExtID(
 	ctx context.Context,
-	extID *extHumanID,
+	extID *deviceDataExtHumanID,
 ) (prof *agd.Profile, dev *agd.Device, err error) {
-	profID, humanID := extID.ProfileID, extID.HumanID
-	prof, dev, err = f.db.ProfileByHumanID(ctx, profID, agd.HumanIDToLower(humanID))
+	profID, humanID := extID.profileID, extID.humanID
+	prof, dev, err = f.profileDB.ProfileByHumanID(ctx, profID, agd.HumanIDToLower(humanID))
 	switch {
 	case err == nil:
 		return prof, dev, nil
@@ -131,7 +166,7 @@ func (f *Default) deviceByExtID(
 		return nil, nil, fmt.Errorf("querying profile db by human id: %w", err)
 	}
 
-	prof, dev, err = f.db.CreateAutoDevice(ctx, profID, humanID, extID.DeviceType)
+	prof, dev, err = f.profileDB.CreateAutoDevice(ctx, profID, humanID, extID.deviceType)
 	switch {
 	case err == nil:
 		return prof, dev, nil
@@ -182,7 +217,7 @@ func (f *Default) deviceByAddrs(
 		return nil
 	}
 
-	prof, dev, err := f.db.ProfileByLinkedIP(ctx, remoteIP)
+	prof, dev, err := f.profileDB.ProfileByLinkedIP(ctx, remoteIP)
 
 	return f.newDeviceResult(ctx, prof, dev, "linked ip", err)
 }
@@ -192,7 +227,7 @@ func (f *Default) deviceByLocalAddr(
 	ctx context.Context,
 	localIP netip.Addr,
 ) (r agd.DeviceResult) {
-	p, d, err := f.db.ProfileByDedicatedIP(ctx, localIP)
+	p, d, err := f.profileDB.ProfileByDedicatedIP(ctx, localIP)
 	if err == nil {
 		optslog.Debug3(
 			ctx,

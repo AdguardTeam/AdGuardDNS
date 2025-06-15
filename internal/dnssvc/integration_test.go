@@ -23,6 +23,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
@@ -85,7 +86,7 @@ func newTestService(
 		Access:              access.EmptyProfile{},
 		BlockingMode:        &dnsmsg.BlockingModeNullIP{},
 		ID:                  dnssvctest.ProfileID,
-		DeviceIDs:           []agd.DeviceID{dnssvctest.DeviceID},
+		DeviceIDs:           container.NewMapSet(dnssvctest.DeviceID),
 		FilteredResponseTTL: agdtest.FilteredResponseTTL,
 		FilteringEnabled:    true,
 		QueryLogEnabled:     true,

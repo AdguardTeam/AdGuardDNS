@@ -9,9 +9,14 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
+	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/c2h5oh/datasize"
@@ -37,6 +42,10 @@ type ProfileStorageConfig struct {
 	// ErrColl is the error collector that is used to collect critical and
 	// non-critical errors.  It must not be nil.
 	ErrColl errcoll.Interface
+
+	// ProfileMetrics is used for the collection of the profile access engine
+	// statistics.  It must not be nil.
+	ProfileMetrics access.ProfileMetrics
 
 	// GRPCMetrics is used for the collection of the protobuf communication
 	// statistics.
@@ -71,6 +80,7 @@ type ProfileStorage struct {
 	bindSet          netutil.SubnetSet
 	errColl          errcoll.Interface
 	client           DNSServiceClient
+	profileMetrics   access.ProfileMetrics
 	grpcMetrics      GRPCMetrics
 	metrics          ProfileDBMetrics
 	apiKey           string
@@ -93,6 +103,7 @@ func NewProfileStorage(c *ProfileStorageConfig) (s *ProfileStorage, err error) {
 		bindSet:          c.BindSet,
 		errColl:          c.ErrColl,
 		client:           NewDNSServiceClient(client),
+		profileMetrics:   c.ProfileMetrics,
 		grpcMetrics:      c.GRPCMetrics,
 		metrics:          c.Metrics,
 		apiKey:           c.APIKey,
@@ -156,13 +167,15 @@ func (s *ProfileStorage) Profiles(
 	defer func() { err = errors.WithDeferred(err, stream.CloseSend()) }()
 
 	resp = &profiledb.StorageProfilesResponse{
-		Profiles: []*agd.Profile{},
-		Devices:  []*agd.Device{},
+		DeviceChanges: map[agd.ProfileID]*profiledb.StorageDeviceChange{},
+		Profiles:      []*agd.Profile{},
+		Devices:       []*agd.Device{},
 	}
 
+	isFullSync := req.SyncTime.IsZero()
 	stats := &profilesCallStats{
 		logger:     s.logger,
-		isFullSync: req.SyncTime.IsZero(),
+		isFullSync: isFullSync,
 	}
 
 	for n := 1; ; n++ {
@@ -182,15 +195,7 @@ func (s *ProfileStorage) Profiles(
 		stats.endRecv()
 
 		stats.startDec()
-		prof, devices, profErr := profile.toInternal(
-			ctx,
-			s.bindSet,
-			s.errColl,
-			s.logger,
-			s.baseCustomLogger,
-			s.metrics,
-			s.respSzEst,
-		)
+		prof, devices, devChg, profErr := s.newProfile(ctx, profile, isFullSync)
 		if profErr != nil {
 			errcoll.Collect(ctx, s.errColl, s.logger, "loading profile", profErr)
 
@@ -198,6 +203,7 @@ func (s *ProfileStorage) Profiles(
 		}
 		stats.endDec()
 
+		resp.DeviceChanges[prof.ID] = devChg
 		resp.Profiles = append(resp.Profiles, prof)
 		resp.Devices = append(resp.Devices, devices...)
 	}
@@ -211,6 +217,117 @@ func (s *ProfileStorage) Profiles(
 	}
 
 	return resp, nil
+}
+
+// newProfile returns a new profile structure and device structures created from
+// the protobuf-encoded data.
+func (s *ProfileStorage) newProfile(
+	ctx context.Context,
+	p *DNSProfile,
+	isFullSync bool,
+) (profile *agd.Profile, devices []*agd.Device, devChg *profiledb.StorageDeviceChange, err error) {
+	if p == nil {
+		return nil, nil, nil, errors.ErrNoValue
+	}
+
+	parental, err := p.Parental.toInternal(ctx, s.errColl, s.logger)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("parental: %w", err)
+	}
+
+	m, err := blockingModeToInternal(p.BlockingMode)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("blocking mode: %w", err)
+	}
+
+	devChg = &profiledb.StorageDeviceChange{}
+	var deviceIDs []agd.DeviceID
+	if l := len(p.Devices); l != 0 {
+		optslog.Trace2(ctx, s.logger, "got devices", "profile_id", p.DnsId, "len", l)
+
+		devices, deviceIDs = devicesToInternal(
+			ctx,
+			p.Devices,
+			s.bindSet,
+			s.errColl,
+			s.logger,
+			s.metrics,
+		)
+	} else if l = len(p.DeviceChanges); l != 0 {
+		optslog.Trace2(ctx, s.logger, "got device changes", "profile_id", p.DnsId, "len", l)
+
+		devChg.IsPartial = true
+		devices, deviceIDs, devChg.DeletedDeviceIDs = deviceChangesToInternal(
+			ctx,
+			p.DeviceChanges,
+			s.bindSet,
+			s.errColl,
+			s.logger,
+			s.metrics,
+		)
+	} else {
+		// If the sync is full, the absence of devices shows that a profile has
+		// no devices, however in a partial sync it shows the absence of changes
+		// in the devices.
+		devChg.IsPartial = !isFullSync
+	}
+
+	profID, err := agd.NewProfileID(p.DnsId)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("id: %w", err)
+	}
+
+	accID, err := agd.NewAccountID(p.AccountId)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("account id: %w", err)
+	}
+
+	var fltRespTTL time.Duration
+	if respTTL := p.FilteredResponseTtl; respTTL != nil {
+		fltRespTTL = respTTL.AsDuration()
+	}
+
+	customRules := rulesToInternal(ctx, p.CustomRules, s.errColl, s.logger)
+	customEnabled := len(customRules) > 0
+
+	var customFilter filter.Custom
+	if customEnabled {
+		customFilter = custom.New(&custom.Config{
+			Logger: s.baseCustomLogger.With("client_id", string(profID)),
+			Rules:  customRules,
+		})
+	}
+
+	customConf := &filter.ConfigCustom{
+		Filter: customFilter,
+		// TODO(a.garipov):  Consider adding an explicit flag to the protocol.
+		Enabled: customEnabled,
+	}
+
+	return &agd.Profile{
+		CustomDomains: p.CustomDomain.toInternal(ctx, s.errColl, s.logger),
+		DeviceIDs:     container.NewMapSet(deviceIDs...),
+		FilterConfig: &filter.ConfigClient{
+			Custom:       customConf,
+			Parental:     parental,
+			RuleList:     p.RuleLists.toInternal(ctx, s.errColl, s.logger),
+			SafeBrowsing: p.SafeBrowsing.toInternal(),
+		},
+		Access:              p.Access.toInternal(ctx, s.errColl, s.profileMetrics, s.logger),
+		BlockingMode:        m,
+		Ratelimiter:         p.RateLimit.toInternal(ctx, s.errColl, s.logger, s.respSzEst),
+		AccountID:           accID,
+		ID:                  profID,
+		FilteredResponseTTL: fltRespTTL,
+		AutoDevicesEnabled:  p.AutoDevicesEnabled,
+		BlockChromePrefetch: p.BlockChromePrefetch,
+		BlockFirefoxCanary:  p.BlockFirefoxCanary,
+		BlockPrivateRelay:   p.BlockPrivateRelay,
+		Deleted:             p.Deleted,
+		FilteringEnabled:    p.FilteringEnabled,
+		IPLogEnabled:        p.IpLogEnabled,
+		QueryLogEnabled:     p.QueryLogEnabled,
+	}, devices, devChg, nil
 }
 
 // toProtobuf converts a storage request structure into the protobuf structure.

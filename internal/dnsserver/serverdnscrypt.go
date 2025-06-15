@@ -79,8 +79,8 @@ func (s *ServerDNSCrypt) Start(ctx context.Context) (err error) {
 		Proto: s.proto,
 	})
 
-	// Create DNSCrypt server with a handler
 	s.server = &dnscrypt.Server{
+		Logger:       s.baseLogger.With("module", "dnscrypt"),
 		ProviderName: s.providerName,
 		ResolverCert: s.resolverCert,
 		Handler: &dnsCryptHandler{

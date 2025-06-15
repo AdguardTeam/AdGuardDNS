@@ -37,7 +37,7 @@ func TestProfileStorage_CreateAutoDevice(t *testing.T) {
 		) (resp *backendpb.CreateDeviceResponse, err error) {
 			defer func() {
 				pt := testutil.PanicT{}
-				testutil.RequireSend(pt, gotReqCh, req, testTimeout)
+				testutil.RequireSend(pt, gotReqCh, req, backendpb.TestTimeout)
 			}()
 
 			return &backendpb.CreateDeviceResponse{
@@ -62,8 +62,12 @@ func TestProfileStorage_CreateAutoDevice(t *testing.T) {
 		},
 	}
 
-	l, err := net.Listen("tcp", "localhost:0")
-	require.NoError(t, err)
+	grpcSrv := grpc.NewServer(
+		grpc.ConnectionTimeout(backendpb.TestTimeout),
+		grpc.Creds(insecure.NewCredentials()),
+	)
+	backendpb.RegisterDNSServiceServer(grpcSrv, srv)
+	endpoint := runLocalGRPCServer(t, grpcSrv)
 
 	s, err := backendpb.NewProfileStorage(&backendpb.ProfileStorageConfig{
 		BindSet:          backendpb.TestBind,
@@ -72,28 +76,11 @@ func TestProfileStorage_CreateAutoDevice(t *testing.T) {
 		BaseCustomLogger: backendpb.TestLogger,
 		GRPCMetrics:      backendpb.EmptyGRPCMetrics{},
 		Metrics:          backendpb.EmptyProfileDBMetrics{},
-		Endpoint: &url.URL{
-			Scheme: "grpc",
-			Host:   l.Addr().String(),
-		},
+		Endpoint:         endpoint,
 	})
 	require.NoError(t, err)
 
-	grpcSrv := grpc.NewServer(
-		grpc.ConnectionTimeout(1*time.Second),
-		grpc.Creds(insecure.NewCredentials()),
-	)
-	backendpb.RegisterDNSServiceServer(grpcSrv, srv)
-
-	go func() {
-		pt := &testutil.PanicT{}
-
-		srvErr := grpcSrv.Serve(l)
-		require.NoError(pt, srvErr)
-	}()
-	t.Cleanup(grpcSrv.GracefulStop)
-
-	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	ctx := testutil.ContextWithTimeout(t, backendpb.TestTimeout)
 
 	resp, err := s.CreateAutoDevice(ctx, &profiledb.StorageCreateAutoDeviceRequest{
 		ProfileID:  backendpb.TestProfileID,
@@ -102,7 +89,7 @@ func TestProfileStorage_CreateAutoDevice(t *testing.T) {
 	})
 	assert.NoError(t, err)
 
-	gotReq, ok := testutil.RequireReceive(t, gotReqCh, testTimeout)
+	gotReq, ok := testutil.RequireReceive(t, gotReqCh, backendpb.TestTimeout)
 	require.True(t, ok)
 	require.NotNil(t, gotReq)
 
@@ -117,11 +104,6 @@ func TestProfileStorage_CreateAutoDevice(t *testing.T) {
 	assert.Equal(t, backendpb.TestHumanIDLower, resp.Device.HumanIDLower)
 }
 
-var (
-	errSink  error
-	respSink *profiledb.StorageProfilesResponse
-)
-
 func BenchmarkProfileStorage_Profiles(b *testing.B) {
 	syncTime := strconv.FormatInt(backendpb.TestSyncTime.UnixMilli(), 10)
 	srvProf := backendpb.NewTestDNSProfile(b)
@@ -131,14 +113,14 @@ func BenchmarkProfileStorage_Profiles(b *testing.B) {
 
 	srv := &testDNSServiceServer{
 		OnCreateDeviceByHumanId: func(
-			ctx context.Context,
-			req *backendpb.CreateDeviceRequest,
-		) (resp *backendpb.CreateDeviceResponse, err error) {
+			_ context.Context,
+			_ *backendpb.CreateDeviceRequest,
+		) (_ *backendpb.CreateDeviceResponse, _ error) {
 			panic("not implemented")
 		},
 
 		OnGetDNSProfiles: func(
-			req *backendpb.DNSProfilesRequest,
+			_ *backendpb.DNSProfilesRequest,
 			srv grpc.ServerStreamingServer[backendpb.DNSProfile],
 		) (err error) {
 			sendErr := srv.Send(srvProf)
@@ -148,8 +130,8 @@ func BenchmarkProfileStorage_Profiles(b *testing.B) {
 		},
 
 		OnSaveDevicesBillingStat: func(
-			srv grpc.ClientStreamingServer[backendpb.DeviceBillingStat, emptypb.Empty],
-		) (err error) {
+			_ grpc.ClientStreamingServer[backendpb.DeviceBillingStat, emptypb.Empty],
+		) (_ error) {
 			panic("not implemented")
 		},
 	}
@@ -189,19 +171,21 @@ func BenchmarkProfileStorage_Profiles(b *testing.B) {
 	ctx := context.Background()
 	req := &profiledb.StorageProfilesRequest{}
 
+	var resp *profiledb.StorageProfilesResponse
+
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		respSink, errSink = s.Profiles(ctx, req)
+	for b.Loop() {
+		resp, err = s.Profiles(ctx, req)
 	}
 
-	require.NoError(b, errSink)
-	require.NotNil(b, respSink)
+	require.NoError(b, err)
+	require.NotNil(b, resp)
 
 	// Most recent results:
+	//
 	//	goos: linux
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/backendpb
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkProfileStorage_Profiles-16    	    4501	    258657 ns/op	   20020 B/op	     350 allocs/op
+	//	BenchmarkProfileStorage_Profiles-16    	    3982	    322718 ns/op	   21769 B/op	     388 allocs/op
 }

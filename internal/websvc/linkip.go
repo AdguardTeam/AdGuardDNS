@@ -1,6 +1,7 @@
 package websvc
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net"
@@ -13,31 +14,58 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 )
 
-// linkedIPProxy proxies selected requests to a remote address.
-type linkedIPProxy struct {
-	httpProxy *httputil.ReverseProxy
-	errColl   errcoll.Interface
+// linkedIPHandler proxies selected requests to a remote address.
+type linkedIPHandler struct {
+	httpProxy     *httputil.ReverseProxy
+	certValidator CertificateValidator
+	errColl       errcoll.Interface
+	metrics       Metrics
 }
 
-// newLinkedIPHandler returns a linked IP proxy handler.  All arguments must be
-// set.
-func newLinkedIPHandler(
-	apiURL *url.URL,
-	errColl errcoll.Interface,
-	proxyLogger *slog.Logger,
-	timeout time.Duration,
-) (h http.Handler) {
+// linkedIPHandlerConfig is the configuration structure for a
+// [*linkedIPHandler].
+//
+// TODO(a.garipov):  Consider generalizing into proxyHandler.
+type linkedIPHandlerConfig struct {
+	// proxyLogger logs errors from the underlying [*httputil.ReverseProxy].  It
+	// must not be nil.
+	proxyLogger *slog.Logger
+
+	// targetURL is the URL to which linked IP API requests are proxied.  It
+	// must not be nil.
+	targetURL *url.URL
+
+	// certValidator, if not nil, checks if an HTTP request is a TLS-certificate
+	// validation request.  If it's nil, [shouldProxyRequest] is used.
+	certValidator CertificateValidator
+
+	// errColl collects errors occurring during proxying.  It must not be nil.
+	errColl errcoll.Interface
+
+	// metrics is used for the collection of the web service requests
+	// statistics.  It must not be nil.
+	metrics Metrics
+
+	// timeout is the timeout for dialing and TLS handshaking.  It must be
+	// positive.
+	//
+	// TODO(a.garipov):  Consider using it for other things as well.
+	timeout time.Duration
+}
+
+// newLinkedIPHandler returns a linked IP proxy handler.  c must not be nil and
+// must be valid.
+func newLinkedIPHandler(c *linkedIPHandlerConfig) (h http.Handler) {
 	// Use a Rewrite func to make sure we send the correct Host header and don't
 	// send anything besides the path.
 	rewrite := func(r *httputil.ProxyRequest) {
-		r.SetURL(apiURL)
-		r.Out.Host = apiURL.Host
+		r.SetURL(c.targetURL)
+		r.Out.Host = c.targetURL.Host
 
 		// Make sure that all requests are marked with our user agent.
 		r.Out.Header.Set(httphdr.UserAgent, agdhttp.UserAgent())
@@ -57,13 +85,13 @@ func newLinkedIPHandler(
 	// handlers.
 	transport := &http.Transport{
 		DialContext: (&net.Dialer{
-			Timeout:   timeout,
+			Timeout:   c.timeout,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
 		ForceAttemptHTTP2:     false,
 		MaxIdleConns:          10,
 		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   timeout,
+		TLSHandshakeTimeout:   c.timeout,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
@@ -83,26 +111,28 @@ func newLinkedIPHandler(
 		reqID, _ := agd.RequestIDFromContext(ctx)
 
 		l := slogutil.MustLoggerFromContext(ctx).With("req_id", reqID)
-		errcoll.Collect(ctx, errColl, l, "proxying", err)
+		errcoll.Collect(ctx, c.errColl, l, "proxying", err)
 	}
 
-	return &linkedIPProxy{
+	return &linkedIPHandler{
 		httpProxy: &httputil.ReverseProxy{
 			Rewrite:        rewrite,
 			Transport:      transport,
-			ErrorLog:       slog.NewLogLogger(proxyLogger.Handler(), slog.LevelDebug),
+			ErrorLog:       slog.NewLogLogger(c.proxyLogger.Handler(), slog.LevelDebug),
 			ModifyResponse: modifyResponse,
 			ErrorHandler:   handlerWithError,
 		},
-		errColl: errColl,
+		certValidator: c.certValidator,
+		errColl:       c.errColl,
+		metrics:       c.metrics,
 	}
 }
 
 // type check
-var _ http.Handler = (*linkedIPProxy)(nil)
+var _ http.Handler = (*linkedIPHandler)(nil)
 
 // ServeHTTP implements the http.Handler interface for *linkedIPProxy.
-func (prx *linkedIPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (prx *linkedIPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Set the Server header here, so that all 404 and 500 responses carry it.
 	respHdr := w.Header()
 	respHdr.Set(httphdr.Server, agdhttp.UserAgent())
@@ -110,68 +140,78 @@ func (prx *linkedIPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	l := slogutil.MustLoggerFromContext(ctx)
 
-	if shouldProxy(r) {
-		// TODO(a.garipov): Consider moving some or all this request
-		// modification to the Director function if there are more handlers like
-		// this in the future.
+	var shouldProxy bool
+	if prx.certValidator != nil {
+		shouldProxy = prx.certValidator.IsValidWellKnownRequest(ctx, r)
+		l.DebugContext(ctx, "cert validation proxy", "should_proxy", shouldProxy)
+	} else {
+		shouldProxy = shouldProxyRequest(r)
+		l.DebugContext(ctx, "linked ip proxy", "should_proxy", shouldProxy)
+	}
 
-		// Remove all proxy headers before sending the request to proxy.
-		hdr := r.Header
-		hdr.Del(httphdr.CFConnectingIP)
-		hdr.Del(httphdr.Forwarded)
-		hdr.Del(httphdr.TrueClientIP)
-		hdr.Del(httphdr.XRealIP)
-
-		// Set the real IP.
-		ip, err := netutil.SplitHost(r.RemoteAddr)
-		if err != nil {
-			err = fmt.Errorf("websvc: linked ip proxy: getting ip: %w", err)
-			prx.errColl.Collect(ctx, err)
-
-			// Send a 500 error, despite the fact that this is probably a client
-			// error, because this is the code that the frontend expects.
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-
-			return
-		}
-
-		hdr.Set(httphdr.XConnectingIP, ip)
-
-		// Set the request ID.
-		reqID := agd.NewRequestID()
-		r = r.WithContext(agd.WithRequestID(r.Context(), reqID))
-		hdr.Set(httphdr.XRequestID, reqID.String())
-
-		l.DebugContext(ctx, "starting to proxy", "req_id", reqID)
-
-		prx.httpProxy.ServeHTTP(w, r)
-
-		metrics.WebSvcLinkedIPProxyRequestsTotal.Inc()
+	if shouldProxy {
+		prx.proxyRequest(ctx, l, w, r)
 	} else if r.URL.Path == "/robots.txt" {
-		serveRobotsDisallow(ctx, respHdr, w)
+		serveRobotsDisallow(ctx, prx.metrics, respHdr, w)
 	} else {
 		http.NotFound(w, r)
 	}
 }
 
-// shouldProxy returns true if the request should be proxied.  Requests that
-// should be proxied are the following:
+// proxyRequest proxies r to the target URL.  l, w, and r must not be nil.
+//
+// TODO(a.garipov): Consider moving some or all this request modification to the
+// Director function if there are more handlers like this in the future.
+func (prx *linkedIPHandler) proxyRequest(
+	ctx context.Context,
+	l *slog.Logger,
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	// Remove all proxy headers before sending the request to proxy.
+	hdr := r.Header
+	hdr.Del(httphdr.CFConnectingIP)
+	hdr.Del(httphdr.Forwarded)
+	hdr.Del(httphdr.TrueClientIP)
+	hdr.Del(httphdr.XRealIP)
+
+	// Set the real IP.
+	ip, err := netutil.SplitHost(r.RemoteAddr)
+	if err != nil {
+		err = fmt.Errorf("websvc: linked ip proxy: getting ip: %w", err)
+		prx.errColl.Collect(ctx, err)
+
+		// Send a 500 error, despite the fact that this is probably a client
+		// error, because this is the code that the frontend expects.
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	hdr.Set(httphdr.XConnectingIP, ip)
+
+	// Set the request ID.
+	reqID := agd.NewRequestID()
+	r = r.WithContext(agd.WithRequestID(r.Context(), reqID))
+	hdr.Set(httphdr.XRequestID, reqID.String())
+
+	l.DebugContext(ctx, "starting to proxy", "req_id", reqID)
+
+	prx.httpProxy.ServeHTTP(w, r)
+
+	prx.metrics.IncrementReqCount(ctx, RequestTypeLinkedIPProxy)
+}
+
+// shouldProxyRequest returns true if the request should be proxied.  Requests
+// that should be proxied are the following:
 //
 //   - GET /linkip/{device_id}/{encrypted}
 //   - GET /linkip/{device_id}/{encrypted}/status
 //   - POST /ddns/{device_id}/{encrypted}/{domain}
 //   - POST /linkip/{device_id}/{encrypted}
 //
-// As well as the well-known paths used for certificate validation.
-//
 // TODO(a.garipov):  Use mux routes.
-func shouldProxy(r *http.Request) (ok bool) {
-	// TODO(a.garipov):  Remove the /.well-known/ crutch once the data about the
-	// actual URLs becomes available.
-	if isWellKnown(r) {
-		return true
-	}
-
+func shouldProxyRequest(r *http.Request) (ok bool) {
 	method, urlPath := r.Method, r.URL.Path
 	parts := strings.SplitN(strings.TrimPrefix(urlPath, "/"), "/", 5)
 	if l := len(parts); l < 3 || l > 4 {

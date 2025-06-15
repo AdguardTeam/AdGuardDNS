@@ -10,18 +10,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// testTimeout is the common timeout for tests and contexts.
-const testTimeout = 1 * time.Second
 
 // newCertAndKey is a helper function that generates certificate and key.
 func newCertAndKey(tb testing.TB, n int64) (certDER []byte, key *rsa.PrivateKey) {
@@ -120,7 +115,7 @@ func TestDefaultManager_Refresh(t *testing.T) {
 	)
 
 	m, err := tlsconfig.NewDefaultManager(&tlsconfig.DefaultManagerConfig{
-		Logger:  slogutil.NewDiscardLogger(),
+		Logger:  testLogger,
 		ErrColl: agdtest.NewErrorCollector(),
 		Metrics: tlsconfig.EmptyMetrics{},
 	})
@@ -162,10 +157,12 @@ func TestDefaultManager_RotateTickets(t *testing.T) {
 	writeSessionKey(t, sessKeyPath)
 
 	m, err := tlsconfig.NewDefaultManager(&tlsconfig.DefaultManagerConfig{
-		Logger:             slogutil.NewDiscardLogger(),
-		ErrColl:            agdtest.NewErrorCollector(),
-		Metrics:            tlsconfig.EmptyMetrics{},
-		SessionTicketPaths: []string{sessKeyPath},
+		Logger:  testLogger,
+		ErrColl: agdtest.NewErrorCollector(),
+		TicketDB: tlsconfig.NewLocalTicketDB(&tlsconfig.LocalTicketDBConfig{
+			Paths: []string{sessKeyPath},
+		}),
+		Metrics: tlsconfig.EmptyMetrics{},
 	})
 	require.NoError(t, err)
 

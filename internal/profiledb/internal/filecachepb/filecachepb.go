@@ -18,19 +18,22 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/c2h5oh/datasize"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// toInternal converts the protobuf-encoded data into a cache structure.
+// toInternal converts the protobuf-encoded data into a cache structure.  mtrc,
+// fc, and baseCustomLogger must be non-nil.
 func toInternal(
 	fc *FileCache,
+	mtrc access.ProfileMetrics,
 	baseCustomLogger *slog.Logger,
 	respSzEst datasize.ByteSize,
 ) (c *internal.FileCache, err error) {
-	profiles, err := profilesToInternal(fc.Profiles, baseCustomLogger, respSzEst)
+	profiles, err := profilesToInternal(fc.Profiles, mtrc, baseCustomLogger, respSzEst)
 	if err != nil {
 		return nil, fmt.Errorf("converting profiles: %w", err)
 	}
@@ -59,15 +62,17 @@ func toProtobuf(c *internal.FileCache) (pbFileCache *FileCache) {
 }
 
 // profilesToInternal converts protobuf profile structures into internal ones.
+// mtrc and baseCustomLogger must be non-nil.
 func profilesToInternal(
 	pbProfiles []*Profile,
+	mtrc access.ProfileMetrics,
 	baseCustomLogger *slog.Logger,
 	respSzEst datasize.ByteSize,
 ) (profiles []*agd.Profile, err error) {
 	profiles = make([]*agd.Profile, 0, len(pbProfiles))
 	for i, pbProf := range pbProfiles {
 		var prof *agd.Profile
-		prof, err = pbProf.toInternal(baseCustomLogger, respSzEst)
+		prof, err = pbProf.toInternal(mtrc, baseCustomLogger, respSzEst)
 		if err != nil {
 			return nil, fmt.Errorf("profile at index %d: %w", i, err)
 		}
@@ -78,8 +83,10 @@ func profilesToInternal(
 	return profiles, nil
 }
 
-// toInternal converts a protobuf profile structure to an internal one.
+// toInternal converts a protobuf profile structure to an internal one.  mtrc
+// and baseCustomLogger must be non-nil.
 func (x *Profile) toInternal(
+	mtrc access.ProfileMetrics,
 	baseCustomLogger *slog.Logger,
 	respSzEst datasize.ByteSize,
 ) (prof *agd.Profile, err error) {
@@ -147,7 +154,7 @@ func (x *Profile) toInternal(
 		CustomDomains: customDomains,
 		FilterConfig:  fltConf,
 
-		Access:       x.Access.toInternal(),
+		Access:       x.Access.toInternal(mtrc),
 		BlockingMode: m,
 		Ratelimiter:  x.Ratelimiter.toInternal(respSzEst),
 
@@ -155,7 +162,9 @@ func (x *Profile) toInternal(
 		ID:        agd.ProfileID(x.ProfileId),
 
 		// Consider device IDs to have been prevalidated.
-		DeviceIDs: unsafelyConvertStrSlice[string, agd.DeviceID](x.DeviceIds),
+		DeviceIDs: container.NewMapSet(
+			unsafelyConvertStrSlice[string, agd.DeviceID](x.DeviceIds)...,
+		),
 
 		// Consider rule-list IDs to have been prevalidated.
 		FilteredResponseTTL: x.FilteredResponseTtl.AsDuration(),
@@ -398,13 +407,15 @@ func (x *Ratelimiter) toInternal(respSzEst datasize.ByteSize) (r agd.Ratelimiter
 }
 
 // toInternal converts protobuf access settings to an internal structure.  If x
-// is nil, toInternal returns [access.EmptyProfile].
-func (x *Access) toInternal() (a access.Profile) {
+// is nil, toInternal returns [access.EmptyProfile].  If x is not nil, mtrc must
+// be non-nil.
+func (x *Access) toInternal(mtrc access.ProfileMetrics) (a access.Profile) {
 	if x == nil {
 		return access.EmptyProfile{}
 	}
 
 	return access.NewDefaultProfile(&access.ProfileConfig{
+		Metrics:              mtrc,
 		AllowedNets:          cidrRangeToInternal(x.AllowlistCidr),
 		BlockedNets:          cidrRangeToInternal(x.BlocklistCidr),
 		AllowedASN:           asnToInternal(x.AllowlistAsn),
@@ -471,7 +482,7 @@ func profileToProtobuf(p *agd.Profile) (pbProf *Profile) {
 		Ratelimiter:         ratelimiterToProtobuf(p.Ratelimiter.Config()),
 		AccountId:           string(p.AccountID),
 		ProfileId:           string(p.ID),
-		DeviceIds:           unsafelyConvertStrSlice[agd.DeviceID, string](p.DeviceIDs),
+		DeviceIds:           unsafelyConvertStrSlice[agd.DeviceID, string](p.DeviceIDs.Values()),
 		FilteredResponseTtl: durationpb.New(p.FilteredResponseTTL),
 		AutoDevicesEnabled:  p.AutoDevicesEnabled,
 		BlockChromePrefetch: p.BlockChromePrefetch,

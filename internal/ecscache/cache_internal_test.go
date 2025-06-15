@@ -8,9 +8,8 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/miekg/dns"
+	"github.com/stretchr/testify/assert"
 )
-
-var msgSink *dns.Msg
 
 func BenchmarkMiddleware_Get(b *testing.B) {
 	mw := &Middleware{
@@ -38,9 +37,20 @@ func BenchmarkMiddleware_Get(b *testing.B) {
 
 	ctx := context.Background()
 
+	var msg *dns.Msg
+
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		msgSink, _ = mw.get(ctx, req, cr)
+	for b.Loop() {
+		msg, _ = mw.get(ctx, req, cr)
 	}
+
+	assert.Nil(b, msg)
+
+	// Most recent results:
+	//
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/ecscache
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkMiddleware_Get-12    	 5855624	       195.1 ns/op	      16 B/op	       2 allocs/op
 }

@@ -46,6 +46,12 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`SAFE_BROWSING_ENABLED`](#SAFE_BROWSING_ENABLED)
 - [`SAFE_BROWSING_URL`](#SAFE_BROWSING_URL)
 - [`SENTRY_DSN`](#SENTRY_DSN)
+- [`SESSION_TICKET_API_KEY`](#SESSION_TICKET_API_KEY)
+- [`SESSION_TICKET_CACHE_PATH`](#SESSION_TICKET_CACHE_PATH)
+- [`SESSION_TICKET_INDEX_NAME`](#SESSION_TICKET_INDEX_NAME)
+- [`SESSION_TICKET_REFRESH_INTERVAL`](#SESSION_TICKET_REFRESH_INTERVAL)
+- [`SESSION_TICKET_TYPE`](#SESSION_TICKET_TYPE)
+- [`SESSION_TICKET_URL`](#SESSION_TICKET_URL)
 - [`SSL_KEY_LOG_FILE`](#SSL_KEY_LOG_FILE)
 - [`VERBOSE`](#VERBOSE)
 - [`WEB_STATIC_DIR_ENABLED`](#WEB_STATIC_DIR_ENABLED)
@@ -205,6 +211,8 @@ Paths to the files containing MaxMind GeoIP databases: for ASNs and for countrie
 ## <a href="#LINKED_IP_TARGET_URL" id="LINKED_IP_TARGET_URL" name="LINKED_IP_TARGET_URL">`LINKED_IP_TARGET_URL`</a>
 
 The target HTTP(S) URL to which linked IP API requests are proxied. In case [linked IP and dynamic DNS][conf-web-linked_ip] web server is configured, the variable is required. See the [external HTTP API requirements section][ext-linked_ip].
+
+Certificate validation requests to DoH servers are also proxied to this URL when both DoH and profiles are enabled.
 
 **Default:** **Unset.**
 
@@ -376,6 +384,56 @@ The HTTP(S) URL of source list of rules for dangerous domains safe browsing filt
 Sentry error collector address. The special value `stderr` makes AdGuard DNS print these errors to standard error.
 
 **Default:** `stderr`.
+
+## <a href="#SESSION_TICKET_API_KEY" id="SESSION_TICKET_API_KEY" name="SESSION_TICKET_API_KEY">`SESSION_TICKET_API_KEY`</a>
+
+The API key to use when authenticating queries to the remote TLS session ticket storage, if [`SESSION_TICKET_TYPE`](#SESSION_TICKET_TYPE) is set to `remote`. The API key should be valid as defined by [RFC 6750].
+
+**Default:** **Unset.**
+
+## <a href="#SESSION_TICKET_CACHE_PATH" id="SESSION_TICKET_CACHE_PATH" name="SESSION_TICKET_CACHE_PATH">`SESSION_TICKET_CACHE_PATH`</a>
+
+The path to directory for storing downloaded TLS session tickets, when [`SESSION_TICKET_TYPE`](#SESSION_TICKET_TYPE) is set to `remote`. If directory doesn't exist, it will be created on first successful start.
+
+**Default:** **Unset.**
+
+## <a href="#SESSION_TICKET_INDEX_NAME" id="SESSION_TICKET_INDEX_NAME" name="SESSION_TICKET_INDEX_NAME">`SESSION_TICKET_INDEX_NAME`</a>
+
+The base name of the file to store downloaded TLS session tickets index, when [`SESSION_TICKET_TYPE`](#SESSION_TICKET_TYPE) is set to `remote`. This name will invalidate the received tickets with the same name. If the file doesn't exist, it will be created on first successful start. The expected format of the file is as follows:
+
+```json
+{
+    "tickets": {
+        "ticket_1": {
+            "last_update": "2006-01-02T15:04:05.999999999Z07:00"
+        },
+        // …
+        "ticket_n": {
+            "last_update": "2006-01-02T15:04:10.999999999Z07:00"
+        }
+    }
+}
+```
+
+**Default:** **Unset.**
+
+## <a href="#SESSION_TICKET_REFRESH_INTERVAL" id="SESSION_TICKET_REFRESH_INTERVAL" name="SESSION_TICKET_REFRESH_INTERVAL">`SESSION_TICKET_REFRESH_INTERVAL`</a>
+
+The interval between TLS session ticket rotations, as a human-readable duration.
+
+**Default:** **Unset.**
+
+## <a href="#SESSION_TICKET_TYPE" id="SESSION_TICKET_TYPE" name="SESSION_TICKET_TYPE">`SESSION_TICKET_TYPE`</a>
+
+The type of TLS session ticket storage. Its possible values are: `local` and `remote`.  When set to `remote`, the [`SESSION_TICKET_API_KEY`](#SESSION_TICKET_API_KEY), [`SESSION_TICKET_CACHE_PATH`](#SESSION_TICKET_CACHE_PATH), [`SESSION_TICKET_INDEX_NAME`](#SESSION_TICKET_INDEX_NAME), and [`SESSION_TICKET_URL`](#SESSION_TICKET_URL) variables are required.
+
+**Default:** **Unset.**
+
+## <a href="#SESSION_TICKET_URL" id="SESSION_TICKET_URL" name="SESSION_TICKET_URL">`SESSION_TICKET_URL`</a>
+
+The base backend URL used as a TLS session ticket storage, when [`SESSION_TICKET_TYPE`](#SESSION_TICKET_TYPE) is set to `remote`. Supports gRPC(S) (`grpc://` and`grpcs://`) URLs. See the [external API requirements section][ext-backend-dnscheck]. **The `grpcs://` scheme is preferred because TLS session tickets are considered sensitive information.**
+
+**Default:** **Unset.**
 
 ## <a href="#SSL_KEY_LOG_FILE" id="SSL_KEY_LOG_FILE" name="SSL_KEY_LOG_FILE">`SSL_KEY_LOG_FILE`</a>
 

@@ -51,6 +51,11 @@ service RateLimitService {
     Gets rate limit settings.
   */
   rpc getRateLimitSettings(RateLimitSettingsRequest) returns (RateLimitSettingsResponse);
+
+  /*
+    Gets global access settings.
+  */
+  rpc getGlobalAccessSettings(GlobalAccessSettingsRequest) returns (GlobalAccessSettingsResponse);
 }
 
 service RemoteKVService {
@@ -85,12 +90,31 @@ service CustomDomainService {
   rpc getCustomDomainCertificate(CustomDomainCertificateRequest) returns (CustomDomainCertificateResponse);
 }
 
+service SessionTicketService {
+
+    /*
+      Gets session ticket for the current date
+
+      This method may return the following errors:
+      - AuthenticationFailedError: If the authentication failed.
+    */
+    rpc getSessionTickets(SessionTicketRequest) returns (SessionTicketResponse);
+}
+
 message RateLimitSettingsRequest {
 
 }
 
 message RateLimitSettingsResponse {
   repeated CidrRange allowed_subnets = 1;
+}
+
+message GlobalAccessSettingsRequest {
+
+}
+
+message GlobalAccessSettingsResponse {
+  AccessSettings standard = 1;
 }
 
 message DNSProfilesRequest {
@@ -105,6 +129,17 @@ message DNSProfile {
   SafeBrowsingSettings safe_browsing = 5;
   ParentalSettings parental = 6;
   RuleListsSettings rule_lists = 7;
+
+  /*
+   * Field devices contains the COMPLETE list of all devices in the profile.
+   * Field device_changes contains only the list of changes that have happened
+   * to the profile's devices since sync_time.
+   *
+   * devices and device_changes MUST NOT be set at the same time, but they MAY
+   * both be empty.
+   *
+   * device_changes MUST NOT contain multiple changes for the same device.
+   */
   repeated DeviceSettings devices = 8;
   repeated string custom_rules = 9;
   google.protobuf.Duration filtered_response_ttl = 10;
@@ -123,6 +158,24 @@ message DNSProfile {
   bool block_chrome_prefetch = 21;
   CustomDomainSettings custom_domain = 22;
   string account_id = 23;
+  repeated DeviceSettingsChange device_changes = 24;
+  bool standard_access_settings_enabled = 25;
+}
+
+message DeviceSettingsChange {
+
+  message Deleted {
+      string device_id = 1;
+  }
+
+  message Upserted {
+      DeviceSettings device = 1;
+  }
+
+  oneof change {
+      Deleted deleted = 1;
+      Upserted upserted = 2;
+  }
 }
 
 message CustomDomainSettings {
@@ -322,4 +375,15 @@ message CustomDomainCertificateRequest {
 message CustomDomainCertificateResponse {
   bytes certificate = 1;
   bytes private_key = 2;
+}
+
+message SessionTicketRequest {}
+
+message SessionTicketResponse {
+    repeated SessionTicket tickets = 1;
+}
+
+message SessionTicket {
+    string name = 1;
+    bytes data = 2;
 }

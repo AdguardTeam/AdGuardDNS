@@ -105,8 +105,6 @@ func TestFileSystem_Write(t *testing.T) {
 	})
 }
 
-var errSink error
-
 func BenchmarkFileSystem_Write_file(b *testing.B) {
 	f, err := os.CreateTemp(b.TempDir(), b.Name())
 	require.NoError(b, err)
@@ -122,18 +120,17 @@ func BenchmarkFileSystem_Write_file(b *testing.B) {
 	ctx := context.Background()
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		errSink = l.Write(ctx, e)
+	for b.Loop() {
+		err = l.Write(ctx, e)
 	}
 
-	require.NoError(b, errSink)
+	require.NoError(b, err)
 
-	// Most recent result, on a ThinkPad X13:
+	// Most recent results:
 	//
-	//	goos: linux
-	//	goarch: amd64
-	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/querylog
-	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkFileSystem_Write_file-16    	  122740	     12386 ns/op	     248 B/op	       5 allocs/op
+	// goos: darwin
+	// goarch: amd64
+	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/querylog
+	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+	// BenchmarkFileSystem_Write_file-12    	   41662	     55338 ns/op	     297 B/op	       5 allocs/op
 }
