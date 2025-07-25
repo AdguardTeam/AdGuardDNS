@@ -7,6 +7,38 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 [kec]: https://keepachangelog.com/en/1.0.0/
 [sem]: https://semver.org/spec/v2.0.0.html
 
+## AGDNS-3018 / Build 1033
+
+- The environment variables `DNSCHECK_KV_TTL`, `DNSCHECK_KV_TYPE` have been added.
+
+- The property `check.kv.ttl` has been removed. Use `DNSCHECK_KV_TTL` environment variable instead.
+
+- The property `check.kv.type` has been removed. Use `DNSCHECK_KV_TYPE` environment variable instead.
+
+- The environment variable `RATELIMIT_ALLOWLIST_TYPE` have been added.
+
+- The property `ratelimit.allowlist.type` has been removed. Use `RATELIMIT_ALLOWLIST_TYPE` environment variable instead.
+
+## AGDNS-2983 / Build 1020
+
+- The environment variable `NODE_NAME` has been added.
+
+- The property `check.node_name` has been removed. Use `NODE_NAME` environment variable instead.
+
+## AGDNS-2864 / Build 1014
+
+- The environment variables `CUSTOM_DOMAINS_API_KEY`, `CUSTOM_DOMAINS_CACHE_PATH`, `CUSTOM_DOMAINS_ENABLED`, `CUSTOM_DOMAINS_REFRESH_INTERVAL`, and `CUSTOM_DOMAINS_URL` have been added.
+
+## AGDNS-2984 / Build 1013
+
+- The environment variable `REDIS_ADDR` has been changed to `REDIS_HOST`.
+
+- The default value of environment variable `REDIS_IDLE_TIMEOUT` has been changed from `30s` to `5m`.
+
+- The default value of environment variable `REDIS_MAX_ACTIVE` has been changed from `10` to `100`.
+
+- The default value of environment variable `REDIS_MAX_IDLE` has been changed from `3` to `100`.
+
 ## AGDNS-2864 / Build 1000
 
 - The environment variables `SESSION_TICKET_API_KEY`, `SESSION_TICKET_CACHE_PATH`, `SESSION_TICKET_INDEX_NAME`, `SESSION_TICKET_REFRESH_INTERVAL`, `SESSION_TICKET_TYPE`, `SESSION_TICKET_URL` have been added.

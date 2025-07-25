@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdrand"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/optslog"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/mathutil"
+	"github.com/AdguardTeam/golibs/mathutil/randutil"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/c2h5oh/datasize"
 )
@@ -71,7 +71,7 @@ type FileSystem struct {
 func NewFileSystem(c *FileSystemConfig) (l *FileSystem) {
 	src := rand.NewChaCha8(c.RandSeed)
 	// #nosec G404 -- We don't need a real random, pseudorandom is enough.
-	rng := rand.New(agdrand.NewLockedSource(src))
+	rng := rand.New(randutil.NewLockedSource(src))
 
 	return &FileSystem{
 		logger: c.Logger,

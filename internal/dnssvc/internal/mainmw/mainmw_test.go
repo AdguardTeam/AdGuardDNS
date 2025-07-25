@@ -41,6 +41,8 @@ const (
 		"^$dnsrewrite=NOERROR;A;" + testRewriteAddrStr
 	testRuleRewriteCNAME filter.RuleText = "||" + dnssvctest.DomainRewritten +
 		"^$dnsrewrite=NOERROR;CNAME;" + dnssvctest.DomainRewrittenCNAME
+
+	testNodeName = "test-node"
 )
 
 // Common variables for tests.
@@ -226,6 +228,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 				Metrics:       mainmw.EmptyMetrics{},
 				QueryLog:      queryLog,
 				RuleStat:      ruleStat,
+				NodeName:      testNodeName,
 			}
 
 			mw := mainmw.New(c)
@@ -705,6 +708,7 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 				Metrics:       mainmw.EmptyMetrics{},
 				QueryLog:      queryLog,
 				RuleStat:      ruleStat,
+				NodeName:      testNodeName,
 			}
 
 			mw := mainmw.New(c)

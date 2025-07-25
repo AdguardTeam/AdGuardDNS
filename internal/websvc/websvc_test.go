@@ -19,6 +19,7 @@ import (
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/testutil/servicetest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -152,14 +153,7 @@ func startService(t *testing.T, svc *websvc.Service) {
 	})
 	require.NoError(t, err)
 
-	require.NotPanics(t, func() {
-		err = svc.Start(testutil.ContextWithTimeout(t, testTimeout))
-	})
-	require.NoError(t, err)
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return svc.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
-	})
+	servicetest.RequireRun(t, svc, testTimeout)
 }
 
 // assertResponse is a helper function that checks status code of HTTP

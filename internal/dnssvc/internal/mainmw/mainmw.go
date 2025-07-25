@@ -15,10 +15,10 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/optslog"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/miekg/dns"
 )
@@ -38,6 +38,7 @@ type Middleware struct {
 	metrics     Metrics
 	queryLog    querylog.Interface
 	ruleStat    rulestat.Interface
+	nodeName    string
 }
 
 // Config is the configuration structure for the main middleware.  All fields
@@ -77,6 +78,9 @@ type Config struct {
 	// RuleStat is used to collect statistics about matched filtering rules and
 	// rule lists.
 	RuleStat rulestat.Interface
+
+	// NodeName is the name of this server node.
+	NodeName string
 }
 
 // New returns a new main middleware.  c must not be nil.
@@ -101,6 +105,7 @@ func New(c *Config) (mw *Middleware) {
 		metrics:  c.Metrics,
 		queryLog: c.QueryLog,
 		ruleStat: c.RuleStat,
+		nodeName: c.NodeName,
 	}
 }
 

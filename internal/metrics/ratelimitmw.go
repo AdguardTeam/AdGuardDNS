@@ -6,7 +6,6 @@ import (
 	"net"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
@@ -15,23 +14,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// RatelimitMiddleware is an interface for collection of the statistics of the
-// access and ratelimit middleware.
-//
-// NOTE:  Keep in sync with [dnssvc.RatelimitMiddleware].
-type RatelimitMiddleware interface {
-	ratelimit.Metrics
-
-	IncrementAccessBlockedByHost(ctx context.Context)
-	IncrementAccessBlockedByProfile(ctx context.Context)
-	IncrementAccessBlockedBySubnet(ctx context.Context)
-	IncrementRatelimitedByProfile(ctx context.Context)
-	IncrementUnknownDedicated(ctx context.Context)
-}
-
-// DefaultRatelimitMiddleware is the Prometheus-based implementation of the
-// [RatelimitMiddleware] interface.
-type DefaultRatelimitMiddleware struct {
+// RatelimitMiddleware is the Prometheus-based implementation of the
+// [dnssvc.RatelimitMiddleware] interface.
+type RatelimitMiddleware struct {
 	allowlistedTotalCounters *syncutil.OnceConstructor[reqLabelMetricKey, prometheus.Counter]
 	droppedTotalCounters     *syncutil.OnceConstructor[reqLabelMetricKey, prometheus.Counter]
 
@@ -39,16 +24,15 @@ type DefaultRatelimitMiddleware struct {
 	accessBlockedByProfileTotal prometheus.Counter
 	accessBlockedBySubnetTotal  prometheus.Counter
 	ratelimitedByProfile        prometheus.Counter
-	unknownDedicatedTotal       prometheus.Counter
 }
 
-// NewDefaultRatelimitMiddleware registers the middleware metrics of the access
-// and ratelimiting middleware in reg and returns a properly initialized
-// *DefaultRatelimitMiddleware.
-func NewDefaultRatelimitMiddleware(
+// NewRatelimitMiddleware registers the middleware metrics of the access and
+// ratelimiting middleware in reg and returns a properly initialized
+// *RatelimitMiddleware.
+func NewRatelimitMiddleware(
 	namespace string,
 	reg prometheus.Registerer,
-) (m *DefaultRatelimitMiddleware, err error) {
+) (m *RatelimitMiddleware, err error) {
 	// NOTE:  For historical reasons, this entity contains counters from
 	// multiple namespaces.  Do not change them without notifying the
 	// infrastructure team.
@@ -61,7 +45,6 @@ func NewDefaultRatelimitMiddleware(
 		accessBlockedByProfileTotal = "profile_blocked_total"
 		accessBlockedBySubnetTotal  = "blocked_subnet_total"
 		ratelimitedByProfile        = "profile_ratelimited_total"
-		unknownDedicatedTotal       = "unknown_dedicated"
 	)
 
 	allowlistedTotalCounters := prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -78,7 +61,7 @@ func NewDefaultRatelimitMiddleware(
 		Help:      "The total number of rate-limited DNS queries.",
 	}, []string{"name", "proto", "network", "addr", "type", "family"})
 
-	m = &DefaultRatelimitMiddleware{
+	m = &RatelimitMiddleware{
 		allowlistedTotalCounters: syncutil.NewOnceConstructor(
 			func(k reqLabelMetricKey) (c prometheus.Counter) {
 				return k.withLabelValues(allowlistedTotalCounters)
@@ -118,13 +101,6 @@ func NewDefaultRatelimitMiddleware(
 			Subsystem: subsystemDNSSvc,
 			Help:      "Total count of requests dropped by profile ratelimit.",
 		}),
-
-		unknownDedicatedTotal: prometheus.NewCounter(prometheus.CounterOpts{
-			Name:      unknownDedicatedTotal,
-			Namespace: namespace,
-			Subsystem: subsystemDNSSvc,
-			Help:      "The number of dropped queries for unrecognized dedicated addresses.",
-		}),
 	}
 
 	var errs []error
@@ -146,9 +122,6 @@ func NewDefaultRatelimitMiddleware(
 	}, {
 		Key:   ratelimitedByProfile,
 		Value: m.ratelimitedByProfile,
-	}, {
-		Key:   unknownDedicatedTotal,
-		Value: m.unknownDedicatedTotal,
 	}}
 
 	for _, c := range collectors {
@@ -165,42 +138,33 @@ func NewDefaultRatelimitMiddleware(
 	return m, nil
 }
 
-// type check
-var _ RatelimitMiddleware = (*DefaultRatelimitMiddleware)(nil)
-
 // IncrementAccessBlockedByHost implements the [RatelimitMiddleware] interface
-// for *DefaultRatelimitMiddleware.
-func (m *DefaultRatelimitMiddleware) IncrementAccessBlockedByHost(_ context.Context) {
+// for *RatelimitMiddleware.
+func (m *RatelimitMiddleware) IncrementAccessBlockedByHost(_ context.Context) {
 	m.accessBlockedByHostTotal.Inc()
 }
 
 // IncrementAccessBlockedByProfile implements the [RatelimitMiddleware]
-// interface for *DefaultRatelimitMiddleware.
-func (m *DefaultRatelimitMiddleware) IncrementAccessBlockedByProfile(_ context.Context) {
+// interface for *RatelimitMiddleware.
+func (m *RatelimitMiddleware) IncrementAccessBlockedByProfile(_ context.Context) {
 	m.accessBlockedByProfileTotal.Inc()
 }
 
 // IncrementAccessBlockedBySubnet implements the [RatelimitMiddleware] interface
-// for *DefaultRatelimitMiddleware.
-func (m *DefaultRatelimitMiddleware) IncrementAccessBlockedBySubnet(_ context.Context) {
+// for *RatelimitMiddleware.
+func (m *RatelimitMiddleware) IncrementAccessBlockedBySubnet(_ context.Context) {
 	m.accessBlockedBySubnetTotal.Inc()
 }
 
 // IncrementRatelimitedByProfile implements the [RatelimitMiddleware] interface
-// for *DefaultRatelimitMiddleware.
-func (m *DefaultRatelimitMiddleware) IncrementRatelimitedByProfile(_ context.Context) {
+// for *RatelimitMiddleware.
+func (m *RatelimitMiddleware) IncrementRatelimitedByProfile(_ context.Context) {
 	m.ratelimitedByProfile.Inc()
 }
 
-// IncrementUnknownDedicated implements the [RatelimitMiddleware] interface for
-// *DefaultRatelimitMiddleware.
-func (m *DefaultRatelimitMiddleware) IncrementUnknownDedicated(_ context.Context) {
-	m.unknownDedicatedTotal.Inc()
-}
-
 // OnAllowlisted implements the [RatelimitMiddleware] interface for
-// *DefaultRatelimitMiddleware.
-func (m *DefaultRatelimitMiddleware) OnAllowlisted(
+// *RatelimitMiddleware.
+func (m *RatelimitMiddleware) OnAllowlisted(
 	ctx context.Context,
 	req *dns.Msg,
 	rw dnsserver.ResponseWriter,
@@ -209,8 +173,8 @@ func (m *DefaultRatelimitMiddleware) OnAllowlisted(
 }
 
 // OnRateLimited implements the [RatelimitMiddleware] interface for
-// *DefaultRatelimitMiddleware.
-func (m *DefaultRatelimitMiddleware) OnRateLimited(
+// *RatelimitMiddleware.
+func (m *RatelimitMiddleware) OnRateLimited(
 	ctx context.Context,
 	req *dns.Msg,
 	rw dnsserver.ResponseWriter,

@@ -22,6 +22,7 @@ const (
 	hdrNameCountry     = "country"
 	hdrNameDeviceID    = "device-id"
 	hdrNameHumanID     = "human-id"
+	hdrNameNodeName    = "node-name"
 	hdrNameProfileID   = "profile-id"
 	hdrNameResType     = "res-type"
 	hdrNameRule        = "rule"
@@ -63,6 +64,12 @@ func (mw *Middleware) writeDebugResponse(
 	err = mw.messages.AppendDebugExtra(debugReq, resp, localIP.String())
 	if err != nil {
 		return fmt.Errorf("adding %s extra: %w", hdrNameServerIP, err)
+	}
+
+	setQuestionName(debugReq, "", hdrNameNodeName)
+	err = mw.messages.AppendDebugExtra(debugReq, resp, mw.nodeName)
+	if err != nil {
+		return fmt.Errorf("adding %s extra: %w", hdrNameNodeName, err)
 	}
 
 	err = mw.appendDebugExtraFromContext(ctx, debugReq, resp)

@@ -280,6 +280,7 @@ func newDefault(tb testing.TB, c *devicefinder.Config) (f *devicefinder.Default)
 		c.CustomDomainDB,
 		devicefinder.EmptyCustomDomainDB{},
 	)
+	c.Metrics = cmp.Or[devicefinder.Metrics](c.Metrics, devicefinder.EmptyMetrics{})
 	c.ProfileDB = cmp.Or[profiledb.Interface](c.ProfileDB, agdtest.NewProfileDB())
 
 	return devicefinder.NewDefault(c)

@@ -9,7 +9,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecachepb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/profiledbtest"
-	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,10 +17,11 @@ func TestStorage(t *testing.T) {
 	prof, dev := profiledbtest.NewProfile(t)
 	cachePath := filepath.Join(t.TempDir(), "profiles.pb")
 	s := filecachepb.New(&filecachepb.Config{
-		Logger:               testLogger,
-		BaseCustomLogger:     testLogger,
-		CacheFilePath:        cachePath,
-		ResponseSizeEstimate: profiledbtest.RespSzEst,
+		Logger:                   profiledbtest.Logger,
+		BaseCustomLogger:         profiledbtest.Logger,
+		ProfileAccessConstructor: profiledbtest.ProfileAccessConstructor,
+		CacheFilePath:            cachePath,
+		ResponseSizeEstimate:     profiledbtest.RespSzEst,
 	})
 	require.NotNil(t, s)
 
@@ -32,7 +32,7 @@ func TestStorage(t *testing.T) {
 		Version:  internal.FileCacheVersion,
 	}
 
-	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	ctx := profiledbtest.ContextWithTimeout(t)
 	err := s.Store(ctx, fc)
 	require.NoError(t, err)
 
@@ -47,14 +47,15 @@ func TestStorage(t *testing.T) {
 func TestStorage_Load_noFile(t *testing.T) {
 	cachePath := filepath.Join(t.TempDir(), "profiles.pb")
 	s := filecachepb.New(&filecachepb.Config{
-		Logger:               testLogger,
-		BaseCustomLogger:     testLogger,
-		CacheFilePath:        cachePath,
-		ResponseSizeEstimate: profiledbtest.RespSzEst,
+		Logger:                   profiledbtest.Logger,
+		BaseCustomLogger:         profiledbtest.Logger,
+		ProfileAccessConstructor: profiledbtest.ProfileAccessConstructor,
+		CacheFilePath:            cachePath,
+		ResponseSizeEstimate:     profiledbtest.RespSzEst,
 	})
 	require.NotNil(t, s)
 
-	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	ctx := profiledbtest.ContextWithTimeout(t)
 	fc, err := s.Load(ctx)
 	assert.NoError(t, err)
 	assert.Nil(t, fc)

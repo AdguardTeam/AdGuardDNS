@@ -48,6 +48,7 @@ func NewHandlers(ctx context.Context, c *HandlersConfig) (handlers Handlers, err
 		QueryLog:      c.QueryLog,
 		Metrics:       mainMwMtrc,
 		RuleStat:      c.RuleStat,
+		NodeName:      c.NodeName,
 	})
 
 	handler = mainMw.Wrap(handler)
@@ -61,7 +62,7 @@ func NewHandlers(ctx context.Context, c *HandlersConfig) (handlers Handlers, err
 
 	handler = preSvcMw.Wrap(handler)
 
-	postInitMw := c.PluginRegistry.PostInitialMiddleware()
+	postInitMw := c.PostInitialMiddleware
 	if postInitMw != nil {
 		handler = postInitMw.Wrap(handler)
 	}
@@ -149,12 +150,12 @@ func wrapPreUpstreamMw(
 // newMainMiddlewareMetrics returns a filtering-middleware metrics
 // implementation from the config.
 func newMainMiddlewareMetrics(c *HandlersConfig) (mainMwMtrc MainMiddlewareMetrics, err error) {
-	mainMwMtrc = c.PluginRegistry.MainMiddlewareMetrics()
+	mainMwMtrc = c.MainMiddlewareMetrics
 	if mainMwMtrc != nil {
 		return mainMwMtrc, nil
 	}
 
-	mainMwMtrc, err = metrics.NewDefaultMainMiddleware(
+	mainMwMtrc, err = metrics.NewMainMiddleware(
 		c.BaseLogger.With(slogutil.KeyPrefix, "mainmw_metrics"),
 		c.MetricsNamespace,
 		c.PrometheusRegisterer,
@@ -168,13 +169,25 @@ func newMainMiddlewareMetrics(c *HandlersConfig) (mainMwMtrc MainMiddlewareMetri
 
 // newHandlersForServers returns a handler map for each server group and each
 // server.
-func newHandlersForServers(c *HandlersConfig, handler dnsserver.Handler) (handlers Handlers, err error) {
-	rlMwMtrc, err := metrics.NewDefaultRatelimitMiddleware(
-		c.MetricsNamespace,
-		c.PrometheusRegisterer,
-	)
+//
+// TODO(a.garipov):  Refactor.
+func newHandlersForServers(
+	c *HandlersConfig,
+	handler dnsserver.Handler,
+) (handlers Handlers, err error) {
+	initMwMtrc, err := metrics.NewInitialMiddleware(c.MetricsNamespace, c.PrometheusRegisterer)
+	if err != nil {
+		return nil, fmt.Errorf("initial middleware metrics: %w", err)
+	}
+
+	rlMwMtrc, err := metrics.NewRatelimitMiddleware(c.MetricsNamespace, c.PrometheusRegisterer)
 	if err != nil {
 		return nil, fmt.Errorf("ratelimit middleware metrics: %w", err)
+	}
+
+	dfMtrc, err := metrics.NewDeviceFinder(c.MetricsNamespace, c.PrometheusRegisterer)
+	if err != nil {
+		return nil, fmt.Errorf("device finder metrics: %w", err)
 	}
 
 	handlers = Handlers{}
@@ -191,8 +204,9 @@ func newHandlersForServers(c *HandlersConfig, handler dnsserver.Handler) (handle
 		}
 
 		initMw := initial.New(&initial.Config{
-			Logger: c.BaseLogger.With(slogutil.KeyPrefix, "initmw"),
-			DDR:    srvGrp.DDR,
+			Logger:  c.BaseLogger.With(slogutil.KeyPrefix, "initmw"),
+			Metrics: initMwMtrc,
+			DDR:     srvGrp.DDR,
 		})
 
 		srvGrpHandler := initMw.Wrap(handler)
@@ -213,7 +227,7 @@ func newHandlersForServers(c *HandlersConfig, handler dnsserver.Handler) (handle
 				ServerInfo:       srvInfo,
 				StructuredErrors: c.StructuredErrors,
 				AccessManager:    c.AccessManager,
-				DeviceFinder:     newDeviceFinder(c, srvGrp, srv),
+				DeviceFinder:     newDeviceFinder(c, srvGrp, srv, dfMtrc),
 				ErrColl:          c.ErrColl,
 				GeoIP:            c.GeoIP,
 				Metrics:          rlMwMtrc,
@@ -236,18 +250,22 @@ func newHandlersForServers(c *HandlersConfig, handler dnsserver.Handler) (handle
 
 // newDeviceFinder returns a new agd.DeviceFinder for a server based on the
 // configuration.  All arguments must not be nil.
-func newDeviceFinder(c *HandlersConfig, g *ServerGroupConfig, s *agd.Server) (df agd.DeviceFinder) {
+func newDeviceFinder(
+	c *HandlersConfig,
+	g *ServerGroupConfig,
+	s *agd.Server,
+	mtrc DeviceFinderMetrics,
+) (df agd.DeviceFinder) {
 	if !g.ProfilesEnabled {
 		return agd.EmptyDeviceFinder{}
 	}
 
 	return devicefinder.NewDefault(&devicefinder.Config{
-		HumanIDParser: c.HumanIDParser,
-		Logger:        c.BaseLogger.With(slogutil.KeyPrefix, "devicefinder"),
-		Server:        s,
-		// TODO(a.garipov):  Use a real one after implementing the interface in
-		// package tlsconfig.
-		CustomDomainDB: devicefinder.EmptyCustomDomainDB{},
+		HumanIDParser:  c.HumanIDParser,
+		Logger:         c.BaseLogger.With(slogutil.KeyPrefix, "devicefinder"),
+		Server:         s,
+		CustomDomainDB: c.CustomDomainDB,
+		Metrics:        mtrc,
 		ProfileDB:      c.ProfileDB,
 		DeviceDomains:  g.DeviceDomains,
 	})

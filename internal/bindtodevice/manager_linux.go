@@ -15,7 +15,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/service"
 	"github.com/AdguardTeam/golibs/syncutil"
@@ -29,6 +28,7 @@ type Manager struct {
 	closeOnce      *sync.Once
 	ifaceListeners map[ID]*interfaceListener
 	errColl        errcoll.Interface
+	metrics        Metrics
 	done           chan unit
 	chanBufSize    int
 }
@@ -41,6 +41,7 @@ func NewManager(c *ManagerConfig) (m *Manager) {
 		closeOnce:      &sync.Once{},
 		ifaceListeners: map[ID]*interfaceListener{},
 		errColl:        c.ErrColl,
+		metrics:        c.Metrics,
 		done:           make(chan unit),
 		chanBufSize:    c.ChannelBufferSize,
 	}
@@ -106,18 +107,17 @@ func (m *Manager) newInterfaceListener(
 	port uint16,
 ) (l *interfaceListener) {
 	return &interfaceListener{
-		logger:             m.logger.With("iface", ifaceName, "port", port),
-		conns:              &connIndex{},
-		listenConf:         newListenConfig(ifaceName, ctrlConf),
-		bodyPool:           syncutil.NewSlicePool[byte](bodySize),
-		oobPool:            syncutil.NewSlicePool[byte](netext.IPDstOOBSize),
-		writeRequests:      make(chan *packetConnWriteReq, m.chanBufSize),
-		done:               m.done,
-		errColl:            m.errColl,
-		writeRequestsGauge: metrics.BindToDeviceUDPWriteRequestsChanSize.WithLabelValues(ifaceName),
-		writeDurationHist:  metrics.BindToDeviceUDPWriteDurationSeconds.WithLabelValues(ifaceName),
-		ifaceName:          ifaceName,
-		port:               port,
+		logger:        m.logger.With("iface", ifaceName, "port", port),
+		conns:         &connIndex{},
+		listenConf:    newListenConfig(ifaceName, ctrlConf),
+		bodyPool:      syncutil.NewSlicePool[byte](bodySize),
+		oobPool:       syncutil.NewSlicePool[byte](netext.IPDstOOBSize),
+		writeRequests: make(chan *packetConnWriteReq, m.chanBufSize),
+		done:          m.done,
+		errColl:       m.errColl,
+		metrics:       m.metrics,
+		ifaceName:     ifaceName,
+		port:          port,
 	}
 }
 
@@ -147,7 +147,7 @@ func (m *Manager) ListenConfig(id ID, subnet netip.Prefix) (c *ListenConfig, err
 	}
 
 	lsnrCh := make(chan net.Conn, m.chanBufSize)
-	lsnr := newChanListener(lsnrCh, subnet, &agdnet.PrefixNetAddr{
+	lsnr := newChanListener(m.metrics, lsnrCh, subnet, &agdnet.PrefixNetAddr{
 		Prefix: subnet,
 		Net:    "tcp",
 		Port:   l.port,
@@ -160,10 +160,11 @@ func (m *Manager) ListenConfig(id ID, subnet netip.Prefix) (c *ListenConfig, err
 
 	sessCh := make(chan *packetSession, m.chanBufSize)
 	pConn := newChanPacketConn(
+		m.metrics,
 		sessCh,
 		subnet,
 		l.writeRequests,
-		l.writeRequestsGauge,
+		l.ifaceName,
 		&agdnet.PrefixNetAddr{
 			Prefix: subnet,
 			Net:    "udp",

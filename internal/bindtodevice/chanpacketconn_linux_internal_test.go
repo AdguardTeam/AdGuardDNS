@@ -8,14 +8,13 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/golibs/testutil"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestChanPacketConn_Close(t *testing.T) {
 	sessions := make(chan *packetSession)
-	c := newChanPacketConn(sessions, testSubnetIPv4, nil, nil, testLAddr)
+	c := newTestChanPacketConn(t, sessions, nil)
 	err := c.Close()
 	assert.NoError(t, err)
 
@@ -24,14 +23,14 @@ func TestChanPacketConn_Close(t *testing.T) {
 }
 
 func TestChanPacketConn_LocalAddr(t *testing.T) {
-	c := newChanPacketConn(nil, testSubnetIPv4, nil, nil, testLAddr)
+	c := newTestChanPacketConn(t, nil, nil)
 	got := c.LocalAddr()
 	assert.Equal(t, testLAddr, got)
 }
 
 func TestChanPacketConn_ReadFromSession(t *testing.T) {
 	sessions := make(chan *packetSession, 1)
-	c := newChanPacketConn(sessions, testSubnetIPv4, nil, nil, testLAddr)
+	c := newTestChanPacketConn(t, sessions, nil)
 
 	body := []byte("hello")
 	bodyLen := len(body)
@@ -81,8 +80,7 @@ func TestChanPacketConn_WriteToSession(t *testing.T) {
 	sessions := make(chan *packetSession, 1)
 	writes := make(chan *packetConnWriteReq, 1)
 
-	gauge := prometheus.NewGauge(prometheus.GaugeOpts{})
-	c := newChanPacketConn(sessions, testSubnetIPv4, writes, gauge, testLAddr)
+	c := newTestChanPacketConn(t, sessions, writes)
 
 	body := []byte("hello")
 	bodyLen := len(body)
@@ -151,7 +149,7 @@ func checkWriteReqAndRespond(
 }
 
 func TestChanPacketConn_deadlines(t *testing.T) {
-	c := newChanPacketConn(nil, testSubnetIPv4, nil, nil, testLAddr)
+	c := newTestChanPacketConn(t, nil, nil)
 	deadline := time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	testCases := []struct {

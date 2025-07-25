@@ -3,16 +3,14 @@
 //
 // NOTE:  Prefer to not import any packages from the current module here,
 // because a lot of packages import metrics, and so import cycles may happen.
-//
-// TODO(a.garipov):  Do not use promauto.
 package metrics
 
 import (
 	"cmp"
+	"fmt"
 	"os"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 // namespace is the configurable namespace that we use in our prometheus
@@ -61,28 +59,36 @@ const (
 )
 
 // SetUpGauge signals that the server has been started.  Use a function here to
-// avoid circular dependencies.
-func SetUpGauge(version, commitTime, branch, revision, goversion string) {
-	upGauge := promauto.NewGauge(
-		prometheus.GaugeOpts{
-			Name:      "up",
-			Namespace: namespace,
-			Subsystem: subsystemApplication,
-			Help: `A metric with a constant '1' value labeled by ` +
-				`version and goversion from which the program was built. ` +
-				`NOTE: buildtime is actually the time of the commit.`,
-			ConstLabels: prometheus.Labels{
-				"version": version,
-				// TODO(a.garipov):  Consider renaming the metric.
-				"buildtime": commitTime,
-				"branch":    branch,
-				"revision":  revision,
-				"goversion": goversion,
-			},
+// avoid circular dependencies.  reg must not be nil.
+func SetUpGauge(
+	reg prometheus.Registerer,
+	version string,
+	branch string,
+	commitTime string,
+	revision string,
+	goVersion string,
+) (err error) {
+	upGauge := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name:      "up",
+		Namespace: namespace,
+		Subsystem: subsystemApplication,
+		Help:      `A metric with a constant '1' value labeled by the build information.`,
+		ConstLabels: prometheus.Labels{
+			"branch":     branch,
+			"committime": commitTime,
+			"goversion":  goVersion,
+			"revision":   revision,
+			"version":    version,
 		},
-	)
+	})
+	err = reg.Register(upGauge)
+	if err != nil {
+		return fmt.Errorf("registering up metric: %w", err)
+	}
 
 	upGauge.Set(1)
+
+	return nil
 }
 
 // SetStatusGauge is a helper function that automatically checks if there's an
@@ -115,24 +121,29 @@ func IncrementCond(cond bool, trueCounter, falseCounter prometheus.Counter) {
 }
 
 // SetAdditionalInfo adds a gauge with extra info labels.  If info is nil,
-// SetAdditionalInfo does nothing.
-func SetAdditionalInfo(info map[string]string) {
+// SetAdditionalInfo does nothing.  reg must not be nil.
+func SetAdditionalInfo(reg prometheus.Registerer, info map[string]string) (err error) {
 	if info == nil {
 		return
 	}
 
-	gauge := promauto.NewGauge(
-		prometheus.GaugeOpts{
-			Name:      "additional_info",
-			Namespace: namespace,
-			Subsystem: subsystemApplication,
-			Help: `A metric with a constant '1' value labeled by additional ` +
-				`info provided in configuration`,
-			ConstLabels: info,
-		},
-	)
+	gauge := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name:      "additional_info",
+		Namespace: namespace,
+		Subsystem: subsystemApplication,
+		Help: `A metric with a constant '1' value labeled by additional ` +
+			`info provided in configuration`,
+		ConstLabels: info,
+	})
+
+	err = reg.Register(gauge)
+	if err != nil {
+		return fmt.Errorf("registering additional_info metric: %w", err)
+	}
 
 	gauge.Set(1)
+
+	return nil
 }
 
 // Namespace returns the namespace that we use in our prometheus metrics.

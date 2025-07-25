@@ -2,6 +2,7 @@
 package profiledbtest
 
 import (
+	"context"
 	"net/netip"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/c2h5oh/datasize"
 	"github.com/stretchr/testify/require"
 )
@@ -41,8 +43,23 @@ const (
 // RespSzEst is a response-size estimate for tests.
 const RespSzEst datasize.ByteSize = 1 * datasize.KB
 
+// Timeout is the common timeout for tests.
+const Timeout = 1 * time.Second
+
 // WellKnownPath is the well-known certificate validation path for tests.
 const WellKnownPath = "/.well-known/pki-validation/abcd1234"
+
+// Logger is the common logger for tests.
+var Logger = slogutil.NewDiscardLogger()
+
+// ProfileAccessConstructor is the common constructor of profile access managers
+// for tests.
+var ProfileAccessConstructor = access.NewProfileConstructor(access.EmptyProfileMetrics{})
+
+// ContextWithTimeout is a helper that returns a context with [Timeout].
+func ContextWithTimeout(tb testing.TB) (ctx context.Context) {
+	return testutil.ContextWithTimeout(tb, Timeout)
+}
 
 // NewProfile returns the common profile and device for tests.  The profile has
 // ID [ProfileID] and the device, [DeviceID].  The response size estimate for
@@ -112,7 +129,7 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 	}
 
 	customFltConf := &custom.Config{
-		Logger: slogutil.NewDiscardLogger(),
+		Logger: Logger,
 		Rules:  []filter.RuleText{"|blocked-by-custom.example^"},
 	}
 
@@ -134,7 +151,7 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 				NewlyRegisteredDomainsEnabled: false,
 			},
 		},
-		Access: access.NewDefaultProfile(&access.ProfileConfig{
+		Access: ProfileAccessConstructor.New(&access.ProfileConfig{
 			AllowedNets:          []netip.Prefix{netip.MustParsePrefix("1.1.1.0/24")},
 			BlockedNets:          []netip.Prefix{netip.MustParsePrefix("2.2.2.0/24")},
 			AllowedASN:           []geoip.ASN{1},

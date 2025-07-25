@@ -70,7 +70,7 @@ func TestTicketStorage_Tickets(t *testing.T) {
 		const badTicketName tlsconfig.SessionTicketName = "test/ticket"
 		badTicketData := []byte{1, 2, 3, 4}
 
-		const wantErrMsg = `loaded session ticket: ` +
+		const wantErrMsg = `converting: loaded session ticket: ` +
 			`at index 1: str: at index 4: bad rune '/'` + "\n" +
 			`ticket: length: out of range: must be no less than 32, got 4`
 

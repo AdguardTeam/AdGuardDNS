@@ -30,6 +30,10 @@ type Config struct {
 	// CustomDomainDB is used to match custom domains.  It must not be nil.
 	CustomDomainDB CustomDomainDB
 
+	// Metrics are used to collect the statistics of the default device finder.
+	// It must not be nil.
+	Metrics Metrics
+
 	// ProfileDB is used to find the profiles.  It must not be nil.
 	ProfileDB profiledb.Interface
 
@@ -44,6 +48,7 @@ type Default struct {
 	logger         *slog.Logger
 	srv            *agd.Server
 	customDomainDB CustomDomainDB
+	metrics        Metrics
 	profileDB      profiledb.Interface
 	deviceDomains  []string
 }
@@ -55,6 +60,7 @@ func NewDefault(c *Config) (f *Default) {
 		logger:         c.Logger,
 		srv:            c.Server,
 		customDomainDB: c.CustomDomainDB,
+		metrics:        c.Metrics,
 		profileDB:      c.ProfileDB,
 		deviceDomains:  c.DeviceDomains,
 	}

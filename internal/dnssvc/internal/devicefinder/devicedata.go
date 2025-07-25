@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/optslog"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
-	"github.com/AdguardTeam/golibs/validate"
 	"github.com/miekg/dns"
 )
 
@@ -75,7 +75,7 @@ func (*deviceDataID) isDeviceData() {}
 type deviceDataCustomDomain struct {
 	// deviceData is the underlying device data, which must be either a
 	// [deviceDataID] or a [deviceDataExtHumanID].  If it's the latter, the
-	// profile IDs must match.
+	// profile IDs must contain the profile ID of the device.
 	deviceData deviceData
 
 	// domain is the domain or wildcard that has matched the request.  It must
@@ -84,7 +84,7 @@ type deviceDataCustomDomain struct {
 
 	// profileID is the ID of the profile owning the custom domain.  It must not
 	// be empty.
-	profileID agd.ProfileID
+	profileIDs []agd.ProfileID
 }
 
 // type check
@@ -125,11 +125,13 @@ func (f *Default) deviceDataFromEncrypted(
 	ctx context.Context,
 	srvReqInfo *dnsserver.RequestInfo,
 ) (dd deviceData, err error) {
-	cliSrvName := srvReqInfo.TLSServerName
 	var customDomain string
-	var requiredProfileID agd.ProfileID
-	if cliSrvName != "" {
-		customDomain, requiredProfileID = f.customDomainDB.Match(ctx, cliSrvName)
+	var requiredProfileIDs []agd.ProfileID
+	if cliSrvName := strings.ToLower(srvReqInfo.TLSServerName); cliSrvName != "" {
+		customDomain, requiredProfileIDs = f.customDomainDB.Match(ctx, cliSrvName)
+		if customDomain != "" {
+			f.metrics.IncrementCustomDomainRequests(ctx, customDomain)
+		}
 	}
 
 	dd, err = f.deviceDataFromSrvReqInfo(ctx, srvReqInfo, customDomain)
@@ -137,7 +139,7 @@ func (f *Default) deviceDataFromEncrypted(
 		return nil, fmt.Errorf("extracting device data: %w", err)
 	}
 
-	dd, err = f.wrapCustomDomain(ctx, dd, customDomain, requiredProfileID)
+	dd, err = f.wrapCustomDomain(ctx, dd, customDomain, requiredProfileIDs)
 	if err != nil {
 		return nil, fmt.Errorf("wrapping custom domains: %w", err)
 	}
@@ -255,9 +257,9 @@ func (f *Default) wrapCustomDomain(
 	ctx context.Context,
 	dd deviceData,
 	matchedDomain string,
-	requiredProfileID agd.ProfileID,
+	requiredProfileIDs []agd.ProfileID,
 ) (wrapped deviceData, err error) {
-	if requiredProfileID == "" {
+	if requiredProfileIDs == nil {
 		return dd, nil
 	}
 
@@ -265,23 +267,25 @@ func (f *Default) wrapCustomDomain(
 	case nil:
 		return nil, nil
 	case *deviceDataExtHumanID:
-		err = validate.Equal("profile id in ext id", dd.profileID, requiredProfileID)
-		if err != nil {
-			const msg = "custom domain profile and ext id mismatch"
-			optslog.Debug2(ctx, f.logger, msg, "got", dd.profileID, "want", requiredProfileID)
+		if !slices.Contains(requiredProfileIDs, dd.profileID) {
+			const msg = "custom domain profiles and ext id mismatch"
+			optslog.Debug2(ctx, f.logger, msg, "got", dd.profileID, "want", requiredProfileIDs)
+
+			const errMsg = "profile id in ext id: %s: not contained by expected values"
+			err = fmt.Errorf(errMsg, dd.profileID)
 
 			return nil, newDeviceDataError(err, "custom domain")
 		}
 
 		return &deviceDataCustomDomain{
 			domain:     matchedDomain,
-			profileID:  requiredProfileID,
+			profileIDs: requiredProfileIDs,
 			deviceData: dd,
 		}, nil
 	case *deviceDataID:
 		return &deviceDataCustomDomain{
 			domain:     matchedDomain,
-			profileID:  requiredProfileID,
+			profileIDs: requiredProfileIDs,
 			deviceData: dd,
 		}, nil
 	default:

@@ -3,6 +3,7 @@
 package bindtodevice
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/netip"
@@ -11,8 +12,6 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 // chanPacketConn is a [netext.SessionPacketConn] that returns data sent to it
@@ -28,25 +27,27 @@ type chanPacketConn struct {
 
 	writeRequests chan *packetConnWriteReq
 
-	sessionsGauge      prometheus.Gauge
-	writeRequestsGauge prometheus.Gauge
+	metrics Metrics
 
 	// deadlineMu protects readDeadline and writeDeadline.
 	deadlineMu    *sync.RWMutex
 	readDeadline  time.Time
 	writeDeadline time.Time
 
-	laddr    net.Addr
-	subnet   netip.Prefix
-	isClosed bool
+	laddr     net.Addr
+	subnet    netip.Prefix
+	ifaceName string
+	isClosed  bool
 }
 
-// newChanPacketConn returns a new properly initialized *chanPacketConn.
+// newChanPacketConn returns a new properly initialized *chanPacketConn.  mtrc
+// must not be nil.
 func newChanPacketConn(
+	mtrc Metrics,
 	sessions chan *packetSession,
 	subnet netip.Prefix,
 	writeRequests chan *packetConnWriteReq,
-	writeRequestsGauge prometheus.Gauge,
+	ifaceName string,
 	laddr net.Addr,
 ) (c *chanPacketConn) {
 	return &chanPacketConn{
@@ -54,15 +55,14 @@ func newChanPacketConn(
 		sessions:      sessions,
 		writeRequests: writeRequests,
 
-		sessionsGauge: metrics.BindToDeviceUDPSessionsChanSize.WithLabelValues(
-			subnet.String(),
-		),
-		writeRequestsGauge: writeRequestsGauge,
+		metrics: mtrc,
 
 		deadlineMu: &sync.RWMutex{},
 
 		laddr:  laddr,
 		subnet: subnet,
+
+		ifaceName: ifaceName,
 	}
 }
 
@@ -281,7 +281,8 @@ func (c *chanPacketConn) writeToSession(
 		return 0, wrapConnError(tnChanPConn, fnName, c.laddr, err)
 	}
 
-	c.writeRequestsGauge.Set(float64(len(c.writeRequests)))
+	// TODO(s.chzhen):  Pass context.
+	c.metrics.SetUDPWriteRequestsChanSize(context.TODO(), c.ifaceName, uint(len(c.writeRequests)))
 
 	r, err := receiveWithTimer(resp, timerCh)
 	if err != nil {
@@ -325,7 +326,7 @@ func sendWithTimer[T any](ch chan<- T, v T, timerCh <-chan time.Time) (err error
 
 // send is a helper method to send a session to the packet connection's channel.
 // ok is false if the listener is closed.
-func (c *chanPacketConn) send(sess *packetSession) (ok bool) {
+func (c *chanPacketConn) send(ctx context.Context, sess *packetSession) (ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -335,7 +336,7 @@ func (c *chanPacketConn) send(sess *packetSession) (ok bool) {
 
 	c.sessions <- sess
 
-	c.sessionsGauge.Set(float64(len(c.sessions)))
+	c.metrics.SetUDPSessionsChanSize(ctx, c.subnet, uint(len(c.sessions)))
 
 	return true
 }

@@ -31,6 +31,7 @@ example.com.		17597	IN	A	93.184.216.34
 ;; ADDITIONAL SECTION:
 client-ip.adguard-dns.com. 10	CH	TXT	"127.0.0.1"
 server-ip.adguard-dns.com. 10	CH	TXT	"94.140.14.14"
+node-name.adguard-dns.com. 10	CH	TXT	"lon-1"
 resp.res-type.adguard-dns.com. 10 CH TXT	"normal"
 
 ;; Query time: 26 msec
@@ -57,6 +58,14 @@ In the `ADDITIONAL SECTION`, the following debug information is returned:
 
     ```none
     server-ip.adguard-dns.com. 10	CH	TXT	"127.0.0.1"
+    ```
+
+- <a href="#additional-node-name" id="additional-node-name" name="additional-node-name">`additional-node-name`</a>: The name of this server node. The full name is `node-name.adguard-dns.com`.
+
+  **Example:**
+
+    ```none
+    node-name.adguard-dns.com. 10	CH	TXT	"lon-1"
     ```
 
 - <a href="#additional-device-id" id="additional-device-id" name="additional-device-id">`device-id`</a>: The ID of the device as detected by the server, if any. The full name is `device-id.adguard-dns.com`.

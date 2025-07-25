@@ -13,14 +13,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// MainMiddleware is an interface for collection of the statistics of the main
-// filtering middleware.
-//
-// NOTE:  Keep in sync with [dnssvc.MainMiddleware].
-type MainMiddleware interface {
-	OnRequest(ctx context.Context, m *MainMiddlewareRequestMetrics)
-}
-
 // MainMiddlewareRequestMetrics is an alias for a structure that contains the
 // information about a request that has reached the filtering middleware.
 //
@@ -36,9 +28,9 @@ type MainMiddlewareRequestMetrics = struct {
 	IsBlocked         bool
 }
 
-// DefaultMainMiddleware is the Prometheus-based implementation of the
-// [MainMiddleware] interface.
-type DefaultMainMiddleware struct {
+// MainMiddleware is the Prometheus-based implementation of the
+// [dnssvc.MainMiddleware] interface.
+type MainMiddleware struct {
 	// filteringDuration is a histogram with the durations of actually filtering
 	// (e.g. applying filters, safebrowsing, etc) to queries.
 	filteringDuration prometheus.Histogram
@@ -63,14 +55,13 @@ type DefaultMainMiddleware struct {
 	userCounter *UserCounter
 }
 
-// NewDefaultMainMiddleware registers the filtering-middleware metrics in reg
-// and returns a properly initialized *DefaultMainMiddleware.  All arguments
-// must be set.
-func NewDefaultMainMiddleware(
+// NewMainMiddleware registers the filtering-middleware metrics in reg and
+// returns a properly initialized *MainMiddleware.  All arguments must be set.
+func NewMainMiddleware(
 	logger *slog.Logger,
 	namespace string,
 	reg prometheus.Registerer,
-) (m *DefaultMainMiddleware, err error) {
+) (m *MainMiddleware, err error) {
 	const (
 		filteringDuration      = "filtering_duration_seconds"
 		requestPerASNTotal     = "request_per_asn_total"
@@ -80,7 +71,7 @@ func NewDefaultMainMiddleware(
 		usersLastHourCount     = "users_last_hour_count"
 	)
 
-	m = &DefaultMainMiddleware{
+	m = &MainMiddleware{
 		filteringDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:      "filtering_duration_seconds",
 			Namespace: namespace,
@@ -184,8 +175,8 @@ func NewDefaultMainMiddleware(
 	return m, nil
 }
 
-// OnRequest implements the [Metrics] interface for *DefaultMainMiddleware.
-func (m *DefaultMainMiddleware) OnRequest(ctx context.Context, rm *MainMiddlewareRequestMetrics) {
+// OnRequest implements the [Metrics] interface for *MainMiddleware.
+func (m *MainMiddleware) OnRequest(ctx context.Context, rm *MainMiddlewareRequestMetrics) {
 	m.filteringDuration.Observe(rm.FilteringDuration.Seconds())
 
 	asnStr := strconv.FormatUint(uint64(rm.ASN), 10)

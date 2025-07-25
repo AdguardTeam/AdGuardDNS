@@ -15,8 +15,8 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/optslog"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/syncutil"
@@ -148,7 +148,7 @@ func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
 		ri := mw.newRequestInfo(ctx, req, rw.LocalAddr(), raddr)
 		defer mw.pool.Put(ri)
 
-		cont, err := mw.handleDeviceResult(ctx, ri.DeviceResult)
+		cont, err := mw.handleDeviceResult(ri.DeviceResult)
 		if !cont {
 			// Don't wrap the error, because this is the main flow, and there is
 			// already [errors.Annotate] here.
@@ -196,14 +196,9 @@ func (mw *Middleware) processLocationErr(
 
 // handleDeviceResult processes the device result and indicates whether the
 // handler should proceed and the error to return if not.
-func (mw *Middleware) handleDeviceResult(
-	ctx context.Context,
-	res agd.DeviceResult,
-) (cont bool, err error) {
+func (mw *Middleware) handleDeviceResult(res agd.DeviceResult) (cont bool, err error) {
 	switch res := res.(type) {
 	case *agd.DeviceResultUnknownDedicated:
-		mw.metrics.IncrementUnknownDedicated(ctx)
-
 		// The request is dropped by the profile search.  Don't write anything
 		// and just return.
 		return false, nil

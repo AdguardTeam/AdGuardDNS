@@ -19,32 +19,66 @@ import (
 type Manager interface {
 	// Add saves an initialized TLS certificate using the provided paths to a
 	// certificate and a key.  certPath and keyPath must not be empty.
-	Add(ctx context.Context, certPath, keyPath string) (err error)
+	//
+	// If isCustom is true, the certificate's data should not be reported in
+	// metrics.
+	//
+	// Add must ignore duplicates.
+	Add(ctx context.Context, certPath, keyPath string, isCustom bool) (err error)
 
 	// Clone returns the TLS configuration that contains saved TLS certificates.
 	Clone() (c *tls.Config)
 
 	// CloneWithMetrics is like [Manager.Clone] but it also sets metrics.
 	CloneWithMetrics(proto, srvName string, deviceDomains []string) (c *tls.Config)
+
+	// Remove deletes a certificate using the provided paths to its certificate
+	// and key.  certPath and keyPath must not be empty.
+	//
+	// If isCustom is true, the certificate's data should not be reported in
+	// metrics.
+	Remove(ctx context.Context, certPath, keyPath string, isCustom bool) (err error)
 }
 
+// EmptyManager is the implementation of the [Manager] interface that does
+// nothing.
+type EmptyManager struct{}
+
+// type check
+var _ Manager = EmptyManager{}
+
+// Add implements the [Manager] interface for EmptyManager.
+func (EmptyManager) Add(_ context.Context, _, _ string, _ bool) (err error) { return nil }
+
+// Clone implements the [Manager] interface for EmptyManager.
+func (EmptyManager) Clone() (c *tls.Config) { return nil }
+
+// CloneWithMetrics implements the [Manager] interface for EmptyManager.
+func (EmptyManager) CloneWithMetrics(_, _ string, _ []string) (c *tls.Config) { return nil }
+
+// Remove implements the [Manager] interface for EmptyManager.
+func (EmptyManager) Remove(_ context.Context, _, _ string, _ bool) (err error) { return nil }
+
 // DefaultManagerConfig is the configuration structure for [DefaultManager].
-//
-// TODO(s.chzhen):  Use it.
 type DefaultManagerConfig struct {
-	// Logger is used for logging the operation of the TLS manager.
+	// Logger is used for logging the operation of the TLS manager.  It must not
+	// be nil.
 	Logger *slog.Logger
 
-	// ErrColl is used to collect TLS-related errors.
+	// ErrColl is used to collect TLS-related errors.  It must not be nil.
 	ErrColl errcoll.Interface
 
-	// Metrics is used to collect TLS-related statistics.
-	Metrics Metrics
+	// Metrics is used to collect TLS-related statistics.  It must not be nil.
+	//
+	// TODO(a.garipov):  See if the custom-domain certificates need any metrics.
+	Metrics ManagerMetrics
 
-	// TicketDB stores paths to the TLS session tickets and updates them.
+	// TicketDB stores paths to the TLS session tickets and updates them.  It
+	// must not be nil.
 	TicketDB TicketDB
 
-	// KeyLogFilename, if not empty, is the name of the TLS key log file.
+	// KeyLogFilename, if not empty, is the name of the TLS key log file.  If
+	// not empty, KeyLogFilename must be a valid file path.
 	KeyLogFilename string
 }
 
@@ -55,7 +89,7 @@ type DefaultManager struct {
 	mu                *sync.Mutex
 	logger            *slog.Logger
 	errColl           errcoll.Interface
-	metrics           Metrics
+	metrics           ManagerMetrics
 	tickDB            TicketDB
 	certStorage       *certStorage
 	original          *tls.Config
@@ -63,10 +97,11 @@ type DefaultManager struct {
 	clonesWithMetrics []*tls.Config
 }
 
-// NewDefaultManager returns a new initialized *DefaultManager.
-func NewDefaultManager(conf *DefaultManagerConfig) (m *DefaultManager, err error) {
+// NewDefaultManager returns a new initialized *DefaultManager.  c must not be
+// nil and must be valid.
+func NewDefaultManager(c *DefaultManagerConfig) (m *DefaultManager, err error) {
 	var kl io.Writer
-	fn := conf.KeyLogFilename
+	fn := c.KeyLogFilename
 	if fn != "" {
 		kl, err = tlsKeyLogWriter(fn)
 		if err != nil {
@@ -76,10 +111,10 @@ func NewDefaultManager(conf *DefaultManagerConfig) (m *DefaultManager, err error
 
 	m = &DefaultManager{
 		mu:          &sync.Mutex{},
-		logger:      conf.Logger,
-		errColl:     conf.ErrColl,
-		metrics:     conf.Metrics,
-		tickDB:      conf.TicketDB,
+		logger:      c.Logger,
+		errColl:     c.ErrColl,
+		metrics:     c.Metrics,
+		tickDB:      c.TicketDB,
 		certStorage: &certStorage{},
 	}
 
@@ -101,10 +136,12 @@ func (m *DefaultManager) Add(
 	ctx context.Context,
 	certPath string,
 	keyPath string,
+	isCustom bool,
 ) (err error) {
 	cp := &certPaths{
 		certPath: certPath,
 		keyPath:  keyPath,
+		isCustom: isCustom,
 	}
 
 	m.mu.Lock()
@@ -116,6 +153,7 @@ func (m *DefaultManager) Add(
 			"skipping already added certificate",
 			"cert", cp.certPath,
 			"key", cp.keyPath,
+			"is_custom", cp.isCustom,
 		)
 
 		return nil
@@ -128,7 +166,13 @@ func (m *DefaultManager) Add(
 
 	m.certStorage.add(cert, cp)
 
-	m.logger.InfoContext(ctx, "added certificate", "cert", cp.certPath, "key", cp.keyPath)
+	m.logger.InfoContext(
+		ctx,
+		"added certificate",
+		"cert", cp.certPath,
+		"key", cp.keyPath,
+		"is_custom", cp.isCustom,
+	)
 
 	return nil
 }
@@ -144,9 +188,11 @@ func (m *DefaultManager) load(
 		return nil, fmt.Errorf("loading certificate: %w", err)
 	}
 
-	authAlgo := cert.Leaf.PublicKeyAlgorithm.String()
-	subj := cert.Leaf.Subject.String()
-	m.metrics.SetCertificateInfo(ctx, authAlgo, subj, cert.Leaf.NotAfter)
+	if !cp.isCustom {
+		authAlgo := cert.Leaf.PublicKeyAlgorithm.String()
+		subj := cert.Leaf.Subject.String()
+		m.metrics.SetCertificateInfo(ctx, authAlgo, subj, cert.Leaf.NotAfter)
+	}
 
 	return &cert, nil
 }
@@ -248,6 +294,36 @@ func (m *DefaultManager) Refresh(ctx context.Context) (err error) {
 	return nil
 }
 
+// Remove removes a certificate from the manager.  certPath and keyPath must not
+// be empty.
+func (m *DefaultManager) Remove(
+	ctx context.Context,
+	certPath string,
+	keyPath string,
+	isCustom bool,
+) (err error) {
+	cp := &certPaths{
+		certPath: certPath,
+		keyPath:  keyPath,
+		isCustom: isCustom,
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.certStorage.remove(cp)
+
+	m.logger.InfoContext(
+		ctx,
+		"removed certificate",
+		"cert", cp.certPath,
+		"key", cp.keyPath,
+		"is_custom", cp.isCustom,
+	)
+
+	return nil
+}
+
 // RotateTickets refreshes and resets TLS session tickets.  It may be used as a
 // [service.RefresherFunc].
 func (m *DefaultManager) RotateTickets(ctx context.Context) (err error) {
@@ -256,7 +332,7 @@ func (m *DefaultManager) RotateTickets(ctx context.Context) (err error) {
 
 	paths, err := m.tickDB.Paths(ctx)
 	if err != nil {
-		m.errColl.Collect(ctx, fmt.Errorf("rotating tickets: %w", err))
+		errcoll.Collect(ctx, m.errColl, m.logger, "rotating tickets", err)
 	}
 
 	if len(paths) == 0 {

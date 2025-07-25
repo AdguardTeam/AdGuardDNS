@@ -554,7 +554,8 @@ type CustomDomainServiceClient interface {
 	//
 	// This method may return the following errors:
 	// - AuthenticationFailedError: If the authentication failed.
-	// - BadRequestError: If the request is invalid: cert_name is empty or no certificate found.
+	// - BadRequestError: If the request is invalid: cert_name is empty.
+	// - NotFoundError: If the certificate could not be found.
 	GetCustomDomainCertificate(ctx context.Context, in *CustomDomainCertificateRequest, opts ...grpc.CallOption) (*CustomDomainCertificateResponse, error)
 }
 
@@ -584,7 +585,8 @@ type CustomDomainServiceServer interface {
 	//
 	// This method may return the following errors:
 	// - AuthenticationFailedError: If the authentication failed.
-	// - BadRequestError: If the request is invalid: cert_name is empty or no certificate found.
+	// - BadRequestError: If the request is invalid: cert_name is empty.
+	// - NotFoundError: If the certificate could not be found.
 	GetCustomDomainCertificate(context.Context, *CustomDomainCertificateRequest) (*CustomDomainCertificateResponse, error)
 	mustEmbedUnimplementedCustomDomainServiceServer()
 }

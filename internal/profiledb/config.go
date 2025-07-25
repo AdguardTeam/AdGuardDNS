@@ -20,6 +20,10 @@ type Config struct {
 	// not be nil.
 	BaseCustomLogger *slog.Logger
 
+	// ProfileAccessConstructor is used to create access managers for profiles.
+	// It must not be nil.
+	ProfileAccessConstructor *access.ProfileConstructor
+
 	// Clock is used to get current time during refreshes.  It must not be nil.
 	Clock timeutil.Clock
 

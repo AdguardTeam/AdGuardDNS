@@ -2044,6 +2044,50 @@ func (x *AuthenticationFailedError) GetMessage() string {
 	return ""
 }
 
+type NotFoundError struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Message       string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NotFoundError) Reset() {
+	*x = NotFoundError{}
+	mi := &file_dns_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NotFoundError) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NotFoundError) ProtoMessage() {}
+
+func (x *NotFoundError) ProtoReflect() protoreflect.Message {
+	mi := &file_dns_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NotFoundError.ProtoReflect.Descriptor instead.
+func (*NotFoundError) Descriptor() ([]byte, []int) {
+	return file_dns_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *NotFoundError) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 type RateLimitSettings struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Enabled       bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
@@ -2055,7 +2099,7 @@ type RateLimitSettings struct {
 
 func (x *RateLimitSettings) Reset() {
 	*x = RateLimitSettings{}
-	mi := &file_dns_proto_msgTypes[30]
+	mi := &file_dns_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2067,7 +2111,7 @@ func (x *RateLimitSettings) String() string {
 func (*RateLimitSettings) ProtoMessage() {}
 
 func (x *RateLimitSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_dns_proto_msgTypes[30]
+	mi := &file_dns_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2080,7 +2124,7 @@ func (x *RateLimitSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RateLimitSettings.ProtoReflect.Descriptor instead.
 func (*RateLimitSettings) Descriptor() ([]byte, []int) {
-	return file_dns_proto_rawDescGZIP(), []int{30}
+	return file_dns_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *RateLimitSettings) GetEnabled() bool {
@@ -2113,7 +2157,7 @@ type RemoteKVGetRequest struct {
 
 func (x *RemoteKVGetRequest) Reset() {
 	*x = RemoteKVGetRequest{}
-	mi := &file_dns_proto_msgTypes[31]
+	mi := &file_dns_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2125,7 +2169,7 @@ func (x *RemoteKVGetRequest) String() string {
 func (*RemoteKVGetRequest) ProtoMessage() {}
 
 func (x *RemoteKVGetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dns_proto_msgTypes[31]
+	mi := &file_dns_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2138,7 +2182,7 @@ func (x *RemoteKVGetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteKVGetRequest.ProtoReflect.Descriptor instead.
 func (*RemoteKVGetRequest) Descriptor() ([]byte, []int) {
-	return file_dns_proto_rawDescGZIP(), []int{31}
+	return file_dns_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *RemoteKVGetRequest) GetKey() string {
@@ -2161,7 +2205,7 @@ type RemoteKVGetResponse struct {
 
 func (x *RemoteKVGetResponse) Reset() {
 	*x = RemoteKVGetResponse{}
-	mi := &file_dns_proto_msgTypes[32]
+	mi := &file_dns_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2173,7 +2217,7 @@ func (x *RemoteKVGetResponse) String() string {
 func (*RemoteKVGetResponse) ProtoMessage() {}
 
 func (x *RemoteKVGetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dns_proto_msgTypes[32]
+	mi := &file_dns_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2186,7 +2230,7 @@ func (x *RemoteKVGetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteKVGetResponse.ProtoReflect.Descriptor instead.
 func (*RemoteKVGetResponse) Descriptor() ([]byte, []int) {
-	return file_dns_proto_rawDescGZIP(), []int{32}
+	return file_dns_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *RemoteKVGetResponse) GetValue() isRemoteKVGetResponse_Value {
@@ -2241,7 +2285,7 @@ type RemoteKVSetRequest struct {
 
 func (x *RemoteKVSetRequest) Reset() {
 	*x = RemoteKVSetRequest{}
-	mi := &file_dns_proto_msgTypes[33]
+	mi := &file_dns_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2253,7 +2297,7 @@ func (x *RemoteKVSetRequest) String() string {
 func (*RemoteKVSetRequest) ProtoMessage() {}
 
 func (x *RemoteKVSetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dns_proto_msgTypes[33]
+	mi := &file_dns_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2266,7 +2310,7 @@ func (x *RemoteKVSetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteKVSetRequest.ProtoReflect.Descriptor instead.
 func (*RemoteKVSetRequest) Descriptor() ([]byte, []int) {
-	return file_dns_proto_rawDescGZIP(), []int{33}
+	return file_dns_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *RemoteKVSetRequest) GetKey() string {
@@ -2298,7 +2342,7 @@ type RemoteKVSetResponse struct {
 
 func (x *RemoteKVSetResponse) Reset() {
 	*x = RemoteKVSetResponse{}
-	mi := &file_dns_proto_msgTypes[34]
+	mi := &file_dns_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2310,7 +2354,7 @@ func (x *RemoteKVSetResponse) String() string {
 func (*RemoteKVSetResponse) ProtoMessage() {}
 
 func (x *RemoteKVSetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dns_proto_msgTypes[34]
+	mi := &file_dns_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2323,7 +2367,7 @@ func (x *RemoteKVSetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteKVSetResponse.ProtoReflect.Descriptor instead.
 func (*RemoteKVSetResponse) Descriptor() ([]byte, []int) {
-	return file_dns_proto_rawDescGZIP(), []int{34}
+	return file_dns_proto_rawDescGZIP(), []int{35}
 }
 
 type CustomDomainCertificateRequest struct {
@@ -2335,7 +2379,7 @@ type CustomDomainCertificateRequest struct {
 
 func (x *CustomDomainCertificateRequest) Reset() {
 	*x = CustomDomainCertificateRequest{}
-	mi := &file_dns_proto_msgTypes[35]
+	mi := &file_dns_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2347,7 +2391,7 @@ func (x *CustomDomainCertificateRequest) String() string {
 func (*CustomDomainCertificateRequest) ProtoMessage() {}
 
 func (x *CustomDomainCertificateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dns_proto_msgTypes[35]
+	mi := &file_dns_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2360,7 +2404,7 @@ func (x *CustomDomainCertificateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CustomDomainCertificateRequest.ProtoReflect.Descriptor instead.
 func (*CustomDomainCertificateRequest) Descriptor() ([]byte, []int) {
-	return file_dns_proto_rawDescGZIP(), []int{35}
+	return file_dns_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *CustomDomainCertificateRequest) GetCertName() string {
@@ -2380,7 +2424,7 @@ type CustomDomainCertificateResponse struct {
 
 func (x *CustomDomainCertificateResponse) Reset() {
 	*x = CustomDomainCertificateResponse{}
-	mi := &file_dns_proto_msgTypes[36]
+	mi := &file_dns_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2392,7 +2436,7 @@ func (x *CustomDomainCertificateResponse) String() string {
 func (*CustomDomainCertificateResponse) ProtoMessage() {}
 
 func (x *CustomDomainCertificateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dns_proto_msgTypes[36]
+	mi := &file_dns_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2405,7 +2449,7 @@ func (x *CustomDomainCertificateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CustomDomainCertificateResponse.ProtoReflect.Descriptor instead.
 func (*CustomDomainCertificateResponse) Descriptor() ([]byte, []int) {
-	return file_dns_proto_rawDescGZIP(), []int{36}
+	return file_dns_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *CustomDomainCertificateResponse) GetCertificate() []byte {
@@ -2430,7 +2474,7 @@ type SessionTicketRequest struct {
 
 func (x *SessionTicketRequest) Reset() {
 	*x = SessionTicketRequest{}
-	mi := &file_dns_proto_msgTypes[37]
+	mi := &file_dns_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2442,7 +2486,7 @@ func (x *SessionTicketRequest) String() string {
 func (*SessionTicketRequest) ProtoMessage() {}
 
 func (x *SessionTicketRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dns_proto_msgTypes[37]
+	mi := &file_dns_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2455,7 +2499,7 @@ func (x *SessionTicketRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionTicketRequest.ProtoReflect.Descriptor instead.
 func (*SessionTicketRequest) Descriptor() ([]byte, []int) {
-	return file_dns_proto_rawDescGZIP(), []int{37}
+	return file_dns_proto_rawDescGZIP(), []int{38}
 }
 
 type SessionTicketResponse struct {
@@ -2467,7 +2511,7 @@ type SessionTicketResponse struct {
 
 func (x *SessionTicketResponse) Reset() {
 	*x = SessionTicketResponse{}
-	mi := &file_dns_proto_msgTypes[38]
+	mi := &file_dns_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2479,7 +2523,7 @@ func (x *SessionTicketResponse) String() string {
 func (*SessionTicketResponse) ProtoMessage() {}
 
 func (x *SessionTicketResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dns_proto_msgTypes[38]
+	mi := &file_dns_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2492,7 +2536,7 @@ func (x *SessionTicketResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionTicketResponse.ProtoReflect.Descriptor instead.
 func (*SessionTicketResponse) Descriptor() ([]byte, []int) {
-	return file_dns_proto_rawDescGZIP(), []int{38}
+	return file_dns_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *SessionTicketResponse) GetTickets() []*SessionTicket {
@@ -2512,7 +2556,7 @@ type SessionTicket struct {
 
 func (x *SessionTicket) Reset() {
 	*x = SessionTicket{}
-	mi := &file_dns_proto_msgTypes[39]
+	mi := &file_dns_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2524,7 +2568,7 @@ func (x *SessionTicket) String() string {
 func (*SessionTicket) ProtoMessage() {}
 
 func (x *SessionTicket) ProtoReflect() protoreflect.Message {
-	mi := &file_dns_proto_msgTypes[39]
+	mi := &file_dns_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2537,7 +2581,7 @@ func (x *SessionTicket) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionTicket.ProtoReflect.Descriptor instead.
 func (*SessionTicket) Descriptor() ([]byte, []int) {
-	return file_dns_proto_rawDescGZIP(), []int{39}
+	return file_dns_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *SessionTicket) GetName() string {
@@ -2563,7 +2607,7 @@ type DeviceSettingsChange_Deleted struct {
 
 func (x *DeviceSettingsChange_Deleted) Reset() {
 	*x = DeviceSettingsChange_Deleted{}
-	mi := &file_dns_proto_msgTypes[40]
+	mi := &file_dns_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2575,7 +2619,7 @@ func (x *DeviceSettingsChange_Deleted) String() string {
 func (*DeviceSettingsChange_Deleted) ProtoMessage() {}
 
 func (x *DeviceSettingsChange_Deleted) ProtoReflect() protoreflect.Message {
-	mi := &file_dns_proto_msgTypes[40]
+	mi := &file_dns_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2607,7 +2651,7 @@ type DeviceSettingsChange_Upserted struct {
 
 func (x *DeviceSettingsChange_Upserted) Reset() {
 	*x = DeviceSettingsChange_Upserted{}
-	mi := &file_dns_proto_msgTypes[41]
+	mi := &file_dns_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2619,7 +2663,7 @@ func (x *DeviceSettingsChange_Upserted) String() string {
 func (*DeviceSettingsChange_Upserted) ProtoMessage() {}
 
 func (x *DeviceSettingsChange_Upserted) ProtoReflect() protoreflect.Message {
-	mi := &file_dns_proto_msgTypes[41]
+	mi := &file_dns_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2652,7 +2696,7 @@ type CustomDomain_Pending struct {
 
 func (x *CustomDomain_Pending) Reset() {
 	*x = CustomDomain_Pending{}
-	mi := &file_dns_proto_msgTypes[42]
+	mi := &file_dns_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2664,7 +2708,7 @@ func (x *CustomDomain_Pending) String() string {
 func (*CustomDomain_Pending) ProtoMessage() {}
 
 func (x *CustomDomain_Pending) ProtoReflect() protoreflect.Message {
-	mi := &file_dns_proto_msgTypes[42]
+	mi := &file_dns_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2706,7 +2750,7 @@ type CustomDomain_Current struct {
 
 func (x *CustomDomain_Current) Reset() {
 	*x = CustomDomain_Current{}
-	mi := &file_dns_proto_msgTypes[43]
+	mi := &file_dns_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2718,7 +2762,7 @@ func (x *CustomDomain_Current) String() string {
 func (*CustomDomain_Current) ProtoMessage() {}
 
 func (x *CustomDomain_Current) ProtoReflect() protoreflect.Message {
-	mi := &file_dns_proto_msgTypes[43]
+	mi := &file_dns_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2916,6 +2960,8 @@ const file_dns_proto_rawDesc = "" +
 	"\x0fBadRequestError\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"5\n" +
 	"\x19AuthenticationFailedError\x12\x18\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\")\n" +
+	"\rNotFoundError\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"l\n" +
 	"\x11RateLimitSettings\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x10\n" +
@@ -2989,7 +3035,7 @@ func file_dns_proto_rawDescGZIP() []byte {
 }
 
 var file_dns_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_dns_proto_msgTypes = make([]protoimpl.MessageInfo, 44)
+var file_dns_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
 var file_dns_proto_goTypes = []any{
 	(DeviceType)(0),                         // 0: DeviceType
 	(*RateLimitSettingsRequest)(nil),        // 1: RateLimitSettingsRequest
@@ -3022,46 +3068,47 @@ var file_dns_proto_goTypes = []any{
 	(*DeviceQuotaExceededError)(nil),        // 28: DeviceQuotaExceededError
 	(*BadRequestError)(nil),                 // 29: BadRequestError
 	(*AuthenticationFailedError)(nil),       // 30: AuthenticationFailedError
-	(*RateLimitSettings)(nil),               // 31: RateLimitSettings
-	(*RemoteKVGetRequest)(nil),              // 32: RemoteKVGetRequest
-	(*RemoteKVGetResponse)(nil),             // 33: RemoteKVGetResponse
-	(*RemoteKVSetRequest)(nil),              // 34: RemoteKVSetRequest
-	(*RemoteKVSetResponse)(nil),             // 35: RemoteKVSetResponse
-	(*CustomDomainCertificateRequest)(nil),  // 36: CustomDomainCertificateRequest
-	(*CustomDomainCertificateResponse)(nil), // 37: CustomDomainCertificateResponse
-	(*SessionTicketRequest)(nil),            // 38: SessionTicketRequest
-	(*SessionTicketResponse)(nil),           // 39: SessionTicketResponse
-	(*SessionTicket)(nil),                   // 40: SessionTicket
-	(*DeviceSettingsChange_Deleted)(nil),    // 41: DeviceSettingsChange.Deleted
-	(*DeviceSettingsChange_Upserted)(nil),   // 42: DeviceSettingsChange.Upserted
-	(*CustomDomain_Pending)(nil),            // 43: CustomDomain.Pending
-	(*CustomDomain_Current)(nil),            // 44: CustomDomain.Current
-	(*timestamppb.Timestamp)(nil),           // 45: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),             // 46: google.protobuf.Duration
-	(*emptypb.Empty)(nil),                   // 47: google.protobuf.Empty
+	(*NotFoundError)(nil),                   // 31: NotFoundError
+	(*RateLimitSettings)(nil),               // 32: RateLimitSettings
+	(*RemoteKVGetRequest)(nil),              // 33: RemoteKVGetRequest
+	(*RemoteKVGetResponse)(nil),             // 34: RemoteKVGetResponse
+	(*RemoteKVSetRequest)(nil),              // 35: RemoteKVSetRequest
+	(*RemoteKVSetResponse)(nil),             // 36: RemoteKVSetResponse
+	(*CustomDomainCertificateRequest)(nil),  // 37: CustomDomainCertificateRequest
+	(*CustomDomainCertificateResponse)(nil), // 38: CustomDomainCertificateResponse
+	(*SessionTicketRequest)(nil),            // 39: SessionTicketRequest
+	(*SessionTicketResponse)(nil),           // 40: SessionTicketResponse
+	(*SessionTicket)(nil),                   // 41: SessionTicket
+	(*DeviceSettingsChange_Deleted)(nil),    // 42: DeviceSettingsChange.Deleted
+	(*DeviceSettingsChange_Upserted)(nil),   // 43: DeviceSettingsChange.Upserted
+	(*CustomDomain_Pending)(nil),            // 44: CustomDomain.Pending
+	(*CustomDomain_Current)(nil),            // 45: CustomDomain.Current
+	(*timestamppb.Timestamp)(nil),           // 46: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),             // 47: google.protobuf.Duration
+	(*emptypb.Empty)(nil),                   // 48: google.protobuf.Empty
 }
 var file_dns_proto_depIdxs = []int32{
 	23, // 0: RateLimitSettingsResponse.allowed_subnets:type_name -> CidrRange
 	22, // 1: GlobalAccessSettingsResponse.standard:type_name -> AccessSettings
-	45, // 2: DNSProfilesRequest.sync_time:type_name -> google.protobuf.Timestamp
+	46, // 2: DNSProfilesRequest.sync_time:type_name -> google.protobuf.Timestamp
 	10, // 3: DNSProfile.safe_browsing:type_name -> SafeBrowsingSettings
 	12, // 4: DNSProfile.parental:type_name -> ParentalSettings
 	16, // 5: DNSProfile.rule_lists:type_name -> RuleListsSettings
 	11, // 6: DNSProfile.devices:type_name -> DeviceSettings
-	46, // 7: DNSProfile.filtered_response_ttl:type_name -> google.protobuf.Duration
+	47, // 7: DNSProfile.filtered_response_ttl:type_name -> google.protobuf.Duration
 	17, // 8: DNSProfile.blocking_mode_custom_ip:type_name -> BlockingModeCustomIP
 	18, // 9: DNSProfile.blocking_mode_nxdomain:type_name -> BlockingModeNXDOMAIN
 	19, // 10: DNSProfile.blocking_mode_null_ip:type_name -> BlockingModeNullIP
 	20, // 11: DNSProfile.blocking_mode_refused:type_name -> BlockingModeREFUSED
 	22, // 12: DNSProfile.access:type_name -> AccessSettings
-	31, // 13: DNSProfile.rate_limit:type_name -> RateLimitSettings
+	32, // 13: DNSProfile.rate_limit:type_name -> RateLimitSettings
 	8,  // 14: DNSProfile.custom_domain:type_name -> CustomDomainSettings
 	7,  // 15: DNSProfile.device_changes:type_name -> DeviceSettingsChange
-	41, // 16: DeviceSettingsChange.deleted:type_name -> DeviceSettingsChange.Deleted
-	42, // 17: DeviceSettingsChange.upserted:type_name -> DeviceSettingsChange.Upserted
+	42, // 16: DeviceSettingsChange.deleted:type_name -> DeviceSettingsChange.Deleted
+	43, // 17: DeviceSettingsChange.upserted:type_name -> DeviceSettingsChange.Upserted
 	9,  // 18: CustomDomainSettings.domains:type_name -> CustomDomain
-	43, // 19: CustomDomain.pending:type_name -> CustomDomain.Pending
-	44, // 20: CustomDomain.current:type_name -> CustomDomain.Current
+	44, // 19: CustomDomain.pending:type_name -> CustomDomain.Pending
+	45, // 20: CustomDomain.current:type_name -> CustomDomain.Current
 	24, // 21: DeviceSettings.authentication:type_name -> AuthenticationSettings
 	13, // 22: ParentalSettings.schedule:type_name -> ScheduleSettings
 	14, // 23: ScheduleSettings.weeklyRange:type_name -> WeeklyRange
@@ -3072,40 +3119,40 @@ var file_dns_proto_depIdxs = []int32{
 	15, // 28: WeeklyRange.fri:type_name -> DayRange
 	15, // 29: WeeklyRange.sat:type_name -> DayRange
 	15, // 30: WeeklyRange.sun:type_name -> DayRange
-	46, // 31: DayRange.start:type_name -> google.protobuf.Duration
-	46, // 32: DayRange.end:type_name -> google.protobuf.Duration
-	45, // 33: DeviceBillingStat.last_activity_time:type_name -> google.protobuf.Timestamp
+	47, // 31: DayRange.start:type_name -> google.protobuf.Duration
+	47, // 32: DayRange.end:type_name -> google.protobuf.Duration
+	46, // 33: DeviceBillingStat.last_activity_time:type_name -> google.protobuf.Timestamp
 	23, // 34: AccessSettings.allowlist_cidr:type_name -> CidrRange
 	23, // 35: AccessSettings.blocklist_cidr:type_name -> CidrRange
 	0,  // 36: CreateDeviceRequest.device_type:type_name -> DeviceType
 	11, // 37: CreateDeviceResponse.device:type_name -> DeviceSettings
-	46, // 38: RateLimitedError.retry_delay:type_name -> google.protobuf.Duration
+	47, // 38: RateLimitedError.retry_delay:type_name -> google.protobuf.Duration
 	23, // 39: RateLimitSettings.client_cidr:type_name -> CidrRange
-	47, // 40: RemoteKVGetResponse.empty:type_name -> google.protobuf.Empty
-	46, // 41: RemoteKVSetRequest.ttl:type_name -> google.protobuf.Duration
-	40, // 42: SessionTicketResponse.tickets:type_name -> SessionTicket
+	48, // 40: RemoteKVGetResponse.empty:type_name -> google.protobuf.Empty
+	47, // 41: RemoteKVSetRequest.ttl:type_name -> google.protobuf.Duration
+	41, // 42: SessionTicketResponse.tickets:type_name -> SessionTicket
 	11, // 43: DeviceSettingsChange.Upserted.device:type_name -> DeviceSettings
-	45, // 44: CustomDomain.Pending.expire:type_name -> google.protobuf.Timestamp
-	45, // 45: CustomDomain.Current.not_before:type_name -> google.protobuf.Timestamp
-	45, // 46: CustomDomain.Current.not_after:type_name -> google.protobuf.Timestamp
+	46, // 44: CustomDomain.Pending.expire:type_name -> google.protobuf.Timestamp
+	46, // 45: CustomDomain.Current.not_before:type_name -> google.protobuf.Timestamp
+	46, // 46: CustomDomain.Current.not_after:type_name -> google.protobuf.Timestamp
 	5,  // 47: DNSService.getDNSProfiles:input_type -> DNSProfilesRequest
 	21, // 48: DNSService.saveDevicesBillingStat:input_type -> DeviceBillingStat
 	25, // 49: DNSService.createDeviceByHumanId:input_type -> CreateDeviceRequest
 	1,  // 50: RateLimitService.getRateLimitSettings:input_type -> RateLimitSettingsRequest
 	3,  // 51: RateLimitService.getGlobalAccessSettings:input_type -> GlobalAccessSettingsRequest
-	32, // 52: RemoteKVService.get:input_type -> RemoteKVGetRequest
-	34, // 53: RemoteKVService.set:input_type -> RemoteKVSetRequest
-	36, // 54: CustomDomainService.getCustomDomainCertificate:input_type -> CustomDomainCertificateRequest
-	38, // 55: SessionTicketService.getSessionTickets:input_type -> SessionTicketRequest
+	33, // 52: RemoteKVService.get:input_type -> RemoteKVGetRequest
+	35, // 53: RemoteKVService.set:input_type -> RemoteKVSetRequest
+	37, // 54: CustomDomainService.getCustomDomainCertificate:input_type -> CustomDomainCertificateRequest
+	39, // 55: SessionTicketService.getSessionTickets:input_type -> SessionTicketRequest
 	6,  // 56: DNSService.getDNSProfiles:output_type -> DNSProfile
-	47, // 57: DNSService.saveDevicesBillingStat:output_type -> google.protobuf.Empty
+	48, // 57: DNSService.saveDevicesBillingStat:output_type -> google.protobuf.Empty
 	26, // 58: DNSService.createDeviceByHumanId:output_type -> CreateDeviceResponse
 	2,  // 59: RateLimitService.getRateLimitSettings:output_type -> RateLimitSettingsResponse
 	4,  // 60: RateLimitService.getGlobalAccessSettings:output_type -> GlobalAccessSettingsResponse
-	33, // 61: RemoteKVService.get:output_type -> RemoteKVGetResponse
-	35, // 62: RemoteKVService.set:output_type -> RemoteKVSetResponse
-	37, // 63: CustomDomainService.getCustomDomainCertificate:output_type -> CustomDomainCertificateResponse
-	39, // 64: SessionTicketService.getSessionTickets:output_type -> SessionTicketResponse
+	34, // 61: RemoteKVService.get:output_type -> RemoteKVGetResponse
+	36, // 62: RemoteKVService.set:output_type -> RemoteKVSetResponse
+	38, // 63: CustomDomainService.getCustomDomainCertificate:output_type -> CustomDomainCertificateResponse
+	40, // 64: SessionTicketService.getSessionTickets:output_type -> SessionTicketResponse
 	56, // [56:65] is the sub-list for method output_type
 	47, // [47:56] is the sub-list for method input_type
 	47, // [47:47] is the sub-list for extension type_name
@@ -3135,7 +3182,7 @@ func file_dns_proto_init() {
 	file_dns_proto_msgTypes[23].OneofWrappers = []any{
 		(*AuthenticationSettings_PasswordHashBcrypt)(nil),
 	}
-	file_dns_proto_msgTypes[32].OneofWrappers = []any{
+	file_dns_proto_msgTypes[33].OneofWrappers = []any{
 		(*RemoteKVGetResponse_Data)(nil),
 		(*RemoteKVGetResponse_Empty)(nil),
 	}
@@ -3145,7 +3192,7 @@ func file_dns_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dns_proto_rawDesc), len(file_dns_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   44,
+			NumMessages:   45,
 			NumExtensions: 0,
 			NumServices:   5,
 		},

@@ -2,9 +2,13 @@ package backendpb
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/url"
+	"slices"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/golibs/timeutil"
@@ -91,8 +95,52 @@ func (ts *TicketStorage) Tickets(
 	}
 
 	tickets, err = ts.ticketsToInternal(ctx, resp.GetTickets())
-
 	ts.logger.DebugContext(ctx, "loaded session tickets", "count", len(tickets))
+	if err != nil {
+		return tickets, fmt.Errorf("converting: %w", err)
+	}
 
-	return tickets, err
+	ts.metrics.SetTicketsState(ctx, calcTicketsHash(tickets))
+
+	return tickets, nil
+}
+
+// calcTicketsHash calculates a hash of the tickets and returns a part of it as
+// a float64 number.  Returns 0 if there are no tickets.
+func calcTicketsHash(tickets tlsconfig.NamedTickets) (num float64) {
+	if len(tickets) == 0 {
+		return 0
+	}
+
+	// Start a new SHA256 hash sum.
+	h := sha256.New()
+
+	// Add each ticket's data to the hash sum. The errors are ignored, because
+	// [hash.Hash] never returns an error.
+	// NOTE:  Sorted by name, as strings, so "ticket_10" goes before "ticket_2".
+	for _, name := range slices.Sorted(maps.Keys(tickets)) {
+		// NOTE:  Name first, data second, with no separators between them.
+		_, _ = h.Write([]byte(name))
+
+		data := tickets[name]
+		_, _ = h.Write(data[:])
+	}
+
+	hashData := h.Sum(nil)
+
+	// Now, the bytes that will become our uint64 and then float64.
+	//
+	// NOTE:  Java will have to use a long signed integer here and below, but
+	// since we only use 48 bits, there should be no signedness issues.
+	intData := make([]byte, 8)
+
+	// Copy the first six bytes to the least significant bytes of the integer
+	// data to prevent signedness issues.
+	copy(intData[2:8], hashData[0:6])
+
+	// Since we only use 48 bits, the integer should fit into a float64 (aka
+	// double in Java) with no issues.
+	num = float64(binary.BigEndian.Uint64(intData))
+
+	return num
 }

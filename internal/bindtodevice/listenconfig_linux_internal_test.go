@@ -12,8 +12,8 @@ import (
 )
 
 func TestListenConfig(t *testing.T) {
-	pc := newChanPacketConn(nil, testSubnetIPv4, nil, nil, testLAddr)
-	lsnr := newChanListener(nil, testSubnetIPv4, testLAddr)
+	pc := newTestChanPacketConn(t, nil, nil)
+	lsnr := newTestChanListener(t, nil)
 	addr := &agdnet.PrefixNetAddr{
 		Prefix: testSubnetIPv4,
 		Net:    "",

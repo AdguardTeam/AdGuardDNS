@@ -50,19 +50,22 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	mw := &Middleware{
-		messages: msgs,
-		cloner:   cloner,
-		errColl:  agdtest.NewErrorCollector(),
-	}
-
 	// TODO(a.garipov): Consider moving to dnssvctest and DRY'ing with
 	// mainmw_test.
 	const (
 		allowRule   = "||" + dnssvctest.DomainAllowed + "^"
 		blockRule   = "||" + dnssvctest.DomainBlocked + "^"
 		rewriteRule = "||" + dnssvctest.DomainRewritten + "^$dnsrewrite=REFUSED"
+
+		nodeName = "test-node"
 	)
+
+	mw := &Middleware{
+		messages: msgs,
+		cloner:   cloner,
+		errColl:  agdtest.NewErrorCollector(),
+		nodeName: nodeName,
+	}
 
 	clientIPStr := dnssvctest.ClientIP.String()
 	serverIPStr := dnssvctest.ServerAddr.String()
@@ -87,6 +90,7 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
 			{"server-ip.adguard-dns.com.", serverIPStr},
+			{"node-name.adguard-dns.com.", nodeName},
 			{"resp.res-type.adguard-dns.com.", "normal"},
 		}),
 	}, {
@@ -98,6 +102,7 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
 			{"server-ip.adguard-dns.com.", serverIPStr},
+			{"node-name.adguard-dns.com.", nodeName},
 			{"req.res-type.adguard-dns.com.", "blocked"},
 			{"req.rule.adguard-dns.com.", blockRule},
 			{"req.rule-list-id.adguard-dns.com.", dnssvctest.FilterListID1Str},
@@ -111,6 +116,7 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
 			{"server-ip.adguard-dns.com.", serverIPStr},
+			{"node-name.adguard-dns.com.", nodeName},
 			{"resp.res-type.adguard-dns.com.", "blocked"},
 			{"resp.rule.adguard-dns.com.", blockRule},
 			{"resp.rule-list-id.adguard-dns.com.", dnssvctest.FilterListID2Str},
@@ -126,6 +132,7 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
 			{"server-ip.adguard-dns.com.", serverIPStr},
+			{"node-name.adguard-dns.com.", nodeName},
 			{"req.res-type.adguard-dns.com.", "allowed"},
 			{"req.rule.adguard-dns.com.", allowRule},
 			{"req.rule-list-id.adguard-dns.com.", ""},
@@ -141,6 +148,7 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
 			{"server-ip.adguard-dns.com.", serverIPStr},
+			{"node-name.adguard-dns.com.", nodeName},
 			{"resp.res-type.adguard-dns.com.", "allowed"},
 			{"resp.rule.adguard-dns.com.", allowRule},
 			{"resp.rule-list-id.adguard-dns.com.", ""},
@@ -161,6 +169,7 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
 			{"server-ip.adguard-dns.com.", serverIPStr},
+			{"node-name.adguard-dns.com.", nodeName},
 			{"req.res-type.adguard-dns.com.", "modified"},
 			{"req.rule.adguard-dns.com.", rewriteRule},
 			{"req.rule-list-id.adguard-dns.com.", ""},
@@ -180,6 +189,7 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
 			{"server-ip.adguard-dns.com.", serverIPStr},
+			{"node-name.adguard-dns.com.", nodeName},
 			{"device-id.adguard-dns.com.", dnssvctest.DeviceIDStr},
 			{"profile-id.adguard-dns.com.", dnssvctest.ProfileIDStr},
 			{"resp.res-type.adguard-dns.com.", "normal"},
@@ -196,6 +206,7 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
 			{"server-ip.adguard-dns.com.", serverIPStr},
+			{"node-name.adguard-dns.com.", nodeName},
 			{"country.adguard-dns.com.", string(geoip.CountryAD)},
 			{"asn.adguard-dns.com.", "0"},
 			{"resp.res-type.adguard-dns.com.", "normal"},
@@ -212,6 +223,7 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 		wantExtra: newTXTExtra([][2]string{
 			{"client-ip.adguard-dns.com.", clientIPStr},
 			{"server-ip.adguard-dns.com.", serverIPStr},
+			{"node-name.adguard-dns.com.", nodeName},
 			{"country.adguard-dns.com.", string(geoip.CountryAD)},
 			{"asn.adguard-dns.com.", "0"},
 			{"subdivision.adguard-dns.com.", "CA"},

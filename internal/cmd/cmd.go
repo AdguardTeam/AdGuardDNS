@@ -5,6 +5,7 @@ package cmd
 import (
 	"context"
 	"os"
+	"os/signal"
 	"runtime"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -15,12 +16,13 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/sentryutil"
+	"golang.org/x/sys/unix"
 )
 
 // Main is the entry point of application.
 func Main(plugins *plugin.Registry) {
 	// TODO(a.garipov, e.burkov):  Consider adding timeouts for initialization.
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
 
 	envs := errors.Must(parseEnvironment())
 	errors.Check(envs.Validate())
@@ -34,8 +36,6 @@ func Main(plugins *plugin.Registry) {
 	})
 
 	sentryutil.SetDefaultLogger(baseLogger, "")
-
-	experiment.Init(baseLogger)
 
 	// TODO(a.garipov):  Consider ways of replacing a prefix and stop passing
 	// the main logger everywhere.
@@ -71,9 +71,7 @@ func Main(plugins *plugin.Registry) {
 
 	profilesEnabled := c.isProfilesEnabled()
 
-	errors.Check(envs.validateFromValidConfig(c, profilesEnabled))
-
-	metrics.SetAdditionalInfo(c.AdditionalMetricsInfo)
+	errors.Check(envs.validateProfilesConf(profilesEnabled))
 
 	// Building and running the server
 
@@ -85,6 +83,10 @@ func Main(plugins *plugin.Registry) {
 		errColl:         errColl,
 		profilesEnabled: profilesEnabled,
 	})
+
+	errors.Check(experiment.Init(baseLogger, b.promRegisterer))
+
+	errors.Check(metrics.SetAdditionalInfo(b.promRegisterer, c.AdditionalMetricsInfo))
 
 	b.startGeoIP(ctx)
 
@@ -112,9 +114,7 @@ func Main(plugins *plugin.Registry) {
 
 	errors.Check(b.initTLSManager(ctx))
 
-	// TODO(a.garipov):  Check the errors when the methods starts returning
-	// them.
-	b.initCustomDomainDB(ctx)
+	errors.Check(b.initCustomDomainDB(ctx))
 
 	errors.Check(b.initServerGroups(ctx))
 
@@ -125,6 +125,8 @@ func Main(plugins *plugin.Registry) {
 	errors.Check(b.initBillStat(ctx))
 
 	errors.Check(b.initProfileDB(ctx))
+
+	errors.Check(b.refreshCustomDomainDB(ctx))
 
 	errors.Check(b.initDNSCheck(ctx))
 
@@ -151,7 +153,18 @@ func Main(plugins *plugin.Registry) {
 	b.mustInitDebugSvc(ctx)
 
 	// Signal that the server is started.
-	metrics.SetUpGauge(buildVersion, commitTime, branch, revision, runtime.Version())
+	errors.Check(metrics.SetUpGauge(
+		b.promRegisterer,
+		buildVersion,
+		branch,
+		commitTime,
+		revision,
+		runtime.Version(),
+	))
+
+	// Unregister the signal behavior for ctx.
+	stop()
+	ctx = context.WithoutCancel(ctx)
 
 	os.Exit(b.handleSignals(ctx))
 }

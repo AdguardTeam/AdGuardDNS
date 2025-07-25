@@ -14,7 +14,6 @@ import (
 
 func TestDefaultProfile_Config(t *testing.T) {
 	conf := &access.ProfileConfig{
-		Metrics:              testAccessMtrc,
 		AllowedNets:          []netip.Prefix{netip.MustParsePrefix("1.1.1.0/24")},
 		BlockedNets:          []netip.Prefix{netip.MustParsePrefix("2.2.2.0/24")},
 		AllowedASN:           []geoip.ASN{1},
@@ -22,7 +21,8 @@ func TestDefaultProfile_Config(t *testing.T) {
 		BlocklistDomainRules: []string{"block.test"},
 	}
 
-	a := access.NewDefaultProfile(conf)
+	cons := access.NewProfileConstructor(testAccessMtrc)
+	a := cons.New(conf)
 	got := a.Config()
 	assert.Equal(t, conf.AllowedNets, got.AllowedNets)
 	assert.Equal(t, conf.BlockedNets, got.BlockedNets)
@@ -35,7 +35,6 @@ func TestDefaultProfile_IsBlocked(t *testing.T) {
 	passAddrPort := netip.MustParseAddrPort("3.3.3.3:3333")
 
 	conf := &access.ProfileConfig{
-		Metrics:     testAccessMtrc,
 		AllowedNets: []netip.Prefix{netip.MustParsePrefix("1.1.1.1/32")},
 		BlockedNets: []netip.Prefix{netip.MustParsePrefix("1.1.1.0/24")},
 		AllowedASN:  []geoip.ASN{1},
@@ -49,7 +48,8 @@ func TestDefaultProfile_IsBlocked(t *testing.T) {
 		},
 	}
 
-	a := access.NewDefaultProfile(conf)
+	cons := access.NewProfileConstructor(testAccessMtrc)
+	a := cons.New(conf)
 
 	testCases := []struct {
 		loc   *geoip.Location
@@ -171,7 +171,6 @@ func TestDefaultProfile_IsBlocked(t *testing.T) {
 
 func TestDefaultProfile_IsBlocked_prefixAllowlist(t *testing.T) {
 	conf := &access.ProfileConfig{
-		Metrics: testAccessMtrc,
 		AllowedNets: []netip.Prefix{
 			netip.MustParsePrefix("2.2.2.0/24"),
 			netip.MustParsePrefix("3.3.0.0/16"),
@@ -182,7 +181,8 @@ func TestDefaultProfile_IsBlocked_prefixAllowlist(t *testing.T) {
 		BlocklistDomainRules: nil,
 	}
 
-	a := access.NewDefaultProfile(conf)
+	cons := access.NewProfileConstructor(testAccessMtrc)
+	a := cons.New(conf)
 
 	testCases := []struct {
 		want  assert.BoolAssertionFunc
@@ -225,7 +225,6 @@ func BenchmarkDefaultProfile_IsBlocked(b *testing.B) {
 	passAddrPort := netip.MustParseAddrPort("3.3.3.3:3333")
 
 	conf := &access.ProfileConfig{
-		Metrics:     testAccessMtrc,
 		AllowedNets: []netip.Prefix{netip.MustParsePrefix("1.1.1.1/32")},
 		BlockedNets: []netip.Prefix{netip.MustParsePrefix("1.1.1.0/24")},
 		AllowedASN:  []geoip.ASN{1},
@@ -239,7 +238,8 @@ func BenchmarkDefaultProfile_IsBlocked(b *testing.B) {
 		},
 	}
 
-	a := access.NewDefaultProfile(conf)
+	cons := access.NewProfileConstructor(testAccessMtrc)
+	a := cons.New(conf)
 
 	ctx := testutil.ContextWithTimeout(b, testTimeout)
 

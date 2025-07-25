@@ -150,17 +150,20 @@ func TestNewHandlers(t *testing.T) {
 
 			ctx := testutil.ContextWithTimeout(t, dnssvctest.Timeout)
 			handlers, err := dnssvc.NewHandlers(ctx, &dnssvc.HandlersConfig{
-				BaseLogger:       testLogger,
-				Cloner:           agdtest.NewCloner(),
-				Cache:            tc.cacheConf,
-				HumanIDParser:    agd.NewHumanIDParser(),
-				Messages:         agdtest.NewConstructor(t),
-				PluginRegistry:   nil,
-				StructuredErrors: agdtest.NewSDEConfig(true),
-				AccessManager:    accessMgr,
-				BillStat:         billStat,
+				BaseLogger:            testLogger,
+				Cloner:                agdtest.NewCloner(),
+				Cache:                 tc.cacheConf,
+				HumanIDParser:         agd.NewHumanIDParser(),
+				MainMiddlewareMetrics: nil,
+				Messages:              agdtest.NewConstructor(t),
+				PostInitialMiddleware: nil,
+				StructuredErrors:      agdtest.NewSDEConfig(true),
+				AccessManager:         accessMgr,
+				BillStat:              billStat,
 				// TODO(a.garipov):  Create a test implementation?
-				CacheManager:         agdcache.EmptyManager{},
+				CacheManager: agdcache.EmptyManager{},
+				// TODO(a.garipov):  Create a test implementation?
+				CustomDomainDB:       dnssvc.EmptyCustomDomainDB{},
 				DNSCheck:             dnsCk,
 				DNSDB:                dnsDB,
 				ErrColl:              agdtest.NewErrorCollector(),
@@ -174,6 +177,7 @@ func TestNewHandlers(t *testing.T) {
 				RateLimit:            agdtest.NewRateLimit(),
 				RuleStat:             ruleStat,
 				MetricsNamespace:     path.Base(t.Name()),
+				NodeName:             t.Name(),
 				FilteringGroups:      fltGrps,
 				ServerGroups:         []*dnssvc.ServerGroupConfig{srvGrp},
 				EDEEnabled:           true,

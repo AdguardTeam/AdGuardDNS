@@ -15,7 +15,7 @@ import (
 func TestTLSConfig_AfterHandshake(t *testing.T) {
 	// TODO(s.chzhen):  Consider using [agdtest.PrometheusRegisterer].
 	reg := prometheus.NewRegistry()
-	m, err := metrics.NewTLSConfig(metrics.Namespace(), reg)
+	m, err := metrics.NewTLSConfigManager(metrics.Namespace(), reg)
 	require.NoError(t, err)
 
 	serverName := "test_server"
@@ -148,7 +148,7 @@ func findLabel(ms []*io_prometheus_client.Metric, label string) (ok bool) {
 
 func TestTLSConfig_BeforeHandshake(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	m, err := metrics.NewTLSConfig(metrics.Namespace(), reg)
+	m, err := metrics.NewTLSConfigManager(metrics.Namespace(), reg)
 	require.NoError(t, err)
 
 	f := m.BeforeHandshake("srv-name")

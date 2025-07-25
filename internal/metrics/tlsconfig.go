@@ -14,9 +14,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// TLSConfig is the Prometheus-based implementation of the [tlsconfig.Metrics]
-// interface.
-type TLSConfig struct {
+// TLSConfigManager is the Prometheus-based implementation of the
+// [tlsconfig.ManagerMetrics] interface.
+type TLSConfigManager struct {
 	// certificateInfo is a gauge with the authentication algorithm of the
 	// certificate.
 	certificateInfo *prometheus.GaugeVec
@@ -42,9 +42,12 @@ type TLSConfig struct {
 	handshakeTotal *prometheus.CounterVec
 }
 
-// NewTLSConfig registers the TLS-related metrics in reg and returns a properly
-// initialized [TLSConfig].
-func NewTLSConfig(namespace string, reg prometheus.Registerer) (m *TLSConfig, err error) {
+// NewTLSConfigManager registers the TLS-related metrics in reg and returns a
+// properly initialized [*TLSConfigManager].
+func NewTLSConfigManager(
+	namespace string,
+	reg prometheus.Registerer,
+) (m *TLSConfigManager, err error) {
 	const (
 		certInfo                = "cert_info"
 		certNotAfter            = "cert_not_after"
@@ -54,7 +57,7 @@ func NewTLSConfig(namespace string, reg prometheus.Registerer) (m *TLSConfig, er
 		handshakeTotal          = "handshake_total"
 	)
 
-	m = &TLSConfig{
+	m = &TLSConfigManager{
 		certificateInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name:      certInfo,
 			Namespace: namespace,
@@ -139,8 +142,9 @@ func NewTLSConfig(namespace string, reg prometheus.Registerer) (m *TLSConfig, er
 	return m, nil
 }
 
-// BeforeHandshake implements the [tlsconfig.Metrics] interface for *TLSConfig.
-func (m *TLSConfig) BeforeHandshake(
+// BeforeHandshake implements the [tlsconfig.ManagerMetrics] interface for
+// *TLSConfigManager.
+func (m *TLSConfigManager) BeforeHandshake(
 	proto string,
 ) (f func(*tls.ClientHelloInfo) (*tls.Config, error)) {
 	return func(info *tls.ClientHelloInfo) (*tls.Config, error) {
@@ -167,8 +171,9 @@ func (m *TLSConfig) BeforeHandshake(
 	}
 }
 
-// AfterHandshake implements the [tlsconfig.Metrics] interface for *TLSConfig.
-func (m *TLSConfig) AfterHandshake(
+// AfterHandshake implements the [tlsconfig.ManagerMetrics] interface for
+// *TLSConfigManager.
+func (m *TLSConfigManager) AfterHandshake(
 	proto string,
 	srvName string,
 	devDomains []string,
@@ -195,9 +200,14 @@ func (m *TLSConfig) AfterHandshake(
 	}
 }
 
-// SetCertificateInfo implements the [tlsconfig.Metrics] interface for
-// *TLSConfig.
-func (m *TLSConfig) SetCertificateInfo(_ context.Context, algo, subj string, notAfter time.Time) {
+// SetCertificateInfo implements the [tlsconfig.ManagerMetrics] interface for
+// *TLSConfigManager.
+func (m *TLSConfigManager) SetCertificateInfo(
+	_ context.Context,
+	algo string,
+	subj string,
+	notAfter time.Time,
+) {
 	m.certificateInfo.With(prometheus.Labels{
 		"auth_algo": algo,
 		"subject":   subj,
@@ -208,9 +218,9 @@ func (m *TLSConfig) SetCertificateInfo(_ context.Context, algo, subj string, not
 	}).Set(float64(notAfter.Unix()))
 }
 
-// SetSessionTicketRotationStatus implements the [tlsconfig.Metrics] interface
-// for *TLSConfig.
-func (m *TLSConfig) SetSessionTicketRotationStatus(_ context.Context, err error) {
+// SetSessionTicketRotationStatus implements the [tlsconfig.ManagerMetrics]
+// interface for *TLSConfigManager.
+func (m *TLSConfigManager) SetSessionTicketRotationStatus(_ context.Context, err error) {
 	if err != nil {
 		m.sessionTicketsRotateStatus.Set(0)
 
@@ -315,4 +325,119 @@ func matchSNI(sni string, dnsNames []string) (match string) {
 	}
 
 	return ""
+}
+
+// CustomDomainDB is the Prometheus-based implementation of the
+// [tlsconfig.CustomDomainDBMetrics] interface.
+type CustomDomainDB struct {
+	addCertDurationSeconds prometheus.Histogram
+	matchDurationSeconds   prometheus.Histogram
+
+	currentCustomDomainsCount prometheus.Gauge
+	wellKnownPathsCount       prometheus.Gauge
+}
+
+// NewCustomDomainDB registers the custom-domain database metrics in reg and
+// returns a properly initialized [*CustomDomainDB].
+func NewCustomDomainDB(namespace string, reg prometheus.Registerer) (m *CustomDomainDB, err error) {
+	const (
+		addCertDurationSeconds = "custom_domains_add_cert_duration_seconds"
+		matchDurationSeconds   = "custom_domains_match_duration_seconds"
+
+		currentCustomDomainsCount = "custom_domains_current_count"
+		wellKnownPathsCount       = "custom_domains_well_known_paths_count"
+	)
+
+	m = &CustomDomainDB{
+		addCertDurationSeconds: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:      addCertDurationSeconds,
+			Namespace: namespace,
+			Subsystem: subsystemTLS,
+			Help:      "The duration of adding a certificate to the database, in seconds.",
+			Buckets:   []float64{0.000_1, 0.001, 0.01, 0.1},
+		}),
+
+		matchDurationSeconds: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:      matchDurationSeconds,
+			Namespace: namespace,
+			Subsystem: subsystemTLS,
+			Help: "The duration of matching a client server name with " +
+				"a custom domain name, in seconds",
+			Buckets: []float64{0.000_001, 0.000_01, 0.000_1, 0.001},
+		}),
+
+		currentCustomDomainsCount: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name:      currentCustomDomainsCount,
+			Namespace: namespace,
+			Subsystem: subsystemTLS,
+			Help:      "The number of current custom domains.",
+		}),
+
+		wellKnownPathsCount: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name:      wellKnownPathsCount,
+			Namespace: namespace,
+			Subsystem: subsystemTLS,
+			Help:      "The number of well-known paths for certificate validation.",
+		}),
+	}
+
+	var errs []error
+	collectors := container.KeyValues[string, prometheus.Collector]{{
+		Key:   addCertDurationSeconds,
+		Value: m.addCertDurationSeconds,
+	}, {
+		Key:   matchDurationSeconds,
+		Value: m.matchDurationSeconds,
+	}, {
+		Key:   currentCustomDomainsCount,
+		Value: m.currentCustomDomainsCount,
+	}, {
+		Key:   wellKnownPathsCount,
+		Value: m.wellKnownPathsCount,
+	}}
+
+	for _, c := range collectors {
+		err = reg.Register(c.Value)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("registering metrics %q: %w", c.Key, err))
+		}
+	}
+
+	if err = errors.Join(errs...); err != nil {
+		return nil, err
+	}
+
+	return m, nil
+}
+
+// Operations for [*CustomDomainDB].  Keep in sync with
+// [tlsconfig.CustomDomainDBMetricsOpAddCertificate] etc.
+const (
+	CustomDomainDBOpAddCertificate = "add_certificate"
+	CustomDomainDBOpMatch          = "match"
+)
+
+// ObserveOperation implements the [CustomDomainDB] interface for
+// CustomDomainDB.
+func (m *CustomDomainDB) ObserveOperation(_ context.Context, op string, dur time.Duration) {
+	switch op {
+	case CustomDomainDBOpAddCertificate:
+		m.addCertDurationSeconds.Observe(dur.Seconds())
+	case CustomDomainDBOpMatch:
+		m.matchDurationSeconds.Observe(dur.Seconds())
+	default:
+		panic(fmt.Errorf("op: %w: %q", errors.ErrBadEnumValue, op))
+	}
+}
+
+// SetCurrentCustomDomainsCount implements the [CustomDomainDB] interface
+// for CustomDomainDB.
+func (m *CustomDomainDB) SetCurrentCustomDomainsCount(_ context.Context, n uint) {
+	m.currentCustomDomainsCount.Set(float64(n))
+}
+
+// SetWellKnownPathsCount implements the [CustomDomainDB] interface
+// for CustomDomainDB.
+func (m *CustomDomainDB) SetWellKnownPathsCount(_ context.Context, n uint) {
+	m.wellKnownPathsCount.Set(float64(n))
 }

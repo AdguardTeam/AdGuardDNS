@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdrand"
+	"github.com/AdguardTeam/golibs/mathutil/randutil"
 )
 
 // RequestIDLen is the length of a [RequestID] in bytes.  A RequestID is
@@ -19,7 +19,7 @@ type RequestID [RequestIDLen]byte
 // requestIDRand is used to create [RequestID]s.
 //
 // TODO(a.garipov): Consider making a struct instead of using one global source.
-var requestIDRand = agdrand.NewReader(agdrand.MustNewSeed())
+var requestIDRand = randutil.NewReader(randutil.MustNewSeed())
 
 // NewRequestID returns a new pseudorandom RequestID.  Prefer this to manual
 // conversion from other string types.

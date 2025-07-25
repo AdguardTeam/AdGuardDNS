@@ -17,6 +17,7 @@ import (
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/golibs/testutil/fakeservice"
+	"github.com/AdguardTeam/golibs/testutil/servicetest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -79,14 +80,7 @@ func TestService_Start(t *testing.T) {
 	svc := debugsvc.New(c)
 	require.NotNil(t, svc)
 
-	var err error
-	require.NotPanics(t, func() {
-		err = svc.Start(testutil.ContextWithTimeout(t, testTimeout))
-	})
-	require.NoError(t, err)
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return svc.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
-	})
+	servicetest.RequireRun(t, svc, testTimeout)
 
 	client := agdhttp.NewClient(&agdhttp.ClientConfig{
 		Timeout: testTimeout,
@@ -105,10 +99,10 @@ func TestService_Start(t *testing.T) {
 	// yet, check for it in periodically.
 	var resp *http.Response
 	healthCheckURL := srvURL.JoinPath(debugsvc.PathPatternHealthCheck)
-	require.Eventually(t, func() (ok bool) {
-		resp, err = client.Get(ctx, healthCheckURL)
-
-		return err == nil
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		var getErr error
+		resp, getErr = client.Get(ctx, healthCheckURL)
+		assert.NoError(t, getErr)
 	}, testTimeout, testTimeout/10)
 
 	body := readRespBody(t, resp)
@@ -116,7 +110,7 @@ func TestService_Start(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// Check pprof service URL.
-	resp, err = client.Get(ctx, srvURL.JoinPath(httputil.PprofBasePath))
+	resp, err := client.Get(ctx, srvURL.JoinPath(httputil.PprofBasePath))
 	require.NoError(t, err)
 
 	body = readRespBody(t, resp)

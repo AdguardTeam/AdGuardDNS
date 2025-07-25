@@ -9,7 +9,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
-	"github.com/AdguardTeam/AdGuardDNS/internal/cmd/plugin"
 	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
@@ -17,7 +16,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/initial"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
@@ -110,12 +108,17 @@ type HandlersConfig struct {
 	// profiles enabled.
 	HumanIDParser *agd.HumanIDParser
 
+	// MainMiddlewareMetrics is used to collect metrics for the main middleware,
+	// if needed.
+	MainMiddlewareMetrics MainMiddlewareMetrics
+
 	// Messages is the message constructor used to create blocked and other
 	// messages for this DNS service.  It must not be nil.
 	Messages *dnsmsg.Constructor
 
-	// PluginRegistry is used to override configuration parameters.
-	PluginRegistry *plugin.Registry
+	// PostInitialMiddleware is the middleware to run after the initial
+	// middleware, if any.
+	PostInitialMiddleware dnsserver.Middleware
 
 	// StructuredErrors is the configuration for the experimental Structured DNS
 	// Errors feature in the profiles' message constructors.  It must not be
@@ -130,6 +133,9 @@ type HandlersConfig struct {
 
 	// CacheManager is the global cache manager.  It must not be nil.
 	CacheManager agdcache.Manager
+
+	// CustomDomainDB is used to match custom domains.  It must not be nil.
+	CustomDomainDB CustomDomainDB
 
 	// DNSCheck is used by clients to check if they use AdGuard DNS.  It must
 	// not be nil.
@@ -183,6 +189,9 @@ type HandlersConfig struct {
 	// MetricsNamespace is a namespace for Prometheus metrics.  It must be a
 	// valid Prometheus metric label.
 	MetricsNamespace string
+
+	// NodeName is the name of this server node.
+	NodeName string
 
 	// FilteringGroups are the DNS filtering groups.  Each element must be
 	// non-nil.
@@ -269,7 +278,3 @@ type ServerGroupConfig struct {
 
 // ServerGroupName is the name of a server group.
 type ServerGroupName string
-
-// DDRConfig is the configuration for the server group's Discovery Of Designated
-// Resolvers (DDR) handlers.
-type DDRConfig = initial.DDRConfig

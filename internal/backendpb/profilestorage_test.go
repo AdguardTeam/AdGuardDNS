@@ -70,13 +70,14 @@ func TestProfileStorage_CreateAutoDevice(t *testing.T) {
 	endpoint := runLocalGRPCServer(t, grpcSrv)
 
 	s, err := backendpb.NewProfileStorage(&backendpb.ProfileStorageConfig{
-		BindSet:          backendpb.TestBind,
-		ErrColl:          agdtest.NewErrorCollector(),
-		Logger:           backendpb.TestLogger,
-		BaseCustomLogger: backendpb.TestLogger,
-		GRPCMetrics:      backendpb.EmptyGRPCMetrics{},
-		Metrics:          backendpb.EmptyProfileDBMetrics{},
-		Endpoint:         endpoint,
+		Logger:                   backendpb.TestLogger,
+		BaseCustomLogger:         backendpb.TestLogger,
+		Endpoint:                 endpoint,
+		ProfileAccessConstructor: backendpb.TestProfileAccessConstructor,
+		BindSet:                  backendpb.TestBind,
+		ErrColl:                  agdtest.NewErrorCollector(),
+		GRPCMetrics:              backendpb.EmptyGRPCMetrics{},
+		Metrics:                  backendpb.EmptyProfileDBMetrics{},
 	})
 	require.NoError(t, err)
 
@@ -140,17 +141,18 @@ func BenchmarkProfileStorage_Profiles(b *testing.B) {
 	require.NoError(b, err)
 
 	s, err := backendpb.NewProfileStorage(&backendpb.ProfileStorageConfig{
-		BindSet:          netip.MustParsePrefix("0.0.0.0/0"),
-		ErrColl:          agdtest.NewErrorCollector(),
 		Logger:           backendpb.TestLogger,
 		BaseCustomLogger: backendpb.TestLogger,
-		GRPCMetrics:      backendpb.EmptyGRPCMetrics{},
-		Metrics:          backendpb.EmptyProfileDBMetrics{},
 		Endpoint: &url.URL{
 			Scheme: "grpc",
 			Host:   l.Addr().String(),
 		},
-		MaxProfilesSize: 1 * datasize.MB,
+		ProfileAccessConstructor: backendpb.TestProfileAccessConstructor,
+		BindSet:                  netip.MustParsePrefix("0.0.0.0/0"),
+		ErrColl:                  agdtest.NewErrorCollector(),
+		GRPCMetrics:              backendpb.EmptyGRPCMetrics{},
+		Metrics:                  backendpb.EmptyProfileDBMetrics{},
+		MaxProfilesSize:          1 * datasize.MB,
 	})
 	require.NoError(b, err)
 
@@ -187,5 +189,5 @@ func BenchmarkProfileStorage_Profiles(b *testing.B) {
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/backendpb
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkProfileStorage_Profiles-16    	    3982	    322718 ns/op	   21769 B/op	     388 allocs/op
+	//	BenchmarkProfileStorage_Profiles-16    	    6260	    177333 ns/op	   22001 B/op	     388 allocs/op
 }

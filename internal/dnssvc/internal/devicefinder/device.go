@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"slices"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/optslog"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 )
 
@@ -118,16 +118,18 @@ func (f *Default) deviceResultByCustomDomain(
 	switch dd := cd.deviceData.(type) {
 	case *deviceDataID:
 		prof, dev, err := f.profileDB.ProfileByDeviceID(ctx, dd.id)
-		if err != nil || (prof != nil && prof.ID == cd.profileID) {
+		if err != nil || (prof != nil && slices.Contains(cd.profileIDs, prof.ID)) {
 			return f.newDeviceResult(ctx, prof, dev, "custom domain and device id", err)
 		}
+
+		f.metrics.IncrementCustomDomainMismatches(ctx, cd.domain)
 
 		optslog.Debug4(
 			ctx,
 			f.logger,
 			"custom-domain device and required profile mismatch",
 			"domain", cd.domain,
-			"required_profile_id", cd.profileID,
+			"required_profile_ids", cd.profileIDs,
 			"dev_id", dev.ID,
 			"dev_prof_id", prof.ID,
 		)
@@ -223,10 +225,7 @@ func (f *Default) deviceByAddrs(
 }
 
 // deviceByLocalAddr finds the profile and the device by the local address.
-func (f *Default) deviceByLocalAddr(
-	ctx context.Context,
-	localIP netip.Addr,
-) (r agd.DeviceResult) {
+func (f *Default) deviceByLocalAddr(ctx context.Context, localIP netip.Addr) (r agd.DeviceResult) {
 	p, d, err := f.profileDB.ProfileByDedicatedIP(ctx, localIP)
 	if err == nil {
 		optslog.Debug3(
@@ -250,6 +249,8 @@ func (f *Default) deviceByLocalAddr(
 			Err: fmt.Errorf("looking up by dedicated ip: %w", err),
 		}
 	}
+
+	f.metrics.IncrementUnknownDedicated(ctx)
 
 	optslog.Debug2(
 		ctx,
@@ -275,7 +276,7 @@ func (f *Default) authenticatedResult(
 	dev := res.Device
 	err := f.authenticate(ctx, srvReqInfo, dev)
 	if err != nil {
-		metrics.DNSSvcDoHAuthFailsTotal.Inc()
+		f.metrics.IncrementDoHAuthenticationFails(ctx)
 
 		optslog.Debug2(
 			ctx,

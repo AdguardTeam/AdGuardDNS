@@ -9,7 +9,6 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/golibs/mathutil"
 	"github.com/miekg/dns"
 )
@@ -83,7 +82,7 @@ func (mw *Middleware) itemFromCache(
 
 	// Check for cache key collisions.
 	if item.host != cr.host {
-		optslog.Warn2(ctx, mw.logger, "cache collision", "item", item, "host", cr.host)
+		mw.logger.WarnContext(ctx, "cache collision", "item", item, "host", cr.host)
 
 		return nil, false
 	}

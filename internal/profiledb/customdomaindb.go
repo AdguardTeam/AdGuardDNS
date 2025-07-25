@@ -12,7 +12,12 @@ type CustomDomainDB interface {
 	// AddCertificate adds information about a current certificate.  domains
 	// must contain only valid domain names and wildcards like
 	// "*.domain.example".  s must not be nil and must be valid.
-	AddCertificate(ctx context.Context, domains []string, s *agd.CustomDomainStateCurrent)
+	AddCertificate(
+		ctx context.Context,
+		profID agd.ProfileID,
+		domains []string,
+		state *agd.CustomDomainStateCurrent,
+	)
 
 	// DeleteAllWellKnownPaths removes all data about well-known paths for
 	// certificate validation.
@@ -35,6 +40,7 @@ var _ CustomDomainDB = EmptyCustomDomainDB{}
 // EmptyCustomDomainDB
 func (EmptyCustomDomainDB) AddCertificate(
 	_ context.Context,
+	_ agd.ProfileID,
 	_ []string,
 	_ *agd.CustomDomainStateCurrent,
 ) {

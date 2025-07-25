@@ -232,6 +232,7 @@ func newTestService(
 			},
 		},
 		CacheManager:         agdcache.EmptyManager{},
+		CustomDomainDB:       dnssvc.EmptyCustomDomainDB{},
 		DNSCheck:             dnsCk,
 		DNSDB:                dnsDB,
 		ErrColl:              errColl,
@@ -245,6 +246,7 @@ func newTestService(
 		RateLimit:            rl,
 		RuleStat:             ruleStat,
 		MetricsNamespace:     path.Base(t.Name()),
+		NodeName:             t.Name(),
 		FilteringGroups: map[agd.FilteringGroupID]*agd.FilteringGroup{
 			dnssvctest.FilteringGroupID: fltGrp,
 		},

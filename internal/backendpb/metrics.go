@@ -19,6 +19,7 @@ const (
 	GRPCErrAuthentication GRPCError = "auth"
 	GRPCErrBadRequest     GRPCError = "bad_req"
 	GRPCErrDeviceQuota    GRPCError = "dev_quota"
+	GRPCErrNotFound       GRPCError = "not_found"
 	GRPCErrOther          GRPCError = "other"
 	GRPCErrRateLimit      GRPCError = "rate_limit"
 	GRPCErrTimeout        GRPCError = "timeout"
@@ -150,6 +151,9 @@ type TicketStorageMetrics interface {
 		err error,
 	)
 
+	// SetTicketsState sets the state number code of the session tickets.
+	SetTicketsState(ctx context.Context, num float64)
+
 	// ObserveUpdate sets the duration of the session ticket update operation.
 	ObserveUpdate(ctx context.Context, dur time.Duration, err error)
 }
@@ -170,6 +174,10 @@ func (EmptyTicketStorageMetrics) SetTicketStatus(
 	_ error,
 ) {
 }
+
+// SetTicketsState implements the [TicketStorageMetrics] interface for
+// EmptyTicketStorageMetrics.
+func (EmptyTicketStorageMetrics) SetTicketsState(_ context.Context, _ float64) {}
 
 // ObserveUpdate implements the [TicketStorageMetrics] interface for
 // EmptyTicketStorageMetrics.

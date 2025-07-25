@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/url"
 	"path"
+	"slices"
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -405,7 +406,7 @@ type testCustomDomainDB struct {
 	onMatch func(
 		ctx context.Context,
 		cliSrvName string,
-	) (matchedDomain string, profID agd.ProfileID)
+	) (matchedDomain string, profIDs []agd.ProfileID)
 }
 
 // type check
@@ -415,16 +416,16 @@ var _ devicefinder.CustomDomainDB = (*testCustomDomainDB)(nil)
 func (db *testCustomDomainDB) Match(
 	ctx context.Context,
 	cliSrvName string,
-) (matchedDomain string, profID agd.ProfileID) {
+) (matchedDomain string, profIDs []agd.ProfileID) {
 	return db.onMatch(ctx, cliSrvName)
 }
 
 // newTestCustomDomainDB returns a *testCustomDomainDB that returns the given
 // data.
-func newTestCustomDomainDB(domain string, id agd.ProfileID) (db *testCustomDomainDB) {
+func newTestCustomDomainDB(domain string, ids []agd.ProfileID) (db *testCustomDomainDB) {
 	return &testCustomDomainDB{
-		onMatch: func(_ context.Context, _ string) (matchedDomain string, profID agd.ProfileID) {
-			return domain, id
+		onMatch: func(_ context.Context, _ string) (matchedDomain string, profIDs []agd.ProfileID) {
+			return domain, slices.Clone(ids)
 		},
 	}
 }
@@ -435,16 +436,24 @@ func TestDefault_Find_customDomainDoT(t *testing.T) {
 
 	const customDomain = "custom.example"
 
-	var (
-		customDBMatch   = newTestCustomDomainDB(customDomain, dnssvctest.ProfileID)
-		customDBMatchWk = newTestCustomDomainDB("*."+customDomain, dnssvctest.ProfileID)
-		customDBNoMatch = newTestCustomDomainDB("", "")
-	)
-
 	const profIDOtherStr = "prof5678"
 	profOther := &agd.Profile{}
 	*profOther = *profNormal
 	profOther.ID = agd.ProfileID(profIDOtherStr)
+
+	var (
+		customDBMatch = newTestCustomDomainDB(customDomain, []agd.ProfileID{
+			dnssvctest.ProfileID,
+		})
+		customDBMatchWkSeveral = newTestCustomDomainDB("*."+customDomain, []agd.ProfileID{
+			dnssvctest.ProfileID,
+			profIDOtherStr,
+		})
+		customDBMatchWk = newTestCustomDomainDB("*."+customDomain, []agd.ProfileID{
+			dnssvctest.ProfileID,
+		})
+		customDBNoMatch = newTestCustomDomainDB("", nil)
+	)
 
 	profDBDefault := agdtest.NewProfileDB()
 
@@ -473,8 +482,7 @@ func TestDefault_Find_customDomainDoT(t *testing.T) {
 	const cliSrvNameDev = dnssvctest.DeviceIDStr + "." + customDomain
 
 	const errStrMismatch errors.Error = `wrapping custom domains: custom domain device id check: ` +
-		`profile id in ext id: not equal to expected value: ` +
-		`got ` + profIDOtherStr + `, want ` + dnssvctest.ProfileIDStr
+		`profile id in ext id: ` + profIDOtherStr + `: not contained by expected values`
 
 	testCases := []struct {
 		customDB   devicefinder.CustomDomainDB
@@ -488,6 +496,12 @@ func TestDefault_Find_customDomainDoT(t *testing.T) {
 		wantRes:    resNormal,
 		cliSrvName: cliSrvNameDev,
 		name:       "custom_device_match",
+	}, {
+		customDB:   customDBMatchWkSeveral,
+		profDB:     profDBFoundDevID,
+		wantRes:    resNormal,
+		cliSrvName: cliSrvNameDev,
+		name:       "custom_device_match_several",
 	}, {
 		customDB:   customDBNoMatch,
 		profDB:     profDBDefault,

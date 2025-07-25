@@ -122,7 +122,8 @@ func TestMiddleware_Wrap_specialDomain(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			mw := initial.New(&initial.Config{
-				Logger: slogutil.NewDiscardLogger(),
+				Logger:  slogutil.NewDiscardLogger(),
+				Metrics: initial.EmptyMetrics{},
 				DDR: &initial.DDRConfig{
 					Enabled: false,
 				},

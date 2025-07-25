@@ -66,7 +66,12 @@ func (EmptyMetrics) DecrementActive(_ context.Context, _ *ConnMetricsData) {}
 func (EmptyMetrics) ObserveLifeDuration(_ context.Context, _ *ConnMetricsData, _ time.Duration) {}
 
 // ObserveWaitingDuration implements the [Metrics] interface for EmptyMetrics.
-func (EmptyMetrics) ObserveWaitingDuration(_ context.Context, _ *ConnMetricsData, _ time.Duration) {}
+func (EmptyMetrics) ObserveWaitingDuration(
+	_ context.Context,
+	_ *ConnMetricsData,
+	_ time.Duration,
+) {
+}
 
 // SetStopLimit implements the [Metrics] interface for EmptyMetrics.
 func (EmptyMetrics) SetStopLimit(_ context.Context, _ uint64) {}

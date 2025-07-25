@@ -34,10 +34,10 @@ This service is disabled when all server groups have property [`profiles_enabled
 
 This is the service to which the [`DNSCHECK_REMOTEKV_URL`][env-dnscheck_remotekv_url] environment variable points. Supports gRPC(s) URLs. The service must correspond to `./internal/backendpb/dns.proto`.
 
-This service is only enabled when the `check.kv` object has the [`type`][conf-check-kv-type] property set to `backend`.
+This service is only enabled when the [`DNSCHECK_KV_TYPE`][env-dnscheck_kv_type] environment variable is set to `backend`.
 
 [env-dnscheck_remotekv_url]: environment.md#DNSCHECK_REMOTEKV_URL
-[conf-check-kv-type]:        configuration.md#check-kv-type
+[env-dnscheck_kv_type]:      environment.md#DNSCHECK_KV_TYPE
 
 ## <a href="#backend-profiles" id="backend-profiles" name="backend-profiles">Backend profiles service</a>
 

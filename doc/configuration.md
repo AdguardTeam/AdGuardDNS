@@ -138,10 +138,6 @@ The `ratelimit` object has the following properties:
 
         **Example:** `30s`.
 
-    - <a href="#ratelimit-allowlist-type" id="ratelimit-allowlist-type" name="ratelimit-allowlist-type">`type`</a>: Defines where the rate limit settings are received from. Allowed values are `backend` and `consul`.
-
-        **Example:** `consul`.
-
 For example, if `backoff_period` is `1m`, `backoff_count` is `10`, `ipv4-count` is `5`, and `ipv4-interval` is `1s`, a client (meaning all IP addresses within the subnet defined by `ipv4-subnet_key_len`) that made 15 requests in one second or 6 requests (one above `rps`) every second for 10 seconds within one minute, the client is blocked for `backoff_duration`.
 
 ### <a href="#ratelimit-connection_limit" id="ratelimit-connection_limit" name="ratelimit-connection_limit">Stream connection limit</a>
@@ -378,24 +374,6 @@ The `geoip` object has the following properties:
 
 The `check` object has the following properties:
 
-- <a href="#check_kv" id="check_kv" name="check_kv">`kv`</a>: Remote key-value storage settings. It has the following properties:
-
-    - <a href="#check-kv-type" id="check-kv-type" name="check-kv-type">`type`</a>: Type of the remote KV storage. Allowed values are `backend`, `cache`, `consul`, and `redis`.
-
-        **Example:** `consul`.
-
-    - <a href="#check-kv-ttl" id="check-kv-ttl" name="check-kv-ttl">`ttl`</a>: For how long to keep the information about a single user in remote KV, as a human-readable duration.
-
-        For `backend`, the TTL must be greater than `0s`.
-
-        For `cache`, the TTL is not used.
-
-        For `consul`, the TTL must be between `10s` and `1d`. Note that the actual TTL can be up to twice as long.
-
-        For `redis`, the TTL must be greater than or equal to `1ms`.
-
-        **Example:** `30s`.
-
 - <a href="#check-domains" id="check-domains" name="check-domains">`domains`</a>: The domain suffixes to which random IDs are prepended using a hyphen.
 
     **Property example:**
@@ -409,10 +387,6 @@ The `check` object has the following properties:
 - <a href="#check-node_location" id="check-node_location" name="check-node_location">`node_location`</a>: The location code of this server node.
 
     **Example:** `ams`.
-
-- <a href="#check-node_name" id="check-node_name" name="check-node_name">`node_name`</a>: The name of this server node.
-
-    **Example:** `eu-1.dns.example.com`.
 
 - <a href="#check-ipv4" id="check-ipv4" name="check-ipv4">`ipv4` and `ipv6`</a>: Arrays of IPv4 or IPv6 addresses with which to respond to `A` and `AAAA` queries correspondingly. Generally, those should be the IP addresses of the AdGuard DNS [main HTTP API][http-dnscheck] for the DNS server check feature to work properly. In a development setup, that means the localhost addresses.
 

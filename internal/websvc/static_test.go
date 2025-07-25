@@ -7,7 +7,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/httphdr"
-	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/testutil/servicetest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,15 +37,7 @@ func TestService_ServeHTTP_static(t *testing.T) {
 	svc := websvc.New(c)
 	require.NotNil(t, svc)
 
-	var err error
-	require.NotPanics(t, func() {
-		err = svc.Start(testutil.ContextWithTimeout(t, testTimeout))
-	})
-	require.NoError(t, err)
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return svc.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
-	})
+	servicetest.RequireRun(t, svc, testTimeout)
 
 	respHdr := http.Header{
 		httphdr.ContentType: []string{"image/x-icon"},

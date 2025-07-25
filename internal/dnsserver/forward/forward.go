@@ -36,6 +36,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/mathutil/randutil"
 	"github.com/AdguardTeam/golibs/service"
 	"github.com/miekg/dns"
 )
@@ -166,7 +167,7 @@ func NewHandler(conf *HandlerConfig) (h *Handler) {
 	src := conf.RandSource
 	if src == nil {
 		// Do not initialize through [cmp.Or], as the default value could panic.
-		src = rand.NewChaCha8(mustNewSeed())
+		src = rand.NewChaCha8(randutil.MustNewSeed())
 	}
 
 	hcConf := conf.Healthcheck
@@ -177,10 +178,7 @@ func NewHandler(conf *HandlerConfig) (h *Handler) {
 	h = &Handler{
 		logger: cmp.Or(conf.Logger, slog.Default()),
 		// #nosec G404 -- We don't need a real random, pseudorandom is enough.
-		rand: rand.New(&lockedSource{
-			mu:  &sync.Mutex{},
-			src: src,
-		}),
+		rand:              rand.New(randutil.NewLockedSource(src)),
 		activeUpstreamsMu: &sync.RWMutex{},
 	}
 

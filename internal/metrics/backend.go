@@ -19,6 +19,7 @@ const (
 	GRPCErrAuthentication GRPCError = "auth"
 	GRPCErrBadRequest     GRPCError = "bad_req"
 	GRPCErrDeviceQuota    GRPCError = "dev_quota"
+	GRPCErrNotFound       GRPCError = "not_found"
 	GRPCErrOther          GRPCError = "other"
 	GRPCErrRateLimit      GRPCError = "rate_limit"
 	GRPCErrTimeout        GRPCError = "timeout"
@@ -30,6 +31,7 @@ type BackendGRPC struct {
 	errorsTotalAuthentication prometheus.Counter
 	errorsTotalBadRequest     prometheus.Counter
 	errorsTotalDeviceQuota    prometheus.Counter
+	errorsTotalNotFound       prometheus.Counter
 	errorsTotalOther          prometheus.Counter
 	errorsTotalRateLimit      prometheus.Counter
 	errorsTotalTimeout        prometheus.Counter
@@ -52,6 +54,7 @@ func NewBackendGRPC(namespace string, reg prometheus.Registerer) (m *BackendGRPC
 		errorsTotalAuthentication: grpcErrorsTotalCounterVec.WithLabelValues(GRPCErrAuthentication),
 		errorsTotalBadRequest:     grpcErrorsTotalCounterVec.WithLabelValues(GRPCErrBadRequest),
 		errorsTotalDeviceQuota:    grpcErrorsTotalCounterVec.WithLabelValues(GRPCErrDeviceQuota),
+		errorsTotalNotFound:       grpcErrorsTotalCounterVec.WithLabelValues(GRPCErrNotFound),
 		errorsTotalOther:          grpcErrorsTotalCounterVec.WithLabelValues(GRPCErrOther),
 		errorsTotalRateLimit:      grpcErrorsTotalCounterVec.WithLabelValues(GRPCErrRateLimit),
 		errorsTotalTimeout:        grpcErrorsTotalCounterVec.WithLabelValues(GRPCErrTimeout),
@@ -76,6 +79,8 @@ func (m *BackendGRPC) IncrementErrorCount(_ context.Context, errType GRPCError) 
 		ctr = m.errorsTotalBadRequest
 	case GRPCErrDeviceQuota:
 		ctr = m.errorsTotalDeviceQuota
+	case GRPCErrNotFound:
+		ctr = m.errorsTotalNotFound
 	case GRPCErrOther:
 		ctr = m.errorsTotalOther
 	case GRPCErrRateLimit:

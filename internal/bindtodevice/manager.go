@@ -20,6 +20,9 @@ type ManagerConfig struct {
 	// errors.
 	ErrColl errcoll.Interface
 
+	// Metrics collects bindtodevice-related statistics.  It must not be nil.
+	Metrics Metrics
+
 	// ChannelBufferSize is the size of the buffers of the channels used to
 	// dispatch TCP connections and UDP sessions.
 	ChannelBufferSize int

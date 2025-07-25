@@ -85,7 +85,8 @@ service CustomDomainService {
 
     This method may return the following errors:
     - AuthenticationFailedError: If the authentication failed.
-    - BadRequestError: If the request is invalid: cert_name is empty or no certificate found.
+    - BadRequestError: If the request is invalid: cert_name is empty.
+    - NotFoundError: If the certificate could not be found.
   */
   rpc getCustomDomainCertificate(CustomDomainCertificateRequest) returns (CustomDomainCertificateResponse);
 }
@@ -338,6 +339,10 @@ message BadRequestError {
 }
 
 message AuthenticationFailedError {
+  string message = 1;
+}
+
+message NotFoundError {
   string message = 1;
 }
 

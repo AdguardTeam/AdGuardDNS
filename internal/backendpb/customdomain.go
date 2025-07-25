@@ -15,8 +15,6 @@ import (
 // [tlsconfig.CustomDomainStorage] interface that uses the business-logic
 // backend as the custom-domain certificate storage.  It is safe for concurrent
 // use.
-//
-// TODO(a.garipov):  Use.
 type CustomDomainStorage struct {
 	logger      *slog.Logger
 	client      CustomDomainServiceClient
@@ -99,8 +97,6 @@ func (s *CustomDomainStorage) CertificateData(
 			fixGRPCError(ctx, s.grpcMetrics, err),
 		)
 	}
-
-	// TODO(a.garipov):  Consider validating certificate and private-key date.
 
 	return resp.Certificate, resp.PrivateKey, nil
 }

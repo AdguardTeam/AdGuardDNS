@@ -1,57 +1,62 @@
 package metrics
 
 import (
+	"context"
+	"fmt"
+
+	"github.com/AdguardTeam/golibs/container"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-var (
-	specialRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name:      "special_requests_total",
-		Namespace: namespace,
-		Subsystem: subsystemDNSSvc,
-		Help:      "The number of DNS requests for special domain names.",
-	}, []string{"kind"})
+// InitialMiddleware is the Prometheus-based implementation of the
+// [dnssvc.InitialMiddlewareMetrics] interface.
+type InitialMiddleware struct {
+	specialRequestsTotal *prometheus.CounterVec
+}
 
-	// DNSSvcDDRRequestsTotal is a counter with total number of requests for
-	// Discovery of Designated Resolvers.
-	DNSSvcDDRRequestsTotal = specialRequestsTotal.With(prometheus.Labels{
-		"kind": "ddr",
-	})
+// NewInitialMiddleware registers the filtering-middleware metrics in reg and
+// returns a properly initialized *InitialMiddleware.  All arguments must be
+// set.
+func NewInitialMiddleware(
+	namespace string,
+	reg prometheus.Registerer,
+) (m *InitialMiddleware, err error) {
+	const (
+		specialRequestsTotal = "special_requests_total"
+	)
 
-	// DNSSvcBadResolverARPA is a counter with total number of requests for
-	// malformed resolver.arpa queries.
-	DNSSvcBadResolverARPA = specialRequestsTotal.With(prometheus.Labels{
-		"kind": "bad_resolver_arpa",
-	})
+	m = &InitialMiddleware{
+		specialRequestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name:      specialRequestsTotal,
+			Namespace: namespace,
+			Subsystem: subsystemDNSSvc,
+			Help:      "The number of DNS requests for special domain names.",
+		}, []string{"kind"}),
+	}
 
-	// DNSSvcChromePrefetchRequestsTotal is a counter with total number of
-	// requests for the domain name that Chrome uses to check if it should use
-	// its prefetch proxy.
-	DNSSvcChromePrefetchRequestsTotal = specialRequestsTotal.With(prometheus.Labels{
-		"kind": "chrome_prefetch",
-	})
+	var errs []error
+	collectors := container.KeyValues[string, prometheus.Collector]{{
+		Key:   specialRequestsTotal,
+		Value: m.specialRequestsTotal,
+	}}
 
-	// DNSSvcFirefoxRequestsTotal is a counter with total number of requests for
-	// the domain name that Firefox uses to check if it should use its own
-	// DNS-over-HTTPS settings.
-	DNSSvcFirefoxRequestsTotal = specialRequestsTotal.With(prometheus.Labels{
-		"kind": "firefox",
-	})
+	for _, c := range collectors {
+		err = reg.Register(c.Value)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("registering metrics %q: %w", c.Key, err))
+		}
+	}
 
-	// DNSSvcApplePrivateRelayRequestsTotal is a counter with total number of
-	// requests for the domain name that Apple devices use to check if Apple
-	// Private Relay can be enabled.
-	DNSSvcApplePrivateRelayRequestsTotal = specialRequestsTotal.With(prometheus.Labels{
-		"kind": "apple_private_relay",
-	})
+	if err = errors.Join(errs...); err != nil {
+		return nil, err
+	}
 
-	// DNSSvcDoHAuthFailsTotal is the counter of DoH basic authentication
-	// failures.
-	DNSSvcDoHAuthFailsTotal = promauto.NewCounter(prometheus.CounterOpts{
-		Name:      "doh_authentication_fails",
-		Namespace: namespace,
-		Subsystem: subsystemDNSSvc,
-		Help:      "The number of authentication failures for DoH auth.",
-	})
-)
+	return m, nil
+}
+
+// IncrementRequestsTotal implements the [Metrics] interface for
+// *InitialMiddleware.
+func (m *InitialMiddleware) IncrementRequestsTotal(_ context.Context, kind string) {
+	m.specialRequestsTotal.WithLabelValues(kind).Inc()
+}

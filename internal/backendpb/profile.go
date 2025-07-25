@@ -81,19 +81,19 @@ func (x *SafeBrowsingSettings) toInternal() (c *filter.ConfigSafeBrowsing) {
 }
 
 // toInternal converts protobuf access settings to an internal structure.  If x
-// is nil, toInternal returns [access.EmptyProfile].
+// is nil, toInternal returns [access.EmptyProfile].  all arguments must not be
+// nil.
 func (x *AccessSettings) toInternal(
 	ctx context.Context,
-	errColl errcoll.Interface,
-	mtrc access.ProfileMetrics,
 	logger *slog.Logger,
+	errColl errcoll.Interface,
+	cons *access.ProfileConstructor,
 ) (a access.Profile) {
 	if x == nil || !x.Enabled {
 		return access.EmptyProfile{}
 	}
 
-	return access.NewDefaultProfile(&access.ProfileConfig{
-		Metrics:              mtrc,
+	return cons.New(&access.ProfileConfig{
 		AllowedNets:          cidrRangeToInternal(ctx, errColl, logger, x.AllowlistCidr),
 		BlockedNets:          cidrRangeToInternal(ctx, errColl, logger, x.BlocklistCidr),
 		AllowedASN:           asnToInternal(x.AllowlistAsn),

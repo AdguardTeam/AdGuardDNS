@@ -1,76 +1,20 @@
 package tlsconfig_test
 
 import (
+	"cmp"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/tls"
-	"crypto/x509"
-	"encoding/pem"
-	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// newCertAndKey is a helper function that generates certificate and key.
-func newCertAndKey(tb testing.TB, n int64) (certDER []byte, key *rsa.PrivateKey) {
-	tb.Helper()
-
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(tb, err)
-
-	certTmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(n),
-	}
-
-	certDER, err = x509.CreateCertificate(rand.Reader, certTmpl, certTmpl, &key.PublicKey, key)
-	require.NoError(tb, err)
-
-	return certDER, key
-}
-
-// writeCertAndKey is a helper function that writes certificate and key to
-// specified paths.
-func writeCertAndKey(
-	tb testing.TB,
-	certDER []byte,
-	certPath string,
-	key *rsa.PrivateKey,
-	keyPath string,
-) {
-	tb.Helper()
-
-	certFile, err := os.OpenFile(certPath, os.O_WRONLY|os.O_CREATE, 0o600)
-	require.NoError(tb, err)
-
-	defer func() {
-		err = certFile.Close()
-		require.NoError(tb, err)
-	}()
-
-	err = pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	require.NoError(tb, err)
-
-	keyFile, err := os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE, 0o600)
-	require.NoError(tb, err)
-
-	defer func() {
-		err = keyFile.Close()
-		require.NoError(tb, err)
-	}()
-
-	err = pem.Encode(keyFile, &pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(key),
-	})
-	require.NoError(tb, err)
-}
 
 // writeSesionKey is a helper function that writes generated session key to
 // specified path.
@@ -106,6 +50,25 @@ func assertCertSerialNumber(tb testing.TB, conf *tls.Config, wantSN int64) {
 	assert.Equal(tb, wantSN, cert.Leaf.SerialNumber.Int64())
 }
 
+// newManager is a helper for creating the TLS manager for tests.  c may be nil,
+// and all zero-value fields in c are replaced with defaults for tests.
+func newManager(tb testing.TB, c *tlsconfig.DefaultManagerConfig) (m *tlsconfig.DefaultManager) {
+	tb.Helper()
+
+	c = cmp.Or(c, &tlsconfig.DefaultManagerConfig{})
+
+	c.Logger = cmp.Or(c.Logger, testLogger)
+
+	c.ErrColl = cmp.Or[errcoll.Interface](c.ErrColl, agdtest.NewErrorCollector())
+	c.Metrics = cmp.Or[tlsconfig.ManagerMetrics](c.Metrics, tlsconfig.EmptyManagerMetrics{})
+	c.TicketDB = cmp.Or[tlsconfig.TicketDB](c.TicketDB, tlsconfig.EmptyTicketDB{})
+
+	m, err := tlsconfig.NewDefaultManager(c)
+	require.NoError(tb, err)
+
+	return m
+}
+
 func TestDefaultManager_Refresh(t *testing.T) {
 	t.Parallel()
 
@@ -114,12 +77,7 @@ func TestDefaultManager_Refresh(t *testing.T) {
 		snAfter  int64 = 2
 	)
 
-	m, err := tlsconfig.NewDefaultManager(&tlsconfig.DefaultManagerConfig{
-		Logger:  testLogger,
-		ErrColl: agdtest.NewErrorCollector(),
-		Metrics: tlsconfig.EmptyMetrics{},
-	})
-	require.NoError(t, err)
+	m := newManager(t, nil)
 
 	certDER, key := newCertAndKey(t, snBefore)
 
@@ -130,7 +88,7 @@ func TestDefaultManager_Refresh(t *testing.T) {
 	writeCertAndKey(t, certDER, certPath, key, keyPath)
 
 	ctx := testutil.ContextWithTimeout(t, testTimeout)
-	err = m.Add(ctx, certPath, keyPath)
+	err := m.Add(ctx, certPath, keyPath, false)
 	require.NoError(t, err)
 
 	conf := m.Clone()
@@ -149,6 +107,40 @@ func TestDefaultManager_Refresh(t *testing.T) {
 	assertCertSerialNumber(t, confWithMetrics, snAfter)
 }
 
+func TestDefaultManager_Remove(t *testing.T) {
+	t.Parallel()
+
+	certDER, key := newCertAndKey(t, 1)
+
+	tmpDir := t.TempDir()
+	certPath := filepath.Join(tmpDir, "cert.pem")
+	keyPath := filepath.Join(tmpDir, "key.pem")
+
+	writeCertAndKey(t, certDER, certPath, key, keyPath)
+
+	m := newManager(t, nil)
+
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	err := m.Add(ctx, certPath, keyPath, false)
+	require.NoError(t, err)
+
+	chi := &tls.ClientHelloInfo{
+		SupportedVersions: []uint16{tls.VersionTLS13},
+	}
+
+	c := m.Clone()
+	_, err = c.GetCertificate(chi)
+	assert.NoError(t, err)
+
+	ctx = testutil.ContextWithTimeout(t, testTimeout)
+	err = m.Remove(ctx, certPath, keyPath, false)
+	require.NoError(t, err)
+
+	c = m.Clone()
+	_, err = c.GetCertificate(chi)
+	testutil.AssertErrorMsg(t, "no certificates", err)
+}
+
 func TestDefaultManager_RotateTickets(t *testing.T) {
 	t.Parallel()
 
@@ -156,15 +148,11 @@ func TestDefaultManager_RotateTickets(t *testing.T) {
 	sessKeyPath := filepath.Join(tmpDir, "sess.key")
 	writeSessionKey(t, sessKeyPath)
 
-	m, err := tlsconfig.NewDefaultManager(&tlsconfig.DefaultManagerConfig{
-		Logger:  testLogger,
-		ErrColl: agdtest.NewErrorCollector(),
+	m := newManager(t, &tlsconfig.DefaultManagerConfig{
 		TicketDB: tlsconfig.NewLocalTicketDB(&tlsconfig.LocalTicketDBConfig{
 			Paths: []string{sessKeyPath},
 		}),
-		Metrics: tlsconfig.EmptyMetrics{},
 	})
-	require.NoError(t, err)
 
 	certDER, key := newCertAndKey(t, 1)
 
@@ -174,7 +162,7 @@ func TestDefaultManager_RotateTickets(t *testing.T) {
 	writeCertAndKey(t, certDER, certPath, key, keyPath)
 
 	ctx := testutil.ContextWithTimeout(t, testTimeout)
-	err = m.Add(ctx, certPath, keyPath)
+	err := m.Add(ctx, certPath, keyPath, false)
 	require.NoError(t, err)
 
 	err = m.RotateTickets(ctx)

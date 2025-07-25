@@ -9,10 +9,13 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/debugsvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv/consulkv"
+	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv/rediskv"
 	"github.com/AdguardTeam/AdGuardDNS/internal/version"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
@@ -36,6 +39,7 @@ type environment struct {
 	ConsulAllowlistURL       *urlutil.URL `env:"CONSUL_ALLOWLIST_URL"`
 	ConsulDNSCheckKVURL      *urlutil.URL `env:"CONSUL_DNSCHECK_KV_URL"`
 	ConsulDNSCheckSessionURL *urlutil.URL `env:"CONSUL_DNSCHECK_SESSION_URL"`
+	CustomDomainsURL         *urlutil.URL `env:"CUSTOM_DOMAINS_URL"`
 	DNSCheckRemoteKVURL      *urlutil.URL `env:"DNSCHECK_REMOTEKV_URL"`
 	FilterIndexURL           *urlutil.URL `env:"FILTER_INDEX_URL,notEmpty"`
 	GeneralSafeSearchURL     *urlutil.URL `env:"GENERAL_SAFE_SEARCH_URL"`
@@ -50,22 +54,26 @@ type environment struct {
 	BackendRateLimitAPIKey string `env:"BACKEND_RATELIMIT_API_KEY"`
 	BillStatAPIKey         string `env:"BILLSTAT_API_KEY"`
 	ConfPath               string `env:"CONFIG_PATH" envDefault:"./config.yaml"`
+	CustomDomainsAPIKey    string `env:"CUSTOM_DOMAINS_API_KEY"`
+	CustomDomainsCachePath string `env:"CUSTOM_DOMAINS_CACHE_PATH"`
+	DNSCheckKVType         string `env:"DNSCHECK_KV_TYPE"`
 	DNSCheckRemoteKVAPIKey string `env:"DNSCHECK_REMOTEKV_API_KEY"`
 	FilterCachePath        string `env:"FILTER_CACHE_PATH" envDefault:"./filters/"`
 	GeoIPASNPath           string `env:"GEOIP_ASN_PATH" envDefault:"./asn.mmdb"`
 	GeoIPCountryPath       string `env:"GEOIP_COUNTRY_PATH" envDefault:"./country.mmdb"`
 	LogFormat              string `env:"LOG_FORMAT" envDefault:"text"`
+	NodeName               string `env:"NODE_NAME,notEmpty"`
 	ProfilesAPIKey         string `env:"PROFILES_API_KEY"`
 	ProfilesCachePath      string `env:"PROFILES_CACHE_PATH" envDefault:"./profilecache.pb"`
 	QueryLogPath           string `env:"QUERYLOG_PATH" envDefault:"./querylog.jsonl"`
-	RedisAddr              string `env:"REDIS_ADDR"`
+	RateLimitAllowlistType string `env:"RATELIMIT_ALLOWLIST_TYPE"`
 	RedisKeyPrefix         string `env:"REDIS_KEY_PREFIX" envDefault:"agdns"`
 	SSLKeyLogFile          string `env:"SSL_KEY_LOG_FILE"`
 	SentryDSN              string `env:"SENTRY_DSN" envDefault:"stderr"`
-	SessionTicketCachePath string `env:"SESSION_TICKET_CACHE_PATH"`
-	SessionTicketType      string `env:"SESSION_TICKET_TYPE"`
 	SessionTicketAPIKey    string `env:"SESSION_TICKET_API_KEY"`
+	SessionTicketCachePath string `env:"SESSION_TICKET_CACHE_PATH"`
 	SessionTicketIndexName string `env:"SESSION_TICKET_INDEX_NAME"`
+	SessionTicketType      string `env:"SESSION_TICKET_TYPE"`
 
 	// TODO(a.garipov):  Consider renaming to "WEB_STATIC_PATH" or something
 	// similar.
@@ -75,20 +83,19 @@ type environment struct {
 
 	ProfilesMaxRespSize datasize.ByteSize `env:"PROFILES_MAX_RESP_SIZE" envDefault:"64MB"`
 
-	RedisIdleTimeout        timeutil.Duration `env:"REDIS_IDLE_TIMEOUT" envDefault:"30s"`
+	CustomDomainsRefreshIvl timeutil.Duration `env:"CUSTOM_DOMAINS_REFRESH_INTERVAL"`
+	DNSCheckKVTTL           timeutil.Duration `env:"DNSCHECK_KV_TTL"`
 	SessionTicketRefreshIvl timeutil.Duration `env:"SESSION_TICKET_REFRESH_INTERVAL"`
 
 	// TODO(a.garipov):  Rename to DNSCHECK_CACHE_KV_COUNT?
 	DNSCheckCacheKVSize int `env:"DNSCHECK_CACHE_KV_SIZE"`
-	RedisMaxActive      int `env:"REDIS_MAX_ACTIVE" envDefault:"10"`
-	RedisMaxIdle        int `env:"REDIS_MAX_IDLE" envDefault:"3"`
 
 	ListenPort uint16 `env:"LISTEN_PORT" envDefault:"8181"`
-	RedisPort  uint16 `env:"REDIS_PORT" envDefault:"6379"`
 
 	Verbosity uint8 `env:"VERBOSE" envDefault:"0"`
 
 	AdultBlockingEnabled     strictBool `env:"ADULT_BLOCKING_ENABLED" envDefault:"1"`
+	CustomDomainsEnabled     strictBool `env:"CUSTOM_DOMAINS_ENABLED" envDefault:"1"`
 	LogTimestamp             strictBool `env:"LOG_TIMESTAMP" envDefault:"1"`
 	NewRegDomainsEnabled     strictBool `env:"NEW_REG_DOMAINS_ENABLED" envDefault:"1"`
 	SafeBrowsingEnabled      strictBool `env:"SAFE_BROWSING_ENABLED" envDefault:"1"`
@@ -141,7 +148,11 @@ func (envs *environment) Validate() (err error) {
 		errs = append(errs, fmt.Errorf("VERBOSE: %w", err))
 	}
 
+	errs = envs.validateCustomDomains(errs)
+	errs = envs.validateDNSCheck(errs)
+	errs = envs.validateRateLimit(errs)
 	errs = envs.validateSessionTickets(errs)
+	errs = envs.validateRateLimitURLs(errs)
 
 	return errors.Join(errs...)
 }
@@ -245,8 +256,75 @@ func (envs *environment) validateWebStaticDir() (err error) {
 	return nil
 }
 
-// validateSessionTickets appends validation errors to the given errs if
-// environment variables for session tickets contain errors.
+// validateCustomDomains appends validation errors to errs if the environment
+// variables for custom domains contain errors.
+func (envs *environment) validateCustomDomains(errs []error) (res []error) {
+	res = errs
+
+	if !envs.CustomDomainsEnabled {
+		return res
+	}
+
+	res = append(res,
+		validate.NotEmpty("env CUSTOM_DOMAINS_CACHE_PATH", envs.CustomDomainsCachePath),
+		validate.Positive("env CUSTOM_DOMAINS_REFRESH_INTERVAL", envs.CustomDomainsRefreshIvl),
+	)
+
+	if err := validate.NotNil("env CUSTOM_DOMAINS_URL", envs.CustomDomainsURL); err != nil {
+		res = append(res, err)
+	} else if err = urlutil.ValidateGRPCURL(&envs.CustomDomainsURL.URL); err != nil {
+		res = append(res, fmt.Errorf("env CUSTOM_DOMAINS_URL: %w", err))
+	}
+
+	return res
+}
+
+// validateDNSCheck appends validation errors to errs if the environment
+// variables for DNS check contain errors.
+func (envs *environment) validateDNSCheck(errs []error) (res []error) {
+	res = errs
+
+	ttl := time.Duration(envs.DNSCheckKVTTL)
+
+	var err error
+	switch typ := envs.DNSCheckKVType; typ {
+	case kvModeBackend:
+		res = envs.validateBackendKV(res)
+		err = validate.Positive("env DNSCHECK_KV_TTL", ttl)
+	case kvModeCache:
+		res = envs.validateCache(res)
+	case kvModeConsul:
+		err = validate.InRange("env DNSCHECK_KV_TTL", ttl, consulkv.MinTTL, consulkv.MaxTTL)
+	case kvModeRedis:
+		err = validate.NoLessThan("env DNSCHECK_KV_TTL", ttl, rediskv.MinTTL)
+	default:
+		err = fmt.Errorf("env DNSCHECK_KV_TYPE: %w: %q", errors.ErrBadEnumValue, typ)
+	}
+
+	if err != nil {
+		res = append(res, err)
+	}
+
+	return res
+}
+
+// validateDNSCheck appends validation errors to errs if the environment
+// variables for rate limit contain errors.
+func (envs *environment) validateRateLimit(errs []error) (res []error) {
+	switch typ := envs.RateLimitAllowlistType; typ {
+	case rlAllowlistTypeBackend, rlAllowlistTypeConsul:
+		// Go on.
+	default:
+		err := fmt.Errorf("env RATELIMIT_ALLOWLIST_TYPE: %w: %q", errors.ErrBadEnumValue, typ)
+
+		return append(errs, err)
+	}
+
+	return errs
+}
+
+// validateSessionTickets appends validation errors to errs if the environment
+// variables for session tickets contain errors.
 func (envs *environment) validateSessionTickets(errs []error) (res []error) {
 	res = errs
 
@@ -287,24 +365,10 @@ func (envs *environment) validateSessionTickets(errs []error) (res []error) {
 	return res
 }
 
-// validateFromValidConfig returns an error if environment variables that depend
-// on configuration properties contain errors.  conf is expected to be valid.
-func (envs *environment) validateFromValidConfig(
-	conf *configuration,
-	profilesEnabled bool,
-) (err error) {
+// validateProfilesConf returns an error if environment variables for profiles
+// database configuration contain errors.
+func (envs *environment) validateProfilesConf(profilesEnabled bool) (err error) {
 	var errs []error
-
-	switch typ := conf.Check.KV.Type; typ {
-	case kvModeBackend:
-		errs = envs.validateBackendKV(errs)
-	case kvModeCache:
-		errs = envs.validateCache(errs)
-	case kvModeRedis:
-		errs = envs.validateRedis(errs)
-	default:
-		// Probably consul.
-	}
 
 	if profilesEnabled {
 		errs = envs.validateProfilesURLs(errs)
@@ -319,8 +383,6 @@ func (envs *environment) validateFromValidConfig(
 		}
 	}
 
-	errs = envs.validateRateLimitURLs(conf, errs)
-
 	return errors.Join(errs...)
 }
 
@@ -331,34 +393,6 @@ func (envs *environment) validateCache(errs []error) (res []error) {
 
 	err := validate.Positive("env DNSCHECK_CACHE_KV_SIZE", envs.DNSCheckCacheKVSize)
 	if err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		res = append(res, err)
-	}
-
-	return res
-}
-
-// validateRedis appends validation errors to the given errs if environment
-// variables for Redis contain errors.
-func (envs *environment) validateRedis(errs []error) (res []error) {
-	res = errs
-
-	if err := validate.NotEmpty("env REDIS_ADDR", envs.RedisAddr); err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		res = append(res, err)
-	}
-
-	if err := validate.Positive("env REDIS_IDLE_TIMEOUT", envs.RedisIdleTimeout); err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		res = append(res, err)
-	}
-
-	if err := validate.NotNegative("env REDIS_MAX_ACTIVE", envs.RedisMaxActive); err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		res = append(res, err)
-	}
-
-	if err := validate.NotNegative("env REDIS_MAX_IDLE", envs.RedisMaxIdle); err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		res = append(res, err)
 	}
@@ -420,15 +454,12 @@ func (envs *environment) validateProfilesURLs(errs []error) (res []error) {
 
 // validateRateLimitURLs appends validation errors to the given errs if rate
 // limit URLs in environment variables are invalid.
-func (envs *environment) validateRateLimitURLs(
-	conf *configuration,
-	errs []error,
-) (withURLs []error) {
+func (envs *environment) validateRateLimitURLs(errs []error) (withURLs []error) {
 	rlURL := envs.BackendRateLimitURL
 	rlEnv := "BACKEND_RATELIMIT_URL"
 	validateFunc := urlutil.ValidateGRPCURL
 
-	if conf.RateLimit.Allowlist.Type == rlAllowlistTypeConsul {
+	if envs.RateLimitAllowlistType == rlAllowlistTypeConsul {
 		rlURL = envs.ConsulAllowlistURL
 		rlEnv = "CONSUL_ALLOWLIST_URL"
 		validateFunc = urlutil.ValidateHTTPURL

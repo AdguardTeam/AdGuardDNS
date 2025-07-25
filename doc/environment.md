@@ -16,7 +16,14 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`CONSUL_ALLOWLIST_URL`](#CONSUL_ALLOWLIST_URL)
 - [`CONSUL_DNSCHECK_KV_URL`](#CONSUL_DNSCHECK_KV_URL)
 - [`CONSUL_DNSCHECK_SESSION_URL`](#CONSUL_DNSCHECK_SESSION_URL)
+- [`CUSTOM_DOMAINS_API_KEY`](#CUSTOM_DOMAINS_API_KEY)
+- [`CUSTOM_DOMAINS_CACHE_PATH`](#CUSTOM_DOMAINS_CACHE_PATH)
+- [`CUSTOM_DOMAINS_ENABLED`](#CUSTOM_DOMAINS_ENABLED)
+- [`CUSTOM_DOMAINS_REFRESH_INTERVAL`](#CUSTOM_DOMAINS_REFRESH_INTERVAL)
+- [`CUSTOM_DOMAINS_URL`](#CUSTOM_DOMAINS_URL)
 - [`DNSCHECK_CACHE_KV_SIZE`](#DNSCHECK_CACHE_KV_SIZE)
+- [`DNSCHECK_KV_TTL`](#DNSCHECK_KV_TTL)
+- [`DNSCHECK_KV_TYPE`](#DNSCHECK_KV_TYPE)
 - [`DNSCHECK_REMOTEKV_API_KEY`](#DNSCHECK_REMOTEKV_API_KEY)
 - [`DNSCHECK_REMOTEKV_URL`](#DNSCHECK_REMOTEKV_URL)
 - [`FILTER_CACHE_PATH`](#FILTER_CACHE_PATH)
@@ -32,16 +39,22 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`METRICS_NAMESPACE`](#METRICS_NAMESPACE)
 - [`NEW_REG_DOMAINS_ENABLED`](#NEW_REG_DOMAINS_ENABLED)
 - [`NEW_REG_DOMAINS_URL`](#NEW_REG_DOMAINS_URL)
+- [`NODE_NAME`](#NODE_NAME)
 - [`PROFILES_API_KEY`](#PROFILES_API_KEY)
 - [`PROFILES_CACHE_PATH`](#PROFILES_CACHE_PATH)
 - [`PROFILES_URL`](#PROFILES_URL)
-- [`REDIS_ADDR`](#REDIS_ADDR)
+- [`REDIS_DB`](#REDIS_DB)
+- [`REDIS_HOST`](#REDIS_HOST)
 - [`REDIS_KEY_PREFIX`](#REDIS_KEY_PREFIX)
 - [`REDIS_MAX_ACTIVE`](#REDIS_MAX_ACTIVE)
+- [`REDIS_MAX_CONN_LIFETIME`](#REDIS_MAX_CONN_LIFETIME)
 - [`REDIS_MAX_IDLE`](#REDIS_MAX_IDLE)
+- [`REDIS_NETWORK`](#REDIS_NETWORK)
 - [`REDIS_IDLE_TIMEOUT`](#REDIS_IDLE_TIMEOUT)
 - [`REDIS_PORT`](#REDIS_PORT)
+- [`REDIS_WAIT`](#REDIS_WAIT)
 - [`QUERYLOG_PATH`](#QUERYLOG_PATH)
+- [`RATELIMIT_ALLOWLIST_TYPE`](#RATELIMIT_ALLOWLIST_TYPE)
 - [`RULESTAT_URL`](#RULESTAT_URL)
 - [`SAFE_BROWSING_ENABLED`](#SAFE_BROWSING_ENABLED)
 - [`SAFE_BROWSING_URL`](#SAFE_BROWSING_URL)
@@ -148,17 +161,59 @@ The HTTP(S) URL of the session API of the Consul instance used as a key-value da
 
 **Default:** **Unset.**
 
-**Example:** `http://localhost:8500/v1/session/create`
+## <a href="#CUSTOM_DOMAINS_API_KEY" id="CUSTOM_DOMAINS_API_KEY" name="CUSTOM_DOMAINS_API_KEY">`CUSTOM_DOMAINS_API_KEY`</a>
+
+The API key to use when authenticating queries to the backend custom-domain API, if any. The API key should be valid as defined by [RFC 6750].
+
+**Default:** No default value, the variable is required if `CUSTOM_DOMAINS_ENABLED` is set to `1`.
+
+## <a href="#CUSTOM_DOMAINS_CACHE_PATH" id="CUSTOM_DOMAINS_CACHE_PATH" name="CUSTOM_DOMAINS_CACHE_PATH">`CUSTOM_DOMAINS_CACHE_PATH`</a>
+
+The path to directory for storing the downloaded certificate and private-key data.
+
+**Default:** No default value, a valid directory path is required if `CUSTOM_DOMAINS_ENABLED` is set to `1`.
+
+## <a href="#CUSTOM_DOMAINS_ENABLED" id="CUSTOM_DOMAINS_ENABLED" name="CUSTOM_DOMAINS_ENABLED">`CUSTOM_DOMAINS_ENABLED`</a>
+
+When set to `1`, enable the custom-domains feature. When set to `0`, disable it.
+
+**Default:** `1`.
+
+## <a href="#CUSTOM_DOMAINS_REFRESH_INTERVAL" id="CUSTOM_DOMAINS_REFRESH_INTERVAL" name="CUSTOM_DOMAINS_REFRESH_INTERVAL">`CUSTOM_DOMAINS_REFRESH_INTERVAL`</a>
+
+The interval that defines how often to query the backend for the custom-domain data, as a human-readable duration.
+
+**Default:** No default value, a positive value is required if `CUSTOM_DOMAINS_ENABLED` is set to `1`.
+
+**Example:** `1m`
+
+## <a href="#CUSTOM_DOMAINS_URL" id="CUSTOM_DOMAINS_URL" name="CUSTOM_DOMAINS_URL">`CUSTOM_DOMAINS_URL`</a>
+
+The URL of the gRPC(S) API for the custom-domain data.
+
+**Default:** No default value, the variable is required if `CUSTOM_DOMAINS_ENABLED` is set to `1`.
 
 ## <a href="#DNSCHECK_CACHE_KV_SIZE" id="DNSCHECK_CACHE_KV_SIZE" name="DNSCHECK_CACHE_KV_SIZE">`DNSCHECK_CACHE_KV_SIZE`</a>
 
 The maximum number of the local cache key-value database entries for the DNS server checking.
 
-**Default:** No default value, a positive value is required if the [type][conf-dnscheck-type] of the database is set to `cache`.
+**Default:** No default value, a positive value is required if `DNSCHECK_KV_TYPE` is set to `cache`.
 
 **Example:** `1000`
 
-[conf-dnscheck-type]: configuration.md#check-kv-type
+## <a href="#DNSCHECK_KV_TTL" id="DNSCHECK_KV_TTL" name="DNSCHECK_KV_TTL">`DNSCHECK_KV_TTL`</a>
+
+For how long to keep the information about a single user in remote KV, as a human-readable duration.
+
+**Default:** **Unset.**
+
+**Example:** `1m`
+
+## <a href="#DNSCHECK_KV_TYPE" id="DNSCHECK_KV_TYPE" name="DNSCHECK_KV_TYPE">`DNSCHECK_KV_TYPE`</a>
+
+Type of the remote KV storage. Allowed values are `backend`, `cache`, `consul`, and `redis`.
+
+**Default:** **Unset.**
 
 ## <a href="#DNSCHECK_REMOTEKV_API_KEY" id="DNSCHECK_REMOTEKV_API_KEY" name="DNSCHECK_REMOTEKV_API_KEY">`DNSCHECK_REMOTEKV_API_KEY`</a>
 
@@ -269,6 +324,15 @@ The HTTP(S) URL of source list of rules for newly registered domains safe browsi
 
 **Default:** No default value, the variable is required if `NEW_REG_DOMAINS_ENABLED` is set to `1`.
 
+## <a href="#NODE_NAME" id="NODE_NAME" name="NODE_NAME">`NODE_NAME`</a>
+
+The name of this server node.  Used in [debug DNS API][debug-dns-api] and [DNS checking][http-dnscheck].
+
+[debug-dns-api]: debugdns.md#additional-node-name
+[http-dnscheck]: http.md#dnscheck-test
+
+**Default:** No default value, the variable is **required.**
+
 ## <a href="#PROFILES_API_KEY" id="PROFILES_API_KEY" name="PROFILES_API_KEY">`PROFILES_API_KEY`</a>
 
 The API key to use when authenticating queries to the profiles API, if any. The API key should be valid as defined by [RFC 6750].
@@ -313,13 +377,17 @@ The base backend URL for profiles API. Supports gRPC(S) (`grpc://` and `grpcs://
 
 [ext-profiles]: externalhttp.md#backend-profiles
 
-## <a href="#REDIS_ADDR" id="REDIS_ADDR" name="REDIS_ADDR">`REDIS_ADDR`</a>
+## <a href="#REDIS_DB" id="REDIS_DB" name="REDIS_DB">`REDIS_DB`</a>
+
+The index of Redis database to use.
+
+**Default:** `0`.
+
+## <a href="#REDIS_HOST" id="REDIS_HOST" name="REDIS_HOST">`REDIS_HOST`</a>
 
 Redis server address.  Can be an IP address or a hostname.
 
-**Default:** No default value, the variable is required if the [type][conf-check-kv-type] of remote KV storage for DNS server checking is `redis` in the configuration file.
-
-[conf-check-kv-type]: configuration.md#check-kv-type
+**Default:** `localhost`, the variable is required if `DNSCHECK_KV_TYPE` is set to `redis`.
 
 ## <a href="#REDIS_KEY_PREFIX" id="REDIS_KEY_PREFIX" name="REDIS_KEY_PREFIX">`REDIS_KEY_PREFIX`</a>
 
@@ -331,19 +399,37 @@ The prefix for Redis keys.
 
 The maximum number of active Redis connections.
 
-**Default:** `10`.
+**Default:** `100`.
+
+## <a href="#REDIS_MAX_CONN_LIFETIME" id="REDIS_MAX_CONN_LIFETIME" name="REDIS_MAX_CONN_LIFETIME">`REDIS_MAX_CONN_LIFETIME`</a>
+
+The maximum total duration of connections in a pool.
+
+**Default:** `0s`, which means that the lifetime is not limited.
 
 ## <a href="#REDIS_MAX_IDLE" id="REDIS_MAX_IDLE" name="REDIS_MAX_IDLE">`REDIS_MAX_IDLE`</a>
 
 The maximum number of idle Redis connections.
 
-**Default:** `3`.
+**Default:** `100`.
+
+## <a href="#REDIS_NETWORK" id="REDIS_NETWORK" name="REDIS_NETWORK">`REDIS_NETWORK`</a>
+
+Kind of IP protocol version to use:
+
+- `ip` means both;
+- `ip4` means IPv4 only;
+- `ip6` means IPv6 only.
+
+All other values are invalid.
+
+**Default:** `ip4`.
 
 ## <a href="#REDIS_IDLE_TIMEOUT" id="REDIS_IDLE_TIMEOUT" name="REDIS_IDLE_TIMEOUT">`REDIS_IDLE_TIMEOUT`</a>
 
 How long until idle Redis connections are closed, as a human-readable duration.
 
-**Default:** `30s`.
+**Default:** `5m`.
 
 ## <a href="#REDIS_PORT" id="REDIS_PORT" name="REDIS_PORT">`REDIS_PORT`</a>
 
@@ -351,11 +437,25 @@ Redis server port.
 
 **Default:** `6379`.
 
+## <a href="#REDIS_WAIT" id="REDIS_WAIT" name="REDIS_WAIT">`REDIS_WAIT`</a>
+
+It selects if the pool must wait for a connection once the `REDIS_MAX_ACTIVE` limit is reached.
+
+**Default:** `1`, which means to wait.
+
 ## <a href="#QUERYLOG_PATH" id="QUERYLOG_PATH" name="QUERYLOG_PATH">`QUERYLOG_PATH`</a>
 
 The path to the file into which the query log is going to be written.
 
 **Default:** `./querylog.jsonl`.
+
+## <a href="#RATELIMIT_ALLOWLIST_TYPE" id="RATELIMIT_ALLOWLIST_TYPE" name="RATELIMIT_ALLOWLIST_TYPE">`RATELIMIT_ALLOWLIST_TYPE`</a>
+
+Defines where the rate limit settings are received from. Allowed values are `backend` and `consul`.
+
+**Default:** **Unset.**
+
+**Example:** `consul`.
 
 ## <a href="#RULESTAT_URL" id="RULESTAT_URL" name="RULESTAT_URL">`RULESTAT_URL`</a>
 

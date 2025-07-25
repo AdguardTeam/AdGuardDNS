@@ -14,10 +14,10 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/optslog"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/c2h5oh/datasize"
 	"google.golang.org/grpc"
@@ -35,6 +35,14 @@ type ProfileStorageConfig struct {
 	// BaseCustomLogger is the base logger used for the custom filters.
 	BaseCustomLogger *slog.Logger
 
+	// Endpoint is the backend API URL.  The scheme should be either "grpc" or
+	// "grpcs".  It must not be nil.
+	Endpoint *url.URL
+
+	// ProfileAccessConstructor is used to create access managers for profiles.
+	// It must not be nil.
+	ProfileAccessConstructor *access.ProfileConstructor
+
 	// BindSet is the subnet set created from DNS servers listening addresses.
 	// It must not be nil.
 	BindSet netutil.SubnetSet
@@ -43,20 +51,12 @@ type ProfileStorageConfig struct {
 	// non-critical errors.  It must not be nil.
 	ErrColl errcoll.Interface
 
-	// ProfileMetrics is used for the collection of the profile access engine
-	// statistics.  It must not be nil.
-	ProfileMetrics access.ProfileMetrics
-
 	// GRPCMetrics is used for the collection of the protobuf communication
 	// statistics.
 	GRPCMetrics GRPCMetrics
 
 	// Metrics is used for the collection of the profiles storage statistics.
 	Metrics ProfileDBMetrics
-
-	// Endpoint is the backend API URL.  The scheme should be either "grpc" or
-	// "grpcs".  It must not be nil.
-	Endpoint *url.URL
 
 	// APIKey is the API key used for authentication, if any.  If empty, no
 	// authentication is performed.
@@ -77,10 +77,10 @@ type ProfileStorageConfig struct {
 type ProfileStorage struct {
 	logger           *slog.Logger
 	baseCustomLogger *slog.Logger
+	profAccessCons   *access.ProfileConstructor
 	bindSet          netutil.SubnetSet
 	errColl          errcoll.Interface
 	client           DNSServiceClient
-	profileMetrics   access.ProfileMetrics
 	grpcMetrics      GRPCMetrics
 	metrics          ProfileDBMetrics
 	apiKey           string
@@ -100,10 +100,10 @@ func NewProfileStorage(c *ProfileStorageConfig) (s *ProfileStorage, err error) {
 	return &ProfileStorage{
 		logger:           c.Logger,
 		baseCustomLogger: c.BaseCustomLogger,
+		profAccessCons:   c.ProfileAccessConstructor,
 		bindSet:          c.BindSet,
 		errColl:          c.ErrColl,
 		client:           NewDNSServiceClient(client),
-		profileMetrics:   c.ProfileMetrics,
 		grpcMetrics:      c.GRPCMetrics,
 		metrics:          c.Metrics,
 		apiKey:           c.APIKey,
@@ -313,7 +313,7 @@ func (s *ProfileStorage) newProfile(
 			RuleList:     p.RuleLists.toInternal(ctx, s.errColl, s.logger),
 			SafeBrowsing: p.SafeBrowsing.toInternal(),
 		},
-		Access:              p.Access.toInternal(ctx, s.errColl, s.profileMetrics, s.logger),
+		Access:              p.Access.toInternal(ctx, s.logger, s.errColl, s.profAccessCons),
 		BlockingMode:        m,
 		Ratelimiter:         p.RateLimit.toInternal(ctx, s.errColl, s.logger, s.respSzEst),
 		AccountID:           accID,

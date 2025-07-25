@@ -3,15 +3,17 @@
 package bindtodevice_test
 
 import (
+	"cmp"
 	"net"
 	"net/netip"
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
+	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
-	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/testutil/servicetest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -47,18 +49,36 @@ func (iface *fakeInterface) Subnets() (subnets []netip.Prefix, err error) {
 	return iface.OnSubnets()
 }
 
-func TestManager_Add(t *testing.T) {
-	m := bindtodevice.NewManager(&bindtodevice.ManagerConfig{
-		Logger: slogutil.NewDiscardLogger(),
-		InterfaceStorage: &fakeInterfaceStorage{
+// newTestManager is a helper for creating a [bindtodevice.Manager] for tests.
+// c may be nil, and all zero-value fields in c are replaced with test defaults.
+func newTestManager(tb testing.TB, c *bindtodevice.ManagerConfig) (m *bindtodevice.Manager) {
+	tb.Helper()
+
+	c = cmp.Or(c, &bindtodevice.ManagerConfig{})
+
+	c.Logger = cmp.Or(c.Logger, slogutil.NewDiscardLogger())
+
+	c.InterfaceStorage = cmp.Or[bindtodevice.InterfaceStorage](
+		c.InterfaceStorage,
+		&fakeInterfaceStorage{
 			OnInterfaceByName: func(_ string) (iface bindtodevice.NetInterface, err error) {
 				return nil, nil
 			},
 		},
-		ErrColl:           agdtest.NewErrorCollector(),
-		ChannelBufferSize: 1,
-	})
-	require.NotNil(t, m)
+	)
+
+	c.ErrColl = cmp.Or[errcoll.Interface](c.ErrColl, agdtest.NewErrorCollector())
+	c.Metrics = cmp.Or[bindtodevice.Metrics](c.Metrics, bindtodevice.EmptyMetrics{})
+	c.ChannelBufferSize = cmp.Or(c.ChannelBufferSize, 1)
+
+	m = bindtodevice.NewManager(c)
+	require.NotNil(tb, m)
+
+	return m
+}
+
+func TestManager_Add(t *testing.T) {
+	m := newTestManager(t, nil)
 
 	// Don't use a table, since the results of these subtests depend on each
 	// other.
@@ -91,17 +111,13 @@ func TestManager_ListenConfig(t *testing.T) {
 		},
 	}
 
-	m := bindtodevice.NewManager(&bindtodevice.ManagerConfig{
-		Logger: slogutil.NewDiscardLogger(),
+	m := newTestManager(t, &bindtodevice.ManagerConfig{
 		InterfaceStorage: &fakeInterfaceStorage{
 			OnInterfaceByName: func(_ string) (iface bindtodevice.NetInterface, err error) {
 				return ifaceWithSubnet, nil
 			},
 		},
-		ErrColl:           agdtest.NewErrorCollector(),
-		ChannelBufferSize: 1,
 	})
-	require.NotNil(t, m)
 
 	err := m.Add(testID1, testIfaceName, testPort1, nil)
 	require.NoError(t, err)
@@ -140,17 +156,13 @@ func TestManager_ListenConfig(t *testing.T) {
 			},
 		}
 
-		noSubnetMgr := bindtodevice.NewManager(&bindtodevice.ManagerConfig{
-			Logger: slogutil.NewDiscardLogger(),
+		noSubnetMgr := newTestManager(t, &bindtodevice.ManagerConfig{
 			InterfaceStorage: &fakeInterfaceStorage{
 				OnInterfaceByName: func(_ string) (iface bindtodevice.NetInterface, err error) {
 					return ifaceWithoutSubnet, nil
 				},
 			},
-			ErrColl:           agdtest.NewErrorCollector(),
-			ChannelBufferSize: 1,
 		})
-		require.NotNil(t, noSubnetMgr)
 
 		subTestErr := noSubnetMgr.Add(testID1, testIfaceName, testPort1, nil)
 		require.NoError(t, subTestErr)
@@ -169,17 +181,13 @@ func TestManager_ListenConfig(t *testing.T) {
 			},
 		}
 
-		narrowSubnetMgr := bindtodevice.NewManager(&bindtodevice.ManagerConfig{
-			Logger: slogutil.NewDiscardLogger(),
+		narrowSubnetMgr := newTestManager(t, &bindtodevice.ManagerConfig{
 			InterfaceStorage: &fakeInterfaceStorage{
 				OnInterfaceByName: func(_ string) (iface bindtodevice.NetInterface, err error) {
 					return ifaceWithNarrowerSubnet, nil
 				},
 			},
-			ErrColl:           agdtest.NewErrorCollector(),
-			ChannelBufferSize: 1,
 		})
-		require.NotNil(t, narrowSubnetMgr)
 
 		subTestErr := narrowSubnetMgr.Add(testID1, testIfaceName, testPort1, nil)
 		require.NoError(t, subTestErr)
@@ -202,13 +210,7 @@ func TestManager(t *testing.T) {
 
 	ifaceName := iface.Name
 
-	m := bindtodevice.NewManager(&bindtodevice.ManagerConfig{
-		Logger:            slogutil.NewDiscardLogger(),
-		InterfaceStorage:  bindtodevice.DefaultInterfaceStorage{},
-		ErrColl:           agdtest.NewErrorCollector(),
-		ChannelBufferSize: 1,
-	})
-	require.NotNil(t, m)
+	m := newTestManager(t, nil)
 
 	// TODO(a.garipov): Add support for zero port.
 	err := m.Add(testID1, ifaceName, testPort1, nil)
@@ -226,11 +228,7 @@ func TestManager(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, lc)
 
-	err = m.Start(testutil.ContextWithTimeout(t, testTimeout))
-	require.NoError(t, err)
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return m.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
-	})
+	servicetest.RequireRun(t, m, testTimeout)
 
 	t.Run("tcp", func(t *testing.T) {
 		bindtodevice.SubtestListenControlTCP(t, lc, ifaceName, ifaceNet)

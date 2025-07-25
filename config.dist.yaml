@@ -44,9 +44,6 @@ ratelimit:
           - '127.0.0.1/24'
         # Time between two updates of allow list.
         refresh_interval: 1h
-        # Defines where the rate limiting settings are received from.  Allowed
-        # values are "backend" and "consul".
-        type: 'consul'
 
     # Configuration for the stream connection limiting.
     connection_limit:
@@ -174,20 +171,11 @@ geoip:
 # DNS checking configuration.
 check:
     # Domains to use for DNS checking.
-    kv:
-        # Defines the type of remote key-value storage.  Allowed values are
-        # "backend", "cache", "consul", and "redis".
-        type: 'cache'
-        # For how long to keep the information about the client.
-        ttl: 30s
-    # Domains to use for DNS checking.
     domains:
       - dnscheck.adguard-dns.com
       - dnscheck.adguard.com
     # Location of this node.
     node_location: 'ams'
-    # Name of this node.
-    node_name: 'eu-1.dns.example.com'
     # IPs to respond with.
     ipv4:
       - 1.2.3.4

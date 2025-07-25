@@ -47,6 +47,8 @@ type CustomDomainStateCurrent struct {
 
 	// CertName is the unique name for fetching the actual certificate data.  If
 	// [CustomDomainStateCurrent.Enabled] is true, it must not be empty.
+	//
+	// TODO(a.garipov):  Make a newtype.
 	CertName string
 
 	// Enabled shows if this certificate is enabled.

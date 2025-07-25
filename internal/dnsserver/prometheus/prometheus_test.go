@@ -3,12 +3,16 @@ package prometheus_test
 import (
 	"net"
 	"testing"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 )
+
+// testTimeout is the common timeout for tests.
+const testTimeout = 1 * time.Second
 
 // testLogger is the common logger for tests.
 var testLogger = slogutil.NewDiscardLogger()

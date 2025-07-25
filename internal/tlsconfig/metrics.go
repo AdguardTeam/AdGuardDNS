@@ -6,9 +6,9 @@ import (
 	"time"
 )
 
-// Metrics is an interface that is used for the collection of the TLS-related
-// statistics.
-type Metrics interface {
+// ManagerMetrics is an interface that is used for the collection of the
+// TLS-related statistics.
+type ManagerMetrics interface {
 	// BeforeHandshake returns a function that needs to be passed to
 	// [tls.Config.GetConfigForClient].  f must not be nil.
 	BeforeHandshake(proto string) (f func(*tls.ClientHelloInfo) (c *tls.Config, err error))
@@ -30,16 +30,16 @@ type Metrics interface {
 	SetSessionTicketRotationStatus(ctx context.Context, err error)
 }
 
-// EmptyMetrics is the implementation of the [Metrics] interface that does
-// nothing.
-type EmptyMetrics struct{}
+// EmptyManagerMetrics is the implementation of the [ManagerMetrics] interface
+// that does nothing.
+type EmptyManagerMetrics struct{}
 
 // type check
-var _ Metrics = EmptyMetrics{}
+var _ ManagerMetrics = EmptyManagerMetrics{}
 
-// BeforeHandshake implements the [Metrics] interface for EmptyMetrics by
-// returning a function that does nothing.
-func (EmptyMetrics) BeforeHandshake(
+// BeforeHandshake implements the [ManagerMetrics] interface for
+// EmptyManagerMetrics by returning a function that does nothing.
+func (EmptyManagerMetrics) BeforeHandshake(
 	_ string,
 ) (f func(info *tls.ClientHelloInfo) (c *tls.Config, err error)) {
 	return func(info *tls.ClientHelloInfo) (*tls.Config, error) {
@@ -47,9 +47,9 @@ func (EmptyMetrics) BeforeHandshake(
 	}
 }
 
-// AfterHandshake implements the [Metrics] interface for EmptyMetrics by
-// returning a function that does nothing.
-func (EmptyMetrics) AfterHandshake(
+// AfterHandshake implements the [ManagerMetrics] interface for
+// EmptyManagerMetrics by returning a function that does nothing.
+func (EmptyManagerMetrics) AfterHandshake(
 	_ string,
 	_ string,
 	_ []string,
@@ -60,9 +60,55 @@ func (EmptyMetrics) AfterHandshake(
 	}
 }
 
-// SetCertificateInfo implements the [Metrics] interface for EmptyMetrics.
-func (EmptyMetrics) SetCertificateInfo(_ context.Context, _, _ string, _ time.Time) {}
+// SetCertificateInfo implements the [ManagerMetrics] interface for
+// EmptyManagerMetrics.
+func (EmptyManagerMetrics) SetCertificateInfo(_ context.Context, _, _ string, _ time.Time) {}
 
-// SetSessionTicketRotationStatus implements the [Metrics] interface for
-// EmptyMetrics.
-func (EmptyMetrics) SetSessionTicketRotationStatus(_ context.Context, _ error) {}
+// SetSessionTicketRotationStatus implements the [ManagerMetrics] interface for
+// EmptyManagerMetrics.
+func (EmptyManagerMetrics) SetSessionTicketRotationStatus(_ context.Context, _ error) {}
+
+// CustomDomainDBMetrics is an interface that is used for the collection of the
+// statistics of the custom-domain database.
+type CustomDomainDBMetrics interface {
+	// ObserveOperation updates the statistics for an operation.  op must be one
+	// of the following:
+	//   - [CustomDomainDBMetricsOpAddCertificate]
+	//   - [CustomDomainDBMetricsOpMatch]
+	// dur must be positive.
+	//
+	// TODO(a.garipov):  Consider observing other operations as well.
+	ObserveOperation(ctx context.Context, op string, dur time.Duration)
+
+	// SetCurrentCustomDomainsCount updates the count of current domains.
+	SetCurrentCustomDomainsCount(ctx context.Context, count uint)
+
+	// SetWellKnownPathsCount updates the count of well-known paths for
+	// certificate validation.
+	SetWellKnownPathsCount(ctx context.Context, count uint)
+}
+
+// Operations for [CustomDomainDBMetrics].
+const (
+	CustomDomainDBMetricsOpAddCertificate = "add_certificate"
+	CustomDomainDBMetricsOpMatch          = "match"
+)
+
+// EmptyCustomDomainDBMetrics is an implementation of the
+// [CustomDomainDBMetrics] interface that does nothing.
+type EmptyCustomDomainDBMetrics struct{}
+
+// type check
+var _ CustomDomainDBMetrics = EmptyCustomDomainDBMetrics{}
+
+// ObserveOperation implements the [CustomDomainDBMetrics] interface for
+// EmptyCustomDomainDBMetrics.
+func (EmptyCustomDomainDBMetrics) ObserveOperation(_ context.Context, _ string, _ time.Duration) {}
+
+// SetCurrentCustomDomainsCount implements the [CustomDomainDBMetrics] interface
+// for EmptyCustomDomainDBMetrics.
+func (EmptyCustomDomainDBMetrics) SetCurrentCustomDomainsCount(_ context.Context, _ uint) {}
+
+// SetWellKnownPathsCount implements the [CustomDomainDBMetrics] interface
+// for EmptyCustomDomainDBMetrics.
+func (EmptyCustomDomainDBMetrics) SetWellKnownPathsCount(_ context.Context, _ uint) {}

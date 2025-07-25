@@ -16,9 +16,9 @@ import (
 
 // Storage is the file-cache storage that encodes data using protobuf.
 type Storage struct {
-	profileMetrics   access.ProfileMetrics
 	logger           *slog.Logger
 	baseCustomLogger *slog.Logger
+	profAccessCons   *access.ProfileConstructor
 	path             string
 	respSzEst        datasize.ByteSize
 }
@@ -26,10 +26,6 @@ type Storage struct {
 // Config is the configuration structure for the protobuf-encoded file-cache
 // storage.
 type Config struct {
-	// ProfileMetrics is used for the collection of the profile access engine
-	// statistics.  It must not be nil.
-	ProfileMetrics access.ProfileMetrics
-
 	// Logger is used for logging the operation of profile database.  It must
 	// not be nil.
 	Logger *slog.Logger
@@ -37,6 +33,10 @@ type Config struct {
 	// BaseCustomLogger is the base logger used for the custom filters.  It must
 	// not be nil.
 	BaseCustomLogger *slog.Logger
+
+	// ProfileAccessConstructor is used to create access managers for profiles.
+	// It must not be nil.
+	ProfileAccessConstructor *access.ProfileConstructor
 
 	// CacheFilePath is the path to the profile cache file.  It must be set.
 	CacheFilePath string
@@ -51,9 +51,9 @@ type Config struct {
 // must be valid.
 func New(c *Config) (s *Storage) {
 	return &Storage{
-		profileMetrics:   c.ProfileMetrics,
 		logger:           c.Logger,
 		baseCustomLogger: c.BaseCustomLogger,
+		profAccessCons:   c.ProfileAccessConstructor,
 		path:             c.CacheFilePath,
 		respSzEst:        c.ResponseSizeEstimate,
 	}
@@ -93,7 +93,7 @@ func (s *Storage) Load(ctx context.Context) (c *internal.FileCache, err error) {
 		)
 	}
 
-	return toInternal(fc, s.profileMetrics, s.baseCustomLogger, s.respSzEst)
+	return toInternal(fc, s.baseCustomLogger, s.profAccessCons, s.respSzEst)
 }
 
 // Store implements the [internal.FileCacheStorage] interface for *Storage.

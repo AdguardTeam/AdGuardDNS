@@ -14,7 +14,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/profiledbtest"
 	"github.com/AdguardTeam/golibs/container"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/stretchr/testify/require"
@@ -29,12 +28,6 @@ var (
 	testOtherDedicatedIPv4 = netip.MustParseAddr("192.0.2.4")
 )
 
-// testTimeout is the common timeout for tests.
-const testTimeout = 1 * time.Second
-
-// testLogger is the common logger for tests.
-var testLogger = slogutil.NewDiscardLogger()
-
 // newProfileDB is a helper for creating the profile database for tests.  c may
 // be nil, and all zero-value fields in c are replaced with defaults for tests.
 func newProfileDB(tb testing.TB, c *profiledb.Config) (db *profiledb.Default) {
@@ -42,11 +35,18 @@ func newProfileDB(tb testing.TB, c *profiledb.Config) (db *profiledb.Default) {
 
 	c = cmp.Or(c, &profiledb.Config{})
 
-	c.Logger = cmp.Or(c.Logger, testLogger)
-	c.BaseCustomLogger = cmp.Or(c.BaseCustomLogger, testLogger)
+	c.Logger = cmp.Or(c.Logger, profiledbtest.Logger)
+	c.BaseCustomLogger = cmp.Or(c.BaseCustomLogger, profiledbtest.Logger)
+	c.ProfileAccessConstructor = cmp.Or(
+		c.ProfileAccessConstructor,
+		profiledbtest.ProfileAccessConstructor,
+	)
 
 	c.Clock = cmp.Or[timeutil.Clock](c.Clock, timeutil.SystemClock{})
-	c.CustomDomainDB = cmp.Or[profiledb.CustomDomainDB](c.CustomDomainDB, profiledb.EmptyCustomDomainDB{})
+	c.CustomDomainDB = cmp.Or[profiledb.CustomDomainDB](
+		c.CustomDomainDB,
+		profiledb.EmptyCustomDomainDB{},
+	)
 	c.ErrColl = cmp.Or[errcoll.Interface](c.ErrColl, agdtest.NewErrorCollector())
 	c.Metrics = cmp.Or[profiledb.Metrics](c.Metrics, profiledb.EmptyMetrics{})
 	c.Storage = cmp.Or[profiledb.Storage](c.Storage, agdtest.NewProfileStorage())
@@ -75,7 +75,7 @@ func newDefaultProfileDB(tb testing.TB, devices <-chan []*agd.Device) (db *profi
 		_ context.Context,
 		_ *profiledb.StorageProfilesRequest,
 	) (resp *profiledb.StorageProfilesResponse, err error) {
-		devices, _ := testutil.RequireReceive(tb, devices, testTimeout)
+		devices, _ := testutil.RequireReceive(tb, devices, profiledbtest.Timeout)
 		devIDs := container.NewMapSet[agd.DeviceID]()
 		for _, d := range devices {
 			devIDs.Add(d.ID)
@@ -97,7 +97,7 @@ func newDefaultProfileDB(tb testing.TB, devices <-chan []*agd.Device) (db *profi
 		CacheFilePath: "none",
 	})
 
-	ctx := testutil.ContextWithTimeout(tb, testTimeout)
+	ctx := profiledbtest.ContextWithTimeout(tb)
 	require.NoError(tb, db.Refresh(ctx))
 
 	return db

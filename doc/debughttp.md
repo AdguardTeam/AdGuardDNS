@@ -103,16 +103,20 @@ Supported IDs:
 
 - `allowlist`
 - `billstat`
+- `custom_domain_db`
 - `filters/hashprefix/adult_blocking`
 - `filters/hashprefix/newly_registered_domains`
 - `filters/hashprefix/safe_browsing`
 - `filters/storage`
 - `geoip`
-- `profiledb`
 - `profiledb_full`
+- `profiledb`
 - `rulestat`
 - `ticket_rotator`
 - `tlsconfig`
+- `websvc`
+
+As well as IDs under `plugin/`, if any.
 
 The special ID `*`, when used alone, causes all available refresh tasks to be performed. Note that it performs full profile DB refresh. Use with caution.
 

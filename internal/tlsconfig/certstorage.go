@@ -11,6 +11,9 @@ import (
 type certPaths struct {
 	certPath string
 	keyPath  string
+	// TODO(a.garipov, e.burkov):  Think of a better approach to distinct
+	// between default and custom certificates.
+	isCustom bool
 }
 
 // certStorage holds TLS certificates and their associated file paths.  Each
@@ -49,6 +52,13 @@ func (s *certStorage) count() (n int) {
 
 // certFor returns the TLS certificate for chi.  chi must not be nil.  cert must
 // not be modified.
+//
+// NOTE:  It returns the first certificate for a Client Hello message with no
+// server name, for example when using IP-only certificates, so the IP cert must
+// be the first one.
+//
+// TODO(a.garipov):  Explore the above situation and consider fixes to allow
+// custom IP-only certs.
 func (s *certStorage) certFor(chi *tls.ClientHelloInfo) (cert *tls.Certificate, err error) {
 	var errs []error
 	for _, c := range s.certs {
@@ -71,6 +81,19 @@ func (s *certStorage) rangeFn(fn func(cert *tls.Certificate, cp *certPaths) (con
 			return
 		}
 	}
+}
+
+// remove deletes the certificate from s.  cp must not be nil.
+func (s *certStorage) remove(cp *certPaths) {
+	i := slices.IndexFunc(s.paths, func(p *certPaths) (found bool) {
+		return *cp == *p
+	})
+	if i == -1 {
+		return
+	}
+
+	s.certs = slices.Delete(s.certs, i, i+1)
+	s.paths = slices.Delete(s.paths, i, i+1)
 }
 
 // stored returns the list of saved TLS certificates.

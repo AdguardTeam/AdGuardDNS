@@ -6,7 +6,6 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
@@ -159,7 +158,7 @@ func (mw *Middleware) handleDDR(
 ) (err error) {
 	defer func() { err = errors.Annotate(err, "writing ddr resp for %q: %w", ri.Host) }()
 
-	metrics.DNSSvcDDRRequestsTotal.Inc()
+	mw.metrics.IncrementRequestsTotal(ctx, MetricsRequestKindDDR)
 
 	if mw.ddr.Enabled {
 		return rw.WriteMsg(ctx, req, mw.newRespDDR(req, ri))
@@ -178,7 +177,7 @@ func (mw *Middleware) handleDDRNoData(
 ) (err error) {
 	defer func() { err = errors.Annotate(err, "writing ddr resp for %q: %w", ri.Host) }()
 
-	metrics.DNSSvcDDRRequestsTotal.Inc()
+	mw.metrics.IncrementRequestsTotal(ctx, MetricsRequestKindDDR)
 
 	if mw.ddr.Enabled {
 		return rw.WriteMsg(ctx, req, ri.Messages.NewRespRCode(req, dns.RcodeSuccess))
@@ -225,7 +224,7 @@ func (mw *Middleware) handleBadResolverARPA(
 	req *dns.Msg,
 	ri *agd.RequestInfo,
 ) (err error) {
-	metrics.DNSSvcBadResolverARPA.Inc()
+	mw.metrics.IncrementRequestsTotal(ctx, MetricsRequestKindBadResolverARPA)
 
 	resp := ri.Messages.NewRespRCode(req, dns.RcodeSuccess)
 	err = rw.WriteMsg(ctx, req, resp)
@@ -288,7 +287,7 @@ func (mw *Middleware) handleChromePrefetch(
 	req *dns.Msg,
 	ri *agd.RequestInfo,
 ) (err error) {
-	metrics.DNSSvcChromePrefetchRequestsTotal.Inc()
+	mw.metrics.IncrementRequestsTotal(ctx, MetricsRequestKindChromePrefetch)
 
 	resp := ri.Messages.NewRespRCode(req, dns.RcodeNameError)
 	err = rw.WriteMsg(ctx, req, resp)
@@ -314,7 +313,7 @@ func (mw *Middleware) handleFirefoxCanary(
 	req *dns.Msg,
 	ri *agd.RequestInfo,
 ) (err error) {
-	metrics.DNSSvcFirefoxRequestsTotal.Inc()
+	mw.metrics.IncrementRequestsTotal(ctx, MetricsRequestKindFirefox)
 
 	resp := ri.Messages.NewRespRCode(req, dns.RcodeRefused)
 	err = rw.WriteMsg(ctx, req, resp)
@@ -340,7 +339,7 @@ func (mw *Middleware) handlePrivateRelay(
 	req *dns.Msg,
 	ri *agd.RequestInfo,
 ) (err error) {
-	metrics.DNSSvcApplePrivateRelayRequestsTotal.Inc()
+	mw.metrics.IncrementRequestsTotal(ctx, MetricsRequestKindApplePrivateRelay)
 
 	resp := ri.Messages.NewRespRCode(req, dns.RcodeNameError)
 	err = rw.WriteMsg(ctx, req, resp)

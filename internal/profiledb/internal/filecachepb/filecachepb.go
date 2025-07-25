@@ -25,15 +25,15 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// toInternal converts the protobuf-encoded data into a cache structure.  mtrc,
-// fc, and baseCustomLogger must be non-nil.
+// toInternal converts the protobuf-encoded data into a cache structure.  fc
+// baseCustomLogger, and cons must not be nil.
 func toInternal(
 	fc *FileCache,
-	mtrc access.ProfileMetrics,
 	baseCustomLogger *slog.Logger,
+	cons *access.ProfileConstructor,
 	respSzEst datasize.ByteSize,
 ) (c *internal.FileCache, err error) {
-	profiles, err := profilesToInternal(fc.Profiles, mtrc, baseCustomLogger, respSzEst)
+	profiles, err := profilesToInternal(fc.Profiles, baseCustomLogger, cons, respSzEst)
 	if err != nil {
 		return nil, fmt.Errorf("converting profiles: %w", err)
 	}
@@ -62,17 +62,17 @@ func toProtobuf(c *internal.FileCache) (pbFileCache *FileCache) {
 }
 
 // profilesToInternal converts protobuf profile structures into internal ones.
-// mtrc and baseCustomLogger must be non-nil.
+// baseCustomLogger and cons must not be nil.
 func profilesToInternal(
 	pbProfiles []*Profile,
-	mtrc access.ProfileMetrics,
 	baseCustomLogger *slog.Logger,
+	cons *access.ProfileConstructor,
 	respSzEst datasize.ByteSize,
 ) (profiles []*agd.Profile, err error) {
 	profiles = make([]*agd.Profile, 0, len(pbProfiles))
 	for i, pbProf := range pbProfiles {
 		var prof *agd.Profile
-		prof, err = pbProf.toInternal(mtrc, baseCustomLogger, respSzEst)
+		prof, err = pbProf.toInternal(baseCustomLogger, cons, respSzEst)
 		if err != nil {
 			return nil, fmt.Errorf("profile at index %d: %w", i, err)
 		}
@@ -83,11 +83,11 @@ func profilesToInternal(
 	return profiles, nil
 }
 
-// toInternal converts a protobuf profile structure to an internal one.  mtrc
-// and baseCustomLogger must be non-nil.
+// toInternal converts a protobuf profile structure to an internal one.
+// baseCustomLogger and cons must not be nil.
 func (x *Profile) toInternal(
-	mtrc access.ProfileMetrics,
 	baseCustomLogger *slog.Logger,
+	cons *access.ProfileConstructor,
 	respSzEst datasize.ByteSize,
 ) (prof *agd.Profile, err error) {
 	m, err := blockingModeToInternal(x.BlockingMode)
@@ -154,7 +154,7 @@ func (x *Profile) toInternal(
 		CustomDomains: customDomains,
 		FilterConfig:  fltConf,
 
-		Access:       x.Access.toInternal(mtrc),
+		Access:       x.Access.toInternal(cons),
 		BlockingMode: m,
 		Ratelimiter:  x.Ratelimiter.toInternal(respSzEst),
 
@@ -409,13 +409,12 @@ func (x *Ratelimiter) toInternal(respSzEst datasize.ByteSize) (r agd.Ratelimiter
 // toInternal converts protobuf access settings to an internal structure.  If x
 // is nil, toInternal returns [access.EmptyProfile].  If x is not nil, mtrc must
 // be non-nil.
-func (x *Access) toInternal(mtrc access.ProfileMetrics) (a access.Profile) {
+func (x *Access) toInternal(cons *access.ProfileConstructor) (a access.Profile) {
 	if x == nil {
 		return access.EmptyProfile{}
 	}
 
-	return access.NewDefaultProfile(&access.ProfileConfig{
-		Metrics:              mtrc,
+	return cons.New(&access.ProfileConfig{
 		AllowedNets:          cidrRangeToInternal(x.AllowlistCidr),
 		BlockedNets:          cidrRangeToInternal(x.BlocklistCidr),
 		AllowedASN:           asnToInternal(x.AllowlistAsn),

@@ -66,8 +66,6 @@ set -f -u
 #
 #   *  internal/profiledb/internal/filecachepb/unsafe.go: a “safe” unsafe helper
 #      to prevent excessive allocations.
-#
-# TODO(a.garipov): Add client_golang/prometheus/promauto.
 blocklist_imports() {
 	import_or_tab="$(printf '^\\(import \\|\t\\)')"
 	readonly import_or_tab
@@ -84,6 +82,7 @@ blocklist_imports() {
 		'-H' \
 		'-e' "$import_or_tab"'"errors"$' \
 		'-e' "$import_or_tab"'"github.com/AdguardTeam/golibs/log"$' \
+		'-e' "$import_or_tab"'"github.com/prometheus/client_golang/prometheus/promauto"$' \
 		'-e' "$import_or_tab"'"golang.org/x/exp/maps"$' \
 		'-e' "$import_or_tab"'"golang.org/x/exp/slices"$' \
 		'-e' "$import_or_tab"'"golang.org/x/net/context"$' \

@@ -25,10 +25,12 @@ type interfaceListenersConfig struct {
 }
 
 // toInternal converts c to a possibly-nil bindtodevice.Manager.  c must be
-// valid.
+// valid.  logger, errColl, and mtrc must not be nil.  If ctrlConf is nil, a
+// default configuration is used.
 func (c *interfaceListenersConfig) toInternal(
 	logger *slog.Logger,
 	errColl errcoll.Interface,
+	mtrc bindtodevice.Metrics,
 	ctrlConf *bindtodevice.ControlConfig,
 ) (m *bindtodevice.Manager, err error) {
 	if c == nil {
@@ -39,6 +41,7 @@ func (c *interfaceListenersConfig) toInternal(
 		Logger:            logger.With(slogutil.KeyPrefix, "bindtodevice"),
 		InterfaceStorage:  bindtodevice.DefaultInterfaceStorage{},
 		ErrColl:           errColl,
+		Metrics:           mtrc,
 		ChannelBufferSize: c.ChannelBufferSize,
 	})
 

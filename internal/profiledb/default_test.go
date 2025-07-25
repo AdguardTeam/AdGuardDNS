@@ -16,7 +16,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/profiledbtest"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -50,7 +49,7 @@ func TestDefault(t *testing.T) {
 	t.Run("by_dedicated_ip", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := testutil.ContextWithTimeout(t, testTimeout)
+		ctx := profiledbtest.ContextWithTimeout(t)
 		p, d, err := db.ProfileByDedicatedIP(ctx, testDedicatedIPv4)
 		require.NoError(t, err)
 
@@ -61,7 +60,7 @@ func TestDefault(t *testing.T) {
 	t.Run("by_device_id", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := testutil.ContextWithTimeout(t, testTimeout)
+		ctx := profiledbtest.ContextWithTimeout(t)
 		p, d, err := db.ProfileByDeviceID(ctx, profiledbtest.DeviceID)
 		require.NoError(t, err)
 
@@ -72,7 +71,7 @@ func TestDefault(t *testing.T) {
 	t.Run("by_human_id", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := testutil.ContextWithTimeout(t, testTimeout)
+		ctx := profiledbtest.ContextWithTimeout(t)
 		p, d, err := db.ProfileByHumanID(ctx, profiledbtest.ProfileID, profiledbtest.HumanIDLower)
 		require.NoError(t, err)
 
@@ -83,7 +82,7 @@ func TestDefault(t *testing.T) {
 	t.Run("by_linked_ip", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := testutil.ContextWithTimeout(t, testTimeout)
+		ctx := profiledbtest.ContextWithTimeout(t)
 		p, d, err := db.ProfileByLinkedIP(ctx, testClientIPv4)
 		require.NoError(t, err)
 
@@ -109,7 +108,7 @@ func TestDefault_ProfileByDedicatedIP_removedDevice(t *testing.T) {
 
 	db := newDefaultProfileDB(t, devicesCh)
 
-	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	ctx := profiledbtest.ContextWithTimeout(t)
 	_, d, err := db.ProfileByDedicatedIP(ctx, testDedicatedIPv4)
 	require.NoError(t, err)
 
@@ -118,16 +117,16 @@ func TestDefault_ProfileByDedicatedIP_removedDevice(t *testing.T) {
 	// The second response, the device is removed.
 	devicesCh <- nil
 
-	ctx = testutil.ContextWithTimeout(t, testTimeout)
+	ctx = profiledbtest.ContextWithTimeout(t)
 	err = db.Refresh(ctx)
 	require.NoError(t, err)
 
 	assert.Eventually(t, func() (ok bool) {
-		ctx = testutil.ContextWithTimeout(t, testTimeout)
+		ctx = profiledbtest.ContextWithTimeout(t)
 		_, d, err = db.ProfileByDedicatedIP(ctx, testDedicatedIPv4)
 
 		return errors.Is(err, profiledb.ErrDeviceNotFound)
-	}, testTimeout, testTimeout/10)
+	}, profiledbtest.Timeout, profiledbtest.Timeout/10)
 }
 
 func TestDefault_ProfileByDedicatedIP_deviceNewIP(t *testing.T) {
@@ -173,7 +172,7 @@ func TestDefault_ProfileByDedicatedIP_deviceNewIP(t *testing.T) {
 		}
 
 		return d != nil && d.ID == dev.ID
-	}, testTimeout, testTimeout/10)
+	}, profiledbtest.Timeout, profiledbtest.Timeout/10)
 }
 
 func TestDefault_ProfileByHumanID_removedDevice(t *testing.T) {
@@ -207,7 +206,7 @@ func TestDefault_ProfileByHumanID_removedDevice(t *testing.T) {
 		_, d, err = db.ProfileByHumanID(ctx, profiledbtest.ProfileID, profiledbtest.HumanIDLower)
 
 		return errors.Is(err, profiledb.ErrDeviceNotFound)
-	}, testTimeout, testTimeout/10)
+	}, profiledbtest.Timeout, profiledbtest.Timeout/10)
 }
 
 func TestDefault_ProfileByHumanID_deviceNotAuto(t *testing.T) {
@@ -225,7 +224,7 @@ func TestDefault_ProfileByHumanID_deviceNotAuto(t *testing.T) {
 
 	db := newDefaultProfileDB(t, devicesCh)
 
-	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	ctx := profiledbtest.ContextWithTimeout(t)
 	_, d, err := db.ProfileByHumanID(ctx, profiledbtest.ProfileID, profiledbtest.HumanIDLower)
 	require.NoError(t, err)
 
@@ -236,16 +235,16 @@ func TestDefault_ProfileByHumanID_deviceNotAuto(t *testing.T) {
 		ID: profiledbtest.DeviceIDAuto,
 	}}
 
-	ctx = testutil.ContextWithTimeout(t, testTimeout)
+	ctx = profiledbtest.ContextWithTimeout(t)
 	err = db.Refresh(ctx)
 	require.NoError(t, err)
 
 	assert.Eventually(t, func() (ok bool) {
-		ctx = testutil.ContextWithTimeout(t, testTimeout)
+		ctx = profiledbtest.ContextWithTimeout(t)
 		_, d, err = db.ProfileByHumanID(ctx, profiledbtest.ProfileID, profiledbtest.HumanIDLower)
 
 		return errors.Is(err, profiledb.ErrDeviceNotFound)
-	}, testTimeout, testTimeout/10)
+	}, profiledbtest.Timeout, profiledbtest.Timeout/10)
 }
 
 func TestDefault_ProfileByLinkedIP_removedDevice(t *testing.T) {
@@ -279,7 +278,7 @@ func TestDefault_ProfileByLinkedIP_removedDevice(t *testing.T) {
 		_, d, err = db.ProfileByLinkedIP(ctx, testClientIPv4)
 
 		return errors.Is(err, profiledb.ErrDeviceNotFound)
-	}, testTimeout, testTimeout/10)
+	}, profiledbtest.Timeout, profiledbtest.Timeout/10)
 }
 
 func TestDefault_ProfileByLinkedIP_deviceNewIP(t *testing.T) {
@@ -323,7 +322,7 @@ func TestDefault_ProfileByLinkedIP_deviceNewIP(t *testing.T) {
 		}
 
 		return d != nil && d.ID == dev.ID
-	}, testTimeout, testTimeout/10)
+	}, profiledbtest.Timeout, profiledbtest.Timeout/10)
 }
 
 func TestDefault_fileCache_success(t *testing.T) {
@@ -348,13 +347,14 @@ func TestDefault_fileCache_success(t *testing.T) {
 
 	cacheFilePath := filepath.Join(t.TempDir(), "profiles.pb")
 	pbCache := filecachepb.New(&filecachepb.Config{
-		Logger:               testLogger,
-		BaseCustomLogger:     testLogger,
-		CacheFilePath:        cacheFilePath,
-		ResponseSizeEstimate: profiledbtest.RespSzEst,
+		Logger:                   profiledbtest.Logger,
+		BaseCustomLogger:         profiledbtest.Logger,
+		ProfileAccessConstructor: profiledbtest.ProfileAccessConstructor,
+		CacheFilePath:            cacheFilePath,
+		ResponseSizeEstimate:     profiledbtest.RespSzEst,
 	})
 
-	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	ctx := profiledbtest.ContextWithTimeout(t)
 	err := pbCache.Store(ctx, &internal.FileCache{
 		SyncTime: wantSyncTime,
 		Profiles: []*agd.Profile{prof},
@@ -368,7 +368,7 @@ func TestDefault_fileCache_success(t *testing.T) {
 		CacheFilePath: cacheFilePath,
 	})
 
-	ctx = testutil.ContextWithTimeout(t, testTimeout)
+	ctx = profiledbtest.ContextWithTimeout(t)
 	require.NoError(t, db.Refresh(ctx))
 
 	assert.Equal(t, wantSyncTime, gotSyncTime)
@@ -395,13 +395,14 @@ func TestDefault_fileCache_badVersion(t *testing.T) {
 
 	cacheFilePath := filepath.Join(t.TempDir(), "profiles.pb")
 	pbCache := filecachepb.New(&filecachepb.Config{
-		Logger:               testLogger,
-		BaseCustomLogger:     testLogger,
-		CacheFilePath:        cacheFilePath,
-		ResponseSizeEstimate: profiledbtest.RespSzEst,
+		Logger:                   profiledbtest.Logger,
+		BaseCustomLogger:         profiledbtest.Logger,
+		ProfileAccessConstructor: profiledbtest.ProfileAccessConstructor,
+		CacheFilePath:            cacheFilePath,
+		ResponseSizeEstimate:     profiledbtest.RespSzEst,
 	})
 
-	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	ctx := profiledbtest.ContextWithTimeout(t)
 	err := pbCache.Store(ctx, &internal.FileCache{
 		Version: 10000,
 	})
@@ -412,7 +413,7 @@ func TestDefault_fileCache_badVersion(t *testing.T) {
 		CacheFilePath: cacheFilePath,
 	})
 
-	ctx = testutil.ContextWithTimeout(t, testTimeout)
+	ctx = profiledbtest.ContextWithTimeout(t)
 	require.NoError(t, db.Refresh(ctx))
 
 	assert.True(t, storageCalled)
@@ -457,7 +458,7 @@ func TestDefault_CreateAutoDevice(t *testing.T) {
 		Storage: ps,
 	})
 
-	ctx := testutil.ContextWithTimeout(t, testTimeout)
+	ctx := profiledbtest.ContextWithTimeout(t)
 	require.NoError(t, db.Refresh(ctx))
 
 	p, d, err := db.CreateAutoDevice(
@@ -552,17 +553,17 @@ func TestDefault_deviceChanges(t *testing.T) {
 	})
 
 	require.True(t, t.Run("after_full", func(t *testing.T) {
-		ctx := testutil.ContextWithTimeout(t, testTimeout)
+		ctx := profiledbtest.ContextWithTimeout(t)
 		require.NoError(t, db.RefreshFull(ctx))
 
-		ctx = testutil.ContextWithTimeout(t, testTimeout)
+		ctx = profiledbtest.ContextWithTimeout(t)
 		p, d, dbErr := db.ProfileByDeviceID(ctx, profiledbtest.DeviceID)
 		require.NoError(t, dbErr)
 
 		assert.Equal(t, profBefore, p)
 		assert.Equal(t, devPrevName, d)
 
-		ctx = testutil.ContextWithTimeout(t, testTimeout)
+		ctx = profiledbtest.ContextWithTimeout(t)
 		p, d, dbErr = db.ProfileByDeviceID(ctx, profiledbtest.DeviceIDAuto)
 		require.NoError(t, dbErr)
 
@@ -571,17 +572,17 @@ func TestDefault_deviceChanges(t *testing.T) {
 	}))
 
 	require.True(t, t.Run("after_partial", func(t *testing.T) {
-		ctx := testutil.ContextWithTimeout(t, testTimeout)
+		ctx := profiledbtest.ContextWithTimeout(t)
 		require.NoError(t, db.Refresh(ctx))
 
-		ctx = testutil.ContextWithTimeout(t, testTimeout)
+		ctx = profiledbtest.ContextWithTimeout(t)
 		p, d, dbErr := db.ProfileByDeviceID(ctx, profiledbtest.DeviceID)
 		require.NoError(t, dbErr)
 
 		assert.Equal(t, profAfter, p)
 		assert.Equal(t, devNewName, d)
 
-		ctx = testutil.ContextWithTimeout(t, testTimeout)
+		ctx = profiledbtest.ContextWithTimeout(t)
 		p, d, dbErr = db.ProfileByDeviceID(ctx, profiledbtest.DeviceIDAuto)
 		assert.ErrorIs(t, dbErr, profiledb.ErrDeviceNotFound)
 		assert.Nil(t, p)
@@ -651,10 +652,10 @@ func TestDefault_noDeviceChanges(t *testing.T) {
 	})
 
 	require.True(t, t.Run("after_full", func(t *testing.T) {
-		ctx := testutil.ContextWithTimeout(t, testTimeout)
+		ctx := profiledbtest.ContextWithTimeout(t)
 		require.NoError(t, db.RefreshFull(ctx))
 
-		ctx = testutil.ContextWithTimeout(t, testTimeout)
+		ctx = profiledbtest.ContextWithTimeout(t)
 		p, d, dbErr := db.ProfileByDeviceID(ctx, profiledbtest.DeviceID)
 		require.NoError(t, dbErr)
 
@@ -663,10 +664,10 @@ func TestDefault_noDeviceChanges(t *testing.T) {
 	}))
 
 	require.True(t, t.Run("after_partial", func(t *testing.T) {
-		ctx := testutil.ContextWithTimeout(t, testTimeout)
+		ctx := profiledbtest.ContextWithTimeout(t)
 		require.NoError(t, db.Refresh(ctx))
 
-		ctx = testutil.ContextWithTimeout(t, testTimeout)
+		ctx = profiledbtest.ContextWithTimeout(t)
 		p, d, dbErr := db.ProfileByDeviceID(ctx, profiledbtest.DeviceID)
 		require.NoError(t, dbErr)
 

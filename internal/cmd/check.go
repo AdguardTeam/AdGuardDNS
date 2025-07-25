@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/netip"
@@ -30,17 +31,11 @@ import (
 
 // checkConfig is the DNS server checking configuration.
 type checkConfig struct {
-	// KV is remote key-value store configuration for DNS server checking.
-	KV *remoteKVConfig `yaml:"kv"`
-
 	// Domains are the domain names used for DNS server checking.
 	Domains []string `yaml:"domains"`
 
 	// NodeLocation is the location of this server node.
 	NodeLocation string `yaml:"node_location"`
-
-	// NodeName is the name of this server node.
-	NodeName string `yaml:"node_name"`
 
 	// IPv4 is the list of IPv4 addresses to respond with for A queries to
 	// subdomains of Domain.
@@ -54,6 +49,7 @@ type checkConfig struct {
 // toInternal converts c to the DNS server check configuration for the DNS
 // server.  c must be valid.
 func (c *checkConfig) toInternal(
+	ctx context.Context,
 	baseLogger *slog.Logger,
 	envs *environment,
 	messages *dnsmsg.Constructor,
@@ -67,7 +63,7 @@ func (c *checkConfig) toInternal(
 		return nil, fmt.Errorf("dnscheck metrics: %w", err)
 	}
 
-	kv, err := c.KV.newRemoteKV(envs, namespace, reg, grpcMtrc, baseLogger)
+	kv, err := newRemoteKV(ctx, envs, namespace, reg, grpcMtrc, baseLogger)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
@@ -86,7 +82,7 @@ func (c *checkConfig) toInternal(
 		ErrColl:      errColl,
 		Domains:      domains,
 		NodeLocation: c.NodeLocation,
-		NodeName:     c.NodeName,
+		NodeName:     envs.NodeName,
 		IPv4:         c.IPv4,
 		IPv6:         c.IPv6,
 	}, nil
@@ -99,18 +95,22 @@ const maxRespSize = 1 * datasize.MB
 // [remotekv.KeyNamespace].
 const keyNamespaceCheck = "check"
 
-// newRemoteKV returns a new properly initialized remote key-value storage.  c
-// must be valid.  grpcMtrc should be registered before calling this method.
-func (c *remoteKVConfig) newRemoteKV(
+// newRemoteKV returns a new properly initialized remote key-value storage.
+// grpcMtrc should be registered before calling this method.
+func newRemoteKV(
+	ctx context.Context,
 	envs *environment,
 	namespace string,
 	reg prometheus.Registerer,
 	grpcMtrc backendpb.GRPCMetrics,
 	baseLogger *slog.Logger,
 ) (kv remotekv.Interface, err error) {
-	switch c.Type {
+	switch envs.DNSCheckKVType {
 	case kvModeBackend:
-		return newBackendRemoteKV(envs, namespace, reg, grpcMtrc, c.TTL)
+		kv, err = newBackendRemoteKV(envs, namespace, reg, grpcMtrc, envs.DNSCheckKVTTL)
+		if err != nil {
+			return nil, fmt.Errorf("initializing backend dnscheck kv: %w", err)
+		}
 	case kvModeCache:
 		// TODO(e.burkov): The local cache in [dnscheck.RemoteKV] becomes
 		// pointless with this mode.
@@ -120,19 +120,26 @@ func (c *remoteKVConfig) newRemoteKV(
 			}),
 		}), nil
 	case kvModeRedis:
-		return newRedisRemoteKV(envs, namespace, reg, baseLogger, c.TTL)
+		kv, err = newRedisRemoteKV(ctx, namespace, reg, baseLogger, envs.DNSCheckKVTTL)
+		if err != nil {
+			return nil, fmt.Errorf("initializing redis dnscheck kv: %w", err)
+		}
 	case kvModeConsul:
-		kv, err = newConsulRemoteKV(envs, c.TTL)
+		kv, err = newConsulRemoteKV(envs, envs.DNSCheckKVTTL)
 		if err != nil {
 			return nil, fmt.Errorf("initializing consul dnscheck kv: %w", err)
 		}
 	default:
-		panic(fmt.Errorf("dnscheck kv type: %w: %q", errors.ErrBadEnumValue, c.Type))
+		panic(fmt.Errorf(
+			"env DNSCHECK_KV_TYPE: %w: %q",
+			errors.ErrBadEnumValue,
+			envs.DNSCheckKVType,
+		))
 	}
 
 	return remotekv.NewKeyNamespace(&remotekv.KeyNamespaceConfig{
 		KV:     kv,
-		Prefix: newRemoteKVPrefix(envs, c.Type),
+		Prefix: newRemoteKVPrefix(envs, envs.DNSCheckKVType),
 	}), nil
 }
 
@@ -170,7 +177,7 @@ func newBackendRemoteKV(
 // newRedisRemoteKV returns a new properly initialized Redis-based remote
 // key-value storage.
 func newRedisRemoteKV(
-	envs *environment,
+	ctx context.Context,
 	namespace string,
 	reg prometheus.Registerer,
 	baseLogger *slog.Logger,
@@ -181,36 +188,7 @@ func newRedisRemoteKV(
 		return nil, fmt.Errorf("registering redis kv metrics: %w", err)
 	}
 
-	var dialer *redisutil.DefaultDialer
-	dialer, err = redisutil.NewDefaultDialer(&redisutil.DefaultDialerConfig{
-		Addr: &netutil.HostPort{
-			Host: envs.RedisAddr,
-			Port: envs.RedisPort,
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("initializing redisutil dialer: %w", err)
-	}
-
-	var connTester *redisutil.RoleChecker
-	connTester, err = redisutil.NewRoleChecker(&redisutil.RoleCheckerConfig{
-		Logger: baseLogger.With(slogutil.KeyPrefix, "redis_role_checker"),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("initializing redisutil role checker: %w", err)
-	}
-
-	var pool *redisutil.DefaultPool
-	pool, err = redisutil.NewDefaultPool(&redisutil.DefaultPoolConfig{
-		Logger:           baseLogger.With(slogutil.KeyPrefix, "redis_pool"),
-		ConnectionTester: connTester,
-		Dialer:           dialer,
-		Metrics:          mtrc,
-		IdleTimeout:      time.Duration(envs.RedisIdleTimeout),
-		MaxActive:        envs.RedisMaxActive,
-		MaxIdle:          envs.RedisMaxIdle,
-		Wait:             true,
-	})
+	pool, err := redisutil.NewPoolFromEnvironment(ctx, baseLogger, mtrc)
 	if err != nil {
 		return nil, fmt.Errorf("initializing redisutil pool: %w", err)
 	}
@@ -224,8 +202,11 @@ func newRedisRemoteKV(
 }
 
 // newConsulRemoteKV returns a new properly initialized Consul-based remote
-// key-value storage.
-func newConsulRemoteKV(envs *environment, ttl timeutil.Duration) (kv remotekv.Interface, err error) {
+// key-value storage.  envs must be valid.
+func newConsulRemoteKV(
+	envs *environment,
+	ttl timeutil.Duration,
+) (kv remotekv.Interface, err error) {
 	consulKVURL := envs.ConsulDNSCheckKVURL
 	consulSessionURL := envs.ConsulDNSCheckSessionURL
 	if consulKVURL == nil || consulSessionURL == nil {
@@ -274,7 +255,6 @@ func (c *checkConfig) Validate() (err error) {
 
 	errs := []error{
 		validate.NotEmpty("node_location", c.NodeLocation),
-		validate.NotEmpty("node_name", c.NodeName),
 		validate.NotEmptySlice("domains", c.Domains),
 	}
 
@@ -289,8 +269,6 @@ func (c *checkConfig) Validate() (err error) {
 		// Don't wrap the error, because it's informative enough as is.
 		errs = append(errs, err)
 	}
-
-	errs = validate.Append(errs, "kv", c.KV)
 
 	return errors.Join(errs...)
 }
@@ -332,39 +310,3 @@ const (
 	kvModeConsul  = "consul"
 	kvModeRedis   = "redis"
 )
-
-// remoteKVConfig is remote key-value store configuration for DNS server
-// checking.
-type remoteKVConfig struct {
-	// Type defines the type of remote key-value store.  Allowed values are
-	// [kvModeBackend], [kvModeCache], [kvModeConsul] and [kvModeRedis].
-	Type string `yaml:"type"`
-
-	// TTL defines, for how long to keep the information about a single client.
-	TTL timeutil.Duration `yaml:"ttl"`
-}
-
-// type check
-var _ validate.Interface = (*remoteKVConfig)(nil)
-
-// Validate implements the [validate.Interface] interface for *remoteKVConfig.
-func (c *remoteKVConfig) Validate() (err error) {
-	if c == nil {
-		return errors.ErrNoValue
-	}
-
-	ttl := time.Duration(c.TTL)
-
-	switch c.Type {
-	case kvModeBackend:
-		return validate.Positive("ttl", ttl)
-	case kvModeCache:
-		return nil
-	case kvModeConsul:
-		return validate.InRange("ttl", ttl, consulkv.MinTTL, consulkv.MaxTTL)
-	case kvModeRedis:
-		return validate.NoLessThan("ttl", ttl, rediskv.MinTTL)
-	default:
-		return fmt.Errorf("type: %w: %q", errors.ErrBadEnumValue, c.Type)
-	}
-}

@@ -10,29 +10,26 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/optslog"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/syncutil"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 // interfaceListener contains information about a single interface listener.
 type interfaceListener struct {
-	logger             *slog.Logger
-	conns              *connIndex
-	listenConf         *net.ListenConfig
-	bodyPool           *syncutil.Pool[[]byte]
-	oobPool            *syncutil.Pool[[]byte]
-	writeRequests      chan *packetConnWriteReq
-	done               chan unit
-	errColl            errcoll.Interface
-	writeRequestsGauge prometheus.Gauge
-	writeDurationHist  prometheus.Observer
-	ifaceName          string
-	port               uint16
+	logger        *slog.Logger
+	conns         *connIndex
+	listenConf    *net.ListenConfig
+	bodyPool      *syncutil.Pool[[]byte]
+	oobPool       *syncutil.Pool[[]byte]
+	writeRequests chan *packetConnWriteReq
+	done          chan unit
+	errColl       errcoll.Interface
+	metrics       Metrics
+	ifaceName     string
+	port          uint16
 }
 
 // listenTCP runs the TCP listening loop.  It is intended to be used as a
@@ -80,14 +77,14 @@ func (l *interfaceListener) processConn(ctx context.Context, logger *slog.Logger
 	laddr := netutil.NetAddrToAddrPort(conn.LocalAddr())
 	raddr := conn.RemoteAddr()
 	if lsnr := l.conns.listener(laddr.Addr()); lsnr != nil {
-		if !lsnr.send(conn) {
+		if !lsnr.send(ctx, conn) {
 			optslog.Debug2(ctx, logger, "channel is closed", "raddr", raddr, "laddr", laddr)
 		}
 
 		return
 	}
 
-	metrics.BindToDeviceUnknownTCPRequestsTotal.Inc()
+	l.metrics.IncrementUnknownTCPRequests(ctx)
 
 	optslog.Debug2(ctx, logger, "no stream channel", "raddr", raddr, "laddr", laddr)
 
@@ -171,14 +168,14 @@ func (l *interfaceListener) readUDP(
 	laddr := sess.laddr.AddrPort().Addr()
 	chanPacketConn := l.conns.packetConn(laddr)
 	if chanPacketConn == nil {
-		metrics.BindToDeviceUnknownUDPRequestsTotal.Inc()
+		l.metrics.IncrementUnknownUDPRequests(ctx)
 
 		optslog.Debug2(ctx, logger, "no packet channel", "raddr", sess.raddr, "laddr", laddr)
 
 		return nil
 	}
 
-	if !chanPacketConn.send(sess) {
+	if !chanPacketConn.send(ctx, sess) {
 		optslog.Debug1(ctx, logger, "channel is closed", "laddr", laddr)
 	}
 
@@ -201,14 +198,14 @@ func (l *interfaceListener) writeUDPResponses(
 
 			return
 		case req := <-l.writeRequests:
-			l.writeUDP(c, req)
+			l.writeUDP(ctx, c, req)
 		}
 	}
 }
 
 // writeUDP handles a single write operation and writes a response to
 // req.respCh.
-func (l *interfaceListener) writeUDP(c *net.UDPConn, req *packetConnWriteReq) {
+func (l *interfaceListener) writeUDP(ctx context.Context, c *net.UDPConn, req *packetConnWriteReq) {
 	resp := &packetConnWriteResp{}
 	resp.err = c.SetWriteDeadline(req.deadline)
 	if resp.err != nil {
@@ -217,7 +214,7 @@ func (l *interfaceListener) writeUDP(c *net.UDPConn, req *packetConnWriteReq) {
 		return
 	}
 
-	l.writeToUDPConn(c, req, resp)
+	l.writeToUDPConn(ctx, c, req, resp)
 
 	resetDeadlineErr := c.SetWriteDeadline(time.Time{})
 	resp.err = errors.WithDeferred(resp.err, resetDeadlineErr)
@@ -228,12 +225,15 @@ func (l *interfaceListener) writeUDP(c *net.UDPConn, req *packetConnWriteReq) {
 // writeToUDPConn writes to c, depending on what kind of session req contains,
 // and sets resp.written and resp.err accordingly.
 func (l *interfaceListener) writeToUDPConn(
+	ctx context.Context,
 	c *net.UDPConn,
 	req *packetConnWriteReq,
 	resp *packetConnWriteResp,
 ) {
 	start := time.Now()
-	defer func() { l.writeDurationHist.Observe(time.Since(start).Seconds()) }()
+	defer func() {
+		l.metrics.ObserveUDPWriteDuration(ctx, l.ifaceName, time.Since(start))
+	}()
 
 	s := req.session
 	if s == nil {

@@ -27,10 +27,6 @@ type Metrics interface {
 	// IncrementRatelimitedByProfile is called when the DNS request is dropped
 	// by a profile's ratelimit settings.
 	IncrementRatelimitedByProfile(ctx context.Context)
-
-	// IncrementUnknownDedicated is called when the DNS request is sent to an
-	// unknown local address.
-	IncrementUnknownDedicated(ctx context.Context)
 }
 
 // EmptyMetrics is an empty [Metrics] implementation that does nothing.
@@ -54,10 +50,6 @@ func (EmptyMetrics) IncrementAccessBlockedBySubnet(_ context.Context) {}
 // IncrementRatelimitedByProfile implements the [Metrics] interface for
 // *EmptyMetrics.
 func (EmptyMetrics) IncrementRatelimitedByProfile(_ context.Context) {}
-
-// IncrementUnknownDedicated implements the [Metrics] interface for
-// *EmptyMetrics.
-func (EmptyMetrics) IncrementUnknownDedicated(_ context.Context) {}
 
 // OnAllowlisted implements the [Metrics] interface for EmptyMetrics.
 func (EmptyMetrics) OnAllowlisted(_ context.Context, _ *dns.Msg, _ dnsserver.ResponseWriter) {}

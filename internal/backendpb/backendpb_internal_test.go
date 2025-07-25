@@ -4,6 +4,7 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/c2h5oh/datasize"
@@ -44,6 +45,9 @@ var (
 	TestPendingExpire = time.Date(2022, 1, 1, 0, 0, 0, 0, time.UTC)
 )
 
+// TestRespSzEst is a response-size estimate for tests.
+const TestRespSzEst datasize.ByteSize = 1 * datasize.KB
+
 // TestBind includes any IPv4 address.
 //
 // TODO(a.garipov):  Add to golibs/netutil.
@@ -52,5 +56,6 @@ var TestBind = netip.MustParsePrefix("0.0.0.0/0")
 // TestLogger is the common logger for tests.
 var TestLogger = slogutil.NewDiscardLogger()
 
-// TestRespSzEst is a response-size estimate for tests.
-const TestRespSzEst datasize.ByteSize = 1 * datasize.KB
+// TestProfileAccessConstructor is the common constructor of profile access
+// managers for tests
+var TestProfileAccessConstructor = access.NewProfileConstructor(access.EmptyProfileMetrics{})

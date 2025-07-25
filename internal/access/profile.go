@@ -11,8 +11,7 @@ import (
 
 // Profile is the profile access manager interface.
 type Profile interface {
-	// Config returns the profile access configuration, excluding the
-	// [ProfileConfig.Metrics] property.
+	// Config returns the profile access configuration.
 	Config() (conf *ProfileConfig)
 
 	// IsBlocked returns true if the req should be blocked.  req must not be
@@ -51,10 +50,6 @@ func (EmptyProfile) IsBlocked(
 // NOTE: Do not change fields of this structure without incrementing
 // [internal/profiledb/internal.FileCacheVersion].
 type ProfileConfig struct {
-	// Metrics is used for the collection of the profile access engine
-	// statistics.  It must not be nil.
-	Metrics ProfileMetrics
-
 	// AllowedNets is slice of CIDRs to be allowed.
 	AllowedNets []netip.Prefix
 
@@ -87,24 +82,35 @@ type DefaultProfile struct {
 	blocklistDomainRules []string
 }
 
-// NewDefaultProfile creates a new *DefaultProfile.  conf is assumed to be
+// defaultProfileConfig is the configuration for the default access for
+// profiles.
+type defaultProfileConfig struct {
+	// conf is the configuration to use for the access manager.  It must not be
+	// nil and must be valid.
+	conf *ProfileConfig
+
+	// metrics is used for the collection of the profile access engine
+	// statistics.  It must not be nil.
+	metrics ProfileMetrics
+}
+
+// newDefaultProfile creates a new *DefaultProfile.  conf is assumed to be
 // valid.  mtrc must not be nil.
-func NewDefaultProfile(conf *ProfileConfig) (p *DefaultProfile) {
+func newDefaultProfile(c *defaultProfileConfig) (p *DefaultProfile) {
 	return &DefaultProfile{
-		allowedNets:          conf.AllowedNets,
-		blockedNets:          conf.BlockedNets,
-		allowedASN:           conf.AllowedASN,
-		blockedASN:           conf.BlockedASN,
-		blocklistDomainRules: conf.BlocklistDomainRules,
-		blockedHostsEng:      newBlockedHostEngine(conf.Metrics, conf.BlocklistDomainRules),
+		allowedNets:          c.conf.AllowedNets,
+		blockedNets:          c.conf.BlockedNets,
+		allowedASN:           c.conf.AllowedASN,
+		blockedASN:           c.conf.BlockedASN,
+		blocklistDomainRules: c.conf.BlocklistDomainRules,
+		blockedHostsEng:      newBlockedHostEngine(c.metrics, c.conf.BlocklistDomainRules),
 	}
 }
 
 // type check
 var _ Profile = (*DefaultProfile)(nil)
 
-// Config implements the [Profile] interface for *DefaultProfile.  It excludes
-// the Metrics property.
+// Config implements the [Profile] interface for *DefaultProfile.
 func (p *DefaultProfile) Config() (conf *ProfileConfig) {
 	return &ProfileConfig{
 		AllowedNets:          slices.Clone(p.allowedNets),
@@ -156,4 +162,29 @@ func matchASNs(asns []geoip.ASN, l *geoip.Location) (ok bool) {
 // BlocklistDomainRules.  req must have exactly one question.
 func (p *DefaultProfile) isBlockedByHostsEng(ctx context.Context, req *dns.Msg) (blocked bool) {
 	return p.blockedHostsEng.isBlocked(ctx, req)
+}
+
+// ProfileConstructor creates default access managers for profiles.
+//
+// TODO(a.garipov):  Add global standard rules for profile access managers here
+// as well.
+type ProfileConstructor struct {
+	metrics ProfileMetrics
+}
+
+// NewProfileConstructor returns a properly initialized *ProfileConstructor.
+// mtrc must not be nil.
+func NewProfileConstructor(mtrc ProfileMetrics) (c *ProfileConstructor) {
+	return &ProfileConstructor{
+		metrics: mtrc,
+	}
+}
+
+// New creates a new access manager for a profile based on the configuration.
+// conf must not be nil and must be valid.
+func (c *ProfileConstructor) New(conf *ProfileConfig) (p *DefaultProfile) {
+	return newDefaultProfile(&defaultProfileConfig{
+		conf:    conf,
+		metrics: c.metrics,
+	})
 }

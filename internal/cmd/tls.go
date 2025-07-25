@@ -126,7 +126,7 @@ type tlsConfigCerts []*tlsConfigCert
 func (certs tlsConfigCerts) store(ctx context.Context, tlsMgr tlsconfig.Manager) (err error) {
 	var errs []error
 	for i, c := range certs {
-		err = tlsMgr.Add(ctx, c.Certificate, c.Key)
+		err = tlsMgr.Add(ctx, c.Certificate, c.Key, false)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("adding certificate at index %d: %w", i, err))
 		}

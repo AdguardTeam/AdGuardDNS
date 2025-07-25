@@ -12,6 +12,10 @@ import (
 
 // BackendTicketStorage is a metrics collector for TLS session ticket updates.
 type BackendTicketStorage struct {
+	// ticketsState is the gauge with state number code of the last updated TLS
+	// session tickets.
+	ticketsState prometheus.Gauge
+
 	// updateStatus is the gauge vector with status of the last TLS session
 	// ticket update.  "0" means error, "1" means success.
 	updateStatus *prometheus.GaugeVec
@@ -36,6 +40,7 @@ func NewBackendTicketStorage(
 	reg prometheus.Registerer,
 ) (m *BackendTicketStorage, err error) {
 	const (
+		ticketsState   = "tickets_state"
 		updateStatus   = "update_status"
 		updatedTime    = "update_time"
 		updateDuration = "update_duration"
@@ -43,6 +48,12 @@ func NewBackendTicketStorage(
 	)
 
 	m = &BackendTicketStorage{
+		ticketsState: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name:      ticketsState,
+			Subsystem: subsystemTLS,
+			Namespace: namespace,
+			Help:      "State number code of the last updated TLS session tickets.",
+		}),
 		updateStatus: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name:      updateStatus,
 			Subsystem: subsystemTLS,
@@ -72,6 +83,9 @@ func NewBackendTicketStorage(
 
 	var errs []error
 	collectors := container.KeyValues[string, prometheus.Collector]{{
+		Key:   ticketsState,
+		Value: m.ticketsState,
+	}, {
 		Key:   updateStatus,
 		Value: m.updateStatus,
 	}, {
@@ -102,7 +116,7 @@ func NewBackendTicketStorage(
 // SetTicketStatus implements the [backendpb.TicketStorageMetrics] interface for
 // *BackendTicketStorage.
 func (m *BackendTicketStorage) SetTicketStatus(
-	ctx context.Context,
+	_ context.Context,
 	name string,
 	updTime time.Time,
 	err error,
@@ -115,6 +129,12 @@ func (m *BackendTicketStorage) SetTicketStatus(
 
 	m.updateStatus.WithLabelValues(name).Set(1)
 	m.updatedTime.WithLabelValues(name).Set(float64(updTime.Unix()))
+}
+
+// SetTicketsState implements the [backendpb.TicketStorageMetrics] interface for
+// *BackendTicketStorage.
+func (m *BackendTicketStorage) SetTicketsState(_ context.Context, num float64) {
+	m.ticketsState.Set(num)
 }
 
 // ObserveUpdate implements the [backendpb.TicketStorageMetrics] interface for

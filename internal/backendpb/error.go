@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
+	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
 )
@@ -17,6 +18,8 @@ import (
 // [GRPCMetrics.IncrementErrorCount].
 //
 // TODO(e.burkov):  Move error types to this package.
+//
+// TODO(a.garipov):  Separate metrics reporting from error fixing.
 func fixGRPCError(ctx context.Context, mtrc GRPCMetrics, err error) (res error) {
 	metricsType := GRPCErrOther
 	defer func() { mtrc.IncrementErrorCount(ctx, metricsType) }()
@@ -56,6 +59,15 @@ func fixGRPCError(ctx context.Context, mtrc GRPCMetrics, err error) (res error) 
 			return &profiledb.DeviceQuotaExceededError{
 				Message: structErr.Message,
 			}
+		case *NotFoundError:
+			metricsType = GRPCErrNotFound
+
+			// This error can currently only be returned from the certificate
+			// API, so return the error that it expects.
+			//
+			// TODO(a.garipov):  Fix this and don't assume that this error is
+			// only returned there.
+			return fmt.Errorf("%s: %w", structErr.Message, tlsconfig.ErrCertificateNotFound)
 		case *RateLimitedError:
 			metricsType = GRPCErrRateLimit
 

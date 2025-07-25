@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -135,10 +134,6 @@ func (c *rateLimitConfig) Validate() (err error) {
 
 // allowListConfig is the consul allow list configuration.
 type allowListConfig struct {
-	// Type defines where the rate limit settings are received from.  Allowed
-	// values are [rlAllowlistTypeBackend] and [rlAllowlistTypeConsul].
-	Type string `yaml:"type"`
-
 	// List contains IPs and CIDRs.
 	List []netutil.Prefix `yaml:"list"`
 
@@ -161,20 +156,7 @@ func (c *allowListConfig) Validate() (err error) {
 		return errors.ErrNoValue
 	}
 
-	errs := []error{
-		validate.Positive("refresh_interval", c.RefreshIvl),
-	}
-
-	switch c.Type {
-	case
-		rlAllowlistTypeBackend,
-		rlAllowlistTypeConsul:
-		// Go on.
-	default:
-		errs = append(errs, fmt.Errorf("type: %w: %q", errors.ErrBadEnumValue, c.Type))
-	}
-
-	return errors.Join(errs...)
+	return validate.Positive("refresh_interval", c.RefreshIvl)
 }
 
 // connLimitConfig is the configuration structure for the stream-connection

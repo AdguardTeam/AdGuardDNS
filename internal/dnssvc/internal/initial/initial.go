@@ -15,9 +15,9 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal"
-	"github.com/AdguardTeam/AdGuardDNS/internal/optslog"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/optslog"
 	"github.com/miekg/dns"
 )
 
@@ -25,8 +25,9 @@ import (
 // middleware must be the most outer middleware apart from the ratelimit/access
 // middleware.
 type Middleware struct {
-	logger *slog.Logger
-	ddr    *DDRConfig
+	logger  *slog.Logger
+	metrics Metrics
+	ddr     *DDRConfig
 }
 
 // Config is the configuration structure for the initial middleware.  All fields
@@ -34,6 +35,9 @@ type Middleware struct {
 type Config struct {
 	// Logger is used to log the operation of the middleware.
 	Logger *slog.Logger
+
+	// Metrics is used to collect the statistics of the middleware.
+	Metrics Metrics
 
 	// DDR is the configuration for the server group's Discovery Of Designated
 	// Resolvers (DDR) handlers.  It must not be nil.
@@ -68,8 +72,9 @@ type DDRConfig struct {
 // must be valid.
 func New(c *Config) (mw *Middleware) {
 	return &Middleware{
-		logger: c.Logger,
-		ddr:    c.DDR,
+		logger:  c.Logger,
+		metrics: c.Metrics,
+		ddr:     c.DDR,
 	}
 }
 

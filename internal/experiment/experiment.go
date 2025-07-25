@@ -22,7 +22,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-func Init(l *slog.Logger) {
+func Init(l *slog.Logger, reg prometheus.Registerer) (err error) {
 	expStr := os.Getenv("EXPERIMENTS")
 	if expStr == "" {
 		return
@@ -39,16 +39,8 @@ func Init(l *slog.Logger) {
 		}
 	}
 
-	enableMetrics()
-}
-
-// enableMetrics sets the labels with enabled experiments and sets the gauge
-// value to 1.
-func enableMetrics() {
-	expGauge := metrics.ExperimentGauge(prometheus.Labels{
+	return metrics.SetExperimentGauge(reg, prometheus.Labels{
 		// NOTE: Add experiments here in the following format:
 		//	idMyExp: metrics.BoolString(expMyExpEnabled),
 	})
-
-	expGauge.Set(1)
 }

@@ -121,11 +121,11 @@ func New(c *Config) (db *Default, err error) {
 		cacheStorage = internal.EmptyFileCacheStorage{}
 	} else if ext := filepath.Ext(c.CacheFilePath); ext == ".pb" {
 		cacheStorage = filecachepb.New(&filecachepb.Config{
-			ProfileMetrics:       c.ProfileMetrics,
-			Logger:               c.Logger.With("cache_type", "pb"),
-			BaseCustomLogger:     c.BaseCustomLogger,
-			CacheFilePath:        c.CacheFilePath,
-			ResponseSizeEstimate: c.ResponseSizeEstimate,
+			Logger:                   c.Logger.With("cache_type", "pb"),
+			BaseCustomLogger:         c.BaseCustomLogger,
+			ProfileAccessConstructor: c.ProfileAccessConstructor,
+			CacheFilePath:            c.CacheFilePath,
+			ResponseSizeEstimate:     c.ResponseSizeEstimate,
 		})
 	} else {
 		return nil, fmt.Errorf("file %q is not protobuf", c.CacheFilePath)
@@ -288,8 +288,6 @@ func (db *Default) applyChanges(p *agd.Profile, devChg *StorageDeviceChange) {
 
 // setProfileCerts sets the certificate information for the profile.  p must not
 // be nil and must be valid.  db.mapsMu must be locked for writing.
-//
-// TODO(a.garipov):  Extend with current certs.
 func (db *Default) setProfileCerts(ctx context.Context, p *agd.Profile) (err error) {
 	cd := p.CustomDomains
 	if !cd.Enabled {
@@ -302,7 +300,7 @@ func (db *Default) setProfileCerts(ctx context.Context, p *agd.Profile) (err err
 	for i, c := range cd.Domains {
 		switch s := c.State.(type) {
 		case *agd.CustomDomainStateCurrent:
-			db.customDomainDB.AddCertificate(ctx, c.Domains, s)
+			db.customDomainDB.AddCertificate(ctx, p.ID, c.Domains, s)
 		case *agd.CustomDomainStatePending:
 			db.customDomainDB.SetWellKnownPath(ctx, s)
 		default:

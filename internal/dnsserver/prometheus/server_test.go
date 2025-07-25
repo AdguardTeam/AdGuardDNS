@@ -8,7 +8,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	dnssvcprom "github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
-	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/testutil/servicetest"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
@@ -37,13 +37,7 @@ func TestServerMetricsListener_integration_requestLifetime(t *testing.T) {
 	srv := dnsserver.NewServerDNS(conf)
 
 	// Start the server.
-	err = srv.Start(context.Background())
-	require.NoError(t, err)
-
-	// Make sure the server shuts down in the end.
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(context.Background())
-	})
+	servicetest.RequireRun(t, srv, testTimeout)
 
 	// Create a test message.
 	req := dnsservertest.CreateMessage(testReqDomain, dns.TypeA)

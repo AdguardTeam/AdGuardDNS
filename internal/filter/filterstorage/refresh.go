@@ -50,7 +50,12 @@ func (s *Default) refresh(ctx context.Context, acceptStale bool) (err error) {
 	fls := resp.toInternal(ctx, s.logger, s.errColl)
 	s.logger.InfoContext(ctx, "validated lists", "num_lists", len(fls))
 
-	newRuleLists := s.refreshRuleLists(ctx, fls, acceptStale)
+	newRuleLists, err := s.refreshRuleLists(ctx, fls, acceptStale)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return err
+	}
+
 	s.logger.InfoContext(ctx, "compiled lists", "num_lists", len(newRuleLists))
 
 	err = s.refreshServices(ctx, acceptStale)
@@ -111,7 +116,7 @@ func (s *Default) refreshRuleLists(
 	ctx context.Context,
 	filtersData []*indexData,
 	acceptStale bool,
-) (rls ruleLists) {
+) (rls ruleLists, err error) {
 	lenFls := len(filtersData)
 
 	resCh := make(chan refrResult, lenFls)
@@ -121,23 +126,31 @@ func (s *Default) refreshRuleLists(
 
 	rls = make(ruleLists, lenFls)
 	for range lenFls {
-		res := <-resCh
-
-		fltID := res.id
-		if res.err != nil {
-			err := fmt.Errorf("initializing rulelist %q: %w", fltID, res.err)
-			errcoll.Collect(ctx, s.errColl, s.logger, "rule-list error", err)
-			s.metrics.SetFilterStatus(ctx, string(fltID), s.clock.Now(), 0, err)
-
-			rls[fltID] = s.prevRuleList(fltID)
-
-			continue
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case res := <-resCh:
+			rls[res.id] = s.resultRuleList(ctx, res)
 		}
-
-		rls[fltID] = res.refr
 	}
 
-	return rls
+	return rls, nil
+}
+
+// resultRuleList returns a non-nil [rulelist.Refreshable] if res.err is nil.
+// Otherwise, it returns the previous rule list for the given fltID and logs
+// the error.
+func (s *Default) resultRuleList(ctx context.Context, res refrResult) (rl *rulelist.Refreshable) {
+	fltID := res.id
+	if res.err != nil {
+		err := fmt.Errorf("initializing rulelist %q: %w", fltID, res.err)
+		errcoll.Collect(ctx, s.errColl, s.logger, "rule-list error", err)
+		s.metrics.SetFilterStatus(ctx, string(fltID), s.clock.Now(), 0, err)
+
+		return s.prevRuleList(fltID)
+	}
+
+	return res.refr
 }
 
 // refreshRuleList creates a [rulelist.Refreshable] from the data loaded with

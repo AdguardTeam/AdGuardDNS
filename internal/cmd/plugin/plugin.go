@@ -3,9 +3,10 @@
 package plugin
 
 import (
+	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
-	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
 	"github.com/AdguardTeam/golibs/service"
 )
@@ -15,9 +16,12 @@ type Config struct {
 	// DNSCheck is a custom implementation of the DNSCheck service.
 	DNSCheck dnscheck.Interface
 
+	// GRPCMtrc is a custom implementation of the gRPC metrics.
+	GRPCMtrc backendpb.GRPCMetrics
+
 	// MainMwMtrc is a custom implementation of the filtering-middleware
 	// metrics.
-	MainMwMtrc metrics.MainMiddleware
+	MainMwMtrc dnssvc.MainMiddlewareMetrics
 
 	// PostInitMw is a custom implementation of the post-initial middleware.
 	PostInitMw dnsserver.Middleware
@@ -39,7 +43,8 @@ type Config struct {
 // values.
 type Registry struct {
 	dnscheck   dnscheck.Interface
-	mainMwMtrc metrics.MainMiddleware
+	grpcMtrc   backendpb.GRPCMetrics
+	mainMwMtrc dnssvc.MainMiddlewareMetrics
 	postInitMw dnsserver.Middleware
 	ruleStat   rulestat.Interface
 	refrs      map[string]service.Refresher
@@ -51,6 +56,7 @@ type Registry struct {
 func NewRegistry(c *Config) (r *Registry) {
 	return &Registry{
 		dnscheck:   c.DNSCheck,
+		grpcMtrc:   c.GRPCMtrc,
 		mainMwMtrc: c.MainMwMtrc,
 		postInitMw: c.PostInitMw,
 		ruleStat:   c.RuleStat,
@@ -68,9 +74,18 @@ func (r *Registry) DNSCheck() (dnsCk dnscheck.Interface) {
 	return r.dnscheck
 }
 
+// GRPCMetrics returns a custom implementation of the gRPC metrics, if any.
+func (r *Registry) GRPCMetrics() (grpcMtrc backendpb.GRPCMetrics) {
+	if r == nil {
+		return nil
+	}
+
+	return r.grpcMtrc
+}
+
 // MainMiddlewareMetrics returns a custom implementation of the
 // filtering-middleware metrics, if any.
-func (r *Registry) MainMiddlewareMetrics() (mainMwMtrc metrics.MainMiddleware) {
+func (r *Registry) MainMiddlewareMetrics() (mainMwMtrc dnssvc.MainMiddlewareMetrics) {
 	if r == nil {
 		return nil
 	}

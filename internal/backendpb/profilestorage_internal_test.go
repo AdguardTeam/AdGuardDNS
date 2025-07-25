@@ -38,9 +38,9 @@ func TestProfileStorage_NewProfile(t *testing.T) {
 	profileStorage := &ProfileStorage{
 		logger:           TestLogger,
 		baseCustomLogger: TestLogger,
+		profAccessCons:   TestProfileAccessConstructor,
 		bindSet:          TestBind,
 		errColl:          agdtest.NewErrorCollector(),
-		profileMetrics:   access.EmptyProfileMetrics{},
 		grpcMetrics:      EmptyGRPCMetrics{},
 		metrics:          EmptyProfileDBMetrics{},
 		respSzEst:        TestRespSzEst,
@@ -73,9 +73,9 @@ func TestProfileStorage_NewProfile(t *testing.T) {
 		storage := &ProfileStorage{
 			logger:           TestLogger,
 			baseCustomLogger: TestLogger,
+			profAccessCons:   TestProfileAccessConstructor,
 			bindSet:          TestBind,
 			errColl:          savingErrColl,
-			profileMetrics:   access.EmptyProfileMetrics{},
 			grpcMetrics:      EmptyGRPCMetrics{},
 			metrics:          EmptyProfileDBMetrics{},
 			respSzEst:        TestRespSzEst,
@@ -113,9 +113,9 @@ func TestProfileStorage_NewProfile(t *testing.T) {
 		storage := &ProfileStorage{
 			logger:           TestLogger,
 			baseCustomLogger: TestLogger,
+			profAccessCons:   TestProfileAccessConstructor,
 			bindSet:          bindSet,
 			errColl:          savingErrColl,
-			profileMetrics:   access.EmptyProfileMetrics{},
 			grpcMetrics:      EmptyGRPCMetrics{},
 			metrics:          EmptyProfileDBMetrics{},
 			respSzEst:        TestRespSzEst,
@@ -551,8 +551,7 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 		IPv6: []netip.Addr{netip.MustParseAddr("1234::cdef")},
 	}
 
-	wantAccess := access.NewDefaultProfile(&access.ProfileConfig{
-		Metrics:              access.EmptyProfileMetrics{},
+	wantAccess := TestProfileAccessConstructor.New(&access.ProfileConfig{
 		AllowedNets:          []netip.Prefix{netip.MustParsePrefix("1.1.1.0/24")},
 		BlockedNets:          []netip.Prefix{netip.MustParsePrefix("2.2.2.0/24")},
 		AllowedASN:           []geoip.ASN{1},
@@ -722,9 +721,9 @@ func BenchmarkProfileStorage_NewProfile(b *testing.B) {
 	profileStorage := &ProfileStorage{
 		logger:           TestLogger,
 		baseCustomLogger: TestLogger,
+		profAccessCons:   TestProfileAccessConstructor,
 		bindSet:          TestBind,
 		errColl:          agdtest.NewErrorCollector(),
-		profileMetrics:   access.EmptyProfileMetrics{},
 		grpcMetrics:      EmptyGRPCMetrics{},
 		metrics:          EmptyProfileDBMetrics{},
 		respSzEst:        TestRespSzEst,
@@ -743,9 +742,9 @@ func BenchmarkProfileStorage_NewProfile(b *testing.B) {
 
 	// Most recent results:
 	//
-	//	goos: darwin
-	//	goarch: arm64
+	//	goos: linux
+	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/backendpb
-	//	cpu: Apple M1 Pro
-	//	BenchmarkProfileStorage_NewProfile-8   	   69070	     16238 ns/op	    3864 B/op	      75 allocs/op
+	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
+	//	BenchmarkProfileStorage_NewProfile-16    	   98218	     18425 ns/op	    4008 B/op	      76 allocs/op
 }

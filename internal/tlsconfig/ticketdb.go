@@ -32,6 +32,17 @@ type TicketDB interface {
 	Paths(ctx context.Context) (paths []string, err error)
 }
 
+// EmptyTicketDB is an implementation of the [TicketDB] interface that has no
+// paths.
+type EmptyTicketDB struct{}
+
+// type check
+var _ TicketDB = EmptyTicketDB{}
+
+// Paths implements the [TicketDB] interface for EmptyTicketDB.  It always
+// returns nil and a nil error.
+func (EmptyTicketDB) Paths(_ context.Context) (paths []string, err error) { return nil, nil }
+
 // LocalTicketDBConfig is the configuration structure for [LocalTicketDB].
 type LocalTicketDBConfig struct {
 	// Paths are paths to files containing the TLS session tickets.  It should
@@ -73,13 +84,13 @@ type RemoteTicketDBConfig struct {
 	Clock timeutil.Clock
 
 	// CacheDirPath is the directory where the session tickets are cached.  It
-	// must be a valid non-empty path to directory.  If directory doesn't exist,
-	// it's created.
+	// must be a valid non-empty path to a directory.  If the directory doesn't
+	// exist, it is created.
 	CacheDirPath string
 
-	// IndexFileName is the base name of the index file, stored session tickets
-	// shouldn't have this name.  If the file doesn't exist, it's created.  It
-	// must not be empty.
+	// IndexFileName is the base name of the index file.  Stored session tickets
+	// should not have the same name.  If the file doesn't exist, it is created.
+	// It must not be empty.
 	IndexFileName string
 }
 

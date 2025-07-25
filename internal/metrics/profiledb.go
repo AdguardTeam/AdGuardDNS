@@ -211,7 +211,7 @@ func NewProfileDB(namespace string, reg prometheus.Registerer) (m *ProfileDB, er
 	return m, nil
 }
 
-// HandleProfilesUpdate implements the [profilesdb.Metrics] interface for
+// HandleProfilesUpdate implements the [profiledb.Metrics] interface for
 // *ProfileDB.
 func (m *ProfileDB) HandleProfilesUpdate(_ context.Context, u *UpdateMetrics) {
 	m.profilesSyncTime.SetToCurrentTime()
@@ -231,14 +231,14 @@ func (m *ProfileDB) HandleProfilesUpdate(_ context.Context, u *UpdateMetrics) {
 	}
 }
 
-// SetProfilesAndDevicesNum implements the [profilesdb.Metrics] interface for
+// SetProfilesAndDevicesNum implements the [profiledb.Metrics] interface for
 // *ProfileDB.
 func (m *ProfileDB) SetProfilesAndDevicesNum(_ context.Context, profNum, devNum uint) {
 	m.profilesCount.Set(float64(profNum))
 	m.devicesCount.Set(float64(devNum))
 }
 
-// IncrementSyncTimeouts implements the [profilesdb.Metrics] interface for
+// IncrementSyncTimeouts implements the [profiledb.Metrics] interface for
 // *ProfileDB.
 func (m *ProfileDB) IncrementSyncTimeouts(_ context.Context, isFullSync bool) {
 	if isFullSync {
@@ -248,8 +248,7 @@ func (m *ProfileDB) IncrementSyncTimeouts(_ context.Context, isFullSync bool) {
 	}
 }
 
-// IncrementDeleted implements the [profilesdb.Metrics] interface for
-// *ProfileDB.
+// IncrementDeleted implements the [profiledb.Metrics] interface for *ProfileDB.
 func (m *ProfileDB) IncrementDeleted(_ context.Context) {
 	m.profilesDeletedTotal.Inc()
 }
