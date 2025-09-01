@@ -112,6 +112,8 @@ func Main(plugins *plugin.Registry) {
 
 	errors.Check(b.initGRPCMetrics(ctx))
 
+	errors.Check(b.initStandardAccess(ctx))
+
 	errors.Check(b.initTLSManager(ctx))
 
 	errors.Check(b.initCustomDomainDB(ctx))

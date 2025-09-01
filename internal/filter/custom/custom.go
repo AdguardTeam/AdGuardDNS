@@ -4,14 +4,11 @@ package custom
 import (
 	"context"
 	"log/slog"
-	"net/netip"
-	"strings"
 	"sync"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdurlflt"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
-	"github.com/AdguardTeam/golibs/stringutil"
 	"github.com/AdguardTeam/urlfilter"
 )
 
@@ -45,46 +42,33 @@ func New(c *Config) (f *Filter) {
 
 // init initializes f.immutable.
 func (f *Filter) init(ctx context.Context) {
-	// TODO(a.garipov):  Consider making a copy of [strings.Join] for
-	// [filter.RuleText].
-	textLen := 0
-	for _, r := range f.rules {
-		textLen += len(r) + len("\n")
-	}
-
-	b := &strings.Builder{}
-	b.Grow(textLen)
-
-	for _, r := range f.rules {
-		stringutil.WriteToBuilder(b, string(r), "\n")
-	}
-
 	// Don't use cache for users' custom filters, because [rulelist.ResultCache]
 	// doesn't take $client rules into account.
 	//
 	// TODO(a.garipov):  Consider adding client names to the result-cache keys.
-	cache := rulelist.EmptyResultCache{}
-
-	f.immutable = rulelist.NewImmutable(b.String(), filter.IDCustom, "", cache)
+	f.immutable = rulelist.NewImmutable(
+		agdurlflt.RulesToBytes(f.rules),
+		filter.IDCustom,
+		"",
+		rulelist.EmptyResultCache{},
+	)
 
 	f.logger.DebugContext(ctx, "engine compiled", "num_rules", f.immutable.RulesCount())
 }
 
-// DNSResult returns the result of applying the custom filter to the query with
-// the given parameters.
-func (f *Filter) DNSResult(
+// SetURLFilterResult applies the DNS filtering engine and sets the values in
+// res if any have matched.  ok is true if there is a match.  req and res must
+// not be nil.
+func (f *Filter) SetURLFilterResult(
 	ctx context.Context,
-	clientIP netip.Addr,
-	clientName string,
-	host string,
-	rrType dnsmsg.RRType,
-	isAns bool,
-) (r *urlfilter.DNSResult) {
+	req *urlfilter.DNSRequest,
+	res *urlfilter.DNSResult,
+) (ok bool) {
 	f.initOnce.Do(func() {
 		f.init(ctx)
 	})
 
-	return f.immutable.DNSResult(clientIP, clientName, host, rrType, isAns)
+	return f.immutable.SetURLFilterResult(ctx, req, res)
 }
 
 // Rules implements the [filter.Custom] interface for *Filter.

@@ -69,14 +69,14 @@ func TestMiddleware_Wrap(t *testing.T) {
 	var (
 		billStatNotImp = &agdtest.BillStatRecorder{
 			OnRecord: func(
-				_ context.Context,
-				_ agd.DeviceID,
-				_ geoip.Country,
-				_ geoip.ASN,
-				_ time.Time,
-				_ agd.Protocol,
+				ctx context.Context,
+				id agd.DeviceID,
+				ctry geoip.Country,
+				asn geoip.ASN,
+				start time.Time,
+				proto agd.Protocol,
 			) {
-				panic("not implemented")
+				panic(testutil.UnexpectedCall(ctx, id, ctry, asn, start, proto))
 			},
 		}
 
@@ -114,7 +114,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 		OnForConfig: func(_ context.Context, _ filter.Config) (f filter.Interface) {
 			return flt
 		},
-		OnHasListID: func(_ filter.ID) (ok bool) { panic("not implemented") },
+		OnHasListID: func(id filter.ID) (ok bool) { panic(testutil.UnexpectedCall(id)) },
 	}
 
 	geoIP := agdtest.NewGeoIP()
@@ -392,14 +392,14 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 	var (
 		billStatNotImp = &agdtest.BillStatRecorder{
 			OnRecord: func(
-				_ context.Context,
-				_ agd.DeviceID,
-				_ geoip.Country,
-				_ geoip.ASN,
-				_ time.Time,
-				_ agd.Protocol,
+				ctx context.Context,
+				id agd.DeviceID,
+				ctry geoip.Country,
+				asn geoip.ASN,
+				start time.Time,
+				proto agd.Protocol,
 			) {
-				panic("not implemented")
+				panic(testutil.UnexpectedCall(ctx, id, ctry, asn, start, proto))
 			},
 		}
 
@@ -672,7 +672,7 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 				OnForConfig: func(_ context.Context, _ filter.Config) (f filter.Interface) {
 					return flt
 				},
-				OnHasListID: func(_ filter.ID) (ok bool) { panic("not implemented") },
+				OnHasListID: func(id filter.ID) (ok bool) { panic(testutil.UnexpectedCall(id)) },
 			}
 
 			q := tc.req.Question[0]

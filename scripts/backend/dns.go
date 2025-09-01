@@ -271,8 +271,9 @@ func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *backendpb.DNS
 			Rps:     100,
 			Enabled: true,
 		},
-		CustomDomain:  customDomain,
-		AccountId:     "acc1234",
-		DeviceChanges: deviceChanges,
+		CustomDomain:                  customDomain,
+		AccountId:                     "acc1234",
+		DeviceChanges:                 deviceChanges,
+		StandardAccessSettingsEnabled: true,
 	}
 }

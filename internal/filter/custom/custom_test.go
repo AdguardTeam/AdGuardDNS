@@ -8,6 +8,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/urlfilter"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,7 +30,7 @@ func TestFilter(t *testing.T) {
 	require.NotNil(t, f)
 	require.Equal(t, rules, f.Rules())
 
-	ip := filtertest.IPv4Client
+	ctx := context.Background()
 
 	testCases := []struct {
 		name        string
@@ -57,12 +58,20 @@ func TestFilter(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			dr := f.DNSResult(context.Background(), ip, tc.cliName, tc.host, dns.TypeA, false)
+			req := &urlfilter.DNSRequest{
+				ClientIP:   filtertest.IPv4Client,
+				ClientName: tc.cliName,
+				Hostname:   tc.host,
+				DNSType:    dns.TypeA,
+			}
+			res := &urlfilter.DNSResult{}
 
-			require.NotNil(t, dr)
-			require.NotNil(t, dr.NetworkRule)
+			ok := f.SetURLFilterResult(ctx, req, res)
 
-			assert.Equal(t, tc.wantRuleStr, dr.NetworkRule.RuleText)
+			require.True(t, ok)
+			require.NotNil(t, res.NetworkRule)
+
+			assert.Equal(t, tc.wantRuleStr, res.NetworkRule.RuleText)
 		})
 	}
 }

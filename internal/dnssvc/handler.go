@@ -17,6 +17,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/ecscache"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 
 	// TODO(e.burkov):  Move registering of the metrics to another package to
 	// avoid dependency on the metrics package.
@@ -123,6 +124,7 @@ func wrapPreUpstreamMw(
 
 		cacheMw := ecscache.NewMiddleware(&ecscache.MiddlewareConfig{
 			Metrics:      mtrc,
+			Clock:        timeutil.SystemClock{},
 			Cloner:       c.Cloner,
 			Logger:       c.BaseLogger.With(slogutil.KeyPrefix, "ecscache"),
 			CacheManager: c.CacheManager,

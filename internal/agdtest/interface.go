@@ -2,7 +2,6 @@ package agdtest
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"net/netip"
 	"time"
@@ -23,6 +22,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -191,8 +191,8 @@ func (c *ErrorCollector) Collect(ctx context.Context, err error) {
 // NewErrorCollector returns a new *ErrorCollector all methods of which panic.
 func NewErrorCollector() (c *ErrorCollector) {
 	return &ErrorCollector{
-		OnCollect: func(_ context.Context, err error) {
-			panic(fmt.Errorf("unexpected call to ErrorCollector.Collect(%v)", err))
+		OnCollect: func(ctx context.Context, err error) {
+			panic(testutil.UnexpectedCall(ctx, err))
 		},
 	}
 }
@@ -291,13 +291,13 @@ func (g *GeoIP) SubnetByLocation(
 func NewGeoIP() (c *GeoIP) {
 	return &GeoIP{
 		OnData: func(host string, ip netip.Addr) (l *geoip.Location, err error) {
-			panic(fmt.Errorf("unexpected call to GeoIP.Data(%v, %v)", host, ip))
+			panic(testutil.UnexpectedCall(host, ip))
 		},
 		OnSubnetByLocation: func(
 			l *geoip.Location,
 			fam netutil.AddrFamily,
 		) (n netip.Prefix, err error) {
-			panic(fmt.Errorf("unexpected call to GeoIP.SubnetByLocation(%v, %v)", l, fam))
+			panic(testutil.UnexpectedCall(l, fam))
 		},
 	}
 }
@@ -390,50 +390,41 @@ func (db *ProfileDB) ProfileByLinkedIP(
 func NewProfileDB() (db *ProfileDB) {
 	return &ProfileDB{
 		OnCreateAutoDevice: func(
-			_ context.Context,
+			ctx context.Context,
 			id agd.ProfileID,
 			humanID agd.HumanID,
 			devType agd.DeviceType,
 		) (p *agd.Profile, d *agd.Device, err error) {
-			panic(fmt.Errorf(
-				"unexpected call to ProfileDB.CreateAutoDevice(%v, %v, %v)",
-				id,
-				humanID,
-				devType,
-			))
+			panic(testutil.UnexpectedCall(ctx, id, humanID, devType))
 		},
 
 		OnProfileByDedicatedIP: func(
-			_ context.Context,
+			ctx context.Context,
 			ip netip.Addr,
 		) (p *agd.Profile, d *agd.Device, err error) {
-			panic(fmt.Errorf("unexpected call to ProfileDB.ProfileByDedicatedIP(%v)", ip))
+			panic(testutil.UnexpectedCall(ctx, ip))
 		},
 
 		OnProfileByDeviceID: func(
-			_ context.Context,
+			ctx context.Context,
 			id agd.DeviceID,
 		) (p *agd.Profile, d *agd.Device, err error) {
-			panic(fmt.Errorf("unexpected call to ProfileDB.ProfileByDeviceID(%v)", id))
+			panic(testutil.UnexpectedCall(ctx, id))
 		},
 
 		OnProfileByHumanID: func(
-			_ context.Context,
+			ctx context.Context,
 			profID agd.ProfileID,
 			humanID agd.HumanIDLower,
 		) (p *agd.Profile, d *agd.Device, err error) {
-			panic(fmt.Errorf(
-				"unexpected call to ProfileDB.ProfileByHumanID(%v, %v)",
-				profID,
-				humanID,
-			))
+			panic(testutil.UnexpectedCall(ctx, profID, humanID))
 		},
 
 		OnProfileByLinkedIP: func(
-			_ context.Context,
+			ctx context.Context,
 			ip netip.Addr,
 		) (p *agd.Profile, d *agd.Device, err error) {
-			panic(fmt.Errorf("unexpected call to ProfileDB.ProfileByLinkedIP(%v)", ip))
+			panic(testutil.UnexpectedCall(ctx, ip))
 		},
 	}
 }
@@ -475,16 +466,16 @@ func (s *ProfileStorage) Profiles(
 func NewProfileStorage() (s *ProfileStorage) {
 	return &ProfileStorage{
 		OnCreateAutoDevice: func(
-			_ context.Context,
+			ctx context.Context,
 			req *profiledb.StorageCreateAutoDeviceRequest,
 		) (resp *profiledb.StorageCreateAutoDeviceResponse, err error) {
-			panic(fmt.Errorf("unexpected call to ProfileStorage.CreateAutoDevice(%v)", req))
+			panic(testutil.UnexpectedCall(ctx, req))
 		},
 		OnProfiles: func(
-			_ context.Context,
+			ctx context.Context,
 			req *profiledb.StorageProfilesRequest,
 		) (resp *profiledb.StorageProfilesResponse, err error) {
-			panic(fmt.Errorf("unexpected call to ProfileStorage.Profiles(%v)", req))
+			panic(testutil.UnexpectedCall(ctx, req))
 		},
 	}
 }
@@ -587,14 +578,14 @@ func (l *RateLimit) CountResponses(ctx context.Context, req *dns.Msg, ip netip.A
 func NewRateLimit() (c *RateLimit) {
 	return &RateLimit{
 		OnIsRateLimited: func(
-			_ context.Context,
+			ctx context.Context,
 			req *dns.Msg,
 			addr netip.Addr,
 		) (shouldDrop, isAllowlisted bool, err error) {
-			panic(fmt.Errorf("unexpected call to RateLimit.IsRateLimited(%v, %v)", req, addr))
+			panic(testutil.UnexpectedCall(ctx, req, addr))
 		},
-		OnCountResponses: func(_ context.Context, resp *dns.Msg, addr netip.Addr) {
-			panic(fmt.Errorf("unexpected call to RateLimit.CountResponses(%v, %v)", resp, addr))
+		OnCountResponses: func(ctx context.Context, resp *dns.Msg, addr netip.Addr) {
+			panic(testutil.UnexpectedCall(ctx, resp, addr))
 		},
 	}
 }

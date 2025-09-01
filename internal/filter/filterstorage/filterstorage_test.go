@@ -109,7 +109,7 @@ func newDefault(tb testing.TB) (s *filterstorage.Default) {
 
 	c := newDisabledConfig(tb, newConfigRuleLists(ruleListIdxURL))
 	c.BlockedServices = newConfigBlockedServices(svcIdxURL)
-	c.HashPrefix = &filterstorage.ConfigHashPrefix{
+	c.HashPrefix = &filterstorage.HashPrefixConfig{
 		Adult:           filtertest.NewHashprefixFilter(tb, filter.IDAdultBlocking),
 		Dangerous:       filtertest.NewHashprefixFilter(tb, filter.IDSafeBrowsing),
 		NewlyRegistered: filtertest.NewHashprefixFilter(tb, filter.IDNewRegDomains),
@@ -143,26 +143,26 @@ func newDefault(tb testing.TB) (s *filterstorage.Default) {
 // entities.
 func newDisabledConfig(
 	tb testing.TB,
-	rlConf *filterstorage.ConfigRuleLists,
+	rlConf *filterstorage.RuleListsConfig,
 ) (c *filterstorage.Config) {
 	tb.Helper()
 
 	return &filterstorage.Config{
 		BaseLogger: slogutil.NewDiscardLogger(),
 		Logger:     slogutil.NewDiscardLogger(),
-		BlockedServices: &filterstorage.ConfigBlockedServices{
+		BlockedServices: &filterstorage.BlockedServicesConfig{
 			Enabled: false,
 		},
-		Custom: &filterstorage.ConfigCustom{
+		Custom: &filterstorage.CustomConfig{
 			CacheCount: filtertest.CacheCount,
 		},
-		HashPrefix: &filterstorage.ConfigHashPrefix{},
+		HashPrefix: &filterstorage.HashPrefixConfig{},
 		RuleLists:  rlConf,
-		SafeSearchGeneral: &filterstorage.ConfigSafeSearch{
+		SafeSearchGeneral: &filterstorage.SafeSearchConfig{
 			ID:      filter.IDGeneralSafeSearch,
 			Enabled: false,
 		},
-		SafeSearchYouTube: &filterstorage.ConfigSafeSearch{
+		SafeSearchYouTube: &filterstorage.SafeSearchConfig{
 			ID:      filter.IDYoutubeSafeSearch,
 			Enabled: false,
 		},
@@ -177,8 +177,8 @@ func newDisabledConfig(
 // newConfigBlockedServices is a test helper that returns a new enabled
 // *ConfigBlockedServices with the given index URL.  The rest of the fields are
 // set to the corresponding [filtertest] values.
-func newConfigBlockedServices(indexURL *url.URL) (c *filterstorage.ConfigBlockedServices) {
-	return &filterstorage.ConfigBlockedServices{
+func newConfigBlockedServices(indexURL *url.URL) (c *filterstorage.BlockedServicesConfig) {
+	return &filterstorage.BlockedServicesConfig{
 		IndexURL:            indexURL,
 		IndexMaxSize:        filtertest.FilterMaxSize,
 		IndexRefreshTimeout: filtertest.Timeout,
@@ -192,8 +192,8 @@ func newConfigBlockedServices(indexURL *url.URL) (c *filterstorage.ConfigBlocked
 // newConfigRuleLists is a test helper that returns a new *ConfigRuleLists with
 // the given index URL.  The rest of the fields are set to the corresponding
 // [filtertest] values.
-func newConfigRuleLists(indexURL *url.URL) (c *filterstorage.ConfigRuleLists) {
-	return &filterstorage.ConfigRuleLists{
+func newConfigRuleLists(indexURL *url.URL) (c *filterstorage.RuleListsConfig) {
+	return &filterstorage.RuleListsConfig{
 		IndexURL:            indexURL,
 		IndexMaxSize:        filtertest.FilterMaxSize,
 		MaxSize:             filtertest.FilterMaxSize,
@@ -209,8 +209,8 @@ func newConfigRuleLists(indexURL *url.URL) (c *filterstorage.ConfigRuleLists) {
 // newConfigSafeSearch is a test helper that returns a new enabled
 // *ConfigSafeSearch with the given filter URL and ID.  The rest of the fields
 // are set to the corresponding [filtertest] values.
-func newConfigSafeSearch(u *url.URL, id filter.ID) (c *filterstorage.ConfigSafeSearch) {
-	return &filterstorage.ConfigSafeSearch{
+func newConfigSafeSearch(u *url.URL, id filter.ID) (c *filterstorage.SafeSearchConfig) {
+	return &filterstorage.SafeSearchConfig{
 		URL:              u,
 		ID:               id,
 		MaxSize:          filtertest.FilterMaxSize,

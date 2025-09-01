@@ -304,6 +304,14 @@ func (s *ProfileStorage) newProfile(
 		Enabled: customEnabled,
 	}
 
+	accessProf := p.Access.toInternal(
+		ctx,
+		s.logger,
+		s.errColl,
+		s.profAccessCons,
+		p.StandardAccessSettingsEnabled,
+	)
+
 	return &agd.Profile{
 		CustomDomains: p.CustomDomain.toInternal(ctx, s.errColl, s.logger),
 		DeviceIDs:     container.NewMapSet(deviceIDs...),
@@ -313,7 +321,7 @@ func (s *ProfileStorage) newProfile(
 			RuleList:     p.RuleLists.toInternal(ctx, s.errColl, s.logger),
 			SafeBrowsing: p.SafeBrowsing.toInternal(),
 		},
-		Access:              p.Access.toInternal(ctx, s.logger, s.errColl, s.profAccessCons),
+		Access:              accessProf,
 		BlockingMode:        m,
 		Ratelimiter:         p.RateLimit.toInternal(ctx, s.errColl, s.logger, s.respSzEst),
 		AccountID:           accID,

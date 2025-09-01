@@ -265,9 +265,9 @@ func assertEqualResult(tb testing.TB, want, got agd.DeviceResult) {
 	}
 }
 
-// newDefault is is a helper for creating the device finders for tests.  c may
-// be nil, and all zero-value fields in c are replaced with defaults for tests.
-// The default server is [srvDoH].
+// newDefault is a helper for creating device finders for tests.  c may be nil,
+// and all zero-value fields in c are replaced with defaults for tests.  The
+// default server is [srvDoH].
 func newDefault(tb testing.TB, c *devicefinder.Config) (f *devicefinder.Default) {
 	tb.Helper()
 
@@ -303,12 +303,12 @@ func TestDefault_Find_dnscrypt(t *testing.T) {
 func BenchmarkDefault(b *testing.B) {
 	profDB := &agdtest.ProfileDB{
 		OnCreateAutoDevice: func(
-			_ context.Context,
-			_ agd.ProfileID,
-			_ agd.HumanID,
-			_ agd.DeviceType,
+			ctx context.Context,
+			profID agd.ProfileID,
+			humanID agd.HumanID,
+			typ agd.DeviceType,
 		) (p *agd.Profile, d *agd.Device, err error) {
-			panic("not implemented")
+			panic(testutil.UnexpectedCall(ctx, profID, humanID, typ))
 		},
 
 		OnProfileByDedicatedIP: func(

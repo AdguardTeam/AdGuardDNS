@@ -420,6 +420,7 @@ func (x *Access) toInternal(cons *access.ProfileConstructor) (a access.Profile) 
 		AllowedASN:           asnToInternal(x.AllowlistAsn),
 		BlockedASN:           asnToInternal(x.BlocklistAsn),
 		BlocklistDomainRules: x.BlocklistDomainRules,
+		StandardEnabled:      x.StandardEnabled,
 	})
 }
 
@@ -474,14 +475,16 @@ func profileToProtobuf(p *agd.Profile) (pbProf *Profile) {
 	}()
 
 	return &Profile{
-		CustomDomains:       customDomainsToProtobuf(p.CustomDomains),
-		FilterConfig:        filterConfigToProtobuf(p.FilterConfig),
-		Access:              accessToProtobuf(p.Access.Config()),
-		BlockingMode:        blockingModeToProtobuf(p.BlockingMode),
-		Ratelimiter:         ratelimiterToProtobuf(p.Ratelimiter.Config()),
-		AccountId:           string(p.AccountID),
-		ProfileId:           string(p.ID),
-		DeviceIds:           unsafelyConvertStrSlice[agd.DeviceID, string](p.DeviceIDs.Values()),
+		CustomDomains: customDomainsToProtobuf(p.CustomDomains),
+		FilterConfig:  filterConfigToProtobuf(p.FilterConfig),
+		Access:        accessToProtobuf(p.Access.Config()),
+		BlockingMode:  blockingModeToProtobuf(p.BlockingMode),
+		Ratelimiter:   ratelimiterToProtobuf(p.Ratelimiter.Config()),
+		AccountId:     string(p.AccountID),
+		ProfileId:     string(p.ID),
+		DeviceIds: unsafelyConvertStrSlice[agd.DeviceID, string](
+			p.DeviceIDs.Values(),
+		),
 		FilteredResponseTtl: durationpb.New(p.FilteredResponseTTL),
 		AutoDevicesEnabled:  p.AutoDevicesEnabled,
 		BlockChromePrefetch: p.BlockChromePrefetch,
@@ -645,6 +648,7 @@ func accessToProtobuf(c *access.ProfileConfig) (ac *Access) {
 		BlocklistAsn:         blockedASNs,
 		BlocklistCidr:        prefixesToProtobuf(c.BlockedNets),
 		BlocklistDomainRules: c.BlocklistDomainRules,
+		StandardEnabled:      c.StandardEnabled,
 	}
 }
 

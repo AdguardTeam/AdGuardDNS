@@ -58,7 +58,7 @@ func NewHashprefixFilterWithRepl(
 
 	cachePath, srvURL := PrepareRefreshable(tb, nil, data, http.StatusOK)
 
-	strg, err := hashprefix.NewStorage("")
+	strg, err := hashprefix.NewStorage(nil)
 	require.NoError(tb, err)
 
 	f, err = hashprefix.NewFilter(&hashprefix.FilterConfig{

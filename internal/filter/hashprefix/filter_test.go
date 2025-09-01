@@ -241,7 +241,7 @@ func TestFilter_Refresh(t *testing.T) {
 	refrCh := make(chan struct{}, 1)
 	cachePath, srvURL := filtertest.PrepareRefreshable(t, refrCh, testHashes, http.StatusOK)
 
-	strg, err := hashprefix.NewStorage("")
+	strg, err := hashprefix.NewStorage(nil)
 	require.NoError(t, err)
 
 	f, err := hashprefix.NewFilter(&hashprefix.FilterConfig{
@@ -292,7 +292,7 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 
 	// Create the filter.
 
-	strg, err := hashprefix.NewStorage("")
+	strg, err := hashprefix.NewStorage(nil)
 	require.NoError(t, err)
 
 	cloner := agdtest.NewCloner()

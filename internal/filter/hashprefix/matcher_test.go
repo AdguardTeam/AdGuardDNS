@@ -4,9 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"strings"
 	"testing"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdurlflt"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/stretchr/testify/assert"
@@ -43,7 +43,7 @@ func TestMatcher(t *testing.T) {
 		hashStrs[i] = hex.EncodeToString(sum[:])
 	}
 
-	hashes, err := hashprefix.NewStorage(strings.Join(hosts, "\n"))
+	hashes, err := hashprefix.NewStorage(agdurlflt.RulesToBytes(hosts))
 	require.NoError(t, err)
 
 	ctx := context.Background()

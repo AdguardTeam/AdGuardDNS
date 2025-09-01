@@ -4,10 +4,10 @@ package access
 import (
 	"fmt"
 	"net/netip"
-	"strings"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdurlflt"
 	"github.com/AdguardTeam/golibs/netutil"
-	"github.com/AdguardTeam/golibs/stringutil"
+	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/AdguardTeam/urlfilter/filterlist"
 )
@@ -32,25 +32,28 @@ type Interface interface {
 type Global struct {
 	blockedHostsEng *urlfilter.DNSEngine
 	blockedNets     netutil.SubnetSet
+	reqPool         *syncutil.Pool[urlfilter.DNSRequest]
+	resPool         *syncutil.Pool[urlfilter.DNSResult]
 }
 
-// NewGlobal create a new Global from provided parameters.
+// NewGlobal creates a new *Global from provided parameters.
 func NewGlobal(blockedDomains []string, blockedSubnets []netip.Prefix) (g *Global, err error) {
 	g = &Global{
 		blockedNets: netutil.SliceSubnetSet(blockedSubnets),
+		reqPool: syncutil.NewPool(func() (req *urlfilter.DNSRequest) {
+			return &urlfilter.DNSRequest{}
+		}),
+		resPool: syncutil.NewPool(func() (v *urlfilter.DNSResult) {
+			return &urlfilter.DNSResult{}
+		}),
 	}
 
-	b := &strings.Builder{}
-	for _, h := range blockedDomains {
-		stringutil.WriteToBuilder(b, strings.ToLower(h), "\n")
-	}
-
-	lists := []filterlist.RuleList{
-		&filterlist.StringRuleList{
+	lists := []filterlist.Interface{
+		filterlist.NewBytes(&filterlist.BytesConfig{
 			ID:             blocklistFilterID,
-			RulesText:      b.String(),
+			RulesText:      agdurlflt.RulesToBytesLower(blockedDomains),
 			IgnoreCosmetic: true,
-		},
+		}),
 	}
 
 	rulesStrg, err := filterlist.NewRuleStorage(lists)
@@ -68,16 +71,37 @@ var _ Interface = (*Global)(nil)
 
 // IsBlockedHost implements the [Interface] interface for *Global.
 func (g *Global) IsBlockedHost(host string, qt uint16) (blocked bool) {
-	res, matched := g.blockedHostsEng.MatchRequest(&urlfilter.DNSRequest{
-		Hostname: host,
-		DNSType:  qt,
-	})
+	return matchBlocked(host, qt, g.blockedHostsEng, g.reqPool, g.resPool)
+}
 
-	if matched && res.NetworkRule != nil {
+// matchBlocked is a helper function that handles matching of request using DNS
+// engines and pools of requests and results.  engine, reqPool, and resPool must
+// not be nil.
+func matchBlocked(
+	host string,
+	qt uint16,
+	engine *urlfilter.DNSEngine,
+	reqPool *syncutil.Pool[urlfilter.DNSRequest],
+	resPool *syncutil.Pool[urlfilter.DNSResult],
+) (blocked bool) {
+	req := reqPool.Get()
+	defer reqPool.Put(req)
+
+	req.Reset()
+	req.Hostname = host
+	req.DNSType = qt
+
+	res := resPool.Get()
+	defer resPool.Put(res)
+
+	res.Reset()
+
+	blocked = engine.MatchRequestInto(req, res)
+	if blocked && res.NetworkRule != nil {
 		return !res.NetworkRule.Whitelist
 	}
 
-	return matched
+	return blocked
 }
 
 // IsBlockedIP implements the [Interface] interface for *Global.

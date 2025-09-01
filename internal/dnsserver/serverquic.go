@@ -316,7 +316,7 @@ func (s *ServerQUIC) acceptQUICConn(
 // decremented.
 func (s *ServerQUIC) serveQUICConnAsync(
 	ctx context.Context,
-	conn quic.Connection,
+	conn *quic.Conn,
 	connWg *sync.WaitGroup,
 ) {
 	defer connWg.Done()
@@ -331,7 +331,7 @@ func (s *ServerQUIC) serveQUICConnAsync(
 
 // serveQUICConn handles a new QUIC connection.  It waits for new streams and
 // passes them to serveQUICStream.
-func (s *ServerQUIC) serveQUICConn(ctx context.Context, conn quic.Connection) (err error) {
+func (s *ServerQUIC) serveQUICConn(ctx context.Context, conn *quic.Conn) (err error) {
 	streamWg := &sync.WaitGroup{}
 	defer func() {
 		// Wait until all streams are processed.
@@ -347,7 +347,7 @@ func (s *ServerQUIC) serveQUICConn(ctx context.Context, conn quic.Connection) (e
 		// design specifies that for each subsequent query on a QUIC connection
 		// the client MUST select the next available client-initiated
 		// bidirectional stream.
-		var stream quic.Stream
+		var stream *quic.Stream
 		acceptCtx, cancel := context.WithDeadline(ctx, time.Now().Add(maxQUICIdleTimeout))
 
 		// For some reason AcceptStream below seems to get stuck even when
@@ -403,8 +403,8 @@ func (s *ServerQUIC) serveQUICConn(ctx context.Context, conn quic.Connection) (e
 // be decremented.
 func (s *ServerQUIC) serveQUICStreamAsync(
 	ctx context.Context,
-	stream quic.Stream,
-	conn quic.Connection,
+	stream *quic.Stream,
+	conn *quic.Conn,
 	wg *sync.WaitGroup,
 ) {
 	defer wg.Done()
@@ -421,8 +421,8 @@ func (s *ServerQUIC) serveQUICStreamAsync(
 // and writes back the responses.
 func (s *ServerQUIC) serveQUICStream(
 	ctx context.Context,
-	stream quic.Stream,
-	conn quic.Connection,
+	stream *quic.Stream,
+	conn *quic.Conn,
 ) (err error) {
 	// The server MUST send the response on the same stream, and MUST indicate
 	// through the STREAM FIN mechanism that no further data will be sent on
@@ -486,7 +486,7 @@ func (s *ServerQUIC) serveQUICStream(
 // if anything went wrong.
 func (s *ServerQUIC) readQUICMsg(
 	ctx context.Context,
-	stream quic.Stream,
+	stream *quic.Stream,
 ) (m *dns.Msg, err error) {
 	bufPtr := s.reqPool.Get()
 	defer s.reqPool.Put(bufPtr)
@@ -607,7 +607,7 @@ func isExpectedQUICErr(err error) (ok bool) {
 	}
 
 	// Catch quic-go's IdleTimeoutError.  This error is returned from
-	// quic.Connection.AcceptStream calls and this is an expected outcome,
+	// *quic.Conn.AcceptStream calls and this is an expected outcome,
 	// happens all the time with different QUIC clients.
 	var qErr *quic.IdleTimeoutError
 	if errors.As(err, &qErr) {
@@ -690,7 +690,7 @@ func validQUICMsg(req *dns.Msg) (ok bool) {
 // code and logs if it fails to close the connection.
 func (s *ServerQUIC) closeQUICConn(
 	ctx context.Context,
-	conn quic.Connection,
+	conn *quic.Conn,
 	code quic.ApplicationErrorCode,
 ) {
 	err := conn.CloseWithError(code, "")
@@ -725,6 +725,7 @@ func newServerQUICConfig(
 // quicAddrValidator is a helper struct that holds a small LRU cache of
 // addresses for which we do not require address validation.
 type quicAddrValidator struct {
+	// TODO(d.kolyshev): Use [agdcache.Default].
 	cache   gcache.Cache
 	metrics MetricsListener
 	ttl     time.Duration

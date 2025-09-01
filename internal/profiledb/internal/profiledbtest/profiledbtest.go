@@ -54,7 +54,10 @@ var Logger = slogutil.NewDiscardLogger()
 
 // ProfileAccessConstructor is the common constructor of profile access managers
 // for tests.
-var ProfileAccessConstructor = access.NewProfileConstructor(access.EmptyProfileMetrics{})
+var ProfileAccessConstructor = access.NewProfileConstructor(&access.ProfileConstructorConfig{
+	Metrics:  access.EmptyProfileMetrics{},
+	Standard: access.EmptyProfile{},
+})
 
 // ContextWithTimeout is a helper that returns a context with [Timeout].
 func ContextWithTimeout(tb testing.TB) (ctx context.Context) {
@@ -157,6 +160,7 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 			AllowedASN:           []geoip.ASN{1},
 			BlockedASN:           []geoip.ASN{2},
 			BlocklistDomainRules: []string{"block.test"},
+			StandardEnabled:      true,
 		}),
 		BlockingMode: &dnsmsg.BlockingModeNullIP{},
 		Ratelimiter: agd.NewDefaultRatelimiter(&agd.RatelimitConfig{

@@ -10,30 +10,32 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/golibs/testutil/fakenet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestListenConfig(t *testing.T) {
+	// TODO(a.garipov):  Add fakenet.NewPacketConn to golibs.
 	pc := &fakenet.PacketConn{
-		OnClose:     func() (_ error) { panic("not implemented") },
-		OnLocalAddr: func() (_ net.Addr) { panic("not implemented") },
-		OnReadFrom: func(_ []byte) (_ int, _ net.Addr, _ error) {
-			panic("not implemented")
+		OnClose:     func() (err error) { panic(testutil.UnexpectedCall()) },
+		OnLocalAddr: func() (laddr net.Addr) { panic(testutil.UnexpectedCall()) },
+		OnReadFrom: func(b []byte) (n int, addr net.Addr, err error) {
+			panic(testutil.UnexpectedCall(b))
 		},
-		OnSetDeadline:      func(_ time.Time) (_ error) { panic("not implemented") },
-		OnSetReadDeadline:  func(_ time.Time) (_ error) { panic("not implemented") },
-		OnSetWriteDeadline: func(_ time.Time) (_ error) { panic("not implemented") },
-		OnWriteTo: func(_ []byte, _ net.Addr) (_ int, _ error) {
-			panic("not implemented")
+		OnSetDeadline:      func(t time.Time) (err error) { panic(testutil.UnexpectedCall(t)) },
+		OnSetReadDeadline:  func(t time.Time) (err error) { panic(testutil.UnexpectedCall(t)) },
+		OnSetWriteDeadline: func(t time.Time) (err error) { panic(testutil.UnexpectedCall(t)) },
+		OnWriteTo: func(b []byte, addr net.Addr) (n int, err error) {
+			panic(testutil.UnexpectedCall(b, addr))
 		},
 	}
 
 	lsnr := &fakenet.Listener{
-		OnAccept: func() (_ net.Conn, _ error) { panic("not implemented") },
-		OnAddr:   func() (_ net.Addr) { panic("not implemented") },
-		OnClose:  func() (_ error) { return nil },
+		OnAccept: func() (c net.Conn, err error) { panic(testutil.UnexpectedCall()) },
+		OnAddr:   func() (addr net.Addr) { panic(testutil.UnexpectedCall()) },
+		OnClose:  func() (err error) { return nil },
 	}
 
 	c := &agdtest.ListenConfig{

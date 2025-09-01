@@ -1,7 +1,6 @@
 package serviceblock_test
 
 import (
-	"context"
 	"net/http"
 	"testing"
 
@@ -42,7 +41,7 @@ func TestFilter(t *testing.T) {
 
 	require.NoError(t, err)
 
-	ctx := context.Background()
+	ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 	err = f.Refresh(ctx, agdcache.EmptyManager{}, 0, false, false)
 	require.NoError(t, err)
 

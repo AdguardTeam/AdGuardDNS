@@ -1,118 +1,107 @@
 syntax = "proto3";
 
 import "google/protobuf/duration.proto";
-import "google/protobuf/timestamp.proto";
 import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
 
-option java_multiple_files = true;
-option java_package = "com.adguard.backend.dns.generated";
-option java_outer_classname = "DNSProfilesProto";
-option objc_class_prefix = "DNS";
+// TODO(a.garipov):  Expand the documentation and make it consistent.
 
 service DNSService {
-
   /*
-    Gets DNS profiles.
+     Gets DNS profiles.
 
-    Field "sync_time" in DNSProfilesRequest - pass to return the latest updates after this time moment.
+     Field "sync_time" in DNSProfilesRequest - pass to return the latest updates after this time moment.
 
-    The trailers headers will include a "sync_time", given in milliseconds,
-    that should be used for subsequent incremental DNS profile synchronization requests.
+     The trailers headers will include a "sync_time", given in milliseconds,
+     that should be used for subsequent incremental DNS profile synchronization requests.
 
-    This method may return the following errors:
-    - RateLimitedError: If too many "full sync" concurrent requests are made.
-    - AuthenticationFailedError: If the authentication failed.
+     This method may return the following errors:
+     - RateLimitedError: If too many "full sync" concurrent requests are made.
+     - AuthenticationFailedError: If the authentication failed.
   */
   rpc getDNSProfiles(DNSProfilesRequest) returns (stream DNSProfile);
 
   /*
-    Stores devices activity.
+     Stores devices activity.
 
-    This method may return the following errors:
-    - AuthenticationFailedError: If the authentication failed.
+     This method may return the following errors:
+     - AuthenticationFailedError: If the authentication failed.
   */
   rpc saveDevicesBillingStat(stream DeviceBillingStat) returns (google.protobuf.Empty);
 
   /*
-    Create device by "human_id".
+     Create device by "human_id".
 
-    This method may return the following errors:
-    - RateLimitedError: If the request was made too frequently and the client must wait before retrying.
-    - DeviceQuotaExceededError: If the client has exceeded its quota for creating devices.
-    - BadRequestError: If the request is invalid: DNS server does not exist, creation of auto-devices is disabled or human_id validation failed.
-    - AuthenticationFailedError: If the authentication failed.
+     This method may return the following errors:
+     - RateLimitedError: If the request was made too frequently and the client must wait before retrying.
+     - DeviceQuotaExceededError: If the client has exceeded its quota for creating devices.
+     - BadRequestError: If the request is invalid: DNS server does not exist, creation of auto-devices is disabled or human_id validation failed.
+     - AuthenticationFailedError: If the authentication failed.
   */
   rpc createDeviceByHumanId(CreateDeviceRequest) returns (CreateDeviceResponse);
 }
 
 service RateLimitService {
-
   /*
-    Gets rate limit settings.
+     Gets rate limit settings.
   */
   rpc getRateLimitSettings(RateLimitSettingsRequest) returns (RateLimitSettingsResponse);
 
   /*
-    Gets global access settings.
+     Gets global access settings.
   */
   rpc getGlobalAccessSettings(GlobalAccessSettingsRequest) returns (GlobalAccessSettingsResponse);
 }
 
 service RemoteKVService {
-
   /**
-    Get the value for the specified key.
+     Get the value for the specified key.
 
-    This method may return the following errors:
-    - AuthenticationFailedError: If the authentication failed.
-   */
+     This method may return the following errors:
+     - AuthenticationFailedError: If the authentication failed.
+  */
   rpc get(RemoteKVGetRequest) returns (RemoteKVGetResponse);
 
   /**
-    Set the value for the specified key.
+     Set the value for the specified key.
 
-    This method may return the following errors:
-    - AuthenticationFailedError: If the authentication failed.
-    - BadRequestError: If the request is invalid: value size exceeds the 512kb.
-   */
+     This method may return the following errors:
+     - AuthenticationFailedError: If the authentication failed.
+     - BadRequestError: If the request is invalid: value size exceeds the 512kb.
+  */
   rpc set(RemoteKVSetRequest) returns (RemoteKVSetResponse);
 }
 
 service CustomDomainService {
-
   /*
-    Get certificate for custom domain.
+     Get certificate for custom domain.
 
-    This method may return the following errors:
-    - AuthenticationFailedError: If the authentication failed.
-    - BadRequestError: If the request is invalid: cert_name is empty.
-    - NotFoundError: If the certificate could not be found.
+     This method may return the following errors:
+     - AuthenticationFailedError: If the authentication failed.
+     - BadRequestError: If the request is invalid: cert_name is empty or no certificate found.
+     - NotFoundError: If the certificate was not found.
+     - RateLimitedError: If the request was made too frequently and the client must wait before retrying.
   */
   rpc getCustomDomainCertificate(CustomDomainCertificateRequest) returns (CustomDomainCertificateResponse);
 }
 
 service SessionTicketService {
+  /*
+     Gets session ticket for the current date
 
-    /*
-      Gets session ticket for the current date
-
-      This method may return the following errors:
-      - AuthenticationFailedError: If the authentication failed.
-    */
-    rpc getSessionTickets(SessionTicketRequest) returns (SessionTicketResponse);
+     This method may return the following errors:
+     - AuthenticationFailedError: If the authentication failed.
+  */
+  rpc getSessionTickets(SessionTicketRequest) returns (SessionTicketResponse);
 }
 
-message RateLimitSettingsRequest {
-
-}
+message RateLimitSettingsRequest {}
 
 message RateLimitSettingsResponse {
   repeated CidrRange allowed_subnets = 1;
 }
 
-message GlobalAccessSettingsRequest {
-
-}
+message GlobalAccessSettingsRequest {}
 
 message GlobalAccessSettingsResponse {
   AccessSettings standard = 1;
@@ -164,18 +153,17 @@ message DNSProfile {
 }
 
 message DeviceSettingsChange {
-
   message Deleted {
-      string device_id = 1;
+    string device_id = 1;
   }
 
   message Upserted {
-      DeviceSettings device = 1;
+    DeviceSettings device = 1;
   }
 
   oneof change {
-      Deleted deleted = 1;
-      Upserted upserted = 2;
+    Deleted deleted = 1;
+    Upserted upserted = 2;
   }
 }
 
@@ -237,7 +225,7 @@ message ParentalSettings {
 
 message ScheduleSettings {
   string tmz = 1;
-  WeeklyRange weeklyRange = 2;
+  WeeklyRange weekly_range = 2;
 }
 
 message WeeklyRange {
@@ -369,9 +357,7 @@ message RemoteKVSetRequest {
   google.protobuf.Duration ttl = 3;
 }
 
-message RemoteKVSetResponse {
-
-}
+message RemoteKVSetResponse {}
 
 message CustomDomainCertificateRequest {
   string cert_name = 1;
@@ -385,10 +371,10 @@ message CustomDomainCertificateResponse {
 message SessionTicketRequest {}
 
 message SessionTicketResponse {
-    repeated SessionTicket tickets = 1;
+  repeated SessionTicket tickets = 1;
 }
 
 message SessionTicket {
-    string name = 1;
-    bytes data = 2;
+  string name = 1;
+  bytes data = 2;
 }

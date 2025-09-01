@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/netip"
 	"strings"
 	"sync"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
@@ -42,7 +40,7 @@ type Refreshable struct {
 // HTTP(S) URL.  The initial refresh should be called explicitly if necessary.
 func NewRefreshable(c *refreshable.Config, cache ResultCache) (f *Refreshable, err error) {
 	f = &Refreshable{
-		baseFilter: newBaseFilter("", c.ID, "", cache),
+		baseFilter: newBaseFilter(nil, c.ID, "", cache),
 		logger:     c.Logger,
 		mu:         &sync.RWMutex{},
 	}
@@ -72,49 +70,49 @@ func NewRefreshable(c *refreshable.Config, cache ResultCache) (f *Refreshable, e
 //
 // TODO(a.garipov):  Only used in tests.  Consider removing later.
 func NewFromString(
-	text string,
+	rulesData string,
 	id filter.ID,
 	svcID filter.BlockedServiceID,
 	cache ResultCache,
 ) (f *Refreshable) {
 	return &Refreshable{
 		mu:         &sync.RWMutex{},
-		baseFilter: newBaseFilter(text, id, svcID, cache),
+		baseFilter: newBaseFilter([]byte(rulesData), id, svcID, cache),
 	}
 }
 
-// DNSResult returns the result of applying the urlfilter DNS filtering engine.
-// If the request is not filtered, DNSResult returns nil.
-func (f *Refreshable) DNSResult(
-	clientIP netip.Addr,
-	clientName string,
-	host string,
-	rrType dnsmsg.RRType,
-	isAns bool,
-) (res *urlfilter.DNSResult) {
+// SetURLFilterResult applies the DNS filtering engine and sets the values in
+// res if any have matched.  ok is true if there is a match.  req and res must
+// not be nil.
+func (f *Refreshable) SetURLFilterResult(
+	ctx context.Context,
+	req *urlfilter.DNSRequest,
+	res *urlfilter.DNSResult,
+) (ok bool) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
-	return f.baseFilter.DNSResult(clientIP, clientName, host, rrType, isAns)
+	return f.baseFilter.SetURLFilterResult(ctx, req, res)
 }
 
 // Refresh reloads the rule list data.  If acceptStale is true, do not try to
 // load the list from its URL when there is already a file in the cache
 // directory, regardless of its staleness.
 func (f *Refreshable) Refresh(ctx context.Context, acceptStale bool) (err error) {
-	text, err := f.refr.Refresh(ctx, acceptStale)
+	rulesData, err := f.refr.Refresh(ctx, acceptStale)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return err
 	}
 
-	// TODO(a.garipov): Add filterlist.BytesRuleList.
-	strList := &filterlist.StringRuleList{
-		RulesText:      text,
-		IgnoreCosmetic: true,
+	lists := []filterlist.Interface{
+		filterlist.NewBytes(&filterlist.BytesConfig{
+			RulesText:      rulesData,
+			IgnoreCosmetic: true,
+		}),
 	}
 
-	s, err := filterlist.NewRuleStorage([]filterlist.RuleList{strList})
+	s, err := filterlist.NewRuleStorage(lists)
 	if err != nil {
 		return fmt.Errorf("%s: creating rule storage: %w", f.id, err)
 	}

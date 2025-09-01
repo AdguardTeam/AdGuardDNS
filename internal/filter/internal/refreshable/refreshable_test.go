@@ -23,16 +23,22 @@ const refrID = "test_id"
 
 // Default texts for tests.
 const (
-	testFileText = "||filefilter.example\n"
-	testURLText  = "||urlfilter.example\n"
+	testTextFile = "||filefilter.example\n"
+	testTextURL  = "||urlfilter.example\n"
+)
+
+// Byte versions of default texts for tests.
+var (
+	testTextFileData = []byte(testTextFile)
+	testTextURLData  = []byte(testTextURL)
 )
 
 func TestRefreshable_Refresh(t *testing.T) {
 	testCases := []struct {
 		name         string
-		wantText     string
 		wantErrMsg   string
 		srvText      string
+		wantData     []byte
 		staleness    time.Duration
 		srvCode      int
 		acceptStale  bool
@@ -40,32 +46,32 @@ func TestRefreshable_Refresh(t *testing.T) {
 		useCacheFile bool
 	}{{
 		name:         "no_file",
-		wantText:     testURLText,
 		wantErrMsg:   "",
-		srvText:      testURLText,
+		srvText:      testTextURL,
+		wantData:     testTextURLData,
 		staleness:    0,
 		srvCode:      http.StatusOK,
 		acceptStale:  true,
 		expectReq:    true,
 		useCacheFile: false,
 	}, {
-		name:     "no_file_http_empty",
-		wantText: "",
+		name: "no_file_http_empty",
 		wantErrMsg: refrID + `: refreshing from url "URL": ` +
 			`server "` + filtertest.ServerName + `": empty text, not resetting`,
 		srvText:      "",
+		wantData:     nil,
 		staleness:    0,
 		srvCode:      http.StatusOK,
 		acceptStale:  true,
 		expectReq:    true,
 		useCacheFile: false,
 	}, {
-		name:     "no_file_http_error",
-		wantText: "",
+		name: "no_file_http_error",
 		wantErrMsg: refrID + `: refreshing from url "URL": ` +
 			`server "` + filtertest.ServerName + `": ` +
 			`status code error: expected 200, got 500`,
 		srvText:      "internal server error",
+		wantData:     nil,
 		staleness:    0,
 		srvCode:      http.StatusInternalServerError,
 		acceptStale:  true,
@@ -73,9 +79,9 @@ func TestRefreshable_Refresh(t *testing.T) {
 		useCacheFile: false,
 	}, {
 		name:         "file",
-		wantText:     testFileText,
 		wantErrMsg:   "",
 		srvText:      "",
+		wantData:     testTextFileData,
 		staleness:    filtertest.Staleness,
 		srvCode:      http.StatusOK,
 		acceptStale:  true,
@@ -83,9 +89,9 @@ func TestRefreshable_Refresh(t *testing.T) {
 		useCacheFile: true,
 	}, {
 		name:         "file_stale",
-		wantText:     testURLText,
 		wantErrMsg:   "",
-		srvText:      testURLText,
+		srvText:      testTextURL,
+		wantData:     testTextURLData,
 		staleness:    -1 * time.Hour,
 		srvCode:      http.StatusOK,
 		acceptStale:  false,
@@ -93,9 +99,9 @@ func TestRefreshable_Refresh(t *testing.T) {
 		useCacheFile: true,
 	}, {
 		name:         "file_stale_accept",
-		wantText:     testFileText,
 		wantErrMsg:   "",
 		srvText:      "",
+		wantData:     testTextFileData,
 		staleness:    -1 * time.Hour,
 		srvCode:      http.StatusOK,
 		acceptStale:  true,
@@ -123,7 +129,7 @@ func TestRefreshable_Refresh(t *testing.T) {
 			require.NoError(t, err)
 
 			ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
-			gotText, err := f.Refresh(ctx, tc.acceptStale)
+			gotData, err := f.Refresh(ctx, tc.acceptStale)
 			if tc.expectReq {
 				testutil.RequireReceive(t, reqCh, filtertest.Timeout)
 			}
@@ -135,7 +141,7 @@ func TestRefreshable_Refresh(t *testing.T) {
 			}
 
 			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)
-			assert.Equal(t, tc.wantText, gotText)
+			assert.Equal(t, tc.wantData, gotData)
 		})
 	}
 }
@@ -150,7 +156,7 @@ func prepareCachePath(t *testing.T, realCachePath string, useCacheFile bool) (ca
 		return filepath.Join(t.TempDir(), "does_not_exist")
 	}
 
-	err := os.WriteFile(realCachePath, []byte(testFileText), 0o600)
+	err := os.WriteFile(realCachePath, testTextFileData, 0o600)
 	require.NoError(t, err)
 
 	return realCachePath
@@ -218,7 +224,7 @@ func TestRefreshable_Refresh_fileURL(t *testing.T) {
 	fltFile, err := os.CreateTemp(dir, filepath.Base(t.Name()))
 	require.NoError(t, err)
 
-	_, err = fltFile.WriteString(testFileText)
+	_, err = fltFile.Write(testTextFileData)
 	require.NoError(t, err)
 
 	require.NoError(t, fltFile.Close())
@@ -240,8 +246,8 @@ func TestRefreshable_Refresh_fileURL(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
-	text, err := f.Refresh(ctx, true)
+	b, err := f.Refresh(ctx, true)
 	require.NoError(t, err)
 
-	assert.Equal(t, testFileText, text)
+	assert.Equal(t, testTextFileData, b)
 }

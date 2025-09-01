@@ -13,30 +13,49 @@ import (
 )
 
 func TestDefaultProfile_Config(t *testing.T) {
+	t.Parallel()
+
 	conf := &access.ProfileConfig{
-		AllowedNets:          []netip.Prefix{netip.MustParsePrefix("1.1.1.0/24")},
-		BlockedNets:          []netip.Prefix{netip.MustParsePrefix("2.2.2.0/24")},
+		AllowedNets:          []netip.Prefix{netip.MustParsePrefix("192.0.2.1/32")},
+		BlockedNets:          []netip.Prefix{netip.MustParsePrefix("192.0.2.2/32")},
 		AllowedASN:           []geoip.ASN{1},
 		BlockedASN:           []geoip.ASN{1, 2},
 		BlocklistDomainRules: []string{"block.test"},
+		StandardEnabled:      true,
 	}
 
-	cons := access.NewProfileConstructor(testAccessMtrc)
+	cons := access.NewProfileConstructor(&access.ProfileConstructorConfig{
+		Metrics:  testAccessMtrc,
+		Standard: access.EmptyBlocker{},
+	})
+
 	a := cons.New(conf)
 	got := a.Config()
-	assert.Equal(t, conf.AllowedNets, got.AllowedNets)
-	assert.Equal(t, conf.BlockedNets, got.BlockedNets)
-	assert.Equal(t, conf.AllowedASN, got.AllowedASN)
-	assert.Equal(t, conf.BlockedASN, got.BlockedASN)
-	assert.Equal(t, conf.BlocklistDomainRules, got.BlocklistDomainRules)
+	assert.Equal(t, conf, got)
 }
 
 func TestDefaultProfile_IsBlocked(t *testing.T) {
-	passAddrPort := netip.MustParseAddrPort("3.3.3.3:3333")
+	t.Parallel()
+
+	passAddrPort := netip.MustParseAddrPort("192.0.2.3:3333")
+
+	std := access.NewStandardBlocker(&access.StandardBlockerConfig{
+		AllowedNets: []netip.Prefix{netip.MustParsePrefix("192.0.2.10/32")},
+		BlockedNets: []netip.Prefix{netip.MustParsePrefix("192.0.2.20/32")},
+		AllowedASN:  []geoip.ASN{10},
+		BlockedASN:  []geoip.ASN{10, 20},
+		BlocklistDomainRules: []string{
+			"block.std.test",
+			"UPPERCASE.STD.test",
+			"||block_aaaa.std.test^$dnstype=AAAA",
+			"||allowlist.std.test^",
+			"@@||allow.allowlist.std.test^",
+		},
+	})
 
 	conf := &access.ProfileConfig{
-		AllowedNets: []netip.Prefix{netip.MustParsePrefix("1.1.1.1/32")},
-		BlockedNets: []netip.Prefix{netip.MustParsePrefix("1.1.1.0/24")},
+		AllowedNets: []netip.Prefix{netip.MustParsePrefix("192.0.2.1/32")},
+		BlockedNets: []netip.Prefix{netip.MustParsePrefix("192.0.2.2/32")},
 		AllowedASN:  []geoip.ASN{1},
 		BlockedASN:  []geoip.ASN{1, 2},
 		BlocklistDomainRules: []string{
@@ -46,9 +65,13 @@ func TestDefaultProfile_IsBlocked(t *testing.T) {
 			"||allowlist.test^",
 			"@@||allow.allowlist.test^",
 		},
+		StandardEnabled: true,
 	}
 
-	cons := access.NewProfileConstructor(testAccessMtrc)
+	cons := access.NewProfileConstructor(&access.ProfileConstructorConfig{
+		Metrics:  testAccessMtrc,
+		Standard: std,
+	})
 	a := cons.New(conf)
 
 	testCases := []struct {
@@ -117,21 +140,21 @@ func TestDefaultProfile_IsBlocked(t *testing.T) {
 	}, {
 		want:  assert.False,
 		name:  "pass_ip",
-		rAddr: netip.MustParseAddrPort("1.1.1.1:57"),
+		rAddr: netip.MustParseAddrPort("192.0.2.1:57"),
 		host:  "pass.test",
 		qt:    dns.TypeA,
 		loc:   nil,
 	}, {
 		want:  assert.True,
 		name:  "block_subnet",
-		rAddr: netip.MustParseAddrPort("1.1.1.2:57"),
+		rAddr: netip.MustParseAddrPort("192.0.2.2:57"),
 		host:  "pass.test",
 		qt:    dns.TypeA,
 		loc:   nil,
 	}, {
 		want:  assert.False,
 		name:  "pass_subnet",
-		rAddr: netip.MustParseAddrPort("1.2.2.2:57"),
+		rAddr: netip.MustParseAddrPort("192.0.2.1:57"),
 		host:  "pass.test",
 		qt:    dns.TypeA,
 		loc:   nil,
@@ -156,10 +179,103 @@ func TestDefaultProfile_IsBlocked(t *testing.T) {
 		host:  "pass.test",
 		qt:    dns.TypeA,
 		loc:   &geoip.Location{ASN: 2},
+	}, {
+		want:  assert.True,
+		name:  "standard_blocked_domain_A",
+		host:  "block.std.test",
+		qt:    dns.TypeA,
+		rAddr: passAddrPort,
+		loc:   nil,
+	}, {
+		want:  assert.True,
+		name:  "standard_blocked_domain_HTTPS",
+		host:  "block.std.test",
+		qt:    dns.TypeHTTPS,
+		rAddr: passAddrPort,
+		loc:   nil,
+	}, {
+		want:  assert.True,
+		name:  "standard_uppercase_domain",
+		host:  "uppercase.std.test",
+		qt:    dns.TypeHTTPS,
+		rAddr: passAddrPort,
+		loc:   nil,
+	}, {
+		want:  assert.False,
+		name:  "standard_pass_qt",
+		host:  "block_aaaa.std.test",
+		qt:    dns.TypeA,
+		rAddr: passAddrPort,
+		loc:   nil,
+	}, {
+		want:  assert.True,
+		name:  "standard_block_qt",
+		host:  "block_aaaa.std.test",
+		qt:    dns.TypeAAAA,
+		rAddr: passAddrPort,
+		loc:   nil,
+	}, {
+		want:  assert.True,
+		name:  "standard_allowlist_block",
+		host:  "block.allowlist.std.test",
+		qt:    dns.TypeA,
+		rAddr: passAddrPort,
+		loc:   nil,
+	}, {
+		want:  assert.False,
+		name:  "standard_allowlist_test",
+		host:  "allow.allowlist.std.test",
+		qt:    dns.TypeA,
+		rAddr: passAddrPort,
+		loc:   nil,
+	}, {
+		want:  assert.False,
+		name:  "standard_pass_ip",
+		rAddr: netip.MustParseAddrPort("192.0.2.21:57"),
+		host:  "pass.std.test",
+		qt:    dns.TypeA,
+		loc:   nil,
+	}, {
+		want:  assert.True,
+		name:  "standard_block_subnet",
+		rAddr: netip.MustParseAddrPort("192.0.2.20:57"),
+		host:  "pass.std.test",
+		qt:    dns.TypeA,
+		loc:   nil,
+	}, {
+		want:  assert.False,
+		name:  "standard_pass_subnet",
+		rAddr: netip.MustParseAddrPort("192.0.2.11:57"),
+		host:  "pass.std.test",
+		qt:    dns.TypeA,
+		loc:   nil,
+	}, {
+		want:  assert.True,
+		name:  "standard_block_host_pass_asn",
+		rAddr: passAddrPort,
+		host:  "block.std.test",
+		qt:    dns.TypeA,
+		loc:   &geoip.Location{ASN: 10},
+	}, {
+		want:  assert.False,
+		name:  "standard_pass_asn",
+		rAddr: passAddrPort,
+		host:  "pass.std.test",
+		qt:    dns.TypeA,
+		loc:   &geoip.Location{ASN: 10},
+	}, {
+		want:  assert.True,
+		name:  "standard_block_asn",
+		rAddr: passAddrPort,
+		host:  "pass.std.test",
+		qt:    dns.TypeA,
+		loc:   &geoip.Location{ASN: 20},
 	}}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			req := dnsservertest.NewReq(tc.host, tc.qt, dns.ClassINET)
 
 			ctx := testutil.ContextWithTimeout(t, testTimeout)
@@ -170,6 +286,8 @@ func TestDefaultProfile_IsBlocked(t *testing.T) {
 }
 
 func TestDefaultProfile_IsBlocked_prefixAllowlist(t *testing.T) {
+	t.Parallel()
+
 	conf := &access.ProfileConfig{
 		AllowedNets: []netip.Prefix{
 			netip.MustParsePrefix("2.2.2.0/24"),
@@ -181,7 +299,10 @@ func TestDefaultProfile_IsBlocked_prefixAllowlist(t *testing.T) {
 		BlocklistDomainRules: nil,
 	}
 
-	cons := access.NewProfileConstructor(testAccessMtrc)
+	cons := access.NewProfileConstructor(&access.ProfileConstructorConfig{
+		Metrics:  testAccessMtrc,
+		Standard: access.EmptyBlocker{},
+	})
 	a := cons.New(conf)
 
 	testCases := []struct {
@@ -212,6 +333,8 @@ func TestDefaultProfile_IsBlocked_prefixAllowlist(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			req := dnsservertest.NewReq("pass.test", dns.TypeA, dns.ClassINET)
 
 			ctx := testutil.ContextWithTimeout(t, testTimeout)
@@ -238,7 +361,10 @@ func BenchmarkDefaultProfile_IsBlocked(b *testing.B) {
 		},
 	}
 
-	cons := access.NewProfileConstructor(testAccessMtrc)
+	cons := access.NewProfileConstructor(&access.ProfileConstructorConfig{
+		Metrics:  testAccessMtrc,
+		Standard: access.EmptyBlocker{},
+	})
 	a := cons.New(conf)
 
 	ctx := testutil.ContextWithTimeout(b, testTimeout)
@@ -271,10 +397,10 @@ func BenchmarkDefaultProfile_IsBlocked(b *testing.B) {
 
 	// Most recent results:
 	//
-	// goos: darwin
-	// goarch: amd64
-	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/access
-	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
-	// BenchmarkDefaultProfile_IsBlocked/pass-12         	 2761741	       421.9 ns/op	      96 B/op	       2 allocs/op
-	// BenchmarkDefaultProfile_IsBlocked/block-12        	 2143516	       556.1 ns/op	     128 B/op	       4 allocs/op
+	//	goos: linux
+	//	goarch: amd64
+	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/access
+	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
+	//	BenchmarkDefaultProfile_IsBlocked/pass-16         	 2679700	       468.8 ns/op	      16 B/op	       1 allocs/op
+	//	BenchmarkDefaultProfile_IsBlocked/block-16        	 2081113	       576.4 ns/op	      24 B/op	       1 allocs/op
 }

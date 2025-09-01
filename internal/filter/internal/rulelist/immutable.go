@@ -21,12 +21,12 @@ type Immutable struct {
 // NewImmutable returns a new immutable DNS request and response filter using
 // the provided rule text and IDs.
 func NewImmutable(
-	text string,
+	rulesData []byte,
 	id filter.ID,
 	svcID filter.BlockedServiceID,
 	cache ResultCache,
 ) (f *Immutable) {
 	return &Immutable{
-		baseFilter: newBaseFilter(text, id, svcID, cache),
+		baseFilter: newBaseFilter(rulesData, id, svcID, cache),
 	}
 }

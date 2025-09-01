@@ -5,9 +5,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strconv"
-	"strings"
 	"testing"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdurlflt"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/stretchr/testify/assert"
@@ -15,7 +15,7 @@ import (
 )
 
 func TestStorage_Hashes(t *testing.T) {
-	s, err := hashprefix.NewStorage(testHashes)
+	s, err := hashprefix.NewStorage(testHashesData)
 	require.NoError(t, err)
 
 	h := sha256.Sum256([]byte(filtertest.HostAdultContent))
@@ -30,7 +30,7 @@ func TestStorage_Hashes(t *testing.T) {
 }
 
 func TestStorage_Matches(t *testing.T) {
-	s, err := hashprefix.NewStorage(testHashes)
+	s, err := hashprefix.NewStorage(testHashesData)
 	require.NoError(t, err)
 
 	got := s.Matches(filtertest.HostAdultContent)
@@ -41,12 +41,12 @@ func TestStorage_Matches(t *testing.T) {
 }
 
 func TestStorage_Reset(t *testing.T) {
-	s, err := hashprefix.NewStorage(testHashes)
+	s, err := hashprefix.NewStorage(testHashesData)
 	require.NoError(t, err)
 
 	assert.True(t, s.Matches(filtertest.HostAdultContent))
 
-	const newHashes = filtertest.Host + "\n"
+	newHashes := []byte(filtertest.Host + "\n")
 
 	n, err := s.Reset(newHashes)
 	require.NoError(t, err)
@@ -83,7 +83,7 @@ func BenchmarkStorage_Hashes(b *testing.B) {
 		hosts = append(hosts, fmt.Sprintf("%d."+filtertest.HostAdultContent, i))
 	}
 
-	s, err := hashprefix.NewStorage(strings.Join(hosts, "\n"))
+	s, err := hashprefix.NewStorage(agdurlflt.RulesToBytes(hosts))
 	require.NoError(b, err)
 
 	var hashPrefixes []hashprefix.Prefix
@@ -105,16 +105,16 @@ func BenchmarkStorage_Hashes(b *testing.B) {
 		})
 	}
 
-	// Most recent results, on a ThinkPad X13 with a Ryzen Pro 7 CPU:
+	// Most recent results:
 	//
-	// goos: darwin
-	// goarch: amd64
-	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix
-	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
-	// BenchmarkStorage_Hashes/1-12  	 7134991	       173.2 ns/op	      80 B/op	       2 allocs/op
-	// BenchmarkStorage_Hashes/2-12  	 6062851	       200.0 ns/op	      80 B/op	       2 allocs/op
-	// BenchmarkStorage_Hashes/3-12  	 5138690	       233.9 ns/op	      80 B/op	       2 allocs/op
-	// BenchmarkStorage_Hashes/4-12  	 4361190	       271.8 ns/op	      80 B/op	       2 allocs/op
+	//	goos: darwin
+	//	goarch: arm64
+	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix
+	//	cpu: Apple M1 Pro
+	//	BenchmarkStorage_Hashes/1-8 	10519970	       102.7 ns/op	      80 B/op	       2 allocs/op
+	//	BenchmarkStorage_Hashes/2-8 	10045784	       118.1 ns/op	      80 B/op	       2 allocs/op
+	//	BenchmarkStorage_Hashes/3-8 	 9088449	       129.2 ns/op	      80 B/op	       2 allocs/op
+	//	BenchmarkStorage_Hashes/4-8 	 8577764	       139.4 ns/op	      80 B/op	       2 allocs/op
 }
 
 func BenchmarkStorage_ResetHosts(b *testing.B) {
@@ -125,22 +125,22 @@ func BenchmarkStorage_ResetHosts(b *testing.B) {
 		hosts = append(hosts, fmt.Sprintf("%d."+filtertest.HostAdultContent, i))
 	}
 
-	hostnames := strings.Join(hosts, "\n")
-	s, err := hashprefix.NewStorage(hostnames)
+	hostnameData := agdurlflt.RulesToBytes(hosts)
+	s, err := hashprefix.NewStorage(hostnameData)
 	require.NoError(b, err)
 
 	b.ReportAllocs()
 	for b.Loop() {
-		_, err = s.Reset(hostnames)
+		_, err = s.Reset(hostnameData)
 	}
 
 	require.NoError(b, err)
 
 	// Most recent results:
 	//
-	// goos: darwin
-	// goarch: amd64
-	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix
-	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
-	// BenchmarkStorage_ResetHosts-12    	    3814	    313231 ns/op	  118385 B/op	    1009 allocs/op
+	//	goos: darwin
+	//	goarch: arm64
+	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix
+	//	cpu: Apple M1 Pro
+	//	BenchmarkStorage_ResetHosts-8   	    8610	    128756 ns/op	  118380 B/op	    1009 allocs/op
 }

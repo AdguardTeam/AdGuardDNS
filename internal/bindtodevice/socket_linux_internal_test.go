@@ -406,6 +406,7 @@ func TestListenControlWithSO(t *testing.T) {
 	)
 	require.NotNil(t, lc)
 
+	// TODO(a.garipov):  Move to golibs.
 	type syscallConner interface {
 		SyscallConn() (c syscall.RawConn, err error)
 	}
@@ -414,9 +415,10 @@ func TestListenControlWithSO(t *testing.T) {
 		c, err := lc.ListenPacket(context.Background(), "udp", "0.0.0.0:0")
 		require.NoError(t, err)
 		require.NotNil(t, c)
-		require.Implements(t, (*syscallConner)(nil), c)
 
-		sc, err := c.(syscallConner).SyscallConn()
+		scConner := testutil.RequireTypeAssert[syscallConner](t, c)
+
+		sc, err := scConner.SyscallConn()
 		require.NoError(t, err)
 
 		err = sc.Control(func(fd uintptr) {
@@ -440,9 +442,10 @@ func TestListenControlWithSO(t *testing.T) {
 		c, err := lc.Listen(context.Background(), "tcp", "0.0.0.0:0")
 		require.NoError(t, err)
 		require.NotNil(t, c)
-		require.Implements(t, (*syscallConner)(nil), c)
 
-		sc, err := c.(syscallConner).SyscallConn()
+		scConner := testutil.RequireTypeAssert[syscallConner](t, c)
+
+		sc, err := scConner.SyscallConn()
 		require.NoError(t, err)
 
 		err = sc.Control(func(fd uintptr) {

@@ -26,24 +26,24 @@ func TestNew(t *testing.T) {
 		Host:   "index.example",
 	}
 
-	servicesDisabled := &filterstorage.ConfigBlockedServices{
+	servicesDisabled := &filterstorage.BlockedServicesConfig{
 		Enabled: false,
 	}
 
-	safeSearchGeneralDisabled := &filterstorage.ConfigSafeSearch{
+	safeSearchGeneralDisabled := &filterstorage.SafeSearchConfig{
 		ID:      filter.IDGeneralSafeSearch,
 		Enabled: false,
 	}
 
-	safeSearchYouTubeDisabled := &filterstorage.ConfigSafeSearch{
+	safeSearchYouTubeDisabled := &filterstorage.SafeSearchConfig{
 		ID:      filter.IDYoutubeSafeSearch,
 		Enabled: false,
 	}
 
 	testCases := []struct {
-		services      *filterstorage.ConfigBlockedServices
-		safeSearchGen *filterstorage.ConfigSafeSearch
-		safeSearchYT  *filterstorage.ConfigSafeSearch
+		services      *filterstorage.BlockedServicesConfig
+		safeSearchGen *filterstorage.SafeSearchConfig
+		safeSearchYT  *filterstorage.SafeSearchConfig
 		name          string
 	}{{
 		services:      servicesDisabled,

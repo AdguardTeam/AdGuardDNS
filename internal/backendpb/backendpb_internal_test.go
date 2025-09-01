@@ -58,4 +58,7 @@ var TestLogger = slogutil.NewDiscardLogger()
 
 // TestProfileAccessConstructor is the common constructor of profile access
 // managers for tests
-var TestProfileAccessConstructor = access.NewProfileConstructor(access.EmptyProfileMetrics{})
+var TestProfileAccessConstructor = access.NewProfileConstructor(&access.ProfileConstructorConfig{
+	Metrics:  access.EmptyProfileMetrics{},
+	Standard: access.EmptyBlocker{},
+})

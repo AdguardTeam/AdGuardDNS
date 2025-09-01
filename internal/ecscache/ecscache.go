@@ -18,6 +18,7 @@ import (
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/syncutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 )
 
@@ -26,6 +27,9 @@ type MiddlewareConfig struct {
 	// Metrics is used for the collection of the ECS cache middleware
 	// statistics.  It must not be nil.
 	Metrics Metrics
+
+	// Clock is used for getting current time.  It must not be nil.
+	Clock timeutil.Clock
 
 	// Cloner is used to clone messages taken from cache.  It must not be nil.
 	Cloner *dnsmsg.Cloner
@@ -58,6 +62,9 @@ type MiddlewareConfig struct {
 
 // Middleware is a dnsserver.Middleware with ECS-aware caching.
 type Middleware struct {
+	// clock is used to get current time for cache expiration.
+	clock timeutil.Clock
+
 	// metrics is used for the collection of the ECS cache statistics.
 	metrics Metrics
 
@@ -71,10 +78,10 @@ type Middleware struct {
 	logger *slog.Logger
 
 	// cache is the LRU cache for results indicating no support for ECS.
-	cache agdcache.Interface[uint64, *cacheItem]
+	cache agdcache.Interface[cacheKey, *cacheItem]
 
 	// ecsCache is the LRU cache for results indicating ECS support.
-	ecsCache agdcache.Interface[uint64, *cacheItem]
+	ecsCache agdcache.Interface[cacheKey, *cacheItem]
 
 	// geoIP is used to get subnets for countries.
 	geoIP geoip.Interface
@@ -97,17 +104,20 @@ const (
 // adds the caches with IDs [CacheIDNoECS] and [CacheIDWithECS] to the cache
 // manager.  c must not be nil.
 func NewMiddleware(c *MiddlewareConfig) (m *Middleware) {
-	cache := agdcache.NewLRU[uint64, *cacheItem](&agdcache.LRUConfig{
+	cache := errors.Must(agdcache.New[cacheKey, *cacheItem](&agdcache.Config{
+		Clock: c.Clock,
 		Count: c.NoECSCount,
-	})
-	ecsCache := agdcache.NewLRU[uint64, *cacheItem](&agdcache.LRUConfig{
+	}))
+	ecsCache := errors.Must(agdcache.New[cacheKey, *cacheItem](&agdcache.Config{
+		Clock: c.Clock,
 		Count: c.ECSCount,
-	})
+	}))
 
 	c.CacheManager.Add(cacheIDNoECS, cache)
 	c.CacheManager.Add(cacheIDWithECS, ecsCache)
 
 	return &Middleware{
+		clock:   c.Clock,
 		metrics: c.Metrics,
 		cloner:  c.Cloner,
 		logger:  c.Logger,
@@ -235,7 +245,7 @@ func (mw *Middleware) writeUpstreamResponse(
 
 	respIsECS := respIsECSDependent(scope, req.Question[0].Name)
 
-	var cache agdcache.Interface[uint64, *cacheItem]
+	var cache agdcache.Interface[cacheKey, *cacheItem]
 	if respIsECS {
 		cache = mw.ecsCache
 	} else {

@@ -2,6 +2,7 @@
 package refreshable
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -26,6 +27,8 @@ import (
 
 // Refreshable contains the logic common to filters and indexes that can refresh
 // themselves from a file and a URL.
+//
+// TODO(a.garipov, e.burkov):  Move to golibs.
 type Refreshable struct {
 	logger    *slog.Logger
 	http      *agdhttp.Client
@@ -48,20 +51,26 @@ type Config struct {
 	// ID is the filter list ID for this filter.
 	ID filter.ID
 
-	// CachePath is the path to the file containing the cached data.
+	// CachePath is the path to the file containing the cached data.  It only
+	// used for non-file URLs.
 	CachePath string
 
-	// Staleness is the time after which a file is considered stale.
+	// Staleness is the time after which a file is considered stale.  It should
+	// be positive, otherwise any cache will be discarded.
 	Staleness time.Duration
 
-	// Timeout is the timeout for the HTTP client used by this refreshable.
+	// Timeout is the timeout for the HTTP client used by this refreshable.  It
+	// must be positive, if the non-file URL is used.
 	Timeout time.Duration
 
-	// MaxSize is the maximum size of the downloadable data.
+	// MaxSize is the maximum size of the downloadable data.  It must be
+	// positive, if the non-file URL is used.
 	MaxSize datasize.ByteSize
 }
 
 // New returns a new refreshable.  c must not be nil.
+//
+// TODO(e.burkov):  Consider validating c more thoroughly.
 func New(c *Config) (f *Refreshable, err error) {
 	if c.URL == nil {
 		return nil, fmt.Errorf("refreshable.New: nil url for refreshable with ID %q", c.ID)
@@ -87,31 +96,31 @@ func New(c *Config) (f *Refreshable, err error) {
 // load the data from its URL when there is already a file in the cache
 // directory, regardless of its staleness.
 //
-// TODO(a.garipov): Consider making refresh return a reader instead of a string.
-func (f *Refreshable) Refresh(ctx context.Context, acceptStale bool) (text string, err error) {
+// TODO(a.garipov): Consider making refresh return a reader instead of bytes.
+func (f *Refreshable) Refresh(ctx context.Context, acceptStale bool) (b []byte, err error) {
 	defer func() { err = errors.Annotate(err, "%s: %w", f.id) }()
 
 	if strings.EqualFold(f.url.Scheme, urlutil.SchemeFile) {
-		text, err = f.refreshFromFileOnly(ctx)
+		b, err = f.refreshFromFileOnly(ctx)
 	} else {
-		text, err = f.useCachedOrRefreshFromURL(ctx, acceptStale)
+		b, err = f.useCachedOrRefreshFromURL(ctx, acceptStale)
 	}
 
-	return text, err
+	return b, err
 }
 
 // refreshFromFileOnly refreshes from the file in the URL.  It must only be
 // called when the URL of this refreshable is a file URI.
-func (f *Refreshable) refreshFromFileOnly(ctx context.Context) (text string, err error) {
+func (f *Refreshable) refreshFromFileOnly(ctx context.Context) (b []byte, err error) {
 	filePath := f.url.Path
 	f.logger.InfoContext(ctx, "using data from file", "path", filePath)
 
-	text, err = f.refreshFromFile(true, filePath, time.Time{})
+	b, err = f.refreshFromFile(true, filePath, time.Time{})
 	if err != nil {
-		return "", fmt.Errorf("refreshing from file %q: %w", filePath, err)
+		return nil, fmt.Errorf("refreshing from file %q: %w", filePath, err)
 	}
 
-	return text, nil
+	return b, nil
 }
 
 // useCachedOrRefreshFromURL reloads the data from the cache file or the http
@@ -122,46 +131,47 @@ func (f *Refreshable) refreshFromFileOnly(ctx context.Context) (text string, err
 func (f *Refreshable) useCachedOrRefreshFromURL(
 	ctx context.Context,
 	acceptStale bool,
-) (text string, err error) {
+) (b []byte, err error) {
+	// TODO(e.burkov):  Add [timeutil.Clock].
 	now := time.Now()
 
-	text, err = f.refreshFromFile(acceptStale, f.cachePath, now)
+	b, err = f.refreshFromFile(acceptStale, f.cachePath, now)
 	if err != nil {
-		return "", fmt.Errorf("refreshing from cache file %q: %w", f.cachePath, err)
+		return nil, fmt.Errorf("refreshing from cache file %q: %w", f.cachePath, err)
 	}
 
-	if text == "" {
+	if len(b) == 0 {
 		ru := urlutil.RedactUserinfo(f.url)
 		f.logger.InfoContext(ctx, "refreshing from url", "url", ru)
 
-		text, err = f.refreshFromURL(ctx, now)
+		b, err = f.refreshFromURL(ctx, now)
 		if err != nil {
-			return "", fmt.Errorf("refreshing from url %q: %w", ru, err)
+			return nil, fmt.Errorf("refreshing from url %q: %w", ru, err)
 		}
 	} else {
 		f.logger.InfoContext(ctx, "using cached data from file", "path", f.cachePath)
 	}
 
-	return text, nil
+	return b, nil
 }
 
 // refreshFromFile loads data from filePath if the file's mtime shows that it's
 // still fresh relative to updTime.  If acceptStale is true, and the file
-// exists, the data is read from there regardless of its staleness.  If err is
-// nil and text is empty, a refresh from a URL is required.
+// exists, the data is read from there regardless of its staleness.  If both b
+// and err are nil, a refresh from a URL is required.
 func (f *Refreshable) refreshFromFile(
 	acceptStale bool,
 	filePath string,
 	updTime time.Time,
-) (text string, err error) {
+) (b []byte, err error) {
 	// #nosec G304 -- Assume that filePath is always either cacheDir + a valid,
 	// no-slash ID or a path from the index env.
 	file, err := os.Open(filePath)
 	if errors.Is(err, os.ErrNotExist) {
 		// File does not exist.  Refresh from the URL.
-		return "", nil
+		return nil, nil
 	} else if err != nil {
-		return "", fmt.Errorf("opening refreshable file: %w", err)
+		return nil, fmt.Errorf("opening refreshable file: %w", err)
 	}
 	defer func() { err = errors.WithDeferred(err, file.Close()) }()
 
@@ -169,21 +179,21 @@ func (f *Refreshable) refreshFromFile(
 		var fi fs.FileInfo
 		fi, err = file.Stat()
 		if err != nil {
-			return "", fmt.Errorf("reading refreshable file stat: %w", err)
+			return nil, fmt.Errorf("reading refreshable file stat: %w", err)
 		}
 
 		if mtime := fi.ModTime(); !mtime.Add(f.staleness).After(updTime) {
-			return "", nil
+			return nil, nil
 		}
 	}
 
-	b := &strings.Builder{}
-	_, err = io.Copy(b, file)
+	// Consider cache files to be of a prevalidated size.
+	b, err = io.ReadAll(file)
 	if err != nil {
-		return "", fmt.Errorf("reading refreshable file: %w", err)
+		return nil, fmt.Errorf("reading refreshable file: %w", err)
 	}
 
-	return b.String(), nil
+	return b, nil
 }
 
 // refreshFromURL loads the data from u, puts it into the file specified by
@@ -191,18 +201,18 @@ func (f *Refreshable) refreshFromFile(
 func (f *Refreshable) refreshFromURL(
 	ctx context.Context,
 	updTime time.Time,
-) (text string, err error) {
+) (b []byte, err error) {
 	// TODO(a.garipov): Cache these like renameio recommends.
 	tmpDir := renameio.TempDir(filepath.Dir(f.cachePath))
 	tmpFile, err := renameio.TempFile(tmpDir, f.cachePath)
 	if err != nil {
-		return "", fmt.Errorf("creating temporary refreshable file: %w", err)
+		return nil, fmt.Errorf("creating temporary refreshable file: %w", err)
 	}
 	defer func() { err = f.withDeferredTmpCleanup(err, tmpFile, updTime) }()
 
 	resp, err := f.http.Get(ctx, f.url)
 	if err != nil {
-		return "", fmt.Errorf("requesting: %w", err)
+		return nil, fmt.Errorf("requesting: %w", err)
 	}
 	defer func() { err = errors.WithDeferred(err, resp.Body.Close()) }()
 
@@ -218,24 +228,24 @@ func (f *Refreshable) refreshFromURL(
 	err = agdhttp.CheckStatus(resp, http.StatusOK)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
-		return "", err
+		return nil, err
 	}
 
-	b := &strings.Builder{}
-	mw := io.MultiWriter(b, tmpFile)
+	buf := &bytes.Buffer{}
+	mw := io.MultiWriter(buf, tmpFile)
 	_, err = io.Copy(mw, ioutil.LimitReader(resp.Body, f.maxSize.Bytes()))
 	if err != nil {
-		return "", agdhttp.WrapServerError(fmt.Errorf("reading into file: %w", err), resp)
+		return nil, agdhttp.WrapServerError(fmt.Errorf("reading into file: %w", err), resp)
 	}
 
 	// TODO(a.garipov): Make a more sophisticated data size ratio check.
 	//
 	// See AGDNS-598.
-	if b.Len() == 0 {
-		return "", agdhttp.WrapServerError(errors.Error("empty text, not resetting"), resp)
+	if buf.Len() == 0 {
+		return nil, agdhttp.WrapServerError(errors.Error("empty text, not resetting"), resp)
 	}
 
-	return b.String(), nil
+	return buf.Bytes(), nil
 }
 
 // withDeferredTmpCleanup is a helper that performs the necessary cleanups and

@@ -47,14 +47,14 @@ func TestBillStat_Upload(t *testing.T) {
 			ctx context.Context,
 			req *backendpb.CreateDeviceRequest,
 		) (resp *backendpb.CreateDeviceResponse, err error) {
-			panic("not implemented")
+			panic(testutil.UnexpectedCall(ctx, req))
 		},
 
 		OnGetDNSProfiles: func(
 			req *backendpb.DNSProfilesRequest,
 			srv grpc.ServerStreamingServer[backendpb.DNSProfile],
 		) (err error) {
-			panic("not implemented")
+			panic(testutil.UnexpectedCall(req, srv))
 		},
 
 		OnSaveDevicesBillingStat: func(

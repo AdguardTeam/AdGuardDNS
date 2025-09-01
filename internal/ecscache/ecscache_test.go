@@ -19,6 +19,7 @@ import (
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -680,7 +681,9 @@ func newWithCache(
 	return dnsserver.WithMiddlewares(
 		h,
 		ecscache.NewMiddleware(&ecscache.MiddlewareConfig{
-			Metrics:      ecscache.EmptyMetrics{},
+			Metrics: ecscache.EmptyMetrics{},
+			// TODO(d.kolyshev): Use fake clock and test expiration.
+			Clock:        timeutil.SystemClock{},
 			Cloner:       agdtest.NewCloner(),
 			Logger:       slogutil.NewDiscardLogger(),
 			CacheManager: agdcache.EmptyManager{},

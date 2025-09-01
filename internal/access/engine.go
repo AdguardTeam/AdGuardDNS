@@ -3,12 +3,12 @@ package access
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
-	"github.com/AdguardTeam/golibs/stringutil"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdurlflt"
+	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/AdguardTeam/urlfilter/filterlist"
 	"github.com/miekg/dns"
@@ -18,18 +18,26 @@ import (
 //
 // TODO(a.garipov):  Replace/merge with [custom.Filter].
 type blockedHostEngine struct {
-	metrics    ProfileMetrics
-	lazyEngine *urlfilter.DNSEngine
 	initOnce   *sync.Once
+	lazyEngine *urlfilter.DNSEngine
+	reqPool    *syncutil.Pool[urlfilter.DNSRequest]
+	resPool    *syncutil.Pool[urlfilter.DNSResult]
+	metrics    ProfileMetrics
 	rules      []string
 }
 
 // newBlockedHostEngine creates a new blockedHostEngine.  mtrc must not be nil.
 func newBlockedHostEngine(mtrc ProfileMetrics, rules []string) (e *blockedHostEngine) {
 	return &blockedHostEngine{
-		metrics:  mtrc,
-		rules:    rules,
 		initOnce: &sync.Once{},
+		reqPool: syncutil.NewPool(func() (req *urlfilter.DNSRequest) {
+			return &urlfilter.DNSRequest{}
+		}),
+		resPool: syncutil.NewPool(func() (v *urlfilter.DNSResult) {
+			return &urlfilter.DNSResult{}
+		}),
+		metrics: mtrc,
+		rules:   rules,
 	}
 }
 
@@ -48,31 +56,20 @@ func (e *blockedHostEngine) isBlocked(ctx context.Context, req *dns.Msg) (blocke
 	})
 
 	q := req.Question[0]
-	res, matched := e.lazyEngine.MatchRequest(&urlfilter.DNSRequest{
-		Hostname: agdnet.NormalizeQueryDomain(q.Name),
-		DNSType:  q.Qtype,
-	})
 
-	if matched && res.NetworkRule != nil {
-		return !res.NetworkRule.Whitelist
-	}
+	host := agdnet.NormalizeQueryDomain(q.Name)
 
-	return matched
+	return matchBlocked(host, q.Qtype, e.lazyEngine, e.reqPool, e.resPool)
 }
 
 // init returns new properly initialized dns engine.
 func (e *blockedHostEngine) init() (eng *urlfilter.DNSEngine) {
-	b := &strings.Builder{}
-	for _, h := range e.rules {
-		stringutil.WriteToBuilder(b, strings.ToLower(h), "\n")
-	}
-
-	lists := []filterlist.RuleList{
-		&filterlist.StringRuleList{
+	lists := []filterlist.Interface{
+		filterlist.NewBytes(&filterlist.BytesConfig{
 			ID:             blocklistFilterID,
-			RulesText:      b.String(),
+			RulesText:      agdurlflt.RulesToBytesLower(e.rules),
 			IgnoreCosmetic: true,
-		},
+		}),
 	}
 
 	rulesStrg, err := filterlist.NewRuleStorage(lists)

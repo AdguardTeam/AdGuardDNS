@@ -57,16 +57,17 @@ import (
 
 // Constants that define debug identifiers for the debug HTTP service.
 const (
-	debugIDAllowlist      = "allowlist"
-	debugIDBillStat       = "billstat"
-	debugIDCustomDomainDB = "custom_domain_db"
-	debugIDGeoIP          = "geoip"
-	debugIDProfileDB      = "profiledb"
-	debugIDProfileDBFull  = "profiledb_full"
-	debugIDRuleStat       = "rulestat"
-	debugIDTLSConfig      = "tlsconfig"
-	debugIDTicketRotator  = "ticket_rotator"
-	debugIDWebSvc         = "websvc"
+	debugIDAllowlist             = "allowlist"
+	debugIDBillStat              = "billstat"
+	debugIDCustomDomainDB        = "custom_domain_db"
+	debugIDGeoIP                 = "geoip"
+	debugIDProfileDB             = "profiledb"
+	debugIDProfileDBFull         = "profiledb_full"
+	debugIDRuleStat              = "rulestat"
+	debugIDStandardProfileAccess = "standard_profile_access"
+	debugIDTLSConfig             = "tlsconfig"
+	debugIDTicketRotator         = "ticket_rotator"
+	debugIDWebSvc                = "websvc"
 
 	// debugIDPrefixPlugin is the prefix for plugin debug identifiers.
 	debugIDPrefixPlugin = "plugin/"
@@ -97,6 +98,7 @@ type builder struct {
 	promRegisterer prometheus.Registerer
 	rand           *rand.Rand
 	sigHdlr        *service.SignalHandler
+	standardAccess access.Blocker
 
 	// The fields below are initialized later by calling the builder's methods.
 	// Keep them sorted.
@@ -318,9 +320,9 @@ func (b *builder) initAdultBlocking(
 		return nil
 	}
 
-	b.adultBlockingHashes, err = hashprefix.NewStorage("")
+	b.adultBlockingHashes, err = hashprefix.NewStorage(nil)
 	if err != nil {
-		// Don't expect errors here because we pass an empty string.
+		// Expect no errors here because we pass a nil.
 		panic(err)
 	}
 
@@ -420,7 +422,7 @@ func (b *builder) initNewRegDomains(
 		return nil
 	}
 
-	b.newRegDomainsHashes, err = hashprefix.NewStorage("")
+	b.newRegDomainsHashes, err = hashprefix.NewStorage(nil)
 	if err != nil {
 		// Don't expect errors here because we pass an empty string.
 		panic(err)
@@ -508,7 +510,7 @@ func (b *builder) initSafeBrowsing(
 		return nil
 	}
 
-	b.safeBrowsingHashes, err = hashprefix.NewStorage("")
+	b.safeBrowsingHashes, err = hashprefix.NewStorage(nil)
 	if err != nil {
 		// Don't expect errors here because we pass an empty string.
 		panic(err)
@@ -581,6 +583,83 @@ func (b *builder) initSafeBrowsing(
 	return nil
 }
 
+// initStandardAccess initializes the standard access settings.
+//
+// The following methods must be called before this one:
+//   - [builder.initGRPCMetrics]
+func (b *builder) initStandardAccess(ctx context.Context) (err error) {
+	switch typ := b.env.StandardAccessType; typ {
+	case standardAccessOff:
+		b.standardAccess = access.EmptyBlocker{}
+
+		return nil
+	case standardAccessBackend:
+		// Go on.
+		//
+		// TODO(e.burkov):  Extract the initialization logic to a separate
+		// function.
+	default:
+		panic(fmt.Errorf("env STANDARD_ACCESS_TYPE: %w: %q", errors.ErrBadEnumValue, typ))
+	}
+
+	stdAcc := access.NewStandardBlocker(&access.StandardBlockerConfig{})
+	b.standardAccess = stdAcc
+
+	mtrc, err := metrics.NewBackendStandardAccess(b.mtrcNamespace, b.promRegisterer)
+	if err != nil {
+		return fmt.Errorf("initializing standard access metrics: %w", err)
+	}
+
+	strg, err := backendpb.NewStandardAccess(&backendpb.StandardAccessConfig{
+		Endpoint:    &b.env.StandardAccessURL.URL,
+		GRPCMetrics: b.backendGRPCMtrc,
+		Metrics:     mtrc,
+		Logger:      b.baseLogger.With(slogutil.KeyPrefix, "standard_access_storage"),
+		ErrColl:     b.errColl,
+		APIKey:      b.env.StandardAccessAPIKey,
+	})
+	if err != nil {
+		return fmt.Errorf("initializing standard access storage: %w", err)
+	}
+
+	updater, err := filterstorage.NewStandardAccess(ctx, &filterstorage.StandardAccessConfig{
+		BaseLogger: b.baseLogger,
+		Logger:     b.baseLogger.With(slogutil.KeyPrefix, "standard_access_updater"),
+		Getter:     strg,
+		Setter:     stdAcc,
+		CacheDir:   b.env.FilterCachePath,
+	})
+	if err != nil {
+		return fmt.Errorf("initializing standard access updater: %w", err)
+	}
+
+	err = updater.Refresh(ctx)
+	if err != nil {
+		return fmt.Errorf("initializing standard access updater: %w", err)
+	}
+
+	refrWorker := service.NewRefreshWorker(&service.RefreshWorkerConfig{
+		Clock: timeutil.SystemClock{},
+		ContextConstructor: contextutil.NewTimeoutConstructor(
+			time.Duration(b.env.StandardAccessTimeout),
+		),
+		ErrorHandler:      newSlogErrorHandler(b.baseLogger, "standard_access_refresh"),
+		Refresher:         updater,
+		Schedule:          timeutil.NewConstSchedule(time.Duration(b.env.StandardAccessRefreshIvl)),
+		RefreshOnShutdown: false,
+	})
+	err = refrWorker.Start(context.WithoutCancel(ctx))
+	if err != nil {
+		return fmt.Errorf("starting standard access refresher: %w", err)
+	}
+
+	b.sigHdlr.AddService(refrWorker)
+
+	b.debugRefrs[debugIDStandardProfileAccess] = updater
+
+	return nil
+}
+
 // initFilterStorage initializes and refreshes the filter storage.  It also adds
 // the refresher with ID [filter.StoragePrefix] to the debug refreshers.
 //
@@ -598,7 +677,7 @@ func (b *builder) initFilterStorage(ctx context.Context) (err error) {
 	b.filterStorage, err = filterstorage.New(&filterstorage.Config{
 		BaseLogger: b.baseLogger,
 		Logger:     b.baseLogger.With(slogutil.KeyPrefix, filter.StoragePrefix),
-		BlockedServices: &filterstorage.ConfigBlockedServices{
+		BlockedServices: &filterstorage.BlockedServicesConfig{
 			IndexURL: blockedSvcIdxURL,
 			// TODO(a.garipov):  Consider adding a separate parameter here.
 			IndexMaxSize: c.MaxSize,
@@ -612,15 +691,15 @@ func (b *builder) initFilterStorage(ctx context.Context) (err error) {
 			ResultCacheEnabled: c.RuleListCache.Enabled,
 			Enabled:            bool(b.env.BlockedServiceEnabled),
 		},
-		Custom: &filterstorage.ConfigCustom{
+		Custom: &filterstorage.CustomConfig{
 			CacheCount: c.CustomFilterCacheSize,
 		},
-		HashPrefix: &filterstorage.ConfigHashPrefix{
+		HashPrefix: &filterstorage.HashPrefixConfig{
 			Adult:           b.adultBlocking,
 			Dangerous:       b.safeBrowsing,
 			NewlyRegistered: b.newRegDomains,
 		},
-		RuleLists: &filterstorage.ConfigRuleLists{
+		RuleLists: &filterstorage.RuleListsConfig{
 			IndexURL: &b.env.FilterIndexURL.URL,
 			// TODO(a.garipov):  Consider adding a separate parameter here.
 			IndexMaxSize:        c.MaxSize,
@@ -686,14 +765,14 @@ func (b *builder) newSafeSearchConfig(
 	u *urlutil.URL,
 	id filter.ID,
 	enabled bool,
-) (c *filterstorage.ConfigSafeSearch) {
+) (c *filterstorage.SafeSearchConfig) {
 	if !enabled {
-		return &filterstorage.ConfigSafeSearch{}
+		return &filterstorage.SafeSearchConfig{}
 	}
 
 	fltConf := b.conf.Filters
 
-	return &filterstorage.ConfigSafeSearch{
+	return &filterstorage.SafeSearchConfig{
 		URL: &u.URL,
 		ID:  id,
 		// TODO(a.garipov):  Consider adding a separate parameter here.
@@ -1148,6 +1227,7 @@ func (b *builder) initGRPCMetrics(ctx context.Context) (err error) {
 	case
 		b.profilesEnabled,
 		b.env.SessionTicketType == sessionTicketRemote,
+		b.env.StandardAccessType == standardAccessBackend,
 		b.env.DNSCheckKVType == kvModeBackend,
 		b.env.RateLimitAllowlistType == rlAllowlistTypeBackend:
 		// Go on.
@@ -1262,7 +1342,10 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 		return fmt.Errorf("registering profile access engine metrics: %w", err)
 	}
 
-	profAccessCons := access.NewProfileConstructor(profileMtrc)
+	profAccessCons := access.NewProfileConstructor(&access.ProfileConstructorConfig{
+		Metrics:  profileMtrc,
+		Standard: b.standardAccess,
+	})
 
 	backendProfileDBMtrc, err := metrics.NewBackendProfileDB(b.mtrcNamespace, b.promRegisterer)
 	if err != nil {

@@ -152,6 +152,7 @@ message Access {
   repeated uint32 blocklist_asn = 5;
   repeated CidrRange blocklist_cidr = 2;
   repeated string blocklist_domain_rules = 3;
+  bool standard_enabled = 6;
 }
 
 message CidrRange {

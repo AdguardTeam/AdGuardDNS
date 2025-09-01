@@ -25,27 +25,31 @@ type Config struct {
 
 	// BlockedServices is the configuration of a blocked-service filter for a
 	// default filter storage.  It must not be nil
-	BlockedServices *ConfigBlockedServices
+	BlockedServices *BlockedServicesConfig
 
 	// Custom is the configuration of a custom filters storage for a default
 	// filter storage.  It must not be nil
-	Custom *ConfigCustom
+	Custom *CustomConfig
 
 	// HashPrefix is the hashprefix-filter configuration for a default filter
 	// storage.  It must not be nil
-	HashPrefix *ConfigHashPrefix
+	HashPrefix *HashPrefixConfig
 
 	// RuleLists is the rule-list configuration for a default filter storage.
 	// It must not be nil.
-	RuleLists *ConfigRuleLists
+	RuleLists *RuleListsConfig
 
 	// SafeSearchGeneral is the general safe-search configuration for a default
 	// filter storage.  It must not be nil.
-	SafeSearchGeneral *ConfigSafeSearch
+	SafeSearchGeneral *SafeSearchConfig
 
 	// SafeSearchYouTube is the YouTube safe-search configuration for a default
 	// filter storage.  It must not be nil.
-	SafeSearchYouTube *ConfigSafeSearch
+	SafeSearchYouTube *SafeSearchConfig
+
+	// StandardAccess is the standard access configuration for a default filter
+	// storage.  It must not be nil.
+	StandardAccess *StandardAccessConfig
 
 	// CacheManager is the global cache manager.  It must not be nil.
 	CacheManager agdcache.Manager
@@ -66,9 +70,9 @@ type Config struct {
 	CacheDir string
 }
 
-// ConfigBlockedServices is the blocked-service filter configuration for a
+// BlockedServicesConfig is the blocked-service filter configuration for a
 // default filter storage.
-type ConfigBlockedServices struct {
+type BlockedServicesConfig struct {
 	// IndexURL is the URL of the blocked-service filter index.  It must not be
 	// modified after calling [New].  It must not be nil.  It is ignored if
 	// [ConfigBlockedServices.Enabled] is false.
@@ -102,17 +106,17 @@ type ConfigBlockedServices struct {
 	Enabled bool
 }
 
-// ConfigCustom is the configuration of a custom filters storage for a default
+// CustomConfig is the configuration of a custom filters storage for a default
 // filter storage.
-type ConfigCustom struct {
+type CustomConfig struct {
 	// CacheCount is the count of items to keep in the LRU cache of custom
 	// filters.  It must be greater than zero.
 	CacheCount int
 }
 
-// ConfigHashPrefix is the hashprefix-filter configuration for a default filter
+// HashPrefixConfig is the hashprefix-filter configuration for a default filter
 // storage.
-type ConfigHashPrefix struct {
+type HashPrefixConfig struct {
 	// Adult is the optional hashprefix filter for adult content.  If nil, no
 	// adult-content filtering is performed.
 	Adult *hashprefix.Filter
@@ -126,8 +130,8 @@ type ConfigHashPrefix struct {
 	NewlyRegistered *hashprefix.Filter
 }
 
-// ConfigRuleLists is the rule-list configuration for a default filter storage.
-type ConfigRuleLists struct {
+// RuleListsConfig is the rule-list configuration for a default filter storage.
+type RuleListsConfig struct {
 	// IndexURL is the URL of the rule-list filter index.  It must not be
 	// modified after calling [New].  It must not be nil.
 	IndexURL *url.URL
@@ -164,9 +168,9 @@ type ConfigRuleLists struct {
 	ResultCacheEnabled bool
 }
 
-// ConfigSafeSearch is the single safe-search configuration for a default filter
+// SafeSearchConfig is the single safe-search configuration for a default filter
 // storage.
-type ConfigSafeSearch struct {
+type SafeSearchConfig struct {
 	// URL is the HTTP(S) URL of the safe-search rules list.  It must not be
 	// modified after calling [New].  It must not be nil.  It is ignored if
 	// [ConfigSafeSearch.Enabled] is false.

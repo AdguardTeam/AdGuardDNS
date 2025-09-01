@@ -527,7 +527,7 @@ func createDoH3Client(
 			_ string,
 			tlsCfg *tls.Config,
 			cfg *quic.Config,
-		) (c quic.EarlyConnection, e error) {
+		) (c *quic.Conn, e error) {
 			return quic.DialAddrEarly(ctx, httpsAddr.String(), tlsCfg, cfg)
 		},
 		QUICConfig:      quicConfig,

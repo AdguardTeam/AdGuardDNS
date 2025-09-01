@@ -3,7 +3,7 @@
 # This comment is used to simplify checking local copies of the script.  Bump
 # this number every time a significant change is made to this script.
 #
-# AdGuard-Project-Version: 5
+# AdGuard-Project-Version: 6
 
 verbose="${VERBOSE:-0}"
 readonly verbose
@@ -36,7 +36,7 @@ else
 fi
 readonly race_flags
 
-count_flags='--count=1'
+count_flags='--count=2'
 cover_flags='--coverprofile=./cover.out'
 go="${GO:-go}"
 shuffle_flags='--shuffle=on'

@@ -49,6 +49,7 @@ type environment struct {
 	RuleStatURL              *urlutil.URL `env:"RULESTAT_URL"`
 	SafeBrowsingURL          *urlutil.URL `env:"SAFE_BROWSING_URL"`
 	SessionTicketURL         *urlutil.URL `env:"SESSION_TICKET_URL"`
+	StandardAccessURL        *urlutil.URL `env:"STANDARD_ACCESS_URL"`
 	YoutubeSafeSearchURL     *urlutil.URL `env:"YOUTUBE_SAFE_SEARCH_URL"`
 
 	BackendRateLimitAPIKey string `env:"BACKEND_RATELIMIT_API_KEY"`
@@ -74,6 +75,8 @@ type environment struct {
 	SessionTicketCachePath string `env:"SESSION_TICKET_CACHE_PATH"`
 	SessionTicketIndexName string `env:"SESSION_TICKET_INDEX_NAME"`
 	SessionTicketType      string `env:"SESSION_TICKET_TYPE"`
+	StandardAccessAPIKey   string `env:"STANDARD_ACCESS_API_KEY"`
+	StandardAccessType     string `env:"STANDARD_ACCESS_TYPE"`
 
 	// TODO(a.garipov):  Consider renaming to "WEB_STATIC_PATH" or something
 	// similar.
@@ -83,9 +86,11 @@ type environment struct {
 
 	ProfilesMaxRespSize datasize.ByteSize `env:"PROFILES_MAX_RESP_SIZE" envDefault:"64MB"`
 
-	CustomDomainsRefreshIvl timeutil.Duration `env:"CUSTOM_DOMAINS_REFRESH_INTERVAL"`
-	DNSCheckKVTTL           timeutil.Duration `env:"DNSCHECK_KV_TTL"`
-	SessionTicketRefreshIvl timeutil.Duration `env:"SESSION_TICKET_REFRESH_INTERVAL"`
+	CustomDomainsRefreshIvl  timeutil.Duration `env:"CUSTOM_DOMAINS_REFRESH_INTERVAL"`
+	DNSCheckKVTTL            timeutil.Duration `env:"DNSCHECK_KV_TTL"`
+	SessionTicketRefreshIvl  timeutil.Duration `env:"SESSION_TICKET_REFRESH_INTERVAL"`
+	StandardAccessRefreshIvl timeutil.Duration `env:"STANDARD_ACCESS_REFRESH_INTERVAL"`
+	StandardAccessTimeout    timeutil.Duration `env:"STANDARD_ACCESS_TIMEOUT"`
 
 	// TODO(a.garipov):  Rename to DNSCHECK_CACHE_KV_COUNT?
 	DNSCheckCacheKVSize int `env:"DNSCHECK_CACHE_KV_SIZE"`
@@ -152,6 +157,7 @@ func (envs *environment) Validate() (err error) {
 	errs = envs.validateDNSCheck(errs)
 	errs = envs.validateRateLimit(errs)
 	errs = envs.validateSessionTickets(errs)
+	errs = envs.validateStandardAccess(errs)
 	errs = envs.validateRateLimitURLs(errs)
 
 	return errors.Join(errs...)
@@ -328,12 +334,12 @@ func (envs *environment) validateRateLimit(errs []error) (res []error) {
 func (envs *environment) validateSessionTickets(errs []error) (res []error) {
 	res = errs
 
-	err := validate.Positive("env SESSION_TICKET_REFRESH_INTERVAL", envs.SessionTicketRefreshIvl)
+	err := validate.NotEmpty("env SESSION_TICKET_TYPE", envs.SessionTicketType)
 	if err != nil {
-		res = append(res, err)
+		return append(res, err)
 	}
 
-	err = validate.NotEmpty("env SESSION_TICKET_TYPE", envs.SessionTicketType)
+	err = validate.Positive("env SESSION_TICKET_REFRESH_INTERVAL", envs.SessionTicketRefreshIvl)
 	if err != nil {
 		return append(res, err)
 	}
@@ -342,24 +348,52 @@ func (envs *environment) validateSessionTickets(errs []error) (res []error) {
 	case sessionTicketLocal:
 		return res
 	case sessionTicketRemote:
-		// Go on.
+		res = append(
+			res,
+			validate.NotEmpty("env SESSION_TICKET_API_KEY", envs.SessionTicketAPIKey),
+			validate.NotEmpty("env SESSION_TICKET_CACHE_PATH", envs.SessionTicketCachePath),
+			validate.NotEmpty("env SESSION_TICKET_INDEX_NAME", envs.SessionTicketIndexName),
+		)
+
+		if err = validate.NotNil("env SESSION_TICKET_URL", envs.SessionTicketURL); err != nil {
+			res = append(res, err)
+		} else if err = urlutil.ValidateGRPCURL(&envs.SessionTicketURL.URL); err != nil {
+			res = append(res, fmt.Errorf("env SESSION_TICKET_URL: %w", err))
+		}
 	default:
 		err = fmt.Errorf("env SESSION_TICKET_TYPE: %w: %q", errors.ErrBadEnumValue, typ)
 
 		return append(res, err)
 	}
 
-	res = append(
-		res,
-		validate.NotEmpty("env SESSION_TICKET_API_KEY", envs.SessionTicketAPIKey),
-		validate.NotEmpty("env SESSION_TICKET_CACHE_PATH", envs.SessionTicketCachePath),
-		validate.NotEmpty("env SESSION_TICKET_INDEX_NAME", envs.SessionTicketIndexName),
-	)
+	return res
+}
 
-	if err = validate.NotNil("env SESSION_TICKET_URL", envs.SessionTicketURL); err != nil {
-		res = append(res, err)
-	} else if err = urlutil.ValidateGRPCURL(&envs.SessionTicketURL.URL); err != nil {
-		res = append(res, fmt.Errorf("env SESSION_TICKET_URL: %w", err))
+// validateStandardAccess appends validation errors to the given errs if
+// environment variables for standard access contain errors.
+func (envs *environment) validateStandardAccess(errs []error) (res []error) {
+	res = errs
+
+	switch typ := envs.StandardAccessType; typ {
+	case standardAccessOff:
+		return res
+	case standardAccessBackend:
+		res = append(
+			res,
+			validate.NotEmpty("env STANDARD_ACCESS_API_KEY", envs.StandardAccessAPIKey),
+			validate.Positive("env STANDARD_ACCESS_REFRESH_INTERVAL", envs.StandardAccessRefreshIvl),
+			validate.Positive("env STANDARD_ACCESS_TIMEOUT", envs.StandardAccessTimeout),
+		)
+
+		if err := validate.NotNil("env STANDARD_ACCESS_URL", envs.StandardAccessURL); err != nil {
+			res = append(res, err)
+		} else if err = urlutil.ValidateGRPCURL(&envs.StandardAccessURL.URL); err != nil {
+			res = append(res, fmt.Errorf("env STANDARD_ACCESS_URL: %w", err))
+		}
+	default:
+		err := fmt.Errorf("env STANDARD_ACCESS_TYPE: %w: %q", errors.ErrBadEnumValue, typ)
+
+		return append(res, err)
 	}
 
 	return res

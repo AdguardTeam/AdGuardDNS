@@ -86,7 +86,7 @@ func TestServerQUIC_integration_ENDS0Padding(t *testing.T) {
 	conn, err := quic.DialAddr(context.Background(), addr.String(), tlsConfig, nil)
 	require.NoError(t, err)
 
-	defer func(conn quic.Connection, code quic.ApplicationErrorCode, s string) {
+	defer func(conn *quic.Conn, code quic.ApplicationErrorCode, s string) {
 		_ = conn.CloseWithError(code, s)
 	}(conn, 0, "")
 
@@ -196,7 +196,7 @@ func testQUICExchange(
 		return conn.CloseWithError(0, "")
 	})
 
-	defer func(conn quic.Connection, code quic.ApplicationErrorCode, s string) {
+	defer func(conn *quic.Conn, code quic.ApplicationErrorCode, s string) {
 		_ = conn.CloseWithError(code, s)
 	}(conn, 0, "")
 
@@ -210,7 +210,7 @@ func testQUICExchange(
 
 // sendQUICMessage is a test helper that sends a test QUIC message.
 func sendQUICMessage(
-	conn quic.Connection,
+	conn *quic.Conn,
 	req *dns.Msg,
 ) (resp *dns.Msg, err error) {
 	stream, err := conn.OpenStreamSync(context.Background())
@@ -266,7 +266,7 @@ func sendQUICMessage(
 // test's t.
 func requireSendQUICMessage(
 	t testing.TB,
-	conn quic.Connection,
+	conn *quic.Conn,
 	req *dns.Msg,
 ) (resp *dns.Msg) {
 	t.Helper()
@@ -279,7 +279,7 @@ func requireSendQUICMessage(
 
 // writeQUICStream writes buf to the specified QUIC stream in chunks.  This way
 // it is possible to test how the server deals with chunked DNS messages.
-func writeQUICStream(buf []byte, stream quic.Stream) (err error) {
+func writeQUICStream(buf []byte, stream *quic.Stream) (err error) {
 	// Send the DNS query to the stream and split it into chunks of up
 	// to 400 bytes.  400 is an arbitrary chosen value.
 	chunkSize := 400

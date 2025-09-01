@@ -1,4 +1,6 @@
 // Package debugsvc contains the debug HTTP API of AdGuard DNS.
+//
+// TODO(a.garipov):  Add standard or custom metrics.
 package debugsvc
 
 import (
@@ -130,7 +132,7 @@ var _ service.Interface = (*Service)(nil)
 //
 // TODO(a.garipov): Wait for the services to go online.
 //
-// TODO(a.garipov): Use the context for cancelation.
+// TODO(a.garipov): Use the context for cancellation.
 func (svc *Service) Start(ctx context.Context) (err error) {
 	for _, srv := range svc.servers {
 		go runServer(ctx, svc.logger, srv)

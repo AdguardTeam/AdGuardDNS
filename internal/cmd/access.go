@@ -6,6 +6,12 @@ import (
 	"github.com/AdguardTeam/golibs/validate"
 )
 
+// Possible values of the STANDARD_ACCESS_TYPE environment variable.
+const (
+	standardAccessOff     = "off"
+	standardAccessBackend = "backend"
+)
+
 // accessConfig is the configuration that controls IP and hosts blocking.
 type accessConfig struct {
 	// BlockedQuestionDomains is a list of AdBlock rules used to block access.

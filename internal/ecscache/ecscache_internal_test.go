@@ -40,5 +40,3 @@ func TestRoundDiv(t *testing.T) {
 		MaxCount: 100_000,
 	}))
 }
-
-// TODO(a.garipov): Add benchmarks for the new ECS cache key packing.

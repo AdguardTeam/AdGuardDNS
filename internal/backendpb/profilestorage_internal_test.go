@@ -56,7 +56,7 @@ func TestProfileStorage_NewProfile(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		assert.Equal(t, newProfile(t), got)
+		agdtest.AssertEqualProfile(t, newProfile(t), got)
 		assert.Equal(t, newDevices(t), gotDevices)
 		assert.Equal(t, wantDevChg, gotDevChg)
 	})
@@ -95,7 +95,7 @@ func TestProfileStorage_NewProfile(t *testing.T) {
 			errCollErr,
 		)
 
-		assert.Equal(t, newProfile(t), got)
+		agdtest.AssertEqualProfile(t, newProfile(t), got)
 		assert.Equal(t, newDevices(t), gotDevices)
 		assert.Equal(t, wantDevChg, gotDevChg)
 	})
@@ -135,7 +135,10 @@ func TestProfileStorage_NewProfile(t *testing.T) {
 			errCollErr,
 		)
 
-		assert.NotEqual(t, newProfile(t), got)
+		wantProf := newProfile(t)
+		wantProf.DeviceIDs.Delete(TestDeviceID)
+
+		agdtest.AssertEqualProfile(t, wantProf, got)
 		assert.NotEqual(t, newDevices(t), gotDevices)
 		assert.Len(t, gotDevices, 3)
 		assert.Equal(t, wantDevChg, gotDevChg)
@@ -250,7 +253,7 @@ func TestProfileStorage_NewProfile(t *testing.T) {
 		wantProf := newProfile(t)
 		wantProf.BlockingMode = &dnsmsg.BlockingModeNullIP{}
 
-		assert.Equal(t, wantProf, got)
+		agdtest.AssertEqualProfile(t, wantProf, got)
 		assert.Equal(t, newDevices(t), gotDevices)
 		assert.Equal(t, wantDevChg, gotDevChg)
 	})

@@ -7,6 +7,10 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 [kec]: https://keepachangelog.com/en/1.0.0/
 [sem]: https://semver.org/spec/v2.0.0.html
 
+## AGDNS-2998 / Build 1042
+
+- Profiles’ file cache version has been incremented. The new field `StandardEnabled` has been added to access’ object.
+
 ## AGDNS-3018 / Build 1033
 
 - The environment variables `DNSCHECK_KV_TTL`, `DNSCHECK_KV_TYPE` have been added.

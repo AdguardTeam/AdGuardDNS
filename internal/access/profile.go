@@ -6,6 +6,8 @@ import (
 	"slices"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/golibs/syncutil"
+	"github.com/AdguardTeam/urlfilter"
 	"github.com/miekg/dns"
 )
 
@@ -14,18 +16,13 @@ type Profile interface {
 	// Config returns the profile access configuration.
 	Config() (conf *ProfileConfig)
 
-	// IsBlocked returns true if the req should be blocked.  req must not be
-	// nil, and req.Question must have one item.
-	IsBlocked(
-		ctx context.Context,
-		req *dns.Msg,
-		rAddr netip.AddrPort,
-		l *geoip.Location,
-	) (blocked bool)
+	Blocker
 }
 
-// EmptyProfile is an empty profile implementation that does nothing.
-type EmptyProfile struct{}
+// EmptyProfile is an empty [Profile] implementation that does nothing.
+type EmptyProfile struct {
+	EmptyBlocker
+}
 
 // type check
 var _ Profile = EmptyProfile{}
@@ -33,17 +30,6 @@ var _ Profile = EmptyProfile{}
 // Config implements the [Profile] interface for EmptyProfile.  It always
 // returns nil.
 func (EmptyProfile) Config() (conf *ProfileConfig) { return nil }
-
-// IsBlocked implements the [Profile] interface for EmptyProfile.  It always
-// returns false.
-func (EmptyProfile) IsBlocked(
-	_ context.Context,
-	_ *dns.Msg,
-	_ netip.AddrPort,
-	_ *geoip.Location,
-) (blocked bool) {
-	return false
-}
 
 // ProfileConfig is a profile specific access configuration.
 //
@@ -64,13 +50,22 @@ type ProfileConfig struct {
 
 	// BlocklistDomainRules is slice of rules to match requests.
 	BlocklistDomainRules []string
+
+	// StandardEnabled controls whether the profile should also apply standard
+	// access settings.
+	StandardEnabled bool
 }
 
 // DefaultProfile controls profile specific IP and client blocking that take
 // place before all other processing.  DefaultProfile is safe for concurrent
 // use.
 type DefaultProfile struct {
+	standard Blocker
+
 	blockedHostsEng *blockedHostEngine
+
+	reqPool *syncutil.Pool[urlfilter.DNSRequest]
+	resPool *syncutil.Pool[urlfilter.DNSResult]
 
 	allowedNets []netip.Prefix
 	blockedNets []netip.Prefix
@@ -80,6 +75,8 @@ type DefaultProfile struct {
 	blockedASN []geoip.ASN
 
 	blocklistDomainRules []string
+
+	standardEnabled bool
 }
 
 // defaultProfileConfig is the configuration for the default access for
@@ -89,21 +86,42 @@ type defaultProfileConfig struct {
 	// nil and must be valid.
 	conf *ProfileConfig
 
+	// reqPool is the pool of URLFilter request data to use and reuse during
+	// filtering.  It must not be nil.
+	reqPool *syncutil.Pool[urlfilter.DNSRequest]
+
+	// resPool is the pool of URLFilter result data to use and reuse during
+	// filtering.  It must not be nil.
+	resPool *syncutil.Pool[urlfilter.DNSResult]
+
 	// metrics is used for the collection of the profile access engine
 	// statistics.  It must not be nil.
 	metrics ProfileMetrics
+
+	// standard is the standard access blocker to use.
+	standard Blocker
 }
 
 // newDefaultProfile creates a new *DefaultProfile.  conf is assumed to be
 // valid.  mtrc must not be nil.
 func newDefaultProfile(c *defaultProfileConfig) (p *DefaultProfile) {
 	return &DefaultProfile{
-		allowedNets:          c.conf.AllowedNets,
-		blockedNets:          c.conf.BlockedNets,
-		allowedASN:           c.conf.AllowedASN,
-		blockedASN:           c.conf.BlockedASN,
+		standard: c.standard,
+
+		blockedHostsEng: newBlockedHostEngine(c.metrics, c.conf.BlocklistDomainRules),
+
+		reqPool: c.reqPool,
+		resPool: c.resPool,
+
+		allowedNets: c.conf.AllowedNets,
+		blockedNets: c.conf.BlockedNets,
+
+		allowedASN: c.conf.AllowedASN,
+		blockedASN: c.conf.BlockedASN,
+
 		blocklistDomainRules: c.conf.BlocklistDomainRules,
-		blockedHostsEng:      newBlockedHostEngine(c.metrics, c.conf.BlocklistDomainRules),
+
+		standardEnabled: c.conf.StandardEnabled,
 	}
 }
 
@@ -118,10 +136,14 @@ func (p *DefaultProfile) Config() (conf *ProfileConfig) {
 		AllowedASN:           slices.Clone(p.allowedASN),
 		BlockedASN:           slices.Clone(p.blockedASN),
 		BlocklistDomainRules: slices.Clone(p.blocklistDomainRules),
+		StandardEnabled:      p.standardEnabled,
 	}
 }
 
-// IsBlocked implements the [Profile] interface for *DefaultProfile.
+// type check
+var _ Blocker = (*DefaultProfile)(nil)
+
+// IsBlocked implements the [Blocker] interface for *DefaultProfile.
 func (p *DefaultProfile) IsBlocked(
 	ctx context.Context,
 	req *dns.Msg,
@@ -130,7 +152,9 @@ func (p *DefaultProfile) IsBlocked(
 ) (blocked bool) {
 	ip := rAddr.Addr()
 
-	return p.isBlockedByNets(ip, l) || p.isBlockedByHostsEng(ctx, req)
+	return p.isBlockedByNets(ip, l) ||
+		p.isBlockedByHostsEng(ctx, req) ||
+		p.standard.IsBlocked(ctx, req, rAddr, l)
 }
 
 // isBlockedByNets returns true if ip or l is blocked by current profile.
@@ -162,29 +186,4 @@ func matchASNs(asns []geoip.ASN, l *geoip.Location) (ok bool) {
 // BlocklistDomainRules.  req must have exactly one question.
 func (p *DefaultProfile) isBlockedByHostsEng(ctx context.Context, req *dns.Msg) (blocked bool) {
 	return p.blockedHostsEng.isBlocked(ctx, req)
-}
-
-// ProfileConstructor creates default access managers for profiles.
-//
-// TODO(a.garipov):  Add global standard rules for profile access managers here
-// as well.
-type ProfileConstructor struct {
-	metrics ProfileMetrics
-}
-
-// NewProfileConstructor returns a properly initialized *ProfileConstructor.
-// mtrc must not be nil.
-func NewProfileConstructor(mtrc ProfileMetrics) (c *ProfileConstructor) {
-	return &ProfileConstructor{
-		metrics: mtrc,
-	}
-}
-
-// New creates a new access manager for a profile based on the configuration.
-// conf must not be nil and must be valid.
-func (c *ProfileConstructor) New(conf *ProfileConfig) (p *DefaultProfile) {
-	return newDefaultProfile(&defaultProfileConfig{
-		conf:    conf,
-		metrics: c.metrics,
-	})
 }

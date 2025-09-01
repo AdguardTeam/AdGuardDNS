@@ -81,16 +81,6 @@ type FilterConfig struct {
 	MaxSize datasize.ByteSize
 }
 
-// cacheItem represents an item that we will store in the cache.
-type cacheItem struct {
-	// res is the filtering result.
-	res filter.Result
-
-	// host is the cached normalized hostname for later cache key collision
-	// checks.
-	host string
-}
-
 // Filter is a filter that matches hosts by their hashes based on a hash-prefix
 // table.  It should be initially refreshed with [Filter.RefreshInitial].
 type Filter struct {
@@ -101,7 +91,7 @@ type Filter struct {
 	errColl        errcoll.Interface
 	hashprefixMtcs Metrics
 	metrics        filter.Metrics
-	resCache       agdcache.Interface[rulelist.CacheKey, *cacheItem]
+	resCache       agdcache.Interface[rulelist.CacheKey, filter.Result]
 	id             filter.ID
 	repIP          netip.Addr
 	repFQDN        string
@@ -119,7 +109,7 @@ const IDPrefix = "filters/hashprefix"
 func NewFilter(c *FilterConfig) (f *Filter, err error) {
 	id := c.ID
 
-	resCache := agdcache.NewLRU[rulelist.CacheKey, *cacheItem](&agdcache.LRUConfig{
+	resCache := agdcache.NewLRU[rulelist.CacheKey, filter.Result](&agdcache.LRUConfig{
 		Count: c.CacheCount,
 	})
 
@@ -174,10 +164,10 @@ func (f *Filter) FilterRequest(
 	host, qt, cl := req.Host, req.QType, req.QClass
 
 	cacheKey := rulelist.NewCacheKey(host, qt, cl, false)
-	item, ok := f.itemFromCache(ctx, cacheKey, host)
+	item, ok := f.resCache.Get(cacheKey)
 	f.hashprefixMtcs.IncrementLookups(ctx, ok)
 	if ok {
-		return f.clonedResult(req.DNS, item.res), nil
+		return f.clonedResult(req.DNS, item), nil
 	}
 
 	fam, ok := isFilterable(qt)
@@ -196,10 +186,7 @@ func (f *Filter) FilterRequest(
 	}
 
 	if matched == "" {
-		f.resCache.Set(cacheKey, &cacheItem{
-			res:  nil,
-			host: host,
-		})
+		f.resCache.Set(cacheKey, nil)
 
 		return nil, nil
 	}
@@ -210,33 +197,11 @@ func (f *Filter) FilterRequest(
 		return nil, err
 	}
 
-	f.setInCache(cacheKey, r, host)
+	f.setInCache(cacheKey, r)
 
 	f.hashprefixMtcs.UpdateCacheSize(ctx, f.resCache.Len())
 
 	return r, nil
-}
-
-// itemFromCache retrieves a cache item for the given key.  host is used to
-// detect key collisions.  If there is a key collision, it returns nil and
-// false.
-func (f *Filter) itemFromCache(
-	ctx context.Context,
-	key rulelist.CacheKey,
-	host string,
-) (item *cacheItem, ok bool) {
-	item, ok = f.resCache.Get(key)
-	if !ok {
-		return nil, false
-	}
-
-	if item.host != host {
-		f.logger.WarnContext(ctx, "collision: bad cache item", "item", item, "host", host)
-
-		return nil, false
-	}
-
-	return item, true
 }
 
 // isFilterable returns true if the question type is filterable.  If the type is
@@ -335,18 +300,12 @@ func (f *Filter) respForFamily(
 // [*filter.ResultModifiedResponse].
 //
 // See AGDNS-359.
-func (f *Filter) setInCache(k rulelist.CacheKey, r filter.Result, host string) {
+func (f *Filter) setInCache(k rulelist.CacheKey, r filter.Result) {
 	switch r := r.(type) {
 	case *filter.ResultModifiedRequest:
-		f.resCache.Set(k, &cacheItem{
-			res:  r.Clone(f.cloner),
-			host: host,
-		})
+		f.resCache.Set(k, r.Clone(f.cloner))
 	case *filter.ResultModifiedResponse:
-		f.resCache.Set(k, &cacheItem{
-			res:  r.Clone(f.cloner),
-			host: host,
-		})
+		f.resCache.Set(k, r.Clone(f.cloner))
 	default:
 		panic(fmt.Errorf("hashprefix: unexpected type for result: %T(%[1]v)", r))
 	}
@@ -392,13 +351,13 @@ func (f *Filter) refresh(ctx context.Context, acceptStale bool) (err error) {
 		f.metrics.SetFilterStatus(ctx, string(f.id), time.Now(), count, err)
 	}()
 
-	text, err := f.refr.Refresh(ctx, acceptStale)
+	b, err := f.refr.Refresh(ctx, acceptStale)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return err
 	}
 
-	count, err = f.hashes.Reset(text)
+	count, err = f.hashes.Reset(b)
 	if err != nil {
 		return fmt.Errorf("%s: resetting: %w", f.id, err)
 	}

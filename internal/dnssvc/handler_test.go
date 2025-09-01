@@ -26,36 +26,38 @@ func TestNewHandlers(t *testing.T) {
 	t.Parallel()
 
 	accessMgr := &agdtest.AccessManager{
-		OnIsBlockedHost: func(host string, qt uint16) (blocked bool) { panic("not implemented") },
-		OnIsBlockedIP:   func(ip netip.Addr) (blocked bool) { panic("not implemented") },
+		OnIsBlockedHost: func(host string, qt uint16) (blocked bool) {
+			panic(testutil.UnexpectedCall(host, qt))
+		},
+		OnIsBlockedIP: func(ip netip.Addr) (blocked bool) { panic(testutil.UnexpectedCall(ip)) },
 	}
 
 	billStat := &agdtest.BillStatRecorder{
 		OnRecord: func(
-			_ context.Context,
-			_ agd.DeviceID,
-			_ geoip.Country,
-			_ geoip.ASN,
-			_ time.Time,
-			_ agd.Protocol,
+			ctx context.Context,
+			id agd.DeviceID,
+			ctry geoip.Country,
+			asn geoip.ASN,
+			start time.Time,
+			proto agd.Protocol,
 		) {
-			panic("not implemented")
+			panic(testutil.UnexpectedCall(ctx, id, ctry, asn, start, proto))
 		},
 	}
 
 	dnsCk := &agdtest.DNSCheck{
 		OnCheck: func(
-			_ context.Context,
-			_ *dns.Msg,
-			_ *agd.RequestInfo,
+			ctx context.Context,
+			req *dns.Msg,
+			ri *agd.RequestInfo,
 		) (resp *dns.Msg, err error) {
-			panic("not implemented")
+			panic(testutil.UnexpectedCall(ctx, req, ri))
 		},
 	}
 
 	dnsDB := &agdtest.DNSDB{
-		OnRecord: func(_ context.Context, _ *dns.Msg, _ *agd.RequestInfo) {
-			panic("not implemented")
+		OnRecord: func(ctx context.Context, resp *dns.Msg, ri *agd.RequestInfo) {
+			panic(testutil.UnexpectedCall(ctx, resp, ri))
 		},
 	}
 
@@ -76,30 +78,30 @@ func TestNewHandlers(t *testing.T) {
 	}
 
 	fltStrg := &agdtest.FilterStorage{
-		OnForConfig: func(_ context.Context, _ filter.Config) (f filter.Interface) {
-			panic("not implemented")
+		OnForConfig: func(ctx context.Context, c filter.Config) (f filter.Interface) {
+			panic(testutil.UnexpectedCall(ctx, c))
 		},
-		OnHasListID: func(_ filter.ID) (ok bool) { panic("not implemented") },
+		OnHasListID: func(id filter.ID) (ok bool) { panic(testutil.UnexpectedCall(id)) },
 	}
 
 	hashMatcher := &agdtest.HashMatcher{
 		OnMatchByPrefix: func(
-			_ context.Context,
-			_ string,
+			ctx context.Context,
+			host string,
 		) (hashes []string, matched bool, err error) {
-			panic("not implemented")
+			panic(testutil.UnexpectedCall(ctx, host))
 		},
 	}
 
 	queryLog := &agdtest.QueryLog{
-		OnWrite: func(_ context.Context, _ *querylog.Entry) (err error) {
-			panic("not implemented")
+		OnWrite: func(ctx context.Context, e *querylog.Entry) (err error) {
+			panic(testutil.UnexpectedCall(ctx, e))
 		},
 	}
 
 	ruleStat := &agdtest.RuleStat{
-		OnCollect: func(_ context.Context, _ filter.ID, _ filter.RuleText) {
-			panic("not implemented")
+		OnCollect: func(ctx context.Context, id filter.ID, text filter.RuleText) {
+			panic(testutil.UnexpectedCall(ctx, id, text))
 		},
 	}
 

@@ -136,7 +136,7 @@ func newTestService(
 		OnForConfig: func(_ context.Context, _ filter.Config) (f filter.Interface) {
 			return flt
 		},
-		OnHasListID: func(_ filter.ID) (ok bool) { panic("not implemented") },
+		OnHasListID: func(id filter.ID) (ok bool) { panic(testutil.UnexpectedCall(id)) },
 	}
 
 	var ql querylog.Interface = &agdtest.QueryLog{
@@ -397,8 +397,8 @@ func TestService_Wrap(t *testing.T) {
 					Rule: cnameRule,
 				}, nil
 			},
-			OnFilterResponse: func(_ context.Context, _ *filter.Response) (filter.Result, error) {
-				panic("not implemented")
+			OnFilterResponse: func(ctx context.Context, resp *filter.Response) (filter.Result, error) {
+				panic(testutil.UnexpectedCall(ctx, resp))
 			},
 		}
 

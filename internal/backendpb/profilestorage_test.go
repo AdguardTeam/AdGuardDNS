@@ -52,13 +52,13 @@ func TestProfileStorage_CreateAutoDevice(t *testing.T) {
 			req *backendpb.DNSProfilesRequest,
 			srv grpc.ServerStreamingServer[backendpb.DNSProfile],
 		) (err error) {
-			panic("not implemented")
+			panic(testutil.UnexpectedCall(req, srv))
 		},
 
 		OnSaveDevicesBillingStat: func(
 			srv grpc.ClientStreamingServer[backendpb.DeviceBillingStat, emptypb.Empty],
 		) (err error) {
-			panic("not implemented")
+			panic(testutil.UnexpectedCall(srv))
 		},
 	}
 
@@ -114,10 +114,10 @@ func BenchmarkProfileStorage_Profiles(b *testing.B) {
 
 	srv := &testDNSServiceServer{
 		OnCreateDeviceByHumanId: func(
-			_ context.Context,
-			_ *backendpb.CreateDeviceRequest,
-		) (_ *backendpb.CreateDeviceResponse, _ error) {
-			panic("not implemented")
+			ctx context.Context,
+			req *backendpb.CreateDeviceRequest,
+		) (resp *backendpb.CreateDeviceResponse, err error) {
+			panic(testutil.UnexpectedCall(ctx, req))
 		},
 
 		OnGetDNSProfiles: func(
@@ -131,9 +131,9 @@ func BenchmarkProfileStorage_Profiles(b *testing.B) {
 		},
 
 		OnSaveDevicesBillingStat: func(
-			_ grpc.ClientStreamingServer[backendpb.DeviceBillingStat, emptypb.Empty],
-		) (_ error) {
-			panic("not implemented")
+			srv grpc.ClientStreamingServer[backendpb.DeviceBillingStat, emptypb.Empty],
+		) (err error) {
+			panic(testutil.UnexpectedCall(srv))
 		},
 	}
 

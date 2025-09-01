@@ -6,25 +6,34 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 )
 
-func BenchmarkMiddleware_Get(b *testing.B) {
-	mw := &Middleware{
-		cache: agdcache.NewLRU[uint64, *cacheItem](&agdcache.LRUConfig{
-			Count: 10,
-		}),
-		ecsCache: agdcache.NewLRU[uint64, *cacheItem](&agdcache.LRUConfig{
-			Count: 10,
-		}),
-	}
+func BenchmarkMiddleware(b *testing.B) {
+	mw := NewMiddleware(&MiddlewareConfig{
+		Metrics:      EmptyMetrics{},
+		Clock:        timeutil.SystemClock{},
+		Cloner:       agdtest.NewCloner(),
+		Logger:       slogutil.NewDiscardLogger(),
+		CacheManager: agdcache.EmptyManager{},
+		GeoIP:        agdtest.NewGeoIP(),
+		NoECSCount:   100,
+		ECSCount:     100,
+	})
 
 	const (
 		host = "benchmark.example"
 		fqdn = host + "."
+
+		defaultTTL uint32 = 3600
 	)
+
+	reqAddr := netip.MustParseAddr("1.2.3.4")
 
 	req := dnsservertest.NewReq(fqdn, dns.TypeA, dns.ClassINET)
 	cr := &cacheRequest{
@@ -34,6 +43,9 @@ func BenchmarkMiddleware_Get(b *testing.B) {
 		qClass: dns.ClassINET,
 		reqDO:  true,
 	}
+	resp := dnsservertest.NewResp(dns.RcodeSuccess, req, dnsservertest.SectionAnswer{
+		dnsservertest.NewA(host, defaultTTL, reqAddr),
+	})
 
 	ctx := context.Background()
 
@@ -41,16 +53,18 @@ func BenchmarkMiddleware_Get(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
+		mw.set(resp, cr, true)
+
 		msg, _ = mw.get(ctx, req, cr)
 	}
 
-	assert.Nil(b, msg)
+	assert.NotNil(b, msg)
 
 	// Most recent results:
 	//
 	// goos: darwin
-	// goarch: amd64
+	// goarch: arm64
 	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/ecscache
-	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
-	// BenchmarkMiddleware_Get-12    	 5855624	       195.1 ns/op	      16 B/op	       2 allocs/op
+	// cpu: Apple M1 Pro
+	// BenchmarkMiddleware_Get-8   	 1647064	       726.8 ns/op	     568 B/op	      12 allocs/op
 }

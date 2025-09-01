@@ -1,0 +1,19 @@
+{
+    "allowed_nets": [
+        "192.0.2.1/32"
+    ],
+    "blocked_nets": [
+        "192.0.2.2/32"
+    ],
+    "allowed_asns": [
+        10
+    ],
+    "blocked_asns": [
+        20
+    ],
+    "rules": [
+        "blocked.std.test",
+        "@@allowed.std.test"
+    ],
+    "schema_version": 1
+}

@@ -2,6 +2,7 @@ package hashprefix
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -15,8 +16,7 @@ import (
 //
 // TODO(a.garipov): See if we could unexport this.
 type Storage struct {
-	// resetMu makes sure that only one reset is taking place at a time.  It
-	// also protects prev.
+	// resetMu makes sure that only one reset is taking place at a time.
 	resetMu *sync.Mutex
 
 	// hashSuffixes contains the hashSuffixes map.  It is an atomic pointer to
@@ -29,9 +29,11 @@ type Storage struct {
 type suffixMap = map[Prefix][]suffix
 
 // NewStorage returns a new hash storage containing hashes of the domain names
-// listed in hostnames, one domain name per line, requirements are described in
-// [Storage.Reset].  Empty string causes no errors.
-func NewStorage(hostnames string) (s *Storage, err error) {
+// listed in hostnameData (see [Storage.Reset]).  hostnameData may be nil.
+//
+// TODO(a.garipov):  Consider moving the version with the initial data into
+// tests.
+func NewStorage(hostnameData []byte) (s *Storage, err error) {
 	s = &Storage{
 		resetMu:      &sync.Mutex{},
 		hashSuffixes: &atomic.Pointer[suffixMap]{},
@@ -39,8 +41,8 @@ func NewStorage(hostnames string) (s *Storage, err error) {
 
 	s.hashSuffixes.Store(&suffixMap{})
 
-	if hostnames != "" {
-		_, err = s.Reset(hostnames)
+	if hostnameData != nil {
+		_, err = s.Reset(hostnameData)
 		if err != nil {
 			return nil, err
 		}
@@ -130,23 +132,23 @@ func (s *Storage) loadHashSuffixes(pref Prefix) (sufs []suffix, ok bool) {
 }
 
 // Reset resets the hosts in the index using the domain names listed in
-// hostnames and returns the total number of processed rules.  hostnames should
-// be a list of valid, lowercased domain names, one per line, and may include
+// hostnameData and returns the total number of processed rules.  hostnameData
+// should contain valid, lowercased domain names, one per line, and may include
 // empty lines and comments ('#' at the first position).
-func (s *Storage) Reset(hostnames string) (n int, err error) {
+func (s *Storage) Reset(hostnameData []byte) (n int, err error) {
 	s.resetMu.Lock()
 	defer s.resetMu.Unlock()
 
 	next := make(suffixMap, len(*s.hashSuffixes.Load()))
 
-	sc := bufio.NewScanner(strings.NewReader(hostnames))
+	sc := bufio.NewScanner(bytes.NewReader(hostnameData))
 	for sc.Scan() {
-		host := sc.Text()
+		host := sc.Bytes()
 		if len(host) == 0 || host[0] == '#' {
 			continue
 		}
 
-		sum := sha256.Sum256([]byte(host))
+		sum := sha256.Sum256(host)
 		pref := Prefix(sum[:PrefixLen])
 		suf := suffix(sum[PrefixLen:])
 		next[pref] = append(next[pref], suf)

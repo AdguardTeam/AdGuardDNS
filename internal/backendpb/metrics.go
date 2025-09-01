@@ -182,3 +182,22 @@ func (EmptyTicketStorageMetrics) SetTicketsState(_ context.Context, _ float64) {
 // ObserveUpdate implements the [TicketStorageMetrics] interface for
 // EmptyTicketStorageMetrics.
 func (EmptyTicketStorageMetrics) ObserveUpdate(_ context.Context, _ time.Duration, _ error) {}
+
+// StandardAccessMetrics is an interface that is used for the collection of
+// standard access statistics.
+type StandardAccessMetrics interface {
+	// ObserveUpdate sets the duration of the standard access settings update
+	// operation.
+	ObserveUpdate(ctx context.Context, dur time.Duration, err error)
+}
+
+// EmptyStandardAccessMetrics is the implementation of the
+// [StandardAccessMetrics] interface that does nothing.
+type EmptyStandardAccessMetrics struct{}
+
+// type check
+var _ StandardAccessMetrics = EmptyStandardAccessMetrics{}
+
+// ObserveUpdate implements the [StandardAccessMetrics] interface for
+// EmptyStandardAccessMetrics.
+func (EmptyStandardAccessMetrics) ObserveUpdate(_ context.Context, _ time.Duration, _ error) {}

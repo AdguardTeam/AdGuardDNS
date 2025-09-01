@@ -11,6 +11,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/composite"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
+	"github.com/AdguardTeam/urlfilter"
 	"github.com/miekg/dns"
 )
 
@@ -46,13 +47,15 @@ func New(c *Config, cache rulelist.ResultCache) (f *Filter, err error) {
 }
 
 // type check
-var _ composite.RequestFilter = (*Filter)(nil)
+var _ composite.RequestFilterUF = (*Filter)(nil)
 
-// FilterRequest implements the [composite.RequestFilter] interface for *Filter.
-// It modifies the response if host matches f.
-func (f *Filter) FilterRequest(
+// FilterRequestUF implements the [composite.RequestFilterUF] interface for
+// *Filter.  It modifies the response if host matches f.
+func (f *Filter) FilterRequestUF(
 	ctx context.Context,
 	req *filter.Request,
+	ufReq *urlfilter.DNSRequest,
+	ufRes *urlfilter.DNSResult,
 ) (r filter.Result, err error) {
 	qt := req.QType
 	switch qt {
@@ -62,13 +65,19 @@ func (f *Filter) FilterRequest(
 		return nil, nil
 	}
 
-	host := req.Host
-	dr := f.flt.DNSResult(req.RemoteIP, "", host, qt, false)
+	ufReq.Hostname = req.Host
+	ufReq.DNSType = req.QType
+
+	ok := f.flt.SetURLFilterResult(ctx, ufReq, ufRes)
+	if !ok {
+		return nil, nil
+	}
+
 	id, _ := f.flt.ID()
 
-	r = rulelist.ProcessDNSRewrites(req, dr.DNSRewrites(), id)
+	r = rulelist.ProcessDNSRewrites(req, ufRes.DNSRewrites(), id)
 
-	replaceRule(r, host)
+	replaceRule(r, req.Host)
 
 	return r, nil
 }

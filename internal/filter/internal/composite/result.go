@@ -10,10 +10,10 @@ import (
 	"github.com/miekg/dns"
 )
 
-// urlFilterResult is an entity simplifying the collection and compilation of
-// urlfilter results.  It contains per-pointer indexes of the IDs of filters
-// producing network and host rules.
-type urlFilterResult struct {
+// urlFilterResultCollector is an entity simplifying the collection and
+// compilation of urlfilter results.  It contains per-pointer indexes of the IDs
+// of filters producing network and host rules.
+type urlFilterResultCollector struct {
 	netRuleIDs  map[*rules.NetworkRule]filter.ID
 	hostRuleIDs map[*rules.HostRule]filter.ID
 
@@ -25,9 +25,9 @@ type urlFilterResult struct {
 	hostRules6   []*rules.HostRule
 }
 
-// newURLFilterResult returns a properly initialized *urlFilterResult.
-func newURLFilterResult() (r *urlFilterResult) {
-	return &urlFilterResult{
+// newURLFilterResultCollector returns a properly initialized *urlFilterResult.
+func newURLFilterResultCollector() (r *urlFilterResultCollector) {
+	return &urlFilterResultCollector{
 		netRuleIDs:  map[*rules.NetworkRule]filter.ID{},
 		hostRuleIDs: map[*rules.HostRule]filter.ID{},
 
@@ -36,66 +36,61 @@ func newURLFilterResult() (r *urlFilterResult) {
 	}
 }
 
-// add appends the rules from dr to the slices within r.  If dr is nil, add does
-// nothing.
-func (r *urlFilterResult) add(
+// add appends the rules from dr to the slices within c.  dr must not be nil.
+func (c *urlFilterResultCollector) add(
 	id filter.ID,
 	svcID filter.BlockedServiceID,
 	dr *urlfilter.DNSResult,
 ) {
-	if dr == nil {
-		return
-	}
-
 	for _, nr := range dr.NetworkRules {
-		r.networkRules = append(r.networkRules, nr)
-		r.netRuleIDs[nr] = id
+		c.networkRules = append(c.networkRules, nr)
+		c.netRuleIDs[nr] = id
 		if svcID != "" {
-			r.netRuleSvcIDs[nr] = svcID
+			c.netRuleSvcIDs[nr] = svcID
 		}
 	}
 
-	r.addHostRules(id, svcID, dr.HostRulesV4, dr.HostRulesV6)
+	c.addHostRules(id, svcID, dr.HostRulesV4, dr.HostRulesV6)
 }
 
 // addHostRules adds the host rules to the result.
-func (r *urlFilterResult) addHostRules(
+func (c *urlFilterResultCollector) addHostRules(
 	id filter.ID,
 	svcID filter.BlockedServiceID,
 	hostRules4 []*rules.HostRule,
 	hostRules6 []*rules.HostRule,
 ) {
 	for _, hr4 := range hostRules4 {
-		r.hostRules4 = append(r.hostRules4, hr4)
-		r.hostRuleIDs[hr4] = id
+		c.hostRules4 = append(c.hostRules4, hr4)
+		c.hostRuleIDs[hr4] = id
 		if svcID != "" {
-			r.hostRuleSvcIDs[hr4] = svcID
+			c.hostRuleSvcIDs[hr4] = svcID
 		}
 	}
 
 	for _, hr6 := range hostRules6 {
-		r.hostRules6 = append(r.hostRules6, hr6)
-		r.hostRuleIDs[hr6] = id
+		c.hostRules6 = append(c.hostRules6, hr6)
+		c.hostRuleIDs[hr6] = id
 		if svcID != "" {
-			r.hostRuleSvcIDs[hr6] = svcID
+			c.hostRuleSvcIDs[hr6] = svcID
 		}
 	}
 }
 
 // toInternal converts a result of using several urlfilter rulelists into a
 // filter.Result.
-func (r *urlFilterResult) toInternal(rrType dnsmsg.RRType) (res filter.Result) {
-	if nr := rules.GetDNSBasicRule(r.networkRules); nr != nil {
-		return r.netRuleDataToResult(nr)
+func (c *urlFilterResultCollector) toInternal(rrType dnsmsg.RRType) (res filter.Result) {
+	if nr := rules.GetDNSBasicRule(c.networkRules); nr != nil {
+		return c.netRuleDataToResult(nr)
 	}
 
-	return r.hostsRulesToResult(rrType)
+	return c.hostsRulesToResult(rrType)
 }
 
 // netRuleDataToResult converts a urlfilter network rule into a filtering
 // result.
-func (r *urlFilterResult) netRuleDataToResult(nr *rules.NetworkRule) (res filter.Result) {
-	fltID, ok := r.netRuleIDs[nr]
+func (c *urlFilterResultCollector) netRuleDataToResult(nr *rules.NetworkRule) (res filter.Result) {
+	fltID, ok := c.netRuleIDs[nr]
 	if !ok {
 		// Shouldn't happen, since fltID is supposed to be among the filters
 		// added to the result.
@@ -105,7 +100,7 @@ func (r *urlFilterResult) netRuleDataToResult(nr *rules.NetworkRule) (res filter
 	var rule filter.RuleText
 	if fltID == filter.IDBlockedService {
 		var svcID filter.BlockedServiceID
-		svcID, ok = r.netRuleSvcIDs[nr]
+		svcID, ok = c.netRuleSvcIDs[nr]
 		if !ok {
 			// Shouldn't happen, since svcID is supposed to be among the filters
 			// added to the result.
@@ -131,8 +126,8 @@ func (r *urlFilterResult) netRuleDataToResult(nr *rules.NetworkRule) (res filter
 }
 
 // hostsRulesToResult converts /etc/hosts-style rules into a filtering result.
-func (r *urlFilterResult) hostsRulesToResult(rrType dnsmsg.RRType) (res filter.Result) {
-	if len(r.hostRules4) == 0 && len(r.hostRules6) == 0 {
+func (c *urlFilterResultCollector) hostsRulesToResult(rrType dnsmsg.RRType) (res filter.Result) {
+	if len(c.hostRules4) == 0 && len(c.hostRules6) == 0 {
 		return nil
 	}
 
@@ -143,24 +138,24 @@ func (r *urlFilterResult) hostsRulesToResult(rrType dnsmsg.RRType) (res filter.R
 	//
 	// See also AGDNS-591.
 	var resHostRule *rules.HostRule
-	if rrType == dns.TypeA && len(r.hostRules4) > 0 {
-		resHostRule = r.hostRules4[0]
-	} else if rrType == dns.TypeAAAA && len(r.hostRules6) > 0 {
-		resHostRule = r.hostRules6[0]
+	if rrType == dns.TypeA && len(c.hostRules4) > 0 {
+		resHostRule = c.hostRules4[0]
+	} else if rrType == dns.TypeAAAA && len(c.hostRules6) > 0 {
+		resHostRule = c.hostRules6[0]
 	} else {
-		if len(r.hostRules4) > 0 {
-			resHostRule = r.hostRules4[0]
+		if len(c.hostRules4) > 0 {
+			resHostRule = c.hostRules4[0]
 		} else {
-			resHostRule = r.hostRules6[0]
+			resHostRule = c.hostRules6[0]
 		}
 	}
 
-	return r.hostRuleDataToResult(resHostRule)
+	return c.hostRuleDataToResult(resHostRule)
 }
 
 // hostRuleDataToResult converts a urlfilter host rule into a filtering result.
-func (r *urlFilterResult) hostRuleDataToResult(hr *rules.HostRule) (res filter.Result) {
-	fltID, ok := r.hostRuleIDs[hr]
+func (c *urlFilterResultCollector) hostRuleDataToResult(hr *rules.HostRule) (res filter.Result) {
+	fltID, ok := c.hostRuleIDs[hr]
 	if !ok {
 		// Shouldn't happen, since fltID is supposed to be among the filters
 		// added to the result.
@@ -170,7 +165,7 @@ func (r *urlFilterResult) hostRuleDataToResult(hr *rules.HostRule) (res filter.R
 	var rule filter.RuleText
 	if fltID == filter.IDBlockedService {
 		var svcID filter.BlockedServiceID
-		svcID, ok = r.hostRuleSvcIDs[hr]
+		svcID, ok = c.hostRuleSvcIDs[hr]
 		if !ok {
 			// Shouldn't happen, since svcID is supposed to be among the filters
 			// added to the result.

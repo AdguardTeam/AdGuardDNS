@@ -99,10 +99,10 @@ func TestService_Start(t *testing.T) {
 	// yet, check for it in periodically.
 	var resp *http.Response
 	healthCheckURL := srvURL.JoinPath(debugsvc.PathPatternHealthCheck)
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		var getErr error
 		resp, getErr = client.Get(ctx, healthCheckURL)
-		assert.NoError(t, getErr)
+		assert.NoError(c, getErr)
 	}, testTimeout, testTimeout/10)
 
 	body := readRespBody(t, resp)

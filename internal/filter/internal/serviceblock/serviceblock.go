@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
@@ -134,13 +133,13 @@ func (f *Filter) Refresh(
 
 // loadIndex fetches, decodes, and returns the blocked service index data.
 func (f *Filter) loadIndex(ctx context.Context, acceptStale bool) (resp *indexResp, err error) {
-	text, err := f.refr.Refresh(ctx, acceptStale)
+	b, err := f.refr.Refresh(ctx, acceptStale)
 	if err != nil {
 		return nil, fmt.Errorf("loading index: %w", err)
 	}
 
 	resp = &indexResp{}
-	err = json.NewDecoder(strings.NewReader(text)).Decode(resp)
+	err = json.Unmarshal(b, resp)
 	if err != nil {
 		return nil, fmt.Errorf("decoding index: %w", err)
 	}

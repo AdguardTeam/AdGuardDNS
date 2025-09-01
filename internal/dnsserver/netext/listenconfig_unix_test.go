@@ -9,6 +9,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
@@ -18,6 +19,7 @@ func TestDefaultListenConfigWithOOB(t *testing.T) {
 	lc := netext.DefaultListenConfigWithOOB(nil)
 	require.NotNil(t, lc)
 
+	// TODO(a.garipov):  Move to golibs.
 	type syscallConner interface {
 		SyscallConn() (c syscall.RawConn, err error)
 	}
@@ -26,9 +28,10 @@ func TestDefaultListenConfigWithOOB(t *testing.T) {
 		c, err := lc.ListenPacket(context.Background(), "udp4", "127.0.0.1:0")
 		require.NoError(t, err)
 		require.NotNil(t, c)
-		require.Implements(t, (*syscallConner)(nil), c)
 
-		sc, err := c.(syscallConner).SyscallConn()
+		scConner := testutil.RequireTypeAssert[syscallConner](t, c)
+
+		sc, err := scConner.SyscallConn()
 		require.NoError(t, err)
 
 		err = sc.Control(func(fd uintptr) {
@@ -51,9 +54,10 @@ func TestDefaultListenConfigWithOOB(t *testing.T) {
 
 		require.NoError(t, err)
 		require.NotNil(t, c)
-		require.Implements(t, (*syscallConner)(nil), c)
 
-		sc, err := c.(syscallConner).SyscallConn()
+		scConner := testutil.RequireTypeAssert[syscallConner](t, c)
+
+		sc, err := scConner.SyscallConn()
 		require.NoError(t, err)
 
 		err = sc.Control(func(fd uintptr) {
@@ -86,9 +90,10 @@ func TestDefaultListenConfigWithSO(t *testing.T) {
 		c, err := lc.ListenPacket(context.Background(), "udp4", "127.0.0.1:0")
 		require.NoError(t, err)
 		require.NotNil(t, c)
-		require.Implements(t, (*syscallConner)(nil), c)
 
-		sc, err := c.(syscallConner).SyscallConn()
+		scConner := testutil.RequireTypeAssert[syscallConner](t, c)
+
+		sc, err := scConner.SyscallConn()
 		require.NoError(t, err)
 
 		err = sc.Control(func(fd uintptr) {
@@ -119,9 +124,10 @@ func TestDefaultListenConfigWithSO(t *testing.T) {
 
 		require.NoError(t, err)
 		require.NotNil(t, c)
-		require.Implements(t, (*syscallConner)(nil), c)
 
-		sc, err := c.(syscallConner).SyscallConn()
+		scConner := testutil.RequireTypeAssert[syscallConner](t, c)
+
+		sc, err := scConner.SyscallConn()
 		require.NoError(t, err)
 
 		err = sc.Control(func(fd uintptr) {

@@ -8,7 +8,6 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
@@ -81,13 +80,13 @@ func (s *Default) loadIndex(
 	ctx context.Context,
 	acceptStale bool,
 ) (resp *indexResp, err error) {
-	text, err := s.ruleListIdxRefr.Refresh(ctx, acceptStale)
+	b, err := s.ruleListIdxRefr.Refresh(ctx, acceptStale)
 	if err != nil {
 		return nil, fmt.Errorf("loading index: %w", err)
 	}
 
 	resp = &indexResp{}
-	err = json.NewDecoder(strings.NewReader(text)).Decode(resp)
+	err = json.Unmarshal(b, resp)
 	if err != nil {
 		return nil, fmt.Errorf("decoding: %w", err)
 	}

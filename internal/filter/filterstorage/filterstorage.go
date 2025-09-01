@@ -10,14 +10,16 @@ import (
 //
 // TODO(a.garipov):  Consider using a separate type.
 const (
-	FilterIDBlockedServiceIndex filter.ID = "blocked_service_index"
-	FilterIDRuleListIndex       filter.ID = "rule_list_index"
+	FilterIDBlockedServiceIndex   filter.ID = "blocked_service_index"
+	FilterIDRuleListIndex         filter.ID = "rule_list_index"
+	FilterIDStandardProfileAccess filter.ID = "standard_profile_access"
 )
 
 // Filenames for filter indexes.
 const (
-	indexFileNameBlockedServices = "services.json"
-	indexFileNameRuleLists       = "filters.json"
+	indexFileNameBlockedServices       = "services.json"
+	indexFileNameRuleLists             = "filters.json"
+	indexFileNameStandardProfileAccess = "standard_profile_access.json"
 )
 
 // Constants that define cache identifiers for the cache manager.

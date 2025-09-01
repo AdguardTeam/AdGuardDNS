@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -524,21 +523,16 @@ func (m *testManager) Remove(ctx context.Context, certPath, keyPath string, isCu
 func newTestManager() (m *testManager) {
 	return &testManager{
 		onAdd: func(ctx context.Context, certPath, keyPath string, isCustom bool) (err error) {
-			panic(fmt.Errorf("unexpected call to testManager.Add(%v, %v, %v)", certPath, keyPath, isCustom))
+			panic(testutil.UnexpectedCall(ctx, certPath, keyPath, isCustom))
 		},
 		onClone: func() (c *tls.Config) {
-			panic(fmt.Errorf("unexpected call to testManager.Clone()"))
+			panic(testutil.UnexpectedCall())
 		},
 		onCloneWithMetrics: func(proto, srvName string, deviceDomains []string) (c *tls.Config) {
-			panic(fmt.Errorf(
-				"unexpected call to testManager.CloneWithMetrics(%v, %v, %v)",
-				proto,
-				srvName,
-				deviceDomains,
-			))
+			panic(testutil.UnexpectedCall(proto, srvName, deviceDomains))
 		},
 		onRemove: func(ctx context.Context, certPath, keyPath string, isCustom bool) (err error) {
-			panic(fmt.Errorf("unexpected call to testManager.Remove(%v, %v, %v)", certPath, keyPath, isCustom))
+			panic(testutil.UnexpectedCall(ctx, certPath, keyPath, isCustom))
 		},
 	}
 }
@@ -702,7 +696,7 @@ func TestCustomDomainDB_Refresh_retry(t *testing.T) {
 			certName string,
 		) (cert, key []byte, err error) {
 			if !shouldCall {
-				panic(fmt.Errorf("unexpected call to strg.OnCertificateData(%s)", certName))
+				panic(testutil.UnexpectedCall(ctx, certName))
 			}
 
 			if strgErr != nil {

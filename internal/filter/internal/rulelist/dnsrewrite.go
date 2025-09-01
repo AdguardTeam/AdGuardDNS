@@ -81,6 +81,8 @@ type dnsRewriteResultResponse map[rules.RRType][]rules.RRValue
 
 // processDNSRewriteRules processes DNS rewrite rules in dnsr.  The result will
 // have either CanonName or RCode or Response set.
+//
+// TODO(a.garipov):  Reuse dnsRewriteResult structures.
 func processDNSRewriteRules(dnsr []*rules.NetworkRule) (res *dnsRewriteResult) {
 	dnsrr := &dnsRewriteResult{
 		Response: dnsRewriteResultResponse{},

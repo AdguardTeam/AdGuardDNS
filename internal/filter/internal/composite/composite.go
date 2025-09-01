@@ -9,12 +9,19 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
+	"github.com/AdguardTeam/urlfilter"
 	"github.com/miekg/dns"
 )
 
 // Filter is a composite filter based on several types of safe-search and
 // rule-list filters.
 type Filter struct {
+	// ufReq is the URLFilter request data to use and reuse during filtering.
+	ufReq *urlfilter.DNSRequest
+
+	// ufRes is the URLFilter result data to use and reuse during filtering.
+	ufRes *urlfilter.DNSResult
+
 	// custom is the custom rule-list filter of the profile, if any.
 	custom filter.Custom
 
@@ -26,13 +33,20 @@ type Filter struct {
 	// services, if any.
 	svcLists []*rulelist.Immutable
 
-	// reqFilters are the safe-browsing and safe-search request filters in the
-	// composite filter.
+	// reqFilters are the safe-browsing request filters in the composite filter.
 	reqFilters []RequestFilter
 }
 
 // Config is the configuration structure for the composite filter.
 type Config struct {
+	// URLFilterRequest is the request data to use and reuse during filtering.
+	// It must not be nil.
+	URLFilterRequest *urlfilter.DNSRequest
+
+	// URLFilterResult is the result data to use and reuse during filtering.  It
+	// must not be nil.
+	URLFilterResult *urlfilter.DNSResult
+
 	// SafeBrowsing is the safe-browsing filter to apply, if any.
 	SafeBrowsing RequestFilter
 
@@ -44,10 +58,10 @@ type Config struct {
 	NewRegisteredDomains RequestFilter
 
 	// GeneralSafeSearch is the general safe-search filter to apply, if any.
-	GeneralSafeSearch RequestFilter
+	GeneralSafeSearch RequestFilterUF
 
 	// YouTubeSafeSearch is the youtube safe-search filter to apply, if any.
-	YouTubeSafeSearch RequestFilter
+	YouTubeSafeSearch RequestFilterUF
 
 	// Custom is the custom rule-list filter of the profile, if any.
 	Custom filter.Custom
@@ -61,16 +75,14 @@ type Config struct {
 	ServiceLists []*rulelist.Immutable
 }
 
-// RequestFilter can filter a request based on the request info.
-type RequestFilter interface {
-	// FilterRequest filters a DNS request based on the information provided
-	// about the request.  req must be valid.
-	FilterRequest(ctx context.Context, req *filter.Request) (r filter.Result, err error)
-}
-
 // New returns a new composite filter.  c must not be nil.
+//
+// TODO(a.garipov):  Consider reusing composite filters and adding function Set
+// and method Reset.
 func New(c *Config) (f *Filter) {
 	f = &Filter{
+		ufReq:     c.URLFilterRequest,
+		ufRes:     c.URLFilterResult,
 		custom:    c.Custom,
 		ruleLists: c.RuleLists,
 		svcLists:  c.ServiceLists,
@@ -79,17 +91,40 @@ func New(c *Config) (f *Filter) {
 	// DO NOT change the order of request filters without necessity.
 	f.reqFilters = appendIfNotNil(f.reqFilters, c.SafeBrowsing)
 	f.reqFilters = appendIfNotNil(f.reqFilters, c.AdultBlocking)
-	f.reqFilters = appendIfNotNil(f.reqFilters, c.GeneralSafeSearch)
-	f.reqFilters = appendIfNotNil(f.reqFilters, c.YouTubeSafeSearch)
+	f.reqFilters = appendIfNotNilUF(f.reqFilters, c.GeneralSafeSearch, f.ufReq, f.ufRes)
+	f.reqFilters = appendIfNotNilUF(f.reqFilters, c.YouTubeSafeSearch, f.ufReq, f.ufRes)
 	f.reqFilters = appendIfNotNil(f.reqFilters, c.NewRegisteredDomains)
 
 	return f
 }
 
-// appendIfNotNil appends flt to flts if flt is not nil.
-func appendIfNotNil(flts []RequestFilter, flt RequestFilter) (res []RequestFilter) {
+// appendIfNotNil appends flt to orig if flt is not nil.
+func appendIfNotNil(orig []RequestFilter, flt RequestFilter) (flts []RequestFilter) {
+	flts = orig
+
 	if flt != nil {
 		flts = append(flts, flt)
+	}
+
+	return flts
+}
+
+// appendIfNotNilUF wraps flt and appends it to orig if flt is not nil.
+func appendIfNotNilUF(
+	orig []RequestFilter,
+	flt RequestFilterUF,
+	req *urlfilter.DNSRequest,
+	res *urlfilter.DNSResult,
+) (flts []RequestFilter) {
+	flts = orig
+
+	if flt != nil {
+		// TODO(a.garipov):  Consider reusing wrapper structures.
+		flts = append(flts, &ufRequestFilter{
+			flt: flt,
+			req: req,
+			res: res,
+		})
 	}
 
 	return flts
@@ -137,6 +172,7 @@ func (f *Filter) FilterRequest(
 		// Go on.
 	}
 
+	// Secondly, check the safe-browsing and safe-search filters.
 	for _, rf := range f.reqFilters {
 		r, err = rf.FilterRequest(ctx, req)
 		if err != nil {
@@ -156,45 +192,87 @@ func (f *Filter) filterReqWithRuleLists(
 	ctx context.Context,
 	req *filter.Request,
 ) (r filter.Result) {
-	ip, host, qt := req.RemoteIP, req.Host, req.QType
+	f.ufReq.Reset()
 
-	// TODO(a.garipov):  Consider adding a pool of results to the default
-	// storage and use it here.
-	ufRes := newURLFilterResult()
-	if f.custom != nil {
-		id := filter.IDCustom
+	f.ufReq.ClientIP = req.RemoteIP
+	f.ufReq.ClientName = req.ClientName
+	f.ufReq.DNSType = req.QType
+	f.ufReq.Hostname = req.Host
 
-		// Only use the device name for custom filters of profiles with devices.
-		dr := f.custom.DNSResult(ctx, ip, req.ClientName, host, qt, false)
-		mod := rulelist.ProcessDNSRewrites(req, dr.DNSRewrites(), id)
-		if mod != nil {
-			// Process the DNS rewrites of the custom list and return them
-			// first, because custom rules have priority over other rules.
-			return mod
-		}
-
-		ufRes.add(id, "", dr)
+	c := newURLFilterResultCollector()
+	mod := f.filterReqWithCustom(ctx, req, c, f.ufReq, f.ufRes)
+	if mod != nil {
+		// Custom DNS rewrites have priority over other rules.
+		return mod
 	}
 
-	for _, rl := range f.ruleLists {
-		id, _ := rl.ID()
-		dr := rl.DNSResult(ip, "", host, qt, false)
-		mod := rulelist.ProcessDNSRewrites(req, dr.DNSRewrites(), id)
-		if mod != nil {
-			// DNS rewrites have higher priority, so a modified request must be
-			// returned immediately.
-			return mod
-		}
+	// Don't use the device name for non-custom filters.
+	f.ufReq.ClientName = ""
 
-		ufRes.add(id, "", dr)
+	for _, rl := range f.ruleLists {
+		f.ufRes.Reset()
+		ok := rl.SetURLFilterResult(ctx, f.ufReq, f.ufRes)
+		if ok {
+			id, _ := rl.ID()
+
+			mod = rulelist.ProcessDNSRewrites(req, f.ufRes.DNSRewrites(), id)
+			if mod != nil {
+				// DNS rewrites have higher priority, so a modified request must
+				// be returned immediately.
+				return mod
+			}
+
+			c.add(id, "", f.ufRes)
+		}
 	}
 
 	for _, rl := range f.svcLists {
 		id, svcID := rl.ID()
-		ufRes.add(id, svcID, rl.DNSResult(ip, "", host, qt, false))
+
+		f.ufRes.Reset()
+		ok := rl.SetURLFilterResult(ctx, f.ufReq, f.ufRes)
+		if ok {
+			c.add(id, svcID, f.ufRes)
+		}
 	}
 
-	return ufRes.toInternal(qt)
+	return c.toInternal(req.QType)
+}
+
+// filterReqWithCustom filters one question's information through the custom
+// rule-list filter of the composite filter, if there is one.  All arguments
+// must not be nil.
+func (f *Filter) filterReqWithCustom(
+	ctx context.Context,
+	req *filter.Request,
+	c *urlFilterResultCollector,
+	ufReq *urlfilter.DNSRequest,
+	ufRes *urlfilter.DNSResult,
+) (res filter.Result) {
+	if f.custom == nil {
+		return nil
+	}
+
+	// Only use the device name for custom filters of profiles with devices.
+	ufReq.ClientName = req.ClientName
+
+	ufRes.Reset()
+
+	ok := f.custom.SetURLFilterResult(ctx, ufReq, ufRes)
+	if !ok {
+		return nil
+	}
+
+	id := filter.IDCustom
+
+	mod := rulelist.ProcessDNSRewrites(req, ufRes.DNSRewrites(), id)
+	if mod != nil {
+		return mod
+	}
+
+	c.add(id, "", ufRes)
+
+	return nil
 }
 
 // FilterResponse implements the [filter.Interface] interface for *Filter.  It
@@ -242,23 +320,49 @@ func (f *Filter) filterRespWithRuleLists(
 	host string,
 	rrType dnsmsg.RRType,
 ) (r filter.Result) {
-	ufRes := newURLFilterResult()
+	f.ufReq.Reset()
+
+	f.ufReq.Answer = true
+	f.ufReq.ClientIP = resp.RemoteIP
+	f.ufReq.DNSType = rrType
+	f.ufReq.Hostname = host
+
+	c := newURLFilterResultCollector()
 	for _, rl := range f.ruleLists {
 		id, _ := rl.ID()
-		ufRes.add(id, "", rl.DNSResult(resp.RemoteIP, "", host, rrType, true))
+
+		f.ufRes.Reset()
+
+		ok := rl.SetURLFilterResult(ctx, f.ufReq, f.ufRes)
+		if ok {
+			c.add(id, "", f.ufRes)
+		}
 	}
 
 	if f.custom != nil {
-		dr := f.custom.DNSResult(ctx, resp.RemoteIP, resp.ClientName, host, rrType, true)
-		ufRes.add(filter.IDCustom, "", dr)
+		f.ufReq.ClientName = resp.ClientName
+
+		f.ufRes.Reset()
+
+		ok := f.custom.SetURLFilterResult(ctx, f.ufReq, f.ufRes)
+		if ok {
+			c.add(filter.IDCustom, "", f.ufRes)
+		}
 	}
+
+	f.ufReq.ClientName = ""
 
 	for _, rl := range f.svcLists {
 		id, svcID := rl.ID()
-		ufRes.add(id, svcID, rl.DNSResult(resp.RemoteIP, "", host, rrType, true))
+
+		f.ufRes.Reset()
+		ok := rl.SetURLFilterResult(ctx, f.ufReq, f.ufRes)
+		if ok {
+			c.add(id, svcID, f.ufRes)
+		}
 	}
 
-	return ufRes.toInternal(rrType)
+	return c.toInternal(rrType)
 }
 
 // filterHTTPSAnswer filters HTTPS answers information through all rule list
@@ -290,7 +394,7 @@ func (f *Filter) filterSVCBHint(
 	hint string,
 	resp *filter.Response,
 ) (r filter.Result) {
-	for _, s := range strings.Split(hint, ",") {
+	for s := range strings.SplitSeq(hint, ",") {
 		r = f.filterRespWithRuleLists(ctx, resp, s, dns.TypeHTTPS)
 		if r != nil {
 			return r

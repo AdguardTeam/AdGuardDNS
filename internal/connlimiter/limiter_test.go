@@ -34,20 +34,21 @@ func TestLimiter(t *testing.T) {
 		Resume:  1,
 	})
 
+	// TODO(a.garipov):  Add fakenet.NewConn to golibs.
 	conn := &fakenet.Conn{
 		OnClose:     func() (err error) { return nil },
-		OnLocalAddr: func() (laddr net.Addr) { panic("not implemented") },
-		OnRead:      func(b []byte) (n int, err error) { panic("not implemented") },
+		OnLocalAddr: func() (laddr net.Addr) { panic(testutil.UnexpectedCall()) },
+		OnRead:      func(b []byte) (n int, err error) { panic(testutil.UnexpectedCall(b)) },
 		OnRemoteAddr: func() (addr net.Addr) {
 			return &net.TCPAddr{
 				IP:   netutil.IPv4Localhost().AsSlice(),
 				Port: 1234,
 			}
 		},
-		OnSetDeadline:      func(t time.Time) (err error) { panic("not implemented") },
-		OnSetReadDeadline:  func(t time.Time) (err error) { panic("not implemented") },
-		OnSetWriteDeadline: func(t time.Time) (err error) { panic("not implemented") },
-		OnWrite:            func(b []byte) (n int, err error) { panic("not implemented") },
+		OnSetDeadline:      func(t time.Time) (err error) { panic(testutil.UnexpectedCall(t)) },
+		OnSetReadDeadline:  func(t time.Time) (err error) { panic(testutil.UnexpectedCall(t)) },
+		OnSetWriteDeadline: func(t time.Time) (err error) { panic(testutil.UnexpectedCall(t)) },
+		OnWrite:            func(b []byte) (n int, err error) { panic(testutil.UnexpectedCall(b)) },
 	}
 
 	lsnr := &fakenet.Listener{

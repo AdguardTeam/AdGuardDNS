@@ -19,6 +19,8 @@ import (
 // as well as creates a cache file.  If reqCh not nil, a signal is sent every
 // time the server is called.  The server uses [ServerName] as the value of the
 // Server header.
+//
+// TODO(a.garipov):  Rewrite to use []byte for text.
 func PrepareRefreshable(
 	tb testing.TB,
 	reqCh chan<- struct{},

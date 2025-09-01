@@ -112,6 +112,7 @@ Supported IDs:
 - `profiledb_full`
 - `profiledb`
 - `rulestat`
+- `standard_profile_access`
 - `ticket_rotator`
 - `tlsconfig`
 - `websvc`

@@ -88,6 +88,7 @@ func (x *AccessSettings) toInternal(
 	logger *slog.Logger,
 	errColl errcoll.Interface,
 	cons *access.ProfileConstructor,
+	standardEnabled bool,
 ) (a access.Profile) {
 	if x == nil || !x.Enabled {
 		return access.EmptyProfile{}
@@ -99,7 +100,30 @@ func (x *AccessSettings) toInternal(
 		AllowedASN:           asnToInternal(x.AllowlistAsn),
 		BlockedASN:           asnToInternal(x.BlocklistAsn),
 		BlocklistDomainRules: x.BlocklistDomainRules,
+		StandardEnabled:      standardEnabled,
 	})
+}
+
+// toStandardConfig converts protobuf access settings to an internal structure.
+// If x is nil, toStandardConfig returns nil.
+func (x *AccessSettings) toStandardConfig(
+	ctx context.Context,
+	logger *slog.Logger,
+	errColl errcoll.Interface,
+) (a *access.StandardBlockerConfig) {
+	if x == nil || !x.Enabled {
+		logger.WarnContext(ctx, "received disabled standard access settings")
+
+		return nil
+	}
+
+	return &access.StandardBlockerConfig{
+		AllowedNets:          cidrRangeToInternal(ctx, errColl, logger, x.AllowlistCidr),
+		BlockedNets:          cidrRangeToInternal(ctx, errColl, logger, x.BlocklistCidr),
+		AllowedASN:           asnToInternal(x.AllowlistAsn),
+		BlockedASN:           asnToInternal(x.BlocklistAsn),
+		BlocklistDomainRules: x.BlocklistDomainRules,
+	}
 }
 
 // cidrRangeToInternal is a helper that converts a slice of CidrRange to the

@@ -26,7 +26,7 @@ var _ contextutil.Constructor = (*contextConstructor)(nil)
 
 // New implements the [contextutil.Constructor] interface for
 // *contextConstructor.  It returns a context with a new [agd.RequestID] as well
-// as its timeout and the corresponding cancelation function.
+// as its timeout and the corresponding cancellation function.
 func (c *contextConstructor) New(
 	parent context.Context,
 ) (ctx context.Context, cancel context.CancelFunc) {

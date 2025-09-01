@@ -80,17 +80,21 @@ func (l *testListener) LocalUDPAddr() (addr net.Addr) {
 }
 
 // newTestListener returns a *testListener all of methods of which panic with
-// a "not implemented" message.
+// an unexpected call message.
 func newTestListener() (tl *testListener) {
 	return &testListener{
-		onName:         func() (_ string) { panic("not implemented") },
-		onProto:        func() (_ dnsserver.Protocol) { panic("not implemented") },
-		onNetwork:      func() (_ dnsserver.Network) { panic("not implemented") },
-		onAddr:         func() (_ string) { panic("not implemented") },
-		onStart:        func(_ context.Context) (err error) { panic("not implemented") },
-		onShutdown:     func(_ context.Context) (err error) { panic("not implemented") },
-		onLocalUDPAddr: func() (_ net.Addr) { panic("not implemented") },
-		onLocalTCPAddr: func() (_ net.Addr) { panic("not implemented") },
+		onName:    func() (name string) { panic(testutil.UnexpectedCall()) },
+		onProto:   func() (proto dnsserver.Protocol) { panic(testutil.UnexpectedCall()) },
+		onNetwork: func() (n dnsserver.Network) { panic(testutil.UnexpectedCall()) },
+		onAddr:    func() (addr string) { panic(testutil.UnexpectedCall()) },
+		onStart: func(ctx context.Context) (err error) {
+			panic(testutil.UnexpectedCall(ctx))
+		},
+		onShutdown: func(ctx context.Context) (err error) {
+			panic(testutil.UnexpectedCall(ctx))
+		},
+		onLocalUDPAddr: func() (addr net.Addr) { panic(testutil.UnexpectedCall()) },
+		onLocalTCPAddr: func() (addr net.Addr) { panic(testutil.UnexpectedCall()) },
 	}
 }
 

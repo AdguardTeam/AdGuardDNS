@@ -24,8 +24,9 @@ import (
 //
 // TODO(a.garipov): Extract cache logic to golibs.
 type Middleware struct {
-	logger      *slog.Logger
-	metrics     MetricsListener
+	logger  *slog.Logger
+	metrics MetricsListener
+	// TODO(d.kolyshev): Use [agdcache.Default].
 	cache       gcache.Cache
 	cacheMinTTL time.Duration
 	overrideTTL bool

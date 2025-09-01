@@ -2,12 +2,12 @@ package dnsservertest
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 )
 
@@ -59,8 +59,7 @@ func NewDefaultHandlerWithCount(recordsCount int) (h dnsserver.Handler) {
 // NewPanicHandler returns a DNS handler that panics with an error.
 func NewPanicHandler() (handler dnsserver.Handler) {
 	f := func(ctx context.Context, rw dnsserver.ResponseWriter, req *dns.Msg) (err error) {
-		// TODO(a.garipov):  Add a helper for these kinds of errors to golibs.
-		panic(fmt.Errorf("unexpected call to ServeDNS(%v, %v)", rw, req))
+		panic(testutil.UnexpectedCall(ctx, rw, req))
 	}
 
 	return dnsserver.HandlerFunc(f)

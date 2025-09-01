@@ -40,11 +40,11 @@ func NewBackendTicketStorage(
 	reg prometheus.Registerer,
 ) (m *BackendTicketStorage, err error) {
 	const (
-		ticketsState   = "tickets_state"
-		updateStatus   = "update_status"
-		updatedTime    = "update_time"
-		updateDuration = "update_duration"
-		errorsTotal    = "update_errors_total"
+		ticketsState          = "tickets_state"
+		ticketsUpdateStatus   = "tickets_update_status"
+		ticketsUpdatedTime    = "tickets_update_time"
+		ticketsUpdateDuration = "tickets_update_duration"
+		ticketsErrorsTotal    = "tickets_update_errors_total"
 	)
 
 	m = &BackendTicketStorage{
@@ -55,26 +55,26 @@ func NewBackendTicketStorage(
 			Help:      "State number code of the last updated TLS session tickets.",
 		}),
 		updateStatus: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name:      updateStatus,
+			Name:      ticketsUpdateStatus,
 			Subsystem: subsystemTLS,
 			Namespace: namespace,
 			Help:      "Status of the TLS session ticket update. 1 means success.",
 		}, []string{"name"}),
 		updatedTime: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name:      updatedTime,
+			Name:      ticketsUpdatedTime,
 			Subsystem: subsystemTLS,
 			Namespace: namespace,
 			Help:      "Time when the TLS session ticket was last time updated.",
 		}, []string{"name"}),
 		updateDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name:      "update_duration_seconds",
+			Name:      ticketsUpdateDuration,
 			Subsystem: subsystemTLS,
 			Namespace: namespace,
 			Help:      "Duration of the last TLS session ticket update in seconds.",
 			Buckets:   []float64{0.001, 0.01, 0.1, 1},
 		}),
 		errorsTotal: prometheus.NewCounter(prometheus.CounterOpts{
-			Name:      "update_errors_total",
+			Name:      ticketsErrorsTotal,
 			Subsystem: subsystemTLS,
 			Namespace: namespace,
 			Help:      "The total number of errors occurred during TLS session ticket updates.",
@@ -86,16 +86,16 @@ func NewBackendTicketStorage(
 		Key:   ticketsState,
 		Value: m.ticketsState,
 	}, {
-		Key:   updateStatus,
+		Key:   ticketsUpdateStatus,
 		Value: m.updateStatus,
 	}, {
-		Key:   updatedTime,
+		Key:   ticketsUpdatedTime,
 		Value: m.updatedTime,
 	}, {
-		Key:   updateDuration,
+		Key:   ticketsUpdateDuration,
 		Value: m.updateDuration,
 	}, {
-		Key:   errorsTotal,
+		Key:   ticketsErrorsTotal,
 		Value: m.errorsTotal,
 	}}
 

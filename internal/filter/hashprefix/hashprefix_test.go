@@ -6,3 +6,6 @@ import (
 
 // testHashes is the host data for tests.
 const testHashes = filtertest.HostAdultContent + "\n"
+
+// testHashesData is the host data for tests.
+var testHashesData = []byte(testHashes)

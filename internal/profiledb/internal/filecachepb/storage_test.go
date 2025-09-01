@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecachepb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/profiledbtest"
@@ -41,7 +42,7 @@ func TestStorage(t *testing.T) {
 	require.NotNil(t, gotFC)
 	require.NotEmpty(t, *gotFC)
 
-	assert.Equal(t, fc, gotFC)
+	agdtest.AssertEqualProfile(t, fc, gotFC)
 }
 
 func TestStorage_Load_noFile(t *testing.T) {

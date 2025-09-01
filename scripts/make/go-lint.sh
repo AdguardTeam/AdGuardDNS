@@ -64,17 +64,20 @@ set -f -u
 #
 # NOTE: For AdGuard DNS, there are the following exceptions:
 #
+#   *  internal/agdtest/profile.go: a test helper requiring the use of
+#      reflect.Type.
 #   *  internal/profiledb/internal/filecachepb/unsafe.go: a “safe” unsafe helper
 #      to prevent excessive allocations.
 blocklist_imports() {
 	import_or_tab="$(printf '^\\(import \\|\t\\)')"
 	readonly import_or_tab
 
-	find . \
+	find_with_ignore \
 		-type 'f' \
 		'(' \
 		-name '*.go' \
 		'!' -name '*.pb.go' \
+		'!' -path './internal/agdtest/profile.go' \
 		'!' -path './internal/profiledb/internal/filecachepb/unsafe.go' \
 		')' \
 		-exec \
@@ -104,7 +107,7 @@ blocklist_imports() {
 method_const() {
 	# NOTE: File ./internal/remotekv/rediskv/rediskv.go is excluded, since it
 	# uses "GET" as a Redis command.
-	find . \
+	find_with_ignore \
 		-type 'f' \
 		'(' -name '*.go' '!' -path './internal/remotekv/rediskv/rediskv.go' ')' \
 		-exec \
@@ -125,10 +128,11 @@ method_const() {
 # use of filenames like client_manager.go.
 underscores() {
 	underscore_files="$(
-		find . \
+		find_with_ignore \
 			-type 'f' \
 			-name '*_*.go' \
-			'!' '(' -name '*_darwin.go' \
+			'!' '(' \
+			-name '*_darwin.go' \
 			-o -name '*_generate.go' \
 			-o -name '*_grpc.pb.go' \
 			-o -name '*_linux.go' \
@@ -180,7 +184,7 @@ run_linter ineffassign ./... "$dnssrvmod"
 
 run_linter unparam ./... "$dnssrvmod"
 
-find . \
+find_with_ignore \
 	-type 'f' \
 	'(' \
 	-name 'Makefile' \

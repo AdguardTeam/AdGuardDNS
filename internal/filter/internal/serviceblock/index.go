@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"path"
-	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdurlflt"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
@@ -93,7 +93,8 @@ func (svc *indexRespService) toInternal(
 
 	fltIDStr := path.Join(cachePrefix, string(filter.IDBlockedService), string(svcID))
 	cache := rulelist.NewManagedResultCache(cacheManager, fltIDStr, cacheCount, useCache)
-	rl = rulelist.NewImmutable(strings.Join(svc.Rules, "\n"), filter.IDBlockedService, svcID, cache)
+	rulesData := agdurlflt.RulesToBytes(svc.Rules)
+	rl = rulelist.NewImmutable(rulesData, filter.IDBlockedService, svcID, cache)
 
 	logger.InfoContext(ctx, "converted service", "svc_id", svcID, "num_rules", rl.RulesCount())
 

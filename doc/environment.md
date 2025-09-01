@@ -65,6 +65,11 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`SESSION_TICKET_REFRESH_INTERVAL`](#SESSION_TICKET_REFRESH_INTERVAL)
 - [`SESSION_TICKET_TYPE`](#SESSION_TICKET_TYPE)
 - [`SESSION_TICKET_URL`](#SESSION_TICKET_URL)
+- [`STANDARD_ACCESS_API_KEY`](#STANDARD_ACCESS_API_KEY)
+- [`STANDARD_ACCESS_REFRESH_INTERVAL`](#STANDARD_ACCESS_REFRESH_INTERVAL)
+- [`STANDARD_ACCESS_TIMEOUT`](#STANDARD_ACCESS_TIMEOUT)
+- [`STANDARD_ACCESS_TYPE`](#STANDARD_ACCESS_TYPE)
+- [`STANDARD_ACCESS_URL`](#STANDARD_ACCESS_URL)
 - [`SSL_KEY_LOG_FILE`](#SSL_KEY_LOG_FILE)
 - [`VERBOSE`](#VERBOSE)
 - [`WEB_STATIC_DIR_ENABLED`](#WEB_STATIC_DIR_ENABLED)
@@ -532,6 +537,36 @@ The type of TLS session ticket storage. Its possible values are: `local` and `re
 ## <a href="#SESSION_TICKET_URL" id="SESSION_TICKET_URL" name="SESSION_TICKET_URL">`SESSION_TICKET_URL`</a>
 
 The base backend URL used as a TLS session ticket storage, when [`SESSION_TICKET_TYPE`](#SESSION_TICKET_TYPE) is set to `remote`. Supports gRPC(S) (`grpc://` and`grpcs://`) URLs. See the [external API requirements section][ext-backend-dnscheck]. **The `grpcs://` scheme is preferred because TLS session tickets are considered sensitive information.**
+
+**Default:** **Unset.**
+
+## <a href="#STANDARD_ACCESS_API_KEY" id="STANDARD_ACCESS_API_KEY" name="STANDARD_ACCESS_API_KEY">`STANDARD_ACCESS_API_KEY`</a>
+
+The API key to use when authenticating requests to the standard access settings storage API, if [`STANDARD_ACCESS_TYPE`](#STANDARD_ACCESS_TYPE) is set to `backend`. The API key should be valid as defined by [RFC 6750].
+
+**Default:** **Unset.**
+
+## <a href="#STANDARD_ACCESS_REFRESH_INTERVAL" id="STANDARD_ACCESS_REFRESH_INTERVAL" name="STANDARD_ACCESS_REFRESH_INTERVAL">`STANDARD_ACCESS_REFRESH_INTERVAL`</a>
+
+The interval between standard access settings updates, when [`STANDARD_ACCESS_TYPE`](#STANDARD_ACCESS_TYPE) is set to `backend`, as a human-readable duration.
+
+**Default:** **Unset.**
+
+## <a href="#STANDARD_ACCESS_TIMEOUT" id="STANDARD_ACCESS_TIMEOUT" name="STANDARD_ACCESS_TIMEOUT">`STANDARD_ACCESS_TIMEOUT`</a>
+
+The timeout for standard access settings updates, when [`STANDARD_ACCESS_TYPE`](#STANDARD_ACCESS_TYPE) is set to `backend`, as a human-readable duration.
+
+**Default:** **Unset.**
+
+## <a href="#STANDARD_ACCESS_TYPE" id="STANDARD_ACCESS_TYPE" name="STANDARD_ACCESS_TYPE">`STANDARD_ACCESS_TYPE`</a>
+
+The type of standard access settings storage. Its possible values are: `off` and `backend`. When set to `backend`, the [`STANDARD_ACCESS_API_KEY`](#STANDARD_ACCESS_API_KEY), [`STANDARD_ACCESS_REFRESH_INTERVAL`](#STANDARD_ACCESS_REFRESH_INTERVAL), [`STANDARD_ACCESS_TIMEOUT`](#STANDARD_ACCESS_TIMEOUT), and [`STANDARD_ACCESS_URL`](#STANDARD_ACCESS_URL) variables are required.
+
+**Default:** **Unset.**
+
+## <a href="#STANDARD_ACCESS_URL" id="STANDARD_ACCESS_URL" name="STANDARD_ACCESS_URL">`STANDARD_ACCESS_URL`</a>
+
+The base backend URL used as a standard access settings storage, when [`STANDARD_ACCESS_TYPE`](#STANDARD_ACCESS_TYPE) is set to `backend`. Supports gRPC(S) (`grpc://` and`grpcs://`) URLs. See the [external API requirements section][ext-backend-dnscheck].
 
 **Default:** **Unset.**
 

@@ -109,3 +109,46 @@ func TestBlockedHostEngine_IsBlocked_concurrent(t *testing.T) {
 
 	wg.Wait()
 }
+
+func BenchmarkBlockedHostEngine_IsBlocked(b *testing.B) {
+	engine := newBlockedHostEngine(EmptyProfileMetrics{}, []string{
+		"block.test",
+	})
+
+	ctx := testutil.ContextWithTimeout(b, testTimeout)
+
+	b.Run("pass", func(b *testing.B) {
+		req := dnsservertest.NewReq("pass.test", dns.TypeA, dns.ClassINET)
+
+		var blocked bool
+
+		b.ReportAllocs()
+		for b.Loop() {
+			blocked = engine.isBlocked(ctx, req)
+		}
+
+		assert.False(b, blocked)
+	})
+
+	b.Run("block", func(b *testing.B) {
+		req := dnsservertest.NewReq("block.test", dns.TypeA, dns.ClassINET)
+
+		var blocked bool
+
+		b.ReportAllocs()
+		for b.Loop() {
+			blocked = engine.isBlocked(ctx, req)
+		}
+
+		assert.True(b, blocked)
+	})
+
+	// Most recent results:
+	//
+	//	goos: linux
+	//	goarch: amd64
+	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/access
+	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
+	//	BenchmarkBlockedHostEngine_IsBlocked/pass-16         	 3362199	       369.1 ns/op	      16 B/op	       1 allocs/op
+	//	BenchmarkBlockedHostEngine_IsBlocked/block-16        	 2299890	       510.6 ns/op	      24 B/op	       1 allocs/op
+}

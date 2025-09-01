@@ -2,14 +2,10 @@ package ecscache
 
 import (
 	"context"
-	"encoding/binary"
-	"hash/maphash"
 	"net/netip"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
-	"github.com/AdguardTeam/golibs/mathutil"
 	"github.com/miekg/dns"
 )
 
@@ -44,12 +40,12 @@ type cacheRequest struct {
 // support ECS, isECSDependent is true.  cr, cr.req, and cr.subnet must not be
 // nil.
 func (mw *Middleware) get(
-	ctx context.Context,
+	_ context.Context,
 	req *dns.Msg,
 	cr *cacheRequest,
 ) (resp *dns.Msg, isECSDependent bool) {
-	key := mw.toCacheKey(cr, false)
-	item, ok := mw.itemFromCache(ctx, mw.cache, key, cr)
+	key := newCacheKey(cr, false)
+	item, ok := mw.cache.Get(key)
 	if ok {
 		return fromCacheItem(item, mw.cloner, req, cr.reqDO), false
 	} else if cr.isECSDeclined {
@@ -57,74 +53,13 @@ func (mw *Middleware) get(
 	}
 
 	// Try ECS-aware cache.
-	key = mw.toCacheKey(cr, true)
-	item, ok = mw.itemFromCache(ctx, mw.ecsCache, key, cr)
+	key = newCacheKey(cr, true)
+	item, ok = mw.ecsCache.Get(key)
 	if ok {
 		return fromCacheItem(item, mw.cloner, req, cr.reqDO), true
 	}
 
 	return nil, false
-}
-
-// itemFromCache retrieves a DNS message for the given key.  cr.host is used to
-// detect key collisions.  If there is a key collision, it returns nil and
-// false.
-func (mw *Middleware) itemFromCache(
-	ctx context.Context,
-	cache agdcache.Interface[uint64, *cacheItem],
-	key uint64,
-	cr *cacheRequest,
-) (item *cacheItem, ok bool) {
-	item, ok = cache.Get(key)
-	if !ok {
-		return nil, false
-	}
-
-	// Check for cache key collisions.
-	if item.host != cr.host {
-		mw.logger.WarnContext(ctx, "cache collision", "item", item, "host", cr.host)
-
-		return nil, false
-	}
-
-	return item, true
-}
-
-// hashSeed is the seed used by all hashes to create hash keys.
-var hashSeed = maphash.MakeSeed()
-
-// toCacheKey returns the appropriate cache key for msg.  msg must have one
-// question record.  subnet must not be nil.
-func (mw *Middleware) toCacheKey(cr *cacheRequest, respIsECSDependent bool) (key uint64) {
-	// Use maphash explicitly instead of using a key structure to reduce
-	// allocations and optimize interface conversion up the stack.
-	//
-	// TODO(a.garipov, e.burkov):  Consider just using struct as a key.
-	h := &maphash.Hash{}
-	h.SetSeed(hashSeed)
-
-	_, _ = h.WriteString(cr.host)
-
-	// Save on allocations by reusing a buffer.
-	var buf [6]byte
-	binary.LittleEndian.PutUint16(buf[:2], cr.qType)
-	binary.LittleEndian.PutUint16(buf[2:4], cr.qClass)
-
-	buf[4] = mathutil.BoolToNumber[byte](cr.reqDO)
-
-	addr := cr.subnet.Addr()
-	buf[5] = mathutil.BoolToNumber[byte](addr.Is6())
-
-	_, _ = h.Write(buf[:])
-
-	if respIsECSDependent {
-		_, _ = h.Write(addr.AsSlice())
-		_ = h.WriteByte(byte(cr.subnet.Bits()))
-	} else {
-		_ = h.WriteByte(mathutil.BoolToNumber[byte](cr.isECSDeclined))
-	}
-
-	return h.Sum64()
 }
 
 // set saves resp to the cache if it's cacheable.  If msg cannot be cached, it
@@ -146,11 +81,55 @@ func (mw *Middleware) set(resp *dns.Msg, cr *cacheRequest, respIsECSDependent bo
 		dnsmsg.SetMinTTL(resp, uint32(exp.Seconds()))
 	}
 
-	key := mw.toCacheKey(cr, respIsECSDependent)
+	key := newCacheKey(cr, respIsECSDependent)
+	cache.SetWithExpire(key, &cacheItem{
+		msg:  mw.cloner.Clone(resp),
+		when: mw.clock.Now(),
+	}, exp)
+}
 
-	cachedResp := mw.cloner.Clone(resp)
+// cacheKey represents a key used in the cache.
+type cacheKey struct {
+	// host is a non-FQDN version of a cached hostname.
+	host string
 
-	cache.SetWithExpire(key, toCacheItem(cachedResp, cr.host), exp)
+	// subnet is the network of the country the DNS request came from determined
+	// with GeoIP.
+	subnet netip.Prefix
+
+	// qType is the question type of the DNS request.
+	qType uint16
+
+	// qClass is the class of the DNS request.
+	qClass uint16
+
+	// reqDO is the state of DNSSEC OK bit from the DNS request.
+	reqDO bool
+
+	// isECSDeclined reflects if the client explicitly restricts using its
+	// information in EDNS client subnet option as per RFC 7871.
+	//
+	// See https://datatracker.ietf.org/doc/html/rfc7871#section-7.1.2.
+	isECSDeclined bool
+}
+
+// newCacheKey returns the appropriate cache key for msg.  msg must have one
+// question record.  cr must not be nil.
+func newCacheKey(cr *cacheRequest, respIsECSDependent bool) (key cacheKey) {
+	key = cacheKey{
+		host:   cr.host,
+		qType:  cr.qType,
+		qClass: cr.qClass,
+		reqDO:  cr.reqDO,
+	}
+
+	if respIsECSDependent {
+		key.subnet = cr.subnet
+	} else {
+		key.isECSDeclined = cr.isECSDeclined
+	}
+
+	return key
 }
 
 // cacheItem represents an item that we will store in the cache.
@@ -160,19 +139,6 @@ type cacheItem struct {
 
 	// msg is the cached DNS message.
 	msg *dns.Msg
-
-	// host is the cached normalized hostname for later cache key collision
-	// checks.
-	host string
-}
-
-// toCacheItem creates a *cacheItem from a DNS message.
-func toCacheItem(resp *dns.Msg, host string) (item *cacheItem) {
-	return &cacheItem{
-		msg:  resp,
-		when: time.Now(),
-		host: host,
-	}
 }
 
 // fromCacheItem creates a response from the cached item.  item, cloner, and req

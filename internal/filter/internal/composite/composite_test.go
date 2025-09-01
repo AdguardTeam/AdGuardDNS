@@ -1,6 +1,7 @@
 package composite_test
 
 import (
+	"cmp"
 	"context"
 	"net/http"
 	"net/netip"
@@ -20,13 +21,14 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/urlfilter"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // newReqData returns data for calling FilterRequest.  The context uses
-// [filtertest.Timeout] and [tb.Cleanup] is used for its cancelation.  req uses
+// [filtertest.Timeout] and [tb.Cleanup] is used for its cancellation.  req uses
 // [filtertest.FQDNBlocked], [dns.TypeA], and [dns.ClassINET] for the request
 // data.
 func newReqData(tb testing.TB) (ctx context.Context, req *filter.Request) {
@@ -52,8 +54,20 @@ func newReqDataWithFQDN(tb testing.TB, fqdn string) (ctx context.Context, req *f
 	return ctx, req
 }
 
+// newComposite is a helper for creating composite filters tests.  c may be nil,
+// and all zero-value fields in c are replaced with defaults for tests.
+func newComposite(tb testing.TB, c *composite.Config) (f *composite.Filter) {
+	tb.Helper()
+
+	c = cmp.Or(c, &composite.Config{})
+	c.URLFilterRequest = cmp.Or(c.URLFilterRequest, &urlfilter.DNSRequest{})
+	c.URLFilterResult = cmp.Or(c.URLFilterResult, &urlfilter.DNSResult{})
+
+	return composite.New(c)
+}
+
 func TestFilter_FilterRequest_customWithClientName(t *testing.T) {
-	f := composite.New(&composite.Config{
+	f := newComposite(t, &composite.Config{
 		Custom: custom.New(&custom.Config{
 			Logger: slogutil.NewDiscardLogger(),
 			Rules: []filter.RuleText{
@@ -113,7 +127,7 @@ func TestFilter_FilterRequest_badfilter(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			f := composite.New(&composite.Config{
+			f := newComposite(t, &composite.Config{
 				RuleLists: tc.ruleLists,
 			})
 
@@ -143,7 +157,7 @@ func TestFilter_FilterRequest_customAllow(t *testing.T) {
 		Rules:  []filter.RuleText{allowRule},
 	})
 
-	f := composite.New(&composite.Config{
+	f := newComposite(t, &composite.Config{
 		Custom:    customRL,
 		RuleLists: []*rulelist.Refreshable{blockingRL},
 	})
@@ -287,12 +301,10 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := &composite.Config{
+			f := newComposite(t, &composite.Config{
 				Custom:    tc.custom,
 				RuleLists: tc.ruleLists,
-			}
-
-			f := composite.New(c)
+			})
 
 			ctx := context.Background()
 			res, fltErr := f.FilterRequest(ctx, &filter.Request{
@@ -309,7 +321,7 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 	}
 }
 
-// newCustom is a helper to create a cusotm filter from a rule text.
+// newCustom is a helper to create a custom filter from a rule text.
 func newCustom(tb testing.TB, text string) (f *custom.Filter) {
 	tb.Helper()
 
@@ -334,7 +346,7 @@ func TestFilter_FilterRequest_hostsRules(t *testing.T) {
 	)
 
 	rl := newFromStr(t, rules, filtertest.RuleListID1)
-	f := composite.New(&composite.Config{
+	f := newComposite(t, &composite.Config{
 		RuleLists: []*rulelist.Refreshable{rl},
 	})
 
@@ -433,7 +445,7 @@ func TestFilter_FilterRequest_safeSearch(t *testing.T) {
 	err = gen.Refresh(testutil.ContextWithTimeout(t, filtertest.Timeout), false)
 	require.NoError(t, err)
 
-	f := composite.New(&composite.Config{
+	f := newComposite(t, &composite.Config{
 		GeneralSafeSearch: gen,
 	})
 
@@ -458,13 +470,13 @@ func TestFilter_FilterRequest_safeSearch(t *testing.T) {
 
 func TestFilter_FilterRequest_services(t *testing.T) {
 	svcRL := rulelist.NewImmutable(
-		filtertest.RuleBlockStr,
+		[]byte(filtertest.RuleBlockStr),
 		filter.IDBlockedService,
 		filtertest.BlockedServiceID1,
 		rulelist.EmptyResultCache{},
 	)
 
-	f := composite.New(&composite.Config{
+	f := newComposite(t, &composite.Config{
 		ServiceLists: []*rulelist.Immutable{svcRL},
 	})
 
@@ -498,7 +510,7 @@ func TestFilter_FilterResponse(t *testing.T) {
 	)
 
 	blockingRL := newFromStr(t, blockRules, filtertest.RuleListID1)
-	f := composite.New(&composite.Config{
+	f := newComposite(t, &composite.Config{
 		RuleLists: []*rulelist.Refreshable{blockingRL},
 	})
 

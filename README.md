@@ -71,6 +71,6 @@ You can sign up for a personal AdGuard DNS account and get access to the followi
 
 ## Software license
 
-Copyright (C) 2022-2024 AdGuard Software Ltd.
+Copyright (C) 2022-2025 AdGuard Software Ltd.
 
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, version 3.

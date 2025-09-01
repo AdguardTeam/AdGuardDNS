@@ -2,7 +2,6 @@ package backendpb_test
 
 import (
 	"context"
-	"fmt"
 	"net/netip"
 	"testing"
 
@@ -38,10 +37,10 @@ func TestRateLimiter_Refresh(t *testing.T) {
 		},
 		// TODO(e.burkov):  Use and test.
 		OnGetGlobalAccessSettings: func(
-			_ context.Context,
-			_ *backendpb.GlobalAccessSettingsRequest,
-		) (_ *backendpb.GlobalAccessSettingsResponse, _ error) {
-			panic(fmt.Errorf("unexpected call to GetGlobalAccessSettings"))
+			ctx context.Context,
+			req *backendpb.GlobalAccessSettingsRequest,
+		) (resp *backendpb.GlobalAccessSettingsResponse, err error) {
+			panic(testutil.UnexpectedCall(ctx, req))
 		},
 	}
 

@@ -375,8 +375,9 @@ func TestDefault_fileCache_success(t *testing.T) {
 
 	p, d, err := db.ProfileByDeviceID(context.Background(), dev.ID)
 	require.NoError(t, err)
+
 	assert.Equal(t, dev, d)
-	assert.Equal(t, prof, p)
+	agdtest.AssertEqualProfile(t, prof, p)
 }
 
 func TestDefault_fileCache_badVersion(t *testing.T) {

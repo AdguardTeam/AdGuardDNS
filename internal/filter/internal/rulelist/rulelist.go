@@ -3,10 +3,9 @@
 package rulelist
 
 import (
+	"context"
 	"fmt"
-	"net/netip"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/AdguardTeam/urlfilter/filterlist"
@@ -18,8 +17,8 @@ import (
 type baseFilter struct {
 	// engine is the DNS filtering engine.
 	//
-	// NOTE:  Do not save the [filterlist.RuleList] used to create the engine to
-	// close it, because filter exclusively uses [filterlist.StringRuleList],
+	// NOTE:  Do not save the [filterlist.Interface] used to create the engine
+	// to close it, because filter exclusively uses [filterlist.StringRuleList],
 	// which doesn't require closing.
 	engine *urlfilter.DNSEngine
 
@@ -38,7 +37,7 @@ type baseFilter struct {
 // newBaseFilter returns a new base DNS request and response filter using the
 // provided rule text and IDs.
 func newBaseFilter(
-	text string,
+	rulesData []byte,
 	id filter.ID,
 	svcID filter.BlockedServiceID,
 	cache ResultCache,
@@ -49,13 +48,14 @@ func newBaseFilter(
 		svcID: svcID,
 	}
 
-	// TODO(a.garipov): Add filterlist.BytesRuleList.
-	strList := &filterlist.StringRuleList{
-		RulesText:      text,
-		IgnoreCosmetic: true,
+	lists := []filterlist.Interface{
+		filterlist.NewBytes(&filterlist.BytesConfig{
+			RulesText:      rulesData,
+			IgnoreCosmetic: true,
+		}),
 	}
 
-	s, err := filterlist.NewRuleStorage([]filterlist.RuleList{strList})
+	s, err := filterlist.NewRuleStorage(lists)
 	if err != nil {
 		// Should never happen, there is only one filter list, and the only
 		// error that is currently returned from [filterlist.NewRuleStorage] is
@@ -73,50 +73,61 @@ func newBaseFilter(
 	return f
 }
 
-// DNSResult returns the result of applying the urlfilter DNS filtering engine.
-// If the request is not filtered, DNSResult returns nil.
-func (f *baseFilter) DNSResult(
-	clientIP netip.Addr,
-	clientName string,
-	host string,
-	rrType dnsmsg.RRType,
-	isAns bool,
-) (res *urlfilter.DNSResult) {
-	var ok bool
+// SetURLFilterResult applies the DNS filtering engine and sets the values in
+// res if any have matched.  ok is true if there is a match.  req and res must
+// not be nil.
+func (f *baseFilter) SetURLFilterResult(
+	_ context.Context,
+	req *urlfilter.DNSRequest,
+	res *urlfilter.DNSResult,
+) (ok bool) {
 	var cacheKey CacheKey
-	var item *CacheItem
+	var cachedRes *urlfilter.DNSResult
 
 	// Don't waste resources on computing the cache key if the cache is not
 	// enabled.
-	_, emptyCache := f.cache.(EmptyResultCache)
-	if !emptyCache {
+	_, noCache := f.cache.(EmptyResultCache)
+	if !noCache {
 		// TODO(a.garipov): Add real class here.
-		cacheKey = NewCacheKey(host, rrType, dns.ClassINET, isAns)
-		item, ok = itemFromCache(f.cache, cacheKey, host)
+		cacheKey = NewCacheKey(req.Hostname, req.DNSType, dns.ClassINET, req.Answer)
+		cachedRes, ok = f.cache.Get(cacheKey)
 		if ok {
-			return item.res
+			if cachedRes == nil {
+				return false
+			}
+
+			shallowCloneInto(res, cachedRes)
+
+			return true
 		}
 	}
 
-	dnsReq := &urlfilter.DNSRequest{
-		Hostname:   host,
-		ClientIP:   clientIP,
-		ClientName: clientName,
-		DNSType:    rrType,
-		Answer:     isAns,
+	ok = f.engine.MatchRequestInto(req, res)
+	ok = ok || len(res.NetworkRules) > 0
+
+	if noCache {
+		return ok
 	}
 
-	res, ok = f.engine.MatchRequest(dnsReq)
-	if !ok && len(res.NetworkRules) == 0 {
-		res = nil
+	if ok {
+		cachedRes = &urlfilter.DNSResult{}
+		shallowCloneInto(cachedRes, res)
 	}
 
-	f.cache.Set(cacheKey, &CacheItem{
-		res:  res,
-		host: host,
-	})
+	f.cache.Set(cacheKey, cachedRes)
 
-	return res
+	return ok
+}
+
+// shallowCloneInto sets properties in other, as if making a shallow clone.
+// other must not be nil and should be empty or reset using [DNSResult.Reset].
+//
+// TODO(a.garipov):  Add to urlfilter.
+func shallowCloneInto(other, res *urlfilter.DNSResult) {
+	other.NetworkRule = res.NetworkRule
+	other.HostRulesV4 = append(other.HostRulesV4, res.HostRulesV4...)
+	other.HostRulesV6 = append(other.HostRulesV6, res.HostRulesV6...)
+	other.NetworkRules = append(other.NetworkRules, res.NetworkRules...)
 }
 
 // ID returns the filter list ID of this rule list filter, as well as the ID of

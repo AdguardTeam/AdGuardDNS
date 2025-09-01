@@ -21,6 +21,7 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/timeutil"
+	"github.com/AdguardTeam/urlfilter"
 	"github.com/c2h5oh/datasize"
 )
 
@@ -150,7 +151,7 @@ func (s *Default) init(c *Config) (err error) {
 
 // initBlockedServices initializes the blocked-service filter in s.  c must not
 // be nil.
-func (s *Default) initBlockedServices(c *ConfigBlockedServices) (err error) {
+func (s *Default) initBlockedServices(c *BlockedServicesConfig) (err error) {
 	if !c.Enabled {
 		return nil
 	}
@@ -181,7 +182,7 @@ func (s *Default) initBlockedServices(c *ConfigBlockedServices) (err error) {
 
 // initSafeSearch initializes the safe-search filters in s.  gen and yt must not
 // be nil.
-func (s *Default) initSafeSearch(gen, yt *ConfigSafeSearch) (err error) {
+func (s *Default) initSafeSearch(gen, yt *SafeSearchConfig) (err error) {
 	s.safeSearchGeneral, err = newSafeSearch(s.baseLogger, gen, s.cacheManager, s.cacheDir)
 	if err != nil {
 		return fmt.Errorf("general safe search: %w", err)
@@ -199,7 +200,7 @@ func (s *Default) initSafeSearch(gen, yt *ConfigSafeSearch) (err error) {
 // arguments must not be empty.
 func newSafeSearch(
 	baseLogger *slog.Logger,
-	c *ConfigSafeSearch,
+	c *SafeSearchConfig,
 	cacheMgr agdcache.Manager,
 	cacheDir string,
 ) (f *safesearch.Filter, err error) {
@@ -230,7 +231,7 @@ func newSafeSearch(
 
 // initRuleListRefr initializes the rule-list refresher in s.  c must not be
 // nil.
-func (s *Default) initRuleListRefr(c *ConfigRuleLists) (err error) {
+func (s *Default) initRuleListRefr(c *RuleListsConfig) (err error) {
 	s.ruleListIdxRefr, err = refreshable.New(&refreshable.Config{
 		Logger: s.baseLogger.With(
 			slogutil.KeyPrefix, path.Join("filters", string(FilterIDRuleListIndex)),
@@ -269,7 +270,12 @@ func (s *Default) ForConfig(ctx context.Context, c filter.Config) (f filter.Inte
 // forClient returns a new filter based on a client configuration.  c must not
 // be nil.
 func (s *Default) forClient(ctx context.Context, c *filter.ConfigClient) (f filter.Interface) {
-	compConf := &composite.Config{}
+	compConf := &composite.Config{
+		// TODO(a.garipov):  Find ways of reusing these.  Perhaps add Close to
+		// [filter.Interface]?
+		URLFilterRequest: &urlfilter.DNSRequest{},
+		URLFilterResult:  &urlfilter.DNSResult{},
+	}
 
 	s.setParental(ctx, compConf, c.Parental)
 	s.setRuleLists(compConf, c.RuleList)
@@ -364,7 +370,12 @@ func (s *Default) setSafeBrowsing(compConf *composite.Config, c *filter.ConfigSa
 // forGroup returns a new filter based on a group configuration.  c must not be
 // nil.
 func (s *Default) forGroup(ctx context.Context, c *filter.ConfigGroup) (f filter.Interface) {
-	compConf := &composite.Config{}
+	compConf := &composite.Config{
+		// TODO(a.garipov):  Find ways of reusing these.  Perhaps add Close to
+		// [filter.Interface]?
+		URLFilterRequest: &urlfilter.DNSRequest{},
+		URLFilterResult:  &urlfilter.DNSResult{},
+	}
 
 	s.setParental(ctx, compConf, c.Parental)
 	s.setRuleLists(compConf, c.RuleList)

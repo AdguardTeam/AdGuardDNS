@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
+	"net/netip"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
 	"github.com/AdguardTeam/golibs/httphdr"
@@ -56,8 +56,32 @@ func (s *mockRateLimitServiceServer) GetRateLimitSettings(
 //
 // TODO(a.garipov):  Implement this method.
 func (s *mockRateLimitServiceServer) GetGlobalAccessSettings(
-	_ context.Context,
-	_ *backendpb.GlobalAccessSettingsRequest,
+	ctx context.Context,
+	req *backendpb.GlobalAccessSettingsRequest,
 ) (_ *backendpb.GlobalAccessSettingsResponse, _ error) {
-	panic(fmt.Errorf("unexpected call to GetGlobalAccessSettings"))
+	md, _ := metadata.FromIncomingContext(ctx)
+
+	s.log.InfoContext(
+		ctx,
+		"getting",
+		"auth", md.Get(httphdr.Authorization),
+		"req", req,
+	)
+
+	return &backendpb.GlobalAccessSettingsResponse{
+		Standard: &backendpb.AccessSettings{
+			AllowlistCidr: []*backendpb.CidrRange{{
+				Address: netip.MustParseAddr("10.10.10.0").AsSlice(),
+				Prefix:  24,
+			}},
+			BlocklistCidr: []*backendpb.CidrRange{{
+				Address: netip.MustParseAddr("20.20.20.0").AsSlice(),
+				Prefix:  24,
+			}},
+			AllowlistAsn:         []uint32{10},
+			BlocklistAsn:         []uint32{20},
+			BlocklistDomainRules: []string{"block.std.test"},
+			Enabled:              true,
+		},
+	}, nil
 }

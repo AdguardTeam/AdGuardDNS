@@ -225,7 +225,7 @@ var _ service.Interface = (*Manager)(nil)
 //
 // TODO(a.garipov): Consider an interface solution instead of the nil exception.
 //
-// TODO(a.garipov): Use the context for cancelation.
+// TODO(a.garipov): Use the context for cancellation.
 func (m *Manager) Start(ctx context.Context) (err error) {
 	if m == nil {
 		return nil
@@ -262,7 +262,7 @@ func (m *Manager) Start(ctx context.Context) (err error) {
 //
 // TODO(a.garipov): Consider waiting for all sockets to close.
 //
-// TODO(a.garipov): Use the context for cancelation.
+// TODO(a.garipov): Use the context for cancellation.
 //
 // TODO(a.garipov): Consider an interface solution instead of the nil exception.
 func (m *Manager) Shutdown(_ context.Context) (err error) {

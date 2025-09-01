@@ -2,9 +2,7 @@ package filter
 
 import (
 	"context"
-	"net/netip"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/urlfilter"
 )
 
@@ -56,20 +54,18 @@ type ConfigCustom struct {
 
 // Custom is a custom filter for a client.
 type Custom interface {
-	// DNSResult returns the result of applying the urlfilter DNS filtering
-	// engine.  If the request is not filtered, DNSResult returns nil.
-	DNSResult(
-		ctx context.Context,
-		clientIP netip.Addr,
-		clientName string,
-		host string,
-		rrType dnsmsg.RRType,
-		isAns bool,
-	) (res *urlfilter.DNSResult)
-
 	// Rules returns the rules used to create the filter.  rules must not be
 	// modified.
 	Rules() (rules []RuleText)
+
+	// SetURLFilterResult applies the DNS filtering engine and sets the values
+	// in res if any have matched.  ok must be true if there is a match.  req
+	// and res must not be nil.
+	SetURLFilterResult(
+		ctx context.Context,
+		req *urlfilter.DNSRequest,
+		res *urlfilter.DNSResult,
+	) (ok bool)
 }
 
 // ConfigParental is the configuration for parental-control filtering.
