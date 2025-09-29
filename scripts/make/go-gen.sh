@@ -21,31 +21,7 @@ set -e -f -u
 go="${GO:-go}"
 readonly go
 
-# TODO(a.garipov):  Add the ability to generate things separately.
-(
-	cd ./internal/geoip/
-	"$go" run ./country_generate.go
-)
-
-(
-	cd ./internal/geoip/
-	"$go" run ./asntops_generate.go
-)
-
-(
-	cd ./internal/ecscache/
-	"$go" run ./ecsblocklist_generate.go
-	# Force format code, because it's not possible to make an accurate
-	# template for a long list of strings with different lengths.
-	gofumpt -l -w ./ecsblocklist.go
-)
-
-(
-	cd ./internal/profiledb/internal/filecachepb/
-	protoc --go_opt=paths=source_relative --go_out=. ./filecache.proto
-)
-
-(
+backendpb() (
 	cd ./internal/backendpb/
 	protoc \
 		--go-grpc_opt=Mdns.proto=./backendpb \
@@ -56,3 +32,56 @@ readonly go
 		--go_out=. \
 		./dns.proto
 )
+
+ecscache() (
+	cd ./internal/ecscache/
+	"$go" run ./ecsblocklist_generate.go
+	# Force format code, because it's not possible to make an accurate
+	# template for a long list of strings with different lengths.
+	gofumpt -l -w ./ecsblocklist.go
+)
+
+filecachepb() (
+	cd ./internal/profiledb/internal/filecachepb/
+	protoc --go_opt=paths=source_relative --go_out=. ./filecache.proto
+)
+
+geoip_asntops() (
+	cd ./internal/geoip/
+	"$go" run ./asntops_generate.go
+)
+
+geoip_country() (
+	cd ./internal/geoip/
+	"$go" run ./country_generate.go
+)
+
+if [ -z "${ONLY:-}" ]; then
+	backendpb
+	ecscache
+	filecachepb
+	geoip_asntops
+	geoip_country
+else
+	padded=" ${ONLY} "
+
+	if [ "${padded##* backendpb *}" = '' ]; then
+		backendpb
+	fi
+
+	if [ "${padded##* ecscache *}" = '' ]; then
+		ecscache
+	fi
+
+	if [ "${padded##* filecachepb *}" = '' ]; then
+		filecachepb
+	fi
+
+	if [ "${padded##* geoip_asntops *}" = '' ]; then
+		geoip_asntops
+	fi
+
+	if [ "${padded##* geoip_country *}" = '' ]; then
+		geoip_country
+	fi
+fi

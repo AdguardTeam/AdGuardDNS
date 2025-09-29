@@ -56,7 +56,7 @@ func TestMiddleware_Wrap_access(t *testing.T) {
 	require.NoError(t, accessErr)
 
 	geoIP := agdtest.NewGeoIP()
-	geoIP.OnData = func(_ string, _ netip.Addr) (l *geoip.Location, err error) {
+	geoIP.OnData = func(_ context.Context, _ string, _ netip.Addr) (l *geoip.Location, err error) {
 		return nil, nil
 	}
 

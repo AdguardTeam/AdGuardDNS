@@ -91,7 +91,7 @@ type DefaultManager struct {
 	errColl           errcoll.Interface
 	metrics           ManagerMetrics
 	tickDB            TicketDB
-	certStorage       *certStorage
+	idx               *certIndex
 	original          *tls.Config
 	clones            []*tls.Config
 	clonesWithMetrics []*tls.Config
@@ -110,12 +110,12 @@ func NewDefaultManager(c *DefaultManagerConfig) (m *DefaultManager, err error) {
 	}
 
 	m = &DefaultManager{
-		mu:          &sync.Mutex{},
-		logger:      c.Logger,
-		errColl:     c.ErrColl,
-		metrics:     c.Metrics,
-		tickDB:      c.TicketDB,
-		certStorage: &certStorage{},
+		mu:      &sync.Mutex{},
+		logger:  c.Logger,
+		errColl: c.ErrColl,
+		metrics: c.Metrics,
+		tickDB:  c.TicketDB,
+		idx:     &certIndex{},
 	}
 
 	m.original = &tls.Config{
@@ -147,7 +147,7 @@ func (m *DefaultManager) Add(
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.certStorage.contains(cp) {
+	if m.idx.contains(cp) {
 		m.logger.InfoContext(
 			ctx,
 			"skipping already added certificate",
@@ -164,7 +164,7 @@ func (m *DefaultManager) Add(
 		return fmt.Errorf("adding certificate: %w", err)
 	}
 
-	m.certStorage.add(cert, cp)
+	m.idx.add(cert, cp)
 
 	m.logger.InfoContext(
 		ctx,
@@ -214,11 +214,11 @@ func (m *DefaultManager) getCertificate(chi *tls.ClientHelloInfo) (c *tls.Certif
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.certStorage.count() == 0 {
+	if m.idx.count() == 0 {
 		return nil, errors.Error("no certificates")
 	}
 
-	return m.certStorage.certFor(chi)
+	return m.idx.certFor(chi)
 }
 
 // CloneWithMetrics implements the [Manager] interface for *DefaultManager.
@@ -240,7 +240,7 @@ func (m *DefaultManager) CloneWithMetrics(
 		proto,
 		srvName,
 		deviceDomains,
-		m.certStorage.stored(),
+		m.idx.stored(),
 	)
 
 	m.clonesWithMetrics = append(m.clonesWithMetrics, clone)
@@ -266,7 +266,7 @@ func (m *DefaultManager) Refresh(ctx context.Context) (err error) {
 	defer m.mu.Unlock()
 
 	var errs []error
-	m.certStorage.rangeFn(func(_ *tls.Certificate, cp *certPaths) (cont bool) {
+	m.idx.rangeFn(func(_ *tls.Certificate, cp *certPaths) (cont bool) {
 		cert, loadErr := m.load(ctx, cp)
 		if err != nil {
 			errs = append(errs, loadErr)
@@ -275,7 +275,7 @@ func (m *DefaultManager) Refresh(ctx context.Context) (err error) {
 		}
 
 		msg, lvl := "refreshed certificate", slog.LevelInfo
-		if !m.certStorage.update(cp, cert) {
+		if !m.idx.update(cp, cert) {
 			msg, lvl = "certificate did not refresh", slog.LevelWarn
 		}
 
@@ -289,7 +289,7 @@ func (m *DefaultManager) Refresh(ctx context.Context) (err error) {
 		return fmt.Errorf("refreshing tls certificates: %w", err)
 	}
 
-	m.logger.InfoContext(ctx, "refresh successful", "num_configs", m.certStorage.count())
+	m.logger.InfoContext(ctx, "refresh successful", "num_configs", m.idx.count())
 
 	return nil
 }
@@ -311,7 +311,7 @@ func (m *DefaultManager) Remove(
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.certStorage.remove(cp)
+	m.idx.remove(cp)
 
 	m.logger.InfoContext(
 		ctx,
@@ -372,7 +372,7 @@ func (m *DefaultManager) RotateTickets(ctx context.Context) (err error) {
 	m.logger.InfoContext(
 		ctx,
 		"ticket rotation successful",
-		"num_configs", m.certStorage.count(),
+		"num_configs", m.idx.count(),
 		"num_tickets", len(tickets),
 		"num_clones", len(m.clones),
 		"num_clones_with_metrics", len(m.clonesWithMetrics),

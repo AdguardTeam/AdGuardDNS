@@ -3,6 +3,7 @@ package tlsconfig
 import (
 	"context"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/golibs/errors"
 )
 
@@ -12,7 +13,7 @@ type CustomDomainStorage interface {
 	// CertificateData returns the certificate data for the name.  If err is
 	// nil, cert and key must not be nil.  If the certificate could not be
 	// found, err must contain [ErrCertificateNotFound].
-	CertificateData(ctx context.Context, name string) (cert, key []byte, err error)
+	CertificateData(ctx context.Context, name agd.CertificateName) (cert, key []byte, err error)
 }
 
 // ErrCertificateNotFound is returned (optionally wrapped) by
@@ -31,7 +32,7 @@ var _ CustomDomainStorage = EmptyCustomDomainStorage{}
 // EmptyCustomDomainStorage
 func (EmptyCustomDomainStorage) CertificateData(
 	_ context.Context,
-	_ string,
+	_ agd.CertificateName,
 ) (_, _ []byte, _ error) {
 	return nil, nil, nil
 }

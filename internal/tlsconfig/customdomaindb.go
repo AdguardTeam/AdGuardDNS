@@ -176,7 +176,7 @@ func (db *CustomDomainDB) AddCertificate(
 func (db *CustomDomainDB) removeCertData(
 	ctx context.Context,
 	l *slog.Logger,
-	certName string,
+	certName agd.CertificateName,
 	profID agd.ProfileID,
 	domains []string,
 	reason string,
@@ -228,9 +228,9 @@ const (
 )
 
 // cachePaths returns the cache paths for the given certificate name.
-func (db *CustomDomainDB) cachePaths(certName string) (certPath, keyPath string) {
-	certPath = filepath.Join(db.cacheDir, certName+".crt.pem")
-	keyPath = filepath.Join(db.cacheDir, certName+".key.pem")
+func (db *CustomDomainDB) cachePaths(certName agd.CertificateName) (certPath, keyPath string) {
+	certPath = filepath.Join(db.cacheDir, string(certName)+".crt.pem")
+	keyPath = filepath.Join(db.cacheDir, string(certName)+".key.pem")
 
 	return certPath, keyPath
 }
@@ -345,8 +345,8 @@ var _ service.Refresher = (*CustomDomainDB)(nil)
 // Refresh implements the [service.Refresher] interface for *CustomDomainDB.
 // Refresh will retry network and ratelimiting errors.
 func (db *CustomDomainDB) Refresh(ctx context.Context) (err error) {
-	var updatedCertNames []string
-	retries := map[string]*customDomainRetry{}
+	var updatedCertNames []agd.CertificateName
+	retries := map[agd.CertificateName]*customDomainRetry{}
 	func() {
 		db.customCertsMu.Lock()
 		defer db.customCertsMu.Unlock()
@@ -403,7 +403,7 @@ func (db *CustomDomainDB) Refresh(ctx context.Context) (err error) {
 // true, refreshCert should be retried later.
 func (db *CustomDomainDB) refreshCert(
 	ctx context.Context,
-	certName string,
+	certName agd.CertificateName,
 ) (needsRetry bool, err error) {
 	l := db.logger.With("cert_name", certName)
 
@@ -527,7 +527,7 @@ func (db *CustomDomainDB) certDataToPEM(
 // filesystem.  Errors are logged and reported to Sentry.
 func (db *CustomDomainDB) needsRefresh(
 	ctx context.Context,
-	certName string,
+	certName agd.CertificateName,
 	certPath string,
 	keyPath string,
 ) (ok bool) {
@@ -567,8 +567,8 @@ func (db *CustomDomainDB) needsRefresh(
 // addRetry adds the certificate into the retry map.  retries must not be nil.
 func (db *CustomDomainDB) addRetry(
 	ctx context.Context,
-	retries map[string]*customDomainRetry,
-	certName string,
+	retries map[agd.CertificateName]*customDomainRetry,
+	certName agd.CertificateName,
 	now time.Time,
 ) {
 	db.logger.DebugContext(ctx, "retrying later", "cert_name", certName)
@@ -590,7 +590,7 @@ func (db *CustomDomainDB) addRetry(
 // are reported to db.errColl and logged.
 func (db *CustomDomainDB) performRetries(
 	ctx context.Context,
-	retries map[string]*customDomainRetry,
+	retries map[agd.CertificateName]*customDomainRetry,
 	now time.Time,
 ) {
 	var errs []error

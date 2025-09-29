@@ -39,10 +39,9 @@ func BenchmarkFilter_FilterReqWithRuleLists(b *testing.B) {
 	assert.NotNil(b, result)
 
 	// Most recent results:
-	//
 	//	goos: linux
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/composite
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkFilter_FilterReqWithRuleLists-16    	  807964	      1904 ns/op	     469 B/op	       8 allocs/op
+	//	BenchmarkFilter_FilterReqWithRuleLists-16    	  748243	      1394 ns/op	     468 B/op	       8 allocs/op
 }

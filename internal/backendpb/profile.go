@@ -248,8 +248,14 @@ func (x *CustomDomain) toInternal() (c *agd.CustomDomainConfig, err error) {
 
 	switch s := x.State.(type) {
 	case *CustomDomain_Current_:
+		var certName agd.CertificateName
+		certName, err = agd.NewCertificateName(s.Current.CertName)
+		if err != nil {
+			return nil, fmt.Errorf("certificate name: %q: %w", s.Current.CertName, err)
+		}
+
 		st := &agd.CustomDomainStateCurrent{
-			CertName:  s.Current.CertName,
+			CertName:  certName,
 			NotBefore: s.Current.NotBefore.AsTime(),
 			NotAfter:  s.Current.NotAfter.AsTime(),
 			Enabled:   s.Current.Enabled,

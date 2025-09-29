@@ -385,8 +385,11 @@ func BenchmarkDefaultProfile_IsBlocked(b *testing.B) {
 
 	for _, bc := range benchCases {
 		b.Run(bc.name, func(b *testing.B) {
+			// Warmup to fill the pools and the slices.
+			blocked := a.IsBlocked(ctx, bc.req, passAddrPort, nil)
+			bc.want(b, blocked)
+
 			b.ReportAllocs()
-			var blocked bool
 			for b.Loop() {
 				blocked = a.IsBlocked(ctx, bc.req, passAddrPort, nil)
 			}
@@ -396,11 +399,10 @@ func BenchmarkDefaultProfile_IsBlocked(b *testing.B) {
 	}
 
 	// Most recent results:
-	//
 	//	goos: linux
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/access
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkDefaultProfile_IsBlocked/pass-16         	 2679700	       468.8 ns/op	      16 B/op	       1 allocs/op
-	//	BenchmarkDefaultProfile_IsBlocked/block-16        	 2081113	       576.4 ns/op	      24 B/op	       1 allocs/op
+	//	BenchmarkDefaultProfile_IsBlocked/pass-16         	 2638284	       452.4 ns/op	      16 B/op	       1 allocs/op
+	//	BenchmarkDefaultProfile_IsBlocked/block-16        	 2224564	       539.1 ns/op	      24 B/op	       1 allocs/op
 }

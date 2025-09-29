@@ -43,13 +43,14 @@ func TestFile_Data_cityDB(t *testing.T) {
 	}
 
 	g := newFile(t, conf)
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
 
-	d, err := g.Data(testHost, testIPWithASN)
+	d, err := g.Data(ctx, testHost, testIPWithASN)
 	require.NoError(t, err)
 
 	assert.Equal(t, testASN, d.ASN)
 
-	d, err = g.Data(testHost, testIPWithSubdiv)
+	d, err = g.Data(ctx, testHost, testIPWithSubdiv)
 	require.NoError(t, err)
 
 	assert.Equal(t, testCtry, d.Country)
@@ -71,13 +72,14 @@ func TestFile_Data_countryDB(t *testing.T) {
 	}
 
 	g := newFile(t, conf)
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
 
-	d, err := g.Data(testHost, testIPWithASN)
+	d, err := g.Data(ctx, testHost, testIPWithASN)
 	require.NoError(t, err)
 
 	assert.Equal(t, testASN, d.ASN)
 
-	d, err = g.Data(testHost, testIPWithSubdiv)
+	d, err = g.Data(ctx, testHost, testIPWithSubdiv)
 	require.NoError(t, err)
 
 	assert.Equal(t, testCtry, d.Country)
@@ -100,17 +102,19 @@ func TestFile_Data_hostCache(t *testing.T) {
 
 	g := newFile(t, conf)
 
-	d, err := g.Data(testHost, testIPWithASN)
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+
+	d, err := g.Data(ctx, testHost, testIPWithASN)
 	require.NoError(t, err)
 
 	assert.Equal(t, testASN, d.ASN)
 
-	d, err = g.Data(testHost, netip.Addr{})
+	d, err = g.Data(ctx, testHost, netip.Addr{})
 	require.NoError(t, err)
 
 	assert.Equal(t, testASN, d.ASN)
 
-	d, err = g.Data(testOtherHost, netip.Addr{})
+	d, err = g.Data(ctx, testOtherHost, netip.Addr{})
 	require.NoError(t, err)
 
 	assert.Nil(t, d)
@@ -177,12 +181,15 @@ func TestFile_SubnetByLocation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctrySubnet, err := g.SubnetByLocation(&geoip.Location{
-				Country:        tc.country,
-				Continent:      "",
-				TopSubdivision: tc.subdiv,
-				ASN:            tc.asn,
-			}, tc.fam)
+			ctx := testutil.ContextWithTimeout(t, testTimeout)
+			ctrySubnet, err := g.SubnetByLocation(
+				ctx,
+				&geoip.Location{
+					Country:        tc.country,
+					Continent:      "",
+					TopSubdivision: tc.subdiv,
+					ASN:            tc.asn,
+				}, tc.fam)
 			require.NoError(t, err)
 
 			assert.Equal(t, tc.want, ctrySubnet)
@@ -204,6 +211,7 @@ func BenchmarkFile_Data(b *testing.B) {
 	}
 
 	g := newFile(b, conf)
+	ctx := testutil.ContextWithTimeout(b, testTimeout)
 
 	ipCountry1 := testIPWithCountry
 
@@ -218,7 +226,7 @@ func BenchmarkFile_Data(b *testing.B) {
 	b.Run("cache", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			loc, err = g.Data(testHost, testIPWithASN)
+			loc, err = g.Data(ctx, testHost, testIPWithASN)
 		}
 
 		assert.Equal(b, testASN, loc.ASN)
@@ -231,9 +239,9 @@ func BenchmarkFile_Data(b *testing.B) {
 		for i := 0; b.Loop(); i++ {
 			// Alternate between the two IPs to force cache misses.
 			if i%2 == 0 {
-				loc, err = g.Data(testHost, ipCountry1)
+				loc, err = g.Data(ctx, testHost, ipCountry1)
 			} else {
-				loc, err = g.Data(testHost, ipCountry2)
+				loc, err = g.Data(ctx, testHost, ipCountry2)
 			}
 		}
 

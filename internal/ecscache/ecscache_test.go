@@ -670,6 +670,7 @@ func newWithCache(
 
 	// TODO(a.garipov): Actually test ASNs once we have the data.
 	geoIP.OnSubnetByLocation = func(
+		_ context.Context,
 		l *geoip.Location,
 		_ netutil.AddrFamily,
 	) (n netip.Prefix, err error) {

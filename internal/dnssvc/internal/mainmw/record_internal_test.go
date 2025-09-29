@@ -135,7 +135,11 @@ func TestMiddleware_recordQueryInfo_respCtry(t *testing.T) {
 			}
 
 			geoIP := agdtest.NewGeoIP()
-			geoIP.OnData = func(_ string, _ netip.Addr) (l *geoip.Location, err error) {
+			geoIP.OnData = func(
+				_ context.Context,
+				_ string,
+				_ netip.Addr,
+			) (l *geoip.Location, err error) {
 				if !tc.wantGeoIP {
 					t.Error("unexpected call to geoip")
 				}

@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
@@ -76,7 +77,7 @@ var _ tlsconfig.CustomDomainStorage = (*CustomDomainStorage)(nil)
 // *CustomDomainStorage.
 func (s *CustomDomainStorage) CertificateData(
 	ctx context.Context,
-	name string,
+	name agd.CertificateName,
 ) (cert, key []byte, err error) {
 	start := s.clock.Now()
 	defer func() { s.metrics.ObserveRequest(ctx, time.Since(start), err) }()
@@ -84,7 +85,7 @@ func (s *CustomDomainStorage) CertificateData(
 	s.logger.DebugContext(ctx, "getting cert data", "name", name)
 
 	req := &CustomDomainCertificateRequest{
-		CertName: name,
+		CertName: string(name),
 	}
 
 	ctx = ctxWithAuthentication(ctx, s.apiKey)

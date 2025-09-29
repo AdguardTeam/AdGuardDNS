@@ -231,8 +231,9 @@ func (s *ServerHTTPS) startHTTPSServer(ctx context.Context) (err error) {
 	}
 
 	// Start the server worker goroutine.
-	s.wg.Add(1)
-	go s.serveHTTPS(ctx, s.httpServer, s.tcpListener)
+	s.activeTaskWG.Go(func() {
+		s.serveHTTPS(ctx, s.httpServer, s.tcpListener)
+	})
 
 	return nil
 }
@@ -257,8 +258,9 @@ func (s *ServerHTTPS) startH3Server(ctx context.Context) (err error) {
 	}
 
 	// Start the server worker goroutine.
-	s.wg.Add(1)
-	go s.serveH3(ctx, s.h3Server, s.quicListener)
+	s.activeTaskWG.Go(func() {
+		s.serveH3(ctx, s.h3Server, s.quicListener)
+	})
 
 	return nil
 }
@@ -320,10 +322,9 @@ func (s *ServerHTTPS) shutdownH3(ctx context.Context) {
 }
 
 // serveHTTPS is launched in a worker goroutine and serves HTTP/1.1 and HTTP/2
-// requests.
+// requests.  It is intended to be used as a goroutine.  All arguments must not
+// be nil.
 func (s *ServerHTTPS) serveHTTPS(ctx context.Context, hs *http.Server, l net.Listener) {
-	defer s.wg.Done()
-
 	// Do not recover from panics here since if this goroutine panics, the
 	// application won't be able to continue listening to DoH.
 	defer s.handlePanicAndExit(ctx)
@@ -341,10 +342,9 @@ func (s *ServerHTTPS) serveHTTPS(ctx context.Context, hs *http.Server, l net.Lis
 	}
 }
 
-// serveH3 is launched in a worker goroutine and serves HTTP/3 requests.
+// serveH3 is launched in a worker goroutine and serves HTTP/3 requests.  It is
+// intended to be used as a goroutine.  All arguments must not be nil.
 func (s *ServerHTTPS) serveH3(ctx context.Context, hs *http3.Server, ql *quic.EarlyListener) {
-	defer s.wg.Done()
-
 	// Do not recover from panics here since if this goroutine panics, the
 	// application won't be able to continue listening to DoH.
 	defer s.handlePanicAndExit(ctx)

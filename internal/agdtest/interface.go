@@ -270,34 +270,52 @@ var _ geoip.Interface = (*GeoIP)(nil)
 
 // GeoIP is a [geoip.Interface] for tests.
 type GeoIP struct {
-	OnData             func(host string, ip netip.Addr) (l *geoip.Location, err error)
-	OnSubnetByLocation func(l *geoip.Location, fam netutil.AddrFamily) (n netip.Prefix, err error)
+	OnData func(
+		сtx context.Context,
+		host string,
+		ip netip.Addr,
+	) (l *geoip.Location, err error)
+	OnSubnetByLocation func(
+		ctx context.Context,
+		l *geoip.Location,
+		fam netutil.AddrFamily,
+	) (n netip.Prefix, err error)
 }
 
 // Data implements the [geoip.Interface] interface for *GeoIP.
-func (g *GeoIP) Data(host string, ip netip.Addr) (l *geoip.Location, err error) {
-	return g.OnData(host, ip)
+func (g *GeoIP) Data(
+	ctx context.Context,
+	host string,
+	ip netip.Addr,
+) (l *geoip.Location, err error) {
+	return g.OnData(ctx, host, ip)
 }
 
 // SubnetByLocation implements the [geoip.Interface] interface for *GeoIP.
 func (g *GeoIP) SubnetByLocation(
+	ctx context.Context,
 	l *geoip.Location,
 	fam netutil.AddrFamily,
 ) (n netip.Prefix, err error) {
-	return g.OnSubnetByLocation(l, fam)
+	return g.OnSubnetByLocation(ctx, l, fam)
 }
 
 // NewGeoIP returns a new *GeoIP all methods of which panic.
 func NewGeoIP() (c *GeoIP) {
 	return &GeoIP{
-		OnData: func(host string, ip netip.Addr) (l *geoip.Location, err error) {
-			panic(testutil.UnexpectedCall(host, ip))
+		OnData: func(
+			ctx context.Context,
+			host string,
+			ip netip.Addr,
+		) (l *geoip.Location, err error) {
+			panic(testutil.UnexpectedCall(ctx, host, ip))
 		},
 		OnSubnetByLocation: func(
+			ctx context.Context,
 			l *geoip.Location,
 			fam netutil.AddrFamily,
 		) (n netip.Prefix, err error) {
-			panic(testutil.UnexpectedCall(l, fam))
+			panic(testutil.UnexpectedCall(ctx, l, fam))
 		},
 	}
 }

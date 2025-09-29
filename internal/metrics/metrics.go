@@ -124,7 +124,7 @@ func IncrementCond(cond bool, trueCounter, falseCounter prometheus.Counter) {
 // SetAdditionalInfo does nothing.  reg must not be nil.
 func SetAdditionalInfo(reg prometheus.Registerer, info map[string]string) (err error) {
 	if info == nil {
-		return
+		return nil
 	}
 
 	gauge := prometheus.NewGauge(prometheus.GaugeOpts{

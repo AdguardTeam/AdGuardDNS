@@ -41,7 +41,6 @@ func BenchmarkBaseFilter_SetURLFilterResult(b *testing.B) {
 	const qt = dns.TypeA
 
 	ctx := context.Background()
-	res := &urlfilter.DNSResult{}
 
 	b.Run("blocked", func(b *testing.B) {
 		req := &urlfilter.DNSRequest{
@@ -50,7 +49,12 @@ func BenchmarkBaseFilter_SetURLFilterResult(b *testing.B) {
 			DNSType:  qt,
 		}
 
-		var ok bool
+		res := &urlfilter.DNSResult{}
+
+		// Warmup to fill the slices.
+		ok := f.SetURLFilterResult(ctx, req, res)
+		require.True(b, ok)
+
 		b.ReportAllocs()
 		for b.Loop() {
 			res.Reset()
@@ -67,7 +71,12 @@ func BenchmarkBaseFilter_SetURLFilterResult(b *testing.B) {
 			DNSType:  qt,
 		}
 
-		var ok bool
+		res := &urlfilter.DNSResult{}
+
+		// Warmup to fill the slices.
+		ok := f.SetURLFilterResult(ctx, req, res)
+		require.False(b, ok)
+
 		b.ReportAllocs()
 		for b.Loop() {
 			res.Reset()
@@ -78,11 +87,10 @@ func BenchmarkBaseFilter_SetURLFilterResult(b *testing.B) {
 	})
 
 	// Most recent results:
-	//
 	//	goos: linux
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkBaseFilter_SetURLFilterResult/blocked-16         	  906486	      1372 ns/op	      24 B/op	       1 allocs/op
-	//	BenchmarkBaseFilter_SetURLFilterResult/other-16           	 2203561	       609.1 ns/op	      24 B/op	       1 allocs/op
+	//	BenchmarkBaseFilter_SetURLFilterResult/blocked-16         	  911409	      1315 ns/op	      24 B/op	       1 allocs/op
+	//	BenchmarkBaseFilter_SetURLFilterResult/other-16           	 2824462	       425.0 ns/op	      24 B/op	       1 allocs/op
 }

@@ -20,7 +20,7 @@ var _ validate.Interface = additionalInfo(nil)
 func (c additionalInfo) Validate() (err error) {
 	var errs []error
 	for _, k := range slices.Sorted(maps.Keys(c)) {
-		if !model.LabelName(k).IsValid() {
+		if !model.LegacyValidation.IsValidLabelName(k) {
 			errs = append(errs, fmt.Errorf(
 				"prometheus labels must match %s, got %q",
 				model.LabelNameRE,

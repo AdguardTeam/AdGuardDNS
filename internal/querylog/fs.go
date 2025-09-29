@@ -22,7 +22,7 @@ import (
 	"github.com/c2h5oh/datasize"
 )
 
-// FileSystemConfig is the configuration of the file system query log.  All
+// FileSystemConfig is the configuration of the filesystem query log.  All
 // fields must not be empty.
 type FileSystemConfig struct {
 	// Logger is used for debug logging.  It must not be nil.
@@ -31,6 +31,11 @@ type FileSystemConfig struct {
 	// Metrics is used for the collection of the query log statistics.  It must
 	// not be nil.
 	Metrics Metrics
+
+	// Semaphore is used to limit the number of simultaneous writes.  This is
+	// important to prevent excessive thread creation arising from i/o latency
+	// issues.  It must not be nil.
+	Semaphore syncutil.Semaphore
 
 	// Path is the path to the log file.  It must not be empty.
 	Path string
@@ -46,27 +51,24 @@ type entryBuffer struct {
 	buf *bytes.Buffer
 }
 
-// FileSystem is the file system implementation of the AdGuard DNS query log.
+// FileSystem is the filesystem implementation of the AdGuard DNS query log.
 type FileSystem struct {
-	// logger is used for debug logging.
-	logger *slog.Logger
-
 	// bufferPool is a pool with [*entryBuffer] instances used to avoid extra
 	// allocations when serializing query log items to JSON and writing them.
 	bufferPool *syncutil.Pool[entryBuffer]
+
+	logger *slog.Logger
 
 	// rng is used to generate random numbers for the "rn" property in the
 	// resulting JSON.
 	rng *rand.Rand
 
-	// metrics is used for the collection of the query log statistics.
 	metrics Metrics
-
-	// path is the path to the query log file.
-	path string
+	sema    syncutil.Semaphore
+	path    string
 }
 
-// NewFileSystem creates a new file system query log.  The log is safe for
+// NewFileSystem creates a new filesystem query log.  The log is safe for
 // concurrent use.  c must not be nil.
 func NewFileSystem(c *FileSystemConfig) (l *FileSystem) {
 	src := rand.NewChaCha8(c.RandSeed)
@@ -83,6 +85,7 @@ func NewFileSystem(c *FileSystemConfig) (l *FileSystem) {
 		}),
 		rng:     rng,
 		metrics: c.Metrics,
+		sema:    c.Semaphore,
 		path:    c.Path,
 	}
 }
@@ -104,10 +107,13 @@ func (l *FileSystem) Write(ctx context.Context, e *Entry) (err error) {
 	}()
 
 	startTime := time.Now()
-	defer func() {
-		l.metrics.ObserveWriteDuration(ctx, time.Since(startTime))
-		l.metrics.IncrementItemsCount(ctx)
-	}()
+	defer func() { l.metrics.ObserveWrite(ctx, time.Since(startTime)) }()
+
+	err = l.sema.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquiring semaphore: %w", err)
+	}
+	defer l.sema.Release()
 
 	entBuf := l.bufferPool.Get()
 	defer l.bufferPool.Put(entBuf)
@@ -141,8 +147,7 @@ func (l *FileSystem) Write(ctx context.Context, e *Entry) (err error) {
 		RemoteIP:   remoteIP,
 	}
 
-	var f *os.File
-	f, err = os.OpenFile(l.path, agd.DefaultWOFlags, agd.DefaultPerm)
+	f, err := os.OpenFile(l.path, agd.DefaultWOFlags, agd.DefaultPerm)
 	if err != nil {
 		return fmt.Errorf("opening query log file: %w", err)
 	}

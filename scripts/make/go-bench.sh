@@ -49,4 +49,4 @@ readonly go count_flags shuffle_flags timeout_flags
 	--benchmem \
 	--benchtime='1s' \
 	--run='^$' \
-	./...
+	work

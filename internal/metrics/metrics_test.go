@@ -16,7 +16,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
-	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
@@ -48,7 +47,6 @@ var (
 	_ geoip.Metrics                        = (*metrics.GeoIP)(nil)
 	_ hashprefix.Metrics                   = (*metrics.HashPrefixFilter)(nil)
 	_ profiledb.Metrics                    = (*metrics.ProfileDB)(nil)
-	_ querylog.Metrics                     = (*metrics.QueryLog)(nil)
 	_ rulestat.Metrics                     = (*metrics.RuleStat)(nil)
 	_ tlsconfig.CustomDomainDBMetrics      = (*metrics.CustomDomainDB)(nil)
 	_ tlsconfig.ManagerMetrics             = (*metrics.TLSConfigManager)(nil)

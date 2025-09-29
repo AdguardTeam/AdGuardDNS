@@ -18,7 +18,6 @@ import (
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/bluele/gcache"
 	"github.com/miekg/dns"
-	"github.com/panjf2000/ants/v2"
 	"github.com/quic-go/quic-go"
 )
 
@@ -94,11 +93,9 @@ type ConfigQUIC struct {
 type ServerQUIC struct {
 	*ServerBase
 
-	// pool is a goroutine pool we use to process DNS queries.  Complicated
-	// logic may require growing the goroutine's stack and we experienced it
-	// in AdGuard DNS.  The easiest way to avoid spending extra time on this is
-	// to reuse already existing goroutines.
-	pool *ants.Pool
+	// taskPool is a goroutine pool used to process DNS queries.  It is used to
+	// prevent excessive growth of goroutine stacks.
+	taskPool *taskPool
 
 	// reqPool is a pool to avoid unnecessary allocations when reading
 	// DNS packets.
@@ -140,7 +137,9 @@ func NewServerQUIC(c *ConfigQUIC) (s *ServerQUIC) {
 		quicLimitsEnabled: c.QUICLimitsEnabled,
 	}
 
-	s.pool = mustNewPoolNonblocking(s.baseLogger)
+	s.taskPool = mustNewTaskPool(&taskPoolConfig{
+		logger: s.baseLogger,
+	})
 
 	return s
 }
@@ -173,9 +172,9 @@ func (s *ServerQUIC) Start(ctx context.Context) (err error) {
 		return err
 	}
 
-	// Run the serving goroutine.
-	s.wg.Add(1)
-	go s.startServeQUIC(ctx)
+	s.activeTaskWG.Go(func() {
+		s.serveQUIC(ctx, s.quicListener)
+	})
 
 	s.started = true
 
@@ -199,8 +198,8 @@ func (s *ServerQUIC) Shutdown(ctx context.Context) (err error) {
 
 	err = s.waitShutdown(ctx)
 
-	// Close the workerPool and releases all workers.
-	s.pool.Release()
+	// Close the taskPool and release all workers.
+	s.taskPool.Release()
 
 	s.baseLogger.InfoContext(ctx, "server has been shut down")
 
@@ -234,45 +233,43 @@ func (s *ServerQUIC) shutdown(ctx context.Context) (err error) {
 	return nil
 }
 
-// startServeQUIC starts the QUIC listener loop.
-func (s *ServerQUIC) startServeQUIC(ctx context.Context) {
+// serveQUIC listens for incoming QUIC connections.
+func (s *ServerQUIC) serveQUIC(ctx context.Context, l *quic.Listener) {
 	// We do not recover from panics here since if this go routine panics
 	// the application won't be able to continue listening to DoQ.
 	defer s.handlePanicAndExit(ctx)
-	defer s.wg.Done()
 
 	s.baseLogger.InfoContext(ctx, "starting listening quic")
 
-	err := s.serveQUIC(ctx, s.quicListener)
-	if err != nil {
-		s.baseLogger.WarnContext(ctx, "listening quic failed", slogutil.KeyError, err)
-	}
-}
-
-// serveQUIC listens for incoming QUIC connections.
-func (s *ServerQUIC) serveQUIC(ctx context.Context, l *quic.Listener) (err error) {
 	wg := &sync.WaitGroup{}
-	// Wait until all conns are processed before exiting this method
 	defer wg.Wait()
 
 	// Use a context that is canceled once this connection ends to mitigate
-	// quic-go's mishandling of contexts.  See TODO in serveQUICConn.
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
+	// quic-go's mishandling of contexts.  See the TODO in
+	// [ServerQUIC.serveQUICConn].
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	for s.isStarted() {
-		err = s.acceptQUICConn(ctx, l, wg)
-		if err != nil {
-			if !s.isStarted() {
-				return nil
-			}
-
-			return err
+		err := s.acceptQUICConn(ctx, l, wg)
+		if err == nil {
+			continue
 		}
-	}
 
-	return nil
+		// TODO(ameshkov):  Consider the situation where the server is shut down
+		// and restarted between the two calls to isStarted.
+		if !s.isStarted() {
+			s.baseLogger.DebugContext(
+				ctx,
+				"listening quic failed: server not started",
+				slogutil.KeyError, err,
+			)
+		} else {
+			s.baseLogger.ErrorContext(ctx, "listening quic failed", slogutil.KeyError, err)
+		}
+
+		return
+	}
 }
 
 // acceptQUICConn reads and starts processing a single QUIC connection.
@@ -295,10 +292,8 @@ func (s *ServerQUIC) acceptQUICConn(
 		return err
 	}
 
-	wg.Add(1)
-
-	err = s.pool.Submit(func() {
-		s.serveQUICConnAsync(ctx, conn, wg)
+	err = s.taskPool.submitWG(wg, func() {
+		s.serveQUICConnAsync(ctx, conn)
 	})
 	if err != nil {
 		// Most likely the workerPool is closed, and we can exit right away.
@@ -311,15 +306,13 @@ func (s *ServerQUIC) acceptQUICConn(
 	return nil
 }
 
-// serveQUICConnAsync wraps serveQUICConn call and handles all possible errors
-// that might happen there.  It also makes sure that the WaitGroup will be
-// decremented.
-func (s *ServerQUIC) serveQUICConnAsync(
-	ctx context.Context,
-	conn *quic.Conn,
-	connWg *sync.WaitGroup,
-) {
-	defer connWg.Done()
+// serveQUICConnAsync wraps [ServerQUIC.serveQUICConn] call and handles errors
+// that could happen in it.  It is intended to be used as a goroutine.  conn
+// must not be nil.
+//
+// TODO(a.garipov):  Refactor ServerQUIC.serveQUICConn and merge this one into
+// it.
+func (s *ServerQUIC) serveQUICConnAsync(ctx context.Context, conn *quic.Conn) {
 	defer s.handlePanicAndRecover(ctx)
 
 	err := s.serveQUICConn(ctx, conn)
@@ -379,12 +372,10 @@ func (s *ServerQUIC) serveQUICConn(ctx context.Context, conn *quic.Conn) (err er
 		reqCtx, reqCancel := s.requestContext(context.Background())
 		reqCtx = ContextWithRequestInfo(reqCtx, ri)
 
-		streamWg.Add(1)
-
-		err = s.pool.Submit(func() {
+		err = s.taskPool.submitWG(streamWg, func() {
 			defer reqCancel()
 
-			s.serveQUICStreamAsync(reqCtx, stream, conn, streamWg)
+			s.serveQUICStreamAsync(reqCtx, stream, conn)
 		})
 		if err != nil {
 			// The workerPool is closed, we should simply exit.  Make sure that
@@ -398,16 +389,17 @@ func (s *ServerQUIC) serveQUICConn(ctx context.Context, conn *quic.Conn) (err er
 	return nil
 }
 
-// serveQUICStreamAsync wraps serveQUICStream call and handles all possible
-// errors that might happen there.  It also makes sure that the WaitGroup will
-// be decremented.
+// serveQUICStreamAsync wraps [ServerQUIC.serveQUICStream] call and handle
+// errors that could happen in it.  It is intended to be used as a goroutine.
+// stream and conn must not be nil.
+//
+// TODO(a.garipov):  Refactor ServerQUIC.serveQUICStream and merge this one into
+// it.
 func (s *ServerQUIC) serveQUICStreamAsync(
 	ctx context.Context,
 	stream *quic.Stream,
 	conn *quic.Conn,
-	wg *sync.WaitGroup,
 ) {
-	defer wg.Done()
 	defer s.handlePanicAndRecover(ctx)
 
 	err := s.serveQUICStream(ctx, stream, conn)

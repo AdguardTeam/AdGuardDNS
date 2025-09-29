@@ -18,22 +18,42 @@ import (
 	"github.com/miekg/dns"
 )
 
-// serveTCP runs the TCP serving loop.
-func (s *ServerDNS) serveTCP(ctx context.Context, l net.Listener) (err error) {
+// serveTCP runs the TCP serving loop.  It is intended to be used as a
+// goroutine.  l must not be nil.
+func (s *ServerDNS) serveTCP(ctx context.Context, l net.Listener, proto string) {
+	// Do not recover from panics here since if this goroutine panics, the
+	// application won't be able to continue listening to TCP.
+	defer s.handlePanicAndExit(ctx)
+
+	s.baseLogger.InfoContext(ctx, "starting listening tcp")
 	defer func() { closeWithLog(ctx, s.baseLogger, "closing tcp listener", l) }()
 
 	for s.isStarted() {
-		err = s.acceptTCPConn(ctx, l)
-		if err != nil {
-			if !s.isStarted() {
-				return nil
-			}
-
-			return err
+		err := s.acceptTCPConn(ctx, l)
+		if err == nil {
+			continue
 		}
-	}
 
-	return nil
+		// TODO(ameshkov):  Consider the situation where the server is shut down
+		// and restarted between the two calls to isStarted.
+		if !s.isStarted() {
+			s.baseLogger.DebugContext(
+				ctx,
+				"listening tcp failed: server not started",
+				"proto", proto,
+				slogutil.KeyError, err,
+			)
+		} else {
+			s.baseLogger.ErrorContext(
+				ctx,
+				"listening tcp failed",
+				"proto", proto,
+				slogutil.KeyError, err,
+			)
+		}
+
+		return
+	}
 }
 
 // acceptTCPConn reads and starts processing a single TCP connection.
@@ -60,9 +80,7 @@ func (s *ServerDNS) acceptTCPConn(ctx context.Context, l net.Listener) (err erro
 		s.tcpConns.Add(conn)
 	}()
 
-	s.wg.Add(1)
-
-	return s.workerPool.Submit(func() {
+	return s.taskPool.submitWG(s.activeTaskWG, func() {
 		s.serveTCPConn(ctx, conn)
 	})
 }
@@ -89,16 +107,14 @@ func handshake(conn net.Conn, timeout time.Duration) (err error) {
 	return shaker.HandshakeContext(ctx)
 }
 
-// serveTCPConn serves a single TCP connection.
+// serveTCPConn serves a single TCP connection.  It is intended to be used as a
+// goroutine.  conn must not be nil.
 func (s *ServerDNS) serveTCPConn(ctx context.Context, conn net.Conn) {
-	// Use this to wait until all queries from this connection has been
-	// processed before closing it.
-	wg := &sync.WaitGroup{}
+	defer s.handlePanicAndRecover(ctx)
 
+	connWG := &sync.WaitGroup{}
 	defer func() {
-		defer s.wg.Done()
-
-		wg.Wait()
+		connWG.Wait()
 
 		closeWithLog(ctx, s.baseLogger, "closing tcp conn", conn)
 
@@ -107,8 +123,6 @@ func (s *ServerDNS) serveTCPConn(ctx context.Context, conn net.Conn) {
 
 		s.tcpConns.Delete(conn)
 	}()
-
-	defer s.handlePanicAndRecover(ctx)
 
 	var msgSema syncutil.Semaphore = syncutil.EmptySemaphore{}
 	if s.maxPipelineEnabled {
@@ -129,7 +143,7 @@ func (s *ServerDNS) serveTCPConn(ctx context.Context, conn net.Conn) {
 	}
 
 	for s.isStarted() {
-		err = s.acceptTCPMsg(conn, wg, writeMu, timeout, msgSema)
+		err = s.acceptTCPMsg(conn, connWG, writeMu, timeout, msgSema)
 		if err != nil {
 			s.logReadErr(ctx, "reading from conn", err)
 
@@ -155,7 +169,7 @@ func (s *ServerDNS) logReadErr(ctx context.Context, msg string, err error) {
 // TLS connection, the handshake must have already been performed.
 func (s *ServerDNS) acceptTCPMsg(
 	conn net.Conn,
-	wg *sync.WaitGroup,
+	connWG *sync.WaitGroup,
 	writeMu *sync.Mutex,
 	timeout time.Duration,
 	msgSema syncutil.Semaphore,
@@ -182,13 +196,11 @@ func (s *ServerDNS) acceptTCPMsg(
 
 	// RFC 7766 recommends implementing query pipelining, i.e. process all
 	// incoming queries concurrently and write responses out of order.
-	wg.Add(1)
-
-	return s.workerPool.Submit(func() {
+	return s.taskPool.submitWG(connWG, func() {
 		defer reqCancel()
 		defer msgSema.Release()
 
-		s.serveTCPMessage(reqCtx, wg, writeMu, *bufPtr, conn)
+		s.serveTCPMessage(reqCtx, writeMu, *bufPtr, conn)
 		s.tcpPool.Put(bufPtr)
 	})
 }
@@ -199,31 +211,27 @@ type tlsConnectionStater interface {
 	ConnectionState() tls.ConnectionState
 }
 
-// serveTCPMessage processes a single TCP message.
+// serveTCPMessage processes a single TCP message.  It is intended to be used as
+// a goroutine.  All arguments must not be nil.
 func (s *ServerDNS) serveTCPMessage(
 	ctx context.Context,
-	wg *sync.WaitGroup,
 	writeMu *sync.Mutex,
 	buf []byte,
 	conn net.Conn,
 ) {
-	defer wg.Done()
 	defer s.handlePanicAndRecover(ctx)
 
-	rw := &tcpResponseWriter{
+	written := s.serveDNS(ctx, buf, &tcpResponseWriter{
 		respPool:     s.respPool,
 		writeMu:      writeMu,
 		conn:         conn,
 		writeTimeout: s.writeTimeout,
 		idleTimeout:  s.tcpIdleTimeout,
-	}
-	written := s.serveDNS(ctx, buf, rw)
-
+	})
 	if !written {
-		// Nothing has been written, we should close the connection in order to
-		// avoid hanging connections.  Than might happen if the handler
-		// rate-limited connections or if we received garbage data instead of
-		// a DNS query.
+		// Nothing has been written, so close the connection in order to avoid
+		// hanging connections.  That can happen when the handler rate-limited a
+		// connection or if garbage data has been received.
 		slogutil.CloseAndLog(ctx, s.baseLogger, conn, slog.LevelDebug)
 	}
 }

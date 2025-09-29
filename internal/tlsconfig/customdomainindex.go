@@ -16,10 +16,10 @@ import (
 // customDomainIndex optimizes the search for custom-domain data.
 type customDomainIndex struct {
 	// changed is the set of names of certificates that need updating.
-	changed *container.SortedSliceSet[string]
+	changed *container.SortedSliceSet[agd.CertificateName]
 
 	// retries contains the data for retrying refreshes of custom-domain data.
-	retries map[string]*customDomainRetry
+	retries map[agd.CertificateName]*customDomainRetry
 
 	// data is the mapping of custom domain or wildcard suffix to records that
 	// relate to it.  The key must be a valid domain name, not a wildcard.
@@ -30,9 +30,9 @@ type customDomainIndex struct {
 // newCustomDomainIndex returns a new properly initialized *customDomainIndex.
 func newCustomDomainIndex() (idx *customDomainIndex) {
 	return &customDomainIndex{
-		changed: container.NewSortedSliceSet[string](),
+		changed: container.NewSortedSliceSet[agd.CertificateName](),
+		retries: map[agd.CertificateName]*customDomainRetry{},
 		data:    map[string][]*customDomainIndexItem{},
-		retries: map[string]*customDomainRetry{},
 	}
 }
 
@@ -52,7 +52,7 @@ type customDomainIndexItem struct {
 
 	// certName is the unique name for fetching the actual certificate data.  It
 	// must not be empty.
-	certName string
+	certName agd.CertificateName
 
 	// domain is the original domain name or wildcard from which the domain
 	// pattern has been derived.  It must be a valid domain name or wildcard.
@@ -205,7 +205,7 @@ func (idx *customDomainIndex) match(
 func (idx *customDomainIndex) remove(
 	ctx context.Context,
 	l *slog.Logger,
-	certName string,
+	certName agd.CertificateName,
 	profID agd.ProfileID,
 	domains []string,
 ) {

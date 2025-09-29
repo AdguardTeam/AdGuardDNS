@@ -3,7 +3,7 @@
 # This comment is used to simplify checking local copies of the script.  Bump
 # this number every time a significant change is made to this script.
 #
-# AdGuard-Project-Version: 9
+# AdGuard-Project-Version: 10
 
 verbose="${VERBOSE:-0}"
 readonly verbose
@@ -73,6 +73,8 @@ trailing_whitespace() {
 				| sed -e "s:^:${f}\::" -e 's/ \+$/>>>&<<</'
 		done
 }
+
+# TODO(a.garipov):  Consider using jq for JSON validation.
 
 run_linter -e trailing_newlines
 

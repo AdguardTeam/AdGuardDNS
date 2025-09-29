@@ -287,8 +287,9 @@ func (x *CustomDomainConfig) toInternal() (c *agd.CustomDomainConfig, err error)
 		state = &agd.CustomDomainStateCurrent{
 			NotBefore: s.StateCurrent.NotBefore.AsTime(),
 			NotAfter:  s.StateCurrent.NotAfter.AsTime(),
-			CertName:  s.StateCurrent.CertName,
-			Enabled:   s.StateCurrent.Enabled,
+			// Consider certificate names to have been prevalidated.
+			CertName: agd.CertificateName(s.StateCurrent.CertName),
+			Enabled:  s.StateCurrent.Enabled,
 		}
 	case *CustomDomainConfig_StatePending_:
 		state = &agd.CustomDomainStatePending{
@@ -524,7 +525,7 @@ func customDomainConfigsToProtobuf(
 			curr := &CustomDomainConfig_StateCurrent{
 				NotBefore: timestamppb.New(s.NotBefore),
 				NotAfter:  timestamppb.New(s.NotAfter),
-				CertName:  s.CertName,
+				CertName:  string(s.CertName),
 				Enabled:   s.Enabled,
 			}
 

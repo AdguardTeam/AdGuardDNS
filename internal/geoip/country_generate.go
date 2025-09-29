@@ -36,6 +36,8 @@ func main() {
 	resp := errors.Must(c.Do(req))
 	defer slogutil.CloseAndLog(ctx, logger, resp.Body, slog.LevelError)
 
+	errors.Check(agdhttp.CheckStatus(resp, http.StatusOK))
+
 	out := errors.Must(os.OpenFile("./country.go", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o664))
 	defer slogutil.CloseAndLog(ctx, logger, out, slog.LevelError)
 
@@ -52,9 +54,7 @@ func main() {
 	})
 
 	tmpl := template.Must(template.New("main").Parse(tmplStr))
-
-	err := tmpl.Execute(out, rows)
-	errors.Check(err)
+	errors.Check(tmpl.Execute(out, rows))
 }
 
 // csvURL is the default URL of the information about country codes.

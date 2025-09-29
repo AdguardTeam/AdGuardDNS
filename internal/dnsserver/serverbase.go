@@ -103,9 +103,12 @@ type ServerBase struct {
 	// that don't use UDP.
 	udpListener net.PacketConn
 
-	// wg tracks active workers, both listeners and workers processing queries.
-	// Shutdown won't finish until there's at least one active worker.
-	wg *sync.WaitGroup
+	// activeTaskWG tracks goroutines processing UDP and TCP connections and
+	// queries.  Shutdown doesn't finish as long as there's at least one active
+	// task.
+	//
+	// TODO(a.garipov):  Consider also using it for listeners.
+	activeTaskWG *sync.WaitGroup
 
 	// name is used for logging and it may be used for perf counters reporting.
 	//
@@ -153,7 +156,7 @@ func newServerBase(proto Protocol, c *ConfigBase) (s *ServerBase) {
 		disposer:     cmp.Or[Disposer](c.Disposer, EmptyDisposer{}),
 		listenConfig: c.ListenConfig,
 		mu:           &sync.RWMutex{},
-		wg:           &sync.WaitGroup{},
+		activeTaskWG: &sync.WaitGroup{},
 		name:         c.Name,
 		addr:         c.Addr,
 		network:      c.Network,
@@ -465,21 +468,12 @@ func (s *ServerBase) handlePanicAndExit(ctx context.Context) {
 func (s *ServerBase) handlePanic(ctx context.Context, v any) {
 	s.metrics.OnPanic(ctx, v)
 
-	logger, ok := slogutil.LoggerFromContext(ctx)
+	l, ok := slogutil.LoggerFromContext(ctx)
 	if !ok {
-		logger = s.baseLogger
+		l = s.baseLogger
 	}
 
-	var args []any
-	err, ok := v.(error)
-	if ok {
-		args = []any{slogutil.KeyError, err}
-	} else {
-		args = []any{"value", v}
-	}
-
-	logger.ErrorContext(ctx, "recovered from panic", args...)
-	slogutil.PrintStack(ctx, logger, slog.LevelError)
+	slogutil.PrintRecovered(ctx, l, v)
 }
 
 // handlePanicAndRecover writes panic info to log, reports it to the registered
@@ -558,20 +552,17 @@ func (s *ServerBase) waitShutdown(ctx context.Context) (err error) {
 	go func() {
 		defer slogutil.RecoverAndLog(ctx, s.baseLogger)
 
-		// wait until all queries are processed
-		s.wg.Wait()
+		// Wait until all tasks exit.
+		s.activeTaskWG.Wait()
 		close(closed)
 	}()
 
-	var ctxErr error
 	select {
 	case <-closed:
-		// Do nothing here
+		return nil
 	case <-ctx.Done():
-		ctxErr = ctx.Err()
+		return ctx.Err()
 	}
-
-	return ctxErr
 }
 
 // isStarted returns true if the server is started.

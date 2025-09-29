@@ -132,7 +132,6 @@ func BenchmarkRefreshable_SetURLFilterResult(b *testing.B) {
 	)
 
 	ctx := testutil.ContextWithTimeout(b, filtertest.Timeout)
-	res := &urlfilter.DNSResult{}
 
 	b.Run("blocked", func(b *testing.B) {
 		req := &urlfilter.DNSRequest{
@@ -141,7 +140,12 @@ func BenchmarkRefreshable_SetURLFilterResult(b *testing.B) {
 			DNSType:  dns.TypeA,
 		}
 
-		var ok bool
+		res := &urlfilter.DNSResult{}
+
+		// Warmup to fill the slices.
+		ok := rl.SetURLFilterResult(ctx, req, res)
+		require.True(b, ok)
+
 		b.ReportAllocs()
 		for b.Loop() {
 			res.Reset()
@@ -158,7 +162,12 @@ func BenchmarkRefreshable_SetURLFilterResult(b *testing.B) {
 			DNSType:  dns.TypeA,
 		}
 
-		var ok bool
+		res := &urlfilter.DNSResult{}
+
+		// Warmup to fill the slices.
+		ok := rl.SetURLFilterResult(ctx, req, res)
+		require.False(b, ok)
+
 		b.ReportAllocs()
 		for b.Loop() {
 			res.Reset()
@@ -169,11 +178,10 @@ func BenchmarkRefreshable_SetURLFilterResult(b *testing.B) {
 	})
 
 	// Most recent results:
-	//
 	//	goos: linux
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkRefreshable_SetURLFilterResult/blocked-16         	 1340384	       918.6 ns/op	      24 B/op	       1 allocs/op
-	//	BenchmarkRefreshable_SetURLFilterResult/other-16           	 2127038	       589.3 ns/op	      24 B/op	       1 allocs/op
+	//	BenchmarkRefreshable_SetURLFilterResult/blocked-16        	 1352236	       887.3 ns/op	      24 B/op	       1 allocs/op
+	//	BenchmarkRefreshable_SetURLFilterResult/other-16          	 2772519	       432.6 ns/op	      24 B/op	       1 allocs/op
 }

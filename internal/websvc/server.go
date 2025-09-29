@@ -118,6 +118,8 @@ func (s *server) localAddr() (addr net.Addr) {
 //
 // TODO(a.garipov):  Improve error handling.
 func (s *server) serve(ctx context.Context, baseLogger *slog.Logger) {
+	defer slogutil.RecoverAndLog(ctx, s.logger)
+
 	tcpListener, err := net.ListenTCP("tcp", net.TCPAddrFromAddrPort(s.initialAddr))
 	if err != nil {
 		s.logger.ErrorContext(ctx, "listening tcp", slogutil.KeyError, err)

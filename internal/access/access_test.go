@@ -139,7 +139,9 @@ func BenchmarkGlobal_IsBlockedHost(b *testing.B) {
 
 	for _, tc := range testCases {
 		b.Run(tc.name, func(b *testing.B) {
-			var blocked bool
+			// Warmup to fill the pools and the slices.
+			blocked := global.IsBlockedHost(tc.host, tc.qt)
+			tc.want(b, blocked)
 
 			b.ReportAllocs()
 			for b.Loop() {
@@ -151,19 +153,18 @@ func BenchmarkGlobal_IsBlockedHost(b *testing.B) {
 	}
 
 	// Most recent results:
-	//
 	//	goos: linux
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/access
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	// BenchmarkGlobal_IsBlockedHost/pass-16         	 2313513	       515.0 ns/op	      16 B/op	       1 allocs/op
-	// BenchmarkGlobal_IsBlockedHost/blocked_domain_a-16         	 1604049	       683.4 ns/op	      24 B/op	       1 allocs/op
-	// BenchmarkGlobal_IsBlockedHost/blocked_domain_https-16     	 1981204	       597.7 ns/op	      24 B/op	       1 allocs/op
-	// BenchmarkGlobal_IsBlockedHost/uppercase_domain-16         	 2093197	       590.5 ns/op	      24 B/op	       1 allocs/op
-	// BenchmarkGlobal_IsBlockedHost/pass_qt-16                  	 1961065	       653.3 ns/op	      24 B/op	       1 allocs/op
-	// BenchmarkGlobal_IsBlockedHost/block_qt-16                 	  768783	      1567 ns/op	      24 B/op	       1 allocs/op
-	// BenchmarkGlobal_IsBlockedHost/allowlist_block-16          	  759159	      1890 ns/op	      32 B/op	       1 allocs/op
-	// BenchmarkGlobal_IsBlockedHost/allowlist_test-16           	  371722	      3170 ns/op	      32 B/op	       1 allocs/op
+	//	BenchmarkGlobal_IsBlockedHost/pass-16                     	 3085917	       384.7 ns/op	      16 B/op	       1 allocs/op
+	//	BenchmarkGlobal_IsBlockedHost/blocked_domain_a-16         	 2521102	       475.8 ns/op	      24 B/op	       1 allocs/op
+	//	BenchmarkGlobal_IsBlockedHost/blocked_domain_https-16     	 2520067	       476.0 ns/op	      24 B/op	       1 allocs/op
+	//	BenchmarkGlobal_IsBlockedHost/uppercase_domain-16         	 2445049	       490.7 ns/op	      24 B/op	       1 allocs/op
+	//	BenchmarkGlobal_IsBlockedHost/pass_qt-16                  	 2228846	       535.7 ns/op	      24 B/op	       1 allocs/op
+	//	BenchmarkGlobal_IsBlockedHost/block_qt-16                 	  822028	      1375 ns/op	      24 B/op	       1 allocs/op
+	//	BenchmarkGlobal_IsBlockedHost/allowlist_block-16          	  765939	      1530 ns/op	      32 B/op	       1 allocs/op
+	//	BenchmarkGlobal_IsBlockedHost/allowlist_test-16           	  448230	      2677 ns/op	      32 B/op	       1 allocs/op
 }
 
 func BenchmarkGlobal_IsBlockedIP(b *testing.B) {
@@ -199,11 +200,10 @@ func BenchmarkGlobal_IsBlockedIP(b *testing.B) {
 	})
 
 	// Most recent results:
-	//
 	//	goos: linux
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/access
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkGlobal_IsBlockedIP/pass-16         	100000000	        10.18 ns/op	       0 B/op	       0 allocs/op
-	//	BenchmarkGlobal_IsBlockedIP/block-16        	141876058	         8.545 ns/op	       0 B/op	       0 allocs/op
+	//	BenchmarkGlobal_IsBlockedIP/pass-16         	152113686	         7.893 ns/op	       0 B/op	       0 allocs/op
+	//	BenchmarkGlobal_IsBlockedIP/block-16        	156828942	         7.659 ns/op	       0 B/op	       0 allocs/op
 }

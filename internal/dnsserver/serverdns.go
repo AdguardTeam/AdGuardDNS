@@ -15,7 +15,6 @@ import (
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/miekg/dns"
-	"github.com/panjf2000/ants/v2"
 )
 
 const (
@@ -84,11 +83,9 @@ type ConfigDNS struct {
 type ServerDNS struct {
 	*ServerBase
 
-	// workerPool is a goroutine workerPool we use to process DNS queries.
-	// Complicated logic may require growing the goroutine's stack, and we
-	// experienced it in AdGuard DNS.  The easiest way to avoid spending extra
-	// time on this is to reuse already existing goroutines.
-	workerPool *ants.Pool
+	// taskPool is a goroutine pool used to process DNS queries.  It is used to
+	// prevent excessive growth of goroutine stacks.
+	taskPool *taskPool
 
 	// udpPool is a pool for UDP request buffers.
 	udpPool *syncutil.Pool[[]byte]
@@ -171,7 +168,9 @@ func newServerDNS(proto Protocol, c *ConfigDNS) (s *ServerDNS) {
 		maxPipelineEnabled: c.MaxPipelineEnabled,
 	}
 
-	s.workerPool = mustNewPoolNonblocking(s.baseLogger)
+	s.taskPool = mustNewTaskPool(&taskPoolConfig{
+		logger: s.baseLogger,
+	})
 
 	return s
 }
@@ -206,8 +205,9 @@ func (s *ServerDNS) Start(ctx context.Context) (err error) {
 			return err
 		}
 
-		s.wg.Add(1)
-		go s.startServeUDP(ctx)
+		s.activeTaskWG.Go(func() {
+			s.serveUDP(ctx, s.udpListener)
+		})
 	}
 
 	// Start listening to TCP on the specified address.
@@ -217,8 +217,9 @@ func (s *ServerDNS) Start(ctx context.Context) (err error) {
 			return err
 		}
 
-		s.wg.Add(1)
-		go s.startServeTCP(ctx)
+		s.activeTaskWG.Go(func() {
+			s.serveTCP(ctx, s.tcpListener, "tcp")
+		})
 	}
 
 	s.started = true
@@ -245,40 +246,11 @@ func (s *ServerDNS) Shutdown(ctx context.Context) (err error) {
 	err = s.waitShutdown(ctx)
 
 	// Close the workerPool and releases all workers.
-	s.workerPool.Release()
+	s.taskPool.Release()
 
 	s.baseLogger.InfoContext(ctx, "server has been shut down")
 
 	return err
-}
-
-// startServeUDP starts the UDP listener loop.
-func (s *ServerDNS) startServeUDP(ctx context.Context) {
-	// Do not recover from panics here since if this goroutine panics, the
-	// application won't be able to continue listening to UDP.
-	defer s.handlePanicAndExit(ctx)
-	defer s.wg.Done()
-
-	s.baseLogger.InfoContext(ctx, "starting listening udp")
-
-	err := s.serveUDP(ctx, s.udpListener)
-	if err != nil {
-		s.baseLogger.WarnContext(ctx, "listening udp failed", slogutil.KeyError, err)
-	}
-}
-
-// startServeTCP starts the TCP listener loop.
-func (s *ServerDNS) startServeTCP(ctx context.Context) {
-	// Do not recover from panics here since if this goroutine panics, the
-	// application won't be able to continue listening to TCP.
-	defer s.handlePanicAndExit(ctx)
-	defer s.wg.Done()
-
-	s.baseLogger.InfoContext(ctx, "starting listening tcp")
-	err := s.serveTCP(ctx, s.tcpListener)
-	if err != nil {
-		s.baseLogger.WarnContext(ctx, "listening tcp failed", slogutil.KeyError, err)
-	}
 }
 
 // shutdown marks the server as stopped and closes active listeners.

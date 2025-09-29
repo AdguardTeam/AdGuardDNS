@@ -27,7 +27,7 @@ import (
 )
 
 // testCertName is the common certificate name for tests.
-const testCertName = "cert1234"
+const testCertName agd.CertificateName = "cert1234"
 
 // testProfileID is the common profile ID for tests.
 const testProfileID agd.ProfileID = "prof1234"
@@ -468,7 +468,10 @@ func TestCustomDomainDB_Match_futureCert(t *testing.T) {
 
 // testCustomDomainStorage is the [tlsconfig.CustomDomainStorage] for tests.
 type testCustomDomainStorage struct {
-	onCertificateData func(ctx context.Context, certName string) (cert, key []byte, err error)
+	onCertificateData func(
+		ctx context.Context,
+		certName agd.CertificateName,
+	) (cert, key []byte, err error)
 }
 
 // type check
@@ -478,7 +481,7 @@ var _ tlsconfig.CustomDomainStorage = (*testCustomDomainStorage)(nil)
 // *testCustomDomainStorage
 func (s *testCustomDomainStorage) CertificateData(
 	ctx context.Context,
-	certName string,
+	certName agd.CertificateName,
 ) (cert, key []byte, err error) {
 	return s.onCertificateData(ctx, certName)
 }
@@ -573,7 +576,10 @@ func TestCustomDomainDB_Refresh(t *testing.T) {
 	t.Parallel()
 
 	strg := &testCustomDomainStorage{
-		onCertificateData: func(ctx context.Context, certName string) (cert, key []byte, err error) {
+		onCertificateData: func(
+			ctx context.Context,
+			certName agd.CertificateName,
+		) (cert, key []byte, err error) {
 			assert.Equal(t, testCertName, certName)
 
 			certDER, rsaKey := newCertAndKey(t, 1)
@@ -662,8 +668,8 @@ func TestCustomDomainDB_Refresh(t *testing.T) {
 // newCertAndKeyPaths is a helper that returns paths for the certificate and
 // the key using the test's temporary directory.
 func newCertAndKeyPaths(cacheDir string) (certPath, keyPath string) {
-	return filepath.Join(cacheDir, testCertName+tlsconfig.CustomDomainCertExt),
-		filepath.Join(cacheDir, testCertName+tlsconfig.CustomDomainKeyExt)
+	return filepath.Join(cacheDir, string(testCertName)+tlsconfig.CustomDomainCertExt),
+		filepath.Join(cacheDir, string(testCertName)+tlsconfig.CustomDomainKeyExt)
 }
 
 func TestCustomDomainDB_Refresh_retry(t *testing.T) {
@@ -693,7 +699,7 @@ func TestCustomDomainDB_Refresh_retry(t *testing.T) {
 	strg := &testCustomDomainStorage{
 		onCertificateData: func(
 			ctx context.Context,
-			certName string,
+			certName agd.CertificateName,
 		) (cert, key []byte, err error) {
 			if !shouldCall {
 				panic(testutil.UnexpectedCall(ctx, certName))
@@ -793,7 +799,7 @@ func TestCustomDomainDB_Refresh_present(t *testing.T) {
 		Storage: &testCustomDomainStorage{
 			onCertificateData: func(
 				ctx context.Context,
-				certName string,
+				certName agd.CertificateName,
 			) (cert, key []byte, err error) {
 				assert.Equal(t, testCertName, certName)
 

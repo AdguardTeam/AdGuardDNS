@@ -293,7 +293,7 @@ func (db *Default) setProfileCerts(ctx context.Context, p *agd.Profile) (err err
 	if !cd.Enabled {
 		// Assume that the expired pending paths are cleaned up either by
 		// [db.IsValidWellKnownRequest] or in a full sync.
-		return
+		return nil
 	}
 
 	var errs []error

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCertStorage(t *testing.T) {
+func TestCertIndex(t *testing.T) {
 	const (
 		domainA = "a.com"
 		domainB = "b.org"
@@ -51,19 +51,19 @@ func TestCertStorage(t *testing.T) {
 		paths: pathsDomainB,
 	}}
 
-	s := &certStorage{}
+	idx := &certIndex{}
 	for _, cp := range certWithPaths {
-		s.add(cp.cert, cp.paths)
+		idx.add(cp.cert, cp.paths)
 	}
 
-	assert.True(t, s.contains(pathsDomainA))
+	assert.True(t, idx.contains(pathsDomainA))
 
 	copyPathsDomainsB := *pathsDomainB
-	assert.True(t, s.contains(&copyPathsDomainsB))
-	assert.False(t, s.contains(nonAddedPaths))
-	assert.Equal(t, len(certWithPaths), s.count())
+	assert.True(t, idx.contains(&copyPathsDomainsB))
+	assert.False(t, idx.contains(nonAddedPaths))
+	assert.Equal(t, len(certWithPaths), idx.count())
 
-	got, err := s.certFor(&tls.ClientHelloInfo{
+	got, err := idx.certFor(&tls.ClientHelloInfo{
 		ServerName:        domainA,
 		SupportedVersions: []uint16{tls.VersionTLS13},
 	})
@@ -71,17 +71,17 @@ func TestCertStorage(t *testing.T) {
 
 	assert.Equal(t, certDomainA, got)
 
-	got, err = s.certFor(&tls.ClientHelloInfo{
+	got, err = idx.certFor(&tls.ClientHelloInfo{
 		ServerName:        domainB,
 		SupportedVersions: []uint16{tls.VersionTLS13},
 	})
 	require.NoError(t, err)
 
 	assert.Equal(t, certDomainB, got)
-	assert.Equal(t, []*tls.Certificate{certDomainA, certDomainB}, s.stored())
+	assert.Equal(t, []*tls.Certificate{certDomainA, certDomainB}, idx.stored())
 
 	i := 0
-	s.rangeFn(func(c *tls.Certificate, cp *certPaths) (cont bool) {
+	idx.rangeFn(func(c *tls.Certificate, cp *certPaths) (cont bool) {
 		assert.Equal(t, certWithPaths[i].cert, c)
 		assert.Equal(t, certWithPaths[i].paths, cp)
 

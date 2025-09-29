@@ -640,7 +640,7 @@ The items of the `filtering_groups` array have the following properties:
 
         **Example:** `true`.
 
-- <a href="#fg-*-block_chrome_prefetch" id="fg-*-block_chrome_prefetch" name="fg-*-block_chrome_prefetch">`block_chrome_prefetch`</a>: If true, Chrome prefetch domain queries are blocked for requests using this filtering group, forcing the preferch proxy into preflight mode.
+- <a href="#fg-*-block_chrome_prefetch" id="fg-*-block_chrome_prefetch" name="fg-*-block_chrome_prefetch">`block_chrome_prefetch`</a>: If true, Chrome prefetch domain queries are blocked for requests using this filtering group, forcing the prefetch proxy into preflight mode.
 
     **Example:** `true`.
 

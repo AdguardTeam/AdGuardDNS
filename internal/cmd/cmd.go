@@ -65,6 +65,8 @@ func Main(plugins *plugin.Registry) {
 
 	defer reportPanics(ctx, errColl, mainLogger)
 
+	setMaxThreads(ctx, mainLogger, envs.MaxThreads)
+
 	c := errors.Must(parseConfig(envs.ConfPath))
 
 	errors.Check(c.Validate())
@@ -83,6 +85,8 @@ func Main(plugins *plugin.Registry) {
 		errColl:         errColl,
 		profilesEnabled: profilesEnabled,
 	})
+
+	errors.Check(b.initCrashReporter(ctx))
 
 	errors.Check(experiment.Init(baseLogger, b.promRegisterer))
 

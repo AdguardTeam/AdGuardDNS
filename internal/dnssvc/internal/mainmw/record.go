@@ -226,7 +226,7 @@ func ipFromHTTPSRRKV(kv dns.SVCBKeyValue) (fam netutil.AddrFamily, netIP net.IP)
 // country is a wrapper around the GeoIP call that contains the handling of
 // non-critical GeoIP errors.
 func (mw *Middleware) country(ctx context.Context, host string, ip netip.Addr) (c geoip.Country) {
-	l, err := mw.geoIP.Data(host, ip)
+	l, err := mw.geoIP.Data(ctx, host, ip)
 	if err != nil {
 		// Consider GeoIP errors non-critical.
 		errcoll.Collect(ctx, mw.errColl, mw.logger, "getting geoip data", err)

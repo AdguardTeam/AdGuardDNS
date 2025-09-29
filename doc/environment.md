@@ -16,6 +16,9 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`CONSUL_ALLOWLIST_URL`](#CONSUL_ALLOWLIST_URL)
 - [`CONSUL_DNSCHECK_KV_URL`](#CONSUL_DNSCHECK_KV_URL)
 - [`CONSUL_DNSCHECK_SESSION_URL`](#CONSUL_DNSCHECK_SESSION_URL)
+- [`CRASH_OUTPUT_DIR`](#CRASH_OUTPUT_DIR)
+- [`CRASH_OUTPUT_ENABLED`](#CRASH_OUTPUT_ENABLED)
+- [`CRASH_OUTPUT_PREFIX`](#CRASH_OUTPUT_PREFIX)
 - [`CUSTOM_DOMAINS_API_KEY`](#CUSTOM_DOMAINS_API_KEY)
 - [`CUSTOM_DOMAINS_CACHE_PATH`](#CUSTOM_DOMAINS_CACHE_PATH)
 - [`CUSTOM_DOMAINS_ENABLED`](#CUSTOM_DOMAINS_ENABLED)
@@ -36,6 +39,7 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`LISTEN_PORT`](#LISTEN_PORT)
 - [`LOG_FORMAT`](#LOG_FORMAT)
 - [`LOG_TIMESTAMP`](#LOG_TIMESTAMP)
+- [`MAX_THREADS`](#MAX_THREADS)
 - [`METRICS_NAMESPACE`](#METRICS_NAMESPACE)
 - [`NEW_REG_DOMAINS_ENABLED`](#NEW_REG_DOMAINS_ENABLED)
 - [`NEW_REG_DOMAINS_URL`](#NEW_REG_DOMAINS_URL)
@@ -54,6 +58,8 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`REDIS_PORT`](#REDIS_PORT)
 - [`REDIS_WAIT`](#REDIS_WAIT)
 - [`QUERYLOG_PATH`](#QUERYLOG_PATH)
+- [`QUERYLOG_SEMAPHORE_ENABLED`](#QUERYLOG_SEMAPHORE_ENABLED)
+- [`QUERYLOG_SEMAPHORE_LIMIT`](#QUERYLOG_SEMAPHORE_LIMIT)
 - [`RATELIMIT_ALLOWLIST_TYPE`](#RATELIMIT_ALLOWLIST_TYPE)
 - [`RULESTAT_URL`](#RULESTAT_URL)
 - [`SAFE_BROWSING_ENABLED`](#SAFE_BROWSING_ENABLED)
@@ -165,6 +171,24 @@ The HTTP(S) URL of the KV API of the Consul instance used as a key-value databas
 The HTTP(S) URL of the session API of the Consul instance used as a key-value database for the DNS server checking. If not specified, the [`CONSUL_DNSCHECK_KV_URL`](#CONSUL_DNSCHECK_KV_URL) is also omitted.
 
 **Default:** **Unset.**
+
+## <a href="#CRASH_OUTPUT_DIR" id="CRASH_OUTPUT_DIR" name="CRASH_OUTPUT_DIR">`CRASH_OUTPUT_DIR`</a>
+
+The path to the directory used to create crash reports.  The directory must exist.
+
+**Default:** No default value, the variable is required if `CRASH_OUTPUT_ENABLED` is set to `1`.
+
+## <a href="#CRASH_OUTPUT_ENABLED" id="CRASH_OUTPUT_ENABLED" name="CRASH_OUTPUT_ENABLED">`CRASH_OUTPUT_ENABLED`</a>
+
+When set to `1`, put a crash report to `CRASH_OUTPUT_DIR`.
+
+**Default:** `0`.
+
+## <a href="#CRASH_OUTPUT_PREFIX" id="CRASH_OUTPUT_PREFIX" name="CRASH_OUTPUT_PREFIX">`CRASH_OUTPUT_PREFIX`</a>
+
+The prefix to use for the crash report files.  The variable is required if `CRASH_OUTPUT_ENABLED` is set to `1`.
+
+**Default:** `agdns`.
 
 ## <a href="#CUSTOM_DOMAINS_API_KEY" id="CUSTOM_DOMAINS_API_KEY" name="CUSTOM_DOMAINS_API_KEY">`CUSTOM_DOMAINS_API_KEY`</a>
 
@@ -311,6 +335,12 @@ If `1`, show timestamps in the plain text logs. If `0`, don't show the timestamp
 
 **Default:** `1`.
 
+## <a href="#MAX_THREADS" id="MAX_THREADS" name="MAX_THREADS">`MAX_THREADS`</a>
+
+If greater than zero, sets the maximum number of threads for the Go runtime. If zero, the number remains the default one, which is 10 000. It must not be negative.
+
+**Default:** `0`.
+
 ## <a href="#METRICS_NAMESPACE" id="METRICS_NAMESPACE" name="METRICS_NAMESPACE">`METRICS_NAMESPACE`</a>
 
 The namespace to be used for Prometheus metrics. It must be a valid Prometheus metric label.
@@ -453,6 +483,18 @@ It selects if the pool must wait for a connection once the `REDIS_MAX_ACTIVE` li
 The path to the file into which the query log is going to be written.
 
 **Default:** `./querylog.jsonl`.
+
+## <a href="#QUERYLOG_SEMAPHORE_ENABLED" id="QUERYLOG_SEMAPHORE_ENABLED" name="QUERYLOG_SEMAPHORE_ENABLED">`QUERYLOG_SEMAPHORE_ENABLED`</a>
+
+If `1`, enabled the querylog semaphore used to limit the parallelism of writing to the querylog and thus reducing the amount of OS threads that are created.
+
+**Default:** `0`.
+
+## <a href="#QUERYLOG_SEMAPHORE_LIMIT" id="QUERYLOG_SEMAPHORE_LIMIT" name="QUERYLOG_SEMAPHORE_LIMIT">`QUERYLOG_SEMAPHORE_LIMIT`</a>
+
+The amount of writes to the querylog that can run in parallel.
+
+**Default:** No default value, the variable is required if `QUERYLOG_SEMAPHORE_ENABLED` is set to `1`.
 
 ## <a href="#RATELIMIT_ALLOWLIST_TYPE" id="RATELIMIT_ALLOWLIST_TYPE" name="RATELIMIT_ALLOWLIST_TYPE">`RATELIMIT_ALLOWLIST_TYPE`</a>
 

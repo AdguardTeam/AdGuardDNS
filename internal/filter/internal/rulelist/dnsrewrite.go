@@ -23,9 +23,14 @@ func ProcessDNSRewrites(
 		return nil
 	}
 
-	dnsRewriteResult := processDNSRewriteRules(dnsr)
+	// Use a value and not a pointer so that the dnsRewriteResult value stays on
+	// the stack and not produce an extra allocation.
+	dnsRwRes := dnsRewriteResult{
+		Response: dnsRewriteResultResponse{},
+	}
+	processDNSRewriteRules(dnsr, &dnsRwRes)
 
-	if resCanonName := dnsRewriteResult.CanonName; resCanonName != "" {
+	if resCanonName := dnsRwRes.CanonName; resCanonName != "" {
 		// Rewrite the question name to a matched CNAME.
 		if strings.EqualFold(resCanonName, req.Host) {
 			// A rewrite of a host to itself.
@@ -38,24 +43,24 @@ func ProcessDNSRewrites(
 		return &filter.ResultModifiedRequest{
 			Msg:  modReq,
 			List: id,
-			Rule: dnsRewriteResult.ResRuleText,
+			Rule: dnsRwRes.ResRuleText,
 		}
 	}
 
-	if dnsRewriteResult.RCode != dns.RcodeSuccess {
+	if dnsRwRes.RCode != dns.RcodeSuccess {
 		// #nosec G115 -- The value of dnsRewriteResult.RCode comes from the
 		// urlfilter package, where it either parsed by [dns.StringToRcode] or
 		// defined statically.
-		resp := req.Messages.NewBlockedRespRCode(req.DNS, dnsmsg.RCode(dnsRewriteResult.RCode))
+		resp := req.Messages.NewBlockedRespRCode(req.DNS, dnsmsg.RCode(dnsRwRes.RCode))
 
 		return &filter.ResultModifiedResponse{
 			Msg:  resp,
 			List: id,
-			Rule: dnsRewriteResult.ResRuleText,
+			Rule: dnsRwRes.ResRuleText,
 		}
 	}
 
-	resp, err := filterDNSRewrite(req, dnsRewriteResult)
+	resp, err := filterDNSRewrite(req, &dnsRwRes)
 	if err != nil {
 		return nil
 	}
@@ -71,7 +76,6 @@ type dnsRewriteResult struct {
 	Response    dnsRewriteResultResponse
 	CanonName   string
 	ResRuleText filter.RuleText
-	Rules       []*rules.NetworkRule
 	RCode       rules.RCode
 }
 
@@ -79,48 +83,39 @@ type dnsRewriteResult struct {
 // the server returns.
 type dnsRewriteResultResponse map[rules.RRType][]rules.RRValue
 
-// processDNSRewriteRules processes DNS rewrite rules in dnsr.  The result will
-// have either CanonName or RCode or Response set.
-//
-// TODO(a.garipov):  Reuse dnsRewriteResult structures.
-func processDNSRewriteRules(dnsr []*rules.NetworkRule) (res *dnsRewriteResult) {
-	dnsrr := &dnsRewriteResult{
-		Response: dnsRewriteResultResponse{},
-	}
-
+// processDNSRewriteRules processes DNS rewrite rules in dnsr.  res will have
+// either CanonName or RCode or Response set.  res and res.Response must not be
+// nil.
+func processDNSRewriteRules(dnsr []*rules.NetworkRule, res *dnsRewriteResult) {
 	for _, rule := range dnsr {
 		dr := rule.DNSRewrite
 		if dr.NewCNAME != "" {
 			// NewCNAME rules have a higher priority than other rules.
-			return &dnsRewriteResult{
-				ResRuleText: filter.RuleText(rule.RuleText),
-				CanonName:   dr.NewCNAME,
-			}
+			res.CanonName = dr.NewCNAME
+			res.ResRuleText = filter.RuleText(rule.Text())
+
+			return
 		}
 
-		switch dr.RCode {
-		case dns.RcodeSuccess:
-			dnsrr.RCode = dr.RCode
-			dnsrr.Response[dr.RRType] = append(dnsrr.Response[dr.RRType], dr.Value)
-			dnsrr.Rules = append(dnsrr.Rules, rule)
-		default:
-			// RcodeRefused and other such codes have higher priority.  Return
-			// immediately.
-			return &dnsRewriteResult{
-				ResRuleText: filter.RuleText(rule.RuleText),
-				RCode:       dr.RCode,
-			}
+		if dr.RCode != dns.RcodeSuccess {
+			// [dns.RcodeRefused] and other such codes have higher priority.
+			// Set and return immediately.
+			res.ResRuleText = filter.RuleText(rule.Text())
+			res.RCode = dr.RCode
+
+			return
 		}
+
+		res.Response[dr.RRType] = append(res.Response[dr.RRType], dr.Value)
+		res.RCode = dr.RCode
 	}
-
-	return dnsrr
 }
 
 // filterDNSRewrite handles dnsrewrite filters.  It constructs a DNS response
-// and returns it.  dnsrr.RCode should be [dns.RcodeSuccess] and contain a
-// non-empty dnsrr.Response.
-func filterDNSRewrite(req *filter.Request, dnsrr *dnsRewriteResult) (resp *dns.Msg, err error) {
-	if dnsrr.Response == nil {
+// and returns it.  req and res must not be nil.  res.RCode should be
+// [dns.RcodeSuccess] and contain a non-empty Response.
+func filterDNSRewrite(req *filter.Request, res *dnsRewriteResult) (resp *dns.Msg, err error) {
+	if res.Response == nil {
 		return nil, errors.Error("no dns rewrite rule responses")
 	}
 
@@ -130,7 +125,7 @@ func filterDNSRewrite(req *filter.Request, dnsrr *dnsRewriteResult) (resp *dns.M
 	resp = req.Messages.NewBlockedRespRCode(dnsReq, dns.RcodeSuccess)
 
 	rr := dnsReq.Question[0].Qtype
-	values := dnsrr.Response[rr]
+	values := res.Response[rr]
 	for i, v := range values {
 		var ans dns.RR
 		ans, err = filterDNSRewriteResponse(req, rr, v)

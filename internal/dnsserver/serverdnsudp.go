@@ -8,28 +8,41 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/miekg/dns"
 )
 
-// serveUDP runs the UDP serving loop.
-func (s *ServerDNS) serveUDP(ctx context.Context, conn net.PacketConn) (err error) {
+// serveUDP runs the UDP serving loop.  It is intended to be used as a
+// goroutine.  conn must not be nil.
+func (s *ServerDNS) serveUDP(ctx context.Context, conn net.PacketConn) {
+	// Do not recover from panics here since if this goroutine panics, the
+	// application won't be able to continue listening to UDP.
+	defer s.handlePanicAndExit(ctx)
+
+	s.baseLogger.InfoContext(ctx, "starting listening udp")
 	defer func() { closeWithLog(ctx, s.baseLogger, "closing udp conn", conn) }()
 
 	for s.isStarted() {
-		err = s.acceptUDPMsg(ctx, conn)
-		if err != nil {
-			// TODO(ameshkov): Consider the situation where the server is shut
-			// down and restarted between the two calls to isStarted.
-			if !s.isStarted() {
-				return nil
-			}
-
-			return err
+		err := s.acceptUDPMsg(ctx, conn)
+		if err == nil {
+			continue
 		}
-	}
 
-	return nil
+		// TODO(ameshkov):  Consider the situation where the server is shut down
+		// and restarted between the two calls to isStarted.
+		if !s.isStarted() {
+			s.baseLogger.DebugContext(
+				ctx,
+				"listening udp failed: server not started",
+				slogutil.KeyError, err,
+			)
+		} else {
+			s.baseLogger.ErrorContext(ctx, "listening udp failed", slogutil.KeyError, err)
+		}
+
+		return
+	}
 }
 
 // acceptUDPMsg reads and starts processing a single UDP message.
@@ -48,8 +61,6 @@ func (s *ServerDNS) acceptUDPMsg(ctx context.Context, conn net.PacketConn) (err 
 		return err
 	}
 
-	s.wg.Add(1)
-
 	// Save the start time here, but create the context inside the goroutine,
 	// since s.requestContext can be slow.
 	//
@@ -58,7 +69,7 @@ func (s *ServerDNS) acceptUDPMsg(ctx context.Context, conn net.PacketConn) (err 
 	// version.
 	startTime := time.Now()
 
-	return s.workerPool.Submit(func() {
+	return s.taskPool.submitWG(s.activeTaskWG, func() {
 		reqCtx, reqCancel := s.requestContext(context.Background())
 		defer reqCancel()
 
@@ -71,24 +82,23 @@ func (s *ServerDNS) acceptUDPMsg(ctx context.Context, conn net.PacketConn) (err 
 	})
 }
 
-// serveUDPPacket serves a new UDP request.
+// serveUDPPacket serves a new UDP request.  It is intended to be used as a
+// goroutine.  buf, conn, and sess must not be nil.
 func (s *ServerDNS) serveUDPPacket(
 	ctx context.Context,
 	buf []byte,
 	conn net.PacketConn,
 	sess netext.PacketSession,
 ) {
-	defer s.wg.Done()
 	defer s.handlePanicAndRecover(ctx)
 
-	rw := &udpResponseWriter{
+	s.serveDNS(ctx, buf, &udpResponseWriter{
 		respPool:     s.respPool,
 		udpSession:   sess,
 		conn:         conn,
 		writeTimeout: s.writeTimeout,
 		maxRespSize:  s.maxUDPRespSize,
-	}
-	s.serveDNS(ctx, buf, rw)
+	})
 }
 
 // readUDPMsg reads the next incoming DNS message.

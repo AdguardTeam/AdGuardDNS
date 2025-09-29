@@ -13,6 +13,8 @@ import (
 // urlFilterResultCollector is an entity simplifying the collection and
 // compilation of urlfilter results.  It contains per-pointer indexes of the IDs
 // of filters producing network and host rules.
+//
+// TODO(a.garipov):  Reuse these structures.
 type urlFilterResultCollector struct {
 	netRuleIDs  map[*rules.NetworkRule]filter.ID
 	hostRuleIDs map[*rules.HostRule]filter.ID
@@ -109,7 +111,7 @@ func (c *urlFilterResultCollector) netRuleDataToResult(nr *rules.NetworkRule) (r
 
 		rule = filter.RuleText(svcID)
 	} else {
-		rule = filter.RuleText(nr.RuleText)
+		rule = filter.RuleText(nr.Text())
 	}
 
 	if nr.Whitelist {
@@ -174,7 +176,7 @@ func (c *urlFilterResultCollector) hostRuleDataToResult(hr *rules.HostRule) (res
 
 		rule = filter.RuleText(svcID)
 	} else {
-		rule = filter.RuleText(hr.RuleText)
+		rule = filter.RuleText(hr.Text())
 	}
 
 	return &filter.ResultBlocked{

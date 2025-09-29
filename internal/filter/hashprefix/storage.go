@@ -75,6 +75,8 @@ func (s *Storage) Hashes(prefs []Prefix) (hashes []string) {
 	//
 	// The fact that we iterate over the [s.hashSuffixes] map twice shouldn't
 	// matter, since we assume that len(hps) will be below 5 most of the time.
+	//
+	// TODO(a.garipov):  Reuse in pools.
 	b := &strings.Builder{}
 	b.Grow(l * hashEncLen)
 

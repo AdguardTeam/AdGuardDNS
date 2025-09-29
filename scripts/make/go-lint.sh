@@ -158,10 +158,6 @@ underscores() {
 
 # Checks
 
-# TODO(a.garipov): Remove the dnsserver stuff once it is separated.
-dnssrvmod='github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/...'
-readonly dnssrvmod
-
 run_linter -e blocklist_imports
 
 run_linter -e method_const
@@ -170,9 +166,9 @@ run_linter -e underscores
 
 run_linter -e gofumpt --extra -e -l .
 
-run_linter "${GO:-go}" vet ./... "$dnssrvmod"
+run_linter "${GO:-go}" vet work
 
-run_linter govulncheck ./... "$dnssrvmod"
+run_linter govulncheck work
 
 # NOTE: For AdGuard DNS, ignore the generated protobuf files.
 run_linter gocyclo --ignore '\.pb\.go$' --over 10 .
@@ -180,9 +176,9 @@ run_linter gocyclo --ignore '\.pb\.go$' --over 10 .
 # NOTE: For AdGuard DNS, ignore the generated protobuf files.
 run_linter gocognit --ignore '\.pb\.go$' --over 10 .
 
-run_linter ineffassign ./... "$dnssrvmod"
+run_linter ineffassign work
 
-run_linter unparam ./... "$dnssrvmod"
+run_linter unparam work
 
 find_with_ignore \
 	-type 'f' \
@@ -197,13 +193,13 @@ find_with_ignore \
 	')' \
 	-exec 'misspell' '--error' '{}' '+'
 
-run_linter nilness ./... "$dnssrvmod"
+run_linter nilness work
 
 # TODO(a.garipov):  Remove the grep crutch once golang/go#60509 is fixed.
 #
 # TODO(a.garipov):  Add a filtering function to run_linter.
 fieldalignment_output="$(
-	fieldalignment ./... "$dnssrvmod" 2>&1 \
+	fieldalignment work 2>&1 \
 		| grep -e '\.pb\.go' -v \
 		|| :
 )"
@@ -217,7 +213,7 @@ fi
 
 # TODO(a.garipov): Remove the grep crutch once golang/go#61574 is fixed.
 shadow_output="$(
-	shadow --strict ./... "$dnssrvmod" 2>&1 \
+	shadow --strict work 2>&1 \
 		| grep -e '\.pb\.go' -v \
 		|| :
 )"
@@ -229,9 +225,9 @@ if [ "$shadow_output" != '' ]; then
 	exit 1
 fi
 
-run_linter gosec --exclude-generated --quiet ./... "$dnssrvmod"
+run_linter gosec --exclude-generated --quiet work
 
-run_linter errcheck ./... "$dnssrvmod"
+run_linter errcheck work
 
 staticcheck_matrix='
 darwin: GOOS=darwin
@@ -240,4 +236,4 @@ linux:  GOOS=linux
 readonly staticcheck_matrix
 
 printf '%s' "$staticcheck_matrix" \
-	| run_linter staticcheck --matrix ./... "$dnssrvmod"
+	| run_linter staticcheck --matrix work

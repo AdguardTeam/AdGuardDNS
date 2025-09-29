@@ -126,7 +126,11 @@ func newTestService(
 	}
 
 	geoIP := agdtest.NewGeoIP()
-	geoIP.OnData = func(host string, _ netip.Addr) (l *geoip.Location, err error) {
+	geoIP.OnData = func(
+		_ context.Context,
+		host string,
+		_ netip.Addr,
+	) (l *geoip.Location, err error) {
 		testutil.RequireSend(pt, geoIPCh, host, dnssvctest.Timeout)
 
 		return loc, nil

@@ -35,15 +35,13 @@ func main() {
 	resp := errors.Must(c.Do(req))
 	defer slogutil.CloseAndLog(ctx, logger, resp.Body, slog.LevelError)
 
-	err := agdhttp.CheckStatus(resp, http.StatusOK)
-	errors.Check(err)
+	errors.Check(agdhttp.CheckStatus(resp, http.StatusOK))
 
 	out := errors.Must(os.OpenFile("./asntops.go", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o664))
 	defer slogutil.CloseAndLog(ctx, logger, out, slog.LevelError)
 
 	defaultCountryTopASNs := map[geoip.Country][]geoip.ASN{}
-	err = json.NewDecoder(resp.Body).Decode(&defaultCountryTopASNs)
-	errors.Check(err)
+	errors.Check(json.NewDecoder(resp.Body).Decode(&defaultCountryTopASNs))
 
 	// Don't use a *container.MapSet here, because the map is iterated over in
 	// the template.
@@ -67,9 +65,7 @@ func main() {
 	}
 
 	tmpl := template.Must(template.New("main").Parse(tmplStr))
-
-	err = tmpl.Execute(out, tmplData)
-	errors.Check(err)
+	errors.Check(tmpl.Execute(out, tmplData))
 }
 
 // countriesASNURL is the default URL to get the per-country top ASN statistics

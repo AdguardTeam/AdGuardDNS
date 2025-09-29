@@ -16,11 +16,11 @@ type certPaths struct {
 	isCustom bool
 }
 
-// certStorage holds TLS certificates and their associated file paths.  Each
-// entry in the slices corresponds to a certificate and its respective paths for
-// the certificate and key files.  Using this struct allows us to reduce
+// certIndex holds TLS certificates and their associated file paths.  Each entry
+// in the slices corresponds to a certificate and its respective paths for the
+// certificate and key files.  Using this struct allows us to reduce
 // allocations.
-type certStorage struct {
+type certIndex struct {
 	// certs contains the list of TLS certificates.  All elements must not be
 	// nil.
 	certs []*tls.Certificate
@@ -32,21 +32,21 @@ type certStorage struct {
 
 // add saves the TLS certificate and its paths.  Certificate paths must only be
 // added once, see [certStorage.contains].  cert and cp must not be nil.
-func (s *certStorage) add(cert *tls.Certificate, cp *certPaths) {
+func (s *certIndex) add(cert *tls.Certificate, cp *certPaths) {
 	s.certs = append(s.certs, cert)
 	s.paths = append(s.paths, cp)
 }
 
 // contains returns true if the TLS certificate has already been added using the
 // provided file paths.  cp must not be nil.
-func (s *certStorage) contains(cp *certPaths) (ok bool) {
+func (s *certIndex) contains(cp *certPaths) (ok bool) {
 	return slices.ContainsFunc(s.paths, func(p *certPaths) (found bool) {
 		return *cp == *p
 	})
 }
 
 // count returns the number of saved TLS certificates.
-func (s *certStorage) count() (n int) {
+func (s *certIndex) count() (n int) {
 	return len(s.certs)
 }
 
@@ -59,7 +59,7 @@ func (s *certStorage) count() (n int) {
 //
 // TODO(a.garipov):  Explore the above situation and consider fixes to allow
 // custom IP-only certs.
-func (s *certStorage) certFor(chi *tls.ClientHelloInfo) (cert *tls.Certificate, err error) {
+func (s *certIndex) certFor(chi *tls.ClientHelloInfo) (cert *tls.Certificate, err error) {
 	var errs []error
 	for _, c := range s.certs {
 		err = chi.SupportsCertificate(c)
@@ -75,7 +75,7 @@ func (s *certStorage) certFor(chi *tls.ClientHelloInfo) (cert *tls.Certificate, 
 
 // rangeFn calls fn for each stored TLS certificate and its paths.  fn must not
 // be nil.  Neither cert nor cp must be modified.
-func (s *certStorage) rangeFn(fn func(cert *tls.Certificate, cp *certPaths) (cont bool)) {
+func (s *certIndex) rangeFn(fn func(cert *tls.Certificate, cp *certPaths) (cont bool)) {
 	for i, p := range s.paths {
 		if !fn(s.certs[i], p) {
 			return
@@ -84,7 +84,7 @@ func (s *certStorage) rangeFn(fn func(cert *tls.Certificate, cp *certPaths) (con
 }
 
 // remove deletes the certificate from s.  cp must not be nil.
-func (s *certStorage) remove(cp *certPaths) {
+func (s *certIndex) remove(cp *certPaths) {
 	i := slices.IndexFunc(s.paths, func(p *certPaths) (found bool) {
 		return *cp == *p
 	})
@@ -97,7 +97,7 @@ func (s *certStorage) remove(cp *certPaths) {
 }
 
 // stored returns the list of saved TLS certificates.
-func (s *certStorage) stored() (certs []*tls.Certificate) {
+func (s *certIndex) stored() (certs []*tls.Certificate) {
 	return s.certs
 }
 
@@ -106,7 +106,7 @@ func (s *certStorage) stored() (certs []*tls.Certificate) {
 //
 // TODO(a.garipov):  Think of a better way to do this that doesn't involve code
 // that looks like iterator invalidation.
-func (s *certStorage) update(cp *certPaths, c *tls.Certificate) (ok bool) {
+func (s *certIndex) update(cp *certPaths, c *tls.Certificate) (ok bool) {
 	for i, p := range s.paths {
 		if *cp == *p {
 			s.certs[i] = c

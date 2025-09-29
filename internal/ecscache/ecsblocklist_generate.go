@@ -36,6 +36,8 @@ func main() {
 	resp := errors.Must(c.Do(req))
 	defer slogutil.CloseAndLog(ctx, logger, resp.Body, slog.LevelError)
 
+	errors.Check(agdhttp.CheckStatus(resp, http.StatusOK))
+
 	out := errors.Must(os.OpenFile("./ecsblocklist.go", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o664))
 	defer slogutil.CloseAndLog(ctx, logger, out, slog.LevelError)
 
@@ -48,8 +50,7 @@ func main() {
 
 	tmpl := template.Must(template.New("main").Parse(tmplStr))
 
-	err := tmpl.Execute(out, lines)
-	errors.Check(err)
+	errors.Check(tmpl.Execute(out, lines))
 }
 
 // fakeECSBlocklistURL is the default URL from where to get ECS fake domains.

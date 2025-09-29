@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/c2h5oh/datasize"
@@ -82,19 +83,17 @@ func NewQueryLog(namespace string, reg prometheus.Registerer) (m *QueryLog, err 
 	return m, nil
 }
 
-// IncrementItemsCount implements the [querylog.Metrics] interface for
-// *QueryLog.
-func (m *QueryLog) IncrementItemsCount(_ context.Context) {
-	m.itemsTotal.Inc()
-}
+// type check
+var _ querylog.Metrics = (*QueryLog)(nil)
 
 // ObserveItemSize implements the [querylog.Metrics] interface for *QueryLog.
 func (m *QueryLog) ObserveItemSize(_ context.Context, size datasize.ByteSize) {
 	m.itemSize.Observe(float64(size))
 }
 
-// ObserveWriteDuration implements the [querylog.Metrics] interface for
+// ObserveWrite implements the [querylog.Metrics] interface for
 // *QueryLog.
-func (m *QueryLog) ObserveWriteDuration(_ context.Context, dur time.Duration) {
+func (m *QueryLog) ObserveWrite(_ context.Context, dur time.Duration) {
+	m.itemsTotal.Inc()
 	m.writeDuration.Observe(dur.Seconds())
 }

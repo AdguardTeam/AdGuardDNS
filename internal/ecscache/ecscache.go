@@ -322,7 +322,7 @@ func (mh *mwHandler) ServeDNS(
 		cr.subnet = netutil.ZeroPrefix(ecsFam)
 	} else {
 		loc := locFromReq(ri)
-		cr.subnet, err = mw.geoIP.SubnetByLocation(loc, ecsFam)
+		cr.subnet, err = mw.geoIP.SubnetByLocation(ctx, loc, ecsFam)
 		if err != nil {
 			return fmt.Errorf(
 				"getting subnet for country %s (family: %d): %w",

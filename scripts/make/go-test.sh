@@ -45,7 +45,6 @@ timeout_flags="${TIMEOUT_FLAGS:---timeout=120s}"
 readonly count_flags cover_flags go shuffle_flags timeout_flags
 
 go_test() {
-	# TODO(a.garipov): Remove the dnsserver stuff once it is separated.
 	"$go" test \
 		"$count_flags" \
 		"$cover_flags" \
@@ -54,8 +53,7 @@ go_test() {
 		"$timeout_flags" \
 		"$v_flags" \
 		"$x_flags" \
-		./... \
-		github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/... \
+		work \
 		;
 }
 

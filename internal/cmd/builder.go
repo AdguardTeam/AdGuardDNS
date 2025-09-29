@@ -50,6 +50,7 @@ import (
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/osutil"
 	"github.com/AdguardTeam/golibs/service"
+	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 	"github.com/prometheus/client_golang/prometheus"
@@ -198,6 +199,32 @@ func newBuilder(c *builderConfig) (b *builder) {
 		}),
 		profilesEnabled: c.profilesEnabled,
 	}
+}
+
+// initCrashReporter initializes the crash reporter.
+func (b *builder) initCrashReporter(ctx context.Context) (err error) {
+	crashRep, err := newCrashReporter(&crashReporterConfig{
+		logger:  b.baseLogger.With(slogutil.KeyPrefix, "crash_reporter"),
+		dirPath: b.env.CrashOutputDir,
+		prefix:  b.env.CrashOutputPrefix,
+		enabled: bool(b.env.CrashOutputEnabled),
+	})
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return err
+	}
+
+	err = crashRep.Start(ctx)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return err
+	}
+
+	b.sigHdlr.AddService(crashRep)
+
+	b.logger.DebugContext(ctx, "initialized crash reporter")
+
+	return nil
 }
 
 // startGeoIP starts the concurrent initialization of the GeoIP database.  The
@@ -880,11 +907,19 @@ func (b *builder) initQueryLog(ctx context.Context) (err error) {
 		return fmt.Errorf("registering querylog metrics: %w", err)
 	}
 
+	var sema syncutil.Semaphore
+	if b.env.QueryLogSemaphoreEnabled {
+		sema = syncutil.NewChanSemaphore(b.env.QueryLogSemaphoreLimit)
+	} else {
+		sema = syncutil.EmptySemaphore{}
+	}
+
 	b.queryLog = querylog.NewFileSystem(&querylog.FileSystemConfig{
-		Logger:   b.baseLogger.With(slogutil.KeyPrefix, "querylog"),
-		Path:     b.env.QueryLogPath,
-		Metrics:  mtrc,
-		RandSeed: randutil.MustNewSeed(),
+		Logger:    b.baseLogger.With(slogutil.KeyPrefix, "querylog"),
+		Path:      b.env.QueryLogPath,
+		Metrics:   mtrc,
+		Semaphore: sema,
+		RandSeed:  randutil.MustNewSeed(),
 	})
 
 	b.logger.DebugContext(ctx, "initialized file-based query log")

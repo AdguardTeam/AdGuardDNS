@@ -284,16 +284,13 @@ func matchServerNames(sni string, devDomains []string, srvCerts []*tls.Certifica
 
 // matchDeviceDomains matches sni to device domains.
 func matchDeviceDomains(sni string, domains []string) (matchedDomain string) {
-	matchedDomain = ""
 	for _, domain := range domains {
 		if netutil.IsImmediateSubdomain(sni, domain) {
-			matchedDomain = domain
-
-			break
+			return domain
 		}
 	}
 
-	return matchedDomain
+	return ""
 }
 
 // matchSrvCerts matches sni to DNSNames in srvCerts.

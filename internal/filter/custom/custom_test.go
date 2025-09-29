@@ -71,7 +71,7 @@ func TestFilter(t *testing.T) {
 			require.True(t, ok)
 			require.NotNil(t, res.NetworkRule)
 
-			assert.Equal(t, tc.wantRuleStr, res.NetworkRule.RuleText)
+			assert.Equal(t, tc.wantRuleStr, res.NetworkRule.Text())
 		})
 	}
 }

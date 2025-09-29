@@ -7,6 +7,16 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 [kec]: https://keepachangelog.com/en/1.0.0/
 [sem]: https://semver.org/spec/v2.0.0.html
 
+## AGDNS-3241 / Build 1067
+
+- The environment variables `QUERYLOG_SEMAPHORE_ENABLED` and `QUERYLOG_SEMAPHORE_LIMIT` have been added.
+
+- The environment variable `MAX_THREADS` has been added.
+
+## AGDNS-3228 / Build 1063
+
+- The environment variables `CRASH_OUTPUT_DIR`, `CRASH_OUTPUT_ENABLED`, and `CRASH_OUTPUT_PREFIX` have been added.
+
 ## AGDNS-2998 / Build 1042
 
 - Profiles’ file cache version has been incremented. The new field `StandardEnabled` has been added to access’ object.

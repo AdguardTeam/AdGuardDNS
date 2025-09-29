@@ -81,7 +81,10 @@ type StandardAccess struct {
 // NewStandardAccess creates a new properly initialized standard access.  c must
 // be valid.  It uses the latest cached settings if available, use the
 // [StandardAccess.Refresh] method to update them.
-func NewStandardAccess(ctx context.Context, c *StandardAccessConfig) (s *StandardAccess, err error) {
+func NewStandardAccess(
+	ctx context.Context,
+	c *StandardAccessConfig,
+) (s *StandardAccess, err error) {
 	cachePath := filepath.Join(c.CacheDir, indexFileNameStandardProfileAccess)
 
 	refr, err := refreshable.New(&refreshable.Config{

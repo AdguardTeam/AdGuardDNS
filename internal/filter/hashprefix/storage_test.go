@@ -106,15 +106,14 @@ func BenchmarkStorage_Hashes(b *testing.B) {
 	}
 
 	// Most recent results:
-	//
-	//	goos: darwin
-	//	goarch: arm64
+	//	goos: linux
+	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix
-	//	cpu: Apple M1 Pro
-	//	BenchmarkStorage_Hashes/1-8 	10519970	       102.7 ns/op	      80 B/op	       2 allocs/op
-	//	BenchmarkStorage_Hashes/2-8 	10045784	       118.1 ns/op	      80 B/op	       2 allocs/op
-	//	BenchmarkStorage_Hashes/3-8 	 9088449	       129.2 ns/op	      80 B/op	       2 allocs/op
-	//	BenchmarkStorage_Hashes/4-8 	 8577764	       139.4 ns/op	      80 B/op	       2 allocs/op
+	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
+	//	BenchmarkStorage_Hashes/1-16      	 6934150	       174.6 ns/op	      80 B/op	       2 allocs/op
+	//	BenchmarkStorage_Hashes/2-16      	 5912390	       203.5 ns/op	      80 B/op	       2 allocs/op
+	//	BenchmarkStorage_Hashes/3-16      	 5288085	       225.6 ns/op	      80 B/op	       2 allocs/op
+	//	BenchmarkStorage_Hashes/4-16      	 4613066	       259.9 ns/op	      80 B/op	       2 allocs/op
 }
 
 func BenchmarkStorage_ResetHosts(b *testing.B) {
@@ -137,10 +136,9 @@ func BenchmarkStorage_ResetHosts(b *testing.B) {
 	require.NoError(b, err)
 
 	// Most recent results:
-	//
-	//	goos: darwin
-	//	goarch: arm64
+	//	goos: linux
+	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix
-	//	cpu: Apple M1 Pro
-	//	BenchmarkStorage_ResetHosts-8   	    8610	    128756 ns/op	  118380 B/op	    1009 allocs/op
+	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
+	//	BenchmarkStorage_ResetHosts-16    	    6469	    186021 ns/op	  118392 B/op	    1009 allocs/op
 }

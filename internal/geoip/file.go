@@ -206,7 +206,11 @@ var _ Interface = (*File)(nil)
 //     subnet is returned.  If the information about the most used ASNs is not
 //     available, the first subnet from the country that is broad enough (see
 //     resetCountrySubnets) is chosen.
-func (f *File) SubnetByLocation(l *Location, fam netutil.AddrFamily) (n netip.Prefix, err error) {
+func (f *File) SubnetByLocation(
+	_ context.Context,
+	l *Location,
+	fam netutil.AddrFamily,
+) (n netip.Prefix, err error) {
 	var ctrySubnets countrySubnets
 	var locSubnets locationSubnets
 
@@ -247,10 +251,7 @@ func (f *File) SubnetByLocation(l *Location, fam netutil.AddrFamily) (n netip.Pr
 
 // Data implements the Interface interface for *File.  If ip is netip.Addr{},
 // Data tries to lookup and return the data based on host, unless it's empty.
-func (f *File) Data(host string, ip netip.Addr) (l *Location, err error) {
-	// TODO(e.burkov):  Add context to the [Interface] methods.
-	ctx := context.TODO()
-
+func (f *File) Data(ctx context.Context, host string, ip netip.Addr) (l *Location, err error) {
 	if ip == (netip.Addr{}) {
 		return f.dataByHost(ctx, host), nil
 	} else if ip.Is4In6() {
@@ -425,14 +426,11 @@ func (f *File) resetSubnetMappings(
 	asn *maxminddb.Reader,
 	country *maxminddb.Reader,
 ) (err error) {
-	var wg sync.WaitGroup
-	wg.Add(2)
+	wg := &sync.WaitGroup{}
 
 	var locErr, ctryErr error
 
-	go func() {
-		defer wg.Done()
-
+	wg.Go(func() {
 		var ipv4, ipv6 locationSubnets
 		ipv4, ipv6, locErr = f.resetLocationSubnets(ctx, asn, country)
 
@@ -448,11 +446,9 @@ func (f *File) resetSubnetMappings(
 		defer f.mu.Unlock()
 
 		f.ipv4LocationSubnets, f.ipv6LocationSubnets = ipv4, ipv6
-	}()
+	})
 
-	go func() {
-		defer wg.Done()
-
+	wg.Go(func() {
 		var ipv4, ipv6 countrySubnets
 		ipv4, ipv6, ctryErr = resetCountrySubnets(ctx, f.logger, country)
 
@@ -466,7 +462,7 @@ func (f *File) resetSubnetMappings(
 		defer f.mu.Unlock()
 
 		f.ipv4CountrySubnets, f.ipv6CountrySubnets = ipv4, ipv6
-	}()
+	})
 
 	wg.Wait()
 

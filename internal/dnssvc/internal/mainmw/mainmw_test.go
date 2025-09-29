@@ -118,7 +118,11 @@ func TestMiddleware_Wrap(t *testing.T) {
 	}
 
 	geoIP := agdtest.NewGeoIP()
-	geoIP.OnData = func(host string, addr netip.Addr) (l *geoip.Location, err error) {
+	geoIP.OnData = func(
+		_ context.Context,
+		host string,
+		addr netip.Addr,
+	) (l *geoip.Location, err error) {
 		pt := testutil.PanicT{}
 		require.Equal(pt, dnssvctest.Domain, host)
 		if addr.Is4() {
@@ -419,7 +423,11 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 	)
 
 	geoIP := agdtest.NewGeoIP()
-	geoIP.OnData = func(_ string, _ netip.Addr) (l *geoip.Location, err error) {
+	geoIP.OnData = func(
+		_ context.Context,
+		_ string,
+		_ netip.Addr,
+	) (l *geoip.Location, err error) {
 		return nil, nil
 	}
 

@@ -102,7 +102,7 @@ func (mw *Middleware) locationData(
 	ip netip.Addr,
 	typ string,
 ) (l *geoip.Location) {
-	l, err := mw.geoIP.Data("", ip)
+	l, err := mw.geoIP.Data(ctx, "", ip)
 	if err != nil {
 		// Consider GeoIP errors non-critical.  Report and go on.
 		err = fmt.Errorf("getting data for %s ip: %w", typ, err)

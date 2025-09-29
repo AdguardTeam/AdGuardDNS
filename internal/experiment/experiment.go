@@ -25,7 +25,7 @@ import (
 func Init(l *slog.Logger, reg prometheus.Registerer) (err error) {
 	expStr := os.Getenv("EXPERIMENTS")
 	if expStr == "" {
-		return
+		return nil
 	}
 
 	expIDs := stringutil.SplitTrimmed(expStr, ",")

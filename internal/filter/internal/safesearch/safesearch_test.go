@@ -146,9 +146,6 @@ func BenchmarkFilter_FilterRequestUF(b *testing.B) {
 	f := newTestFilter(b)
 
 	b.Run("no_match", func(b *testing.B) {
-		var res filter.Result
-		var err error
-
 		ctx := testutil.ContextWithTimeout(b, filtertest.Timeout)
 		req := newRequest(b, testOther, qt)
 
@@ -159,20 +156,22 @@ func BenchmarkFilter_FilterRequestUF(b *testing.B) {
 
 		ufRes := &urlfilter.DNSResult{}
 
+		// Warmup to fill the slices.
+		res, err := f.FilterRequestUF(ctx, req, ufReq, ufRes)
+		require.NoError(b, err)
+		require.Nil(b, res)
+
 		b.ReportAllocs()
 		for b.Loop() {
 			ufRes.Reset()
 			res, err = f.FilterRequestUF(ctx, req, ufReq, ufRes)
 		}
 
-		assert.NoError(b, err)
-		assert.Nil(b, res)
+		require.NoError(b, err)
+		require.Nil(b, res)
 	})
 
 	b.Run("ip", func(b *testing.B) {
-		var res filter.Result
-		var err error
-
 		ctx := testutil.ContextWithTimeout(b, filtertest.Timeout)
 		req := newRequest(b, testEngineWithIP, qt)
 
@@ -183,20 +182,22 @@ func BenchmarkFilter_FilterRequestUF(b *testing.B) {
 
 		ufRes := &urlfilter.DNSResult{}
 
+		// Warmup to fill the slices.
+		res, err := f.FilterRequestUF(ctx, req, ufReq, ufRes)
+		require.NoError(b, err)
+		require.NotNil(b, res)
+
 		b.ReportAllocs()
 		for b.Loop() {
 			ufRes.Reset()
 			res, err = f.FilterRequestUF(ctx, req, ufReq, ufRes)
 		}
 
-		assert.NoError(b, err)
-		assert.NotNil(b, res)
+		require.NoError(b, err)
+		require.NotNil(b, res)
 	})
 
 	b.Run("domain", func(b *testing.B) {
-		var res filter.Result
-		var err error
-
 		ctx := testutil.ContextWithTimeout(b, filtertest.Timeout)
 		req := newRequest(b, testEngineWithDomain, qt)
 
@@ -207,25 +208,29 @@ func BenchmarkFilter_FilterRequestUF(b *testing.B) {
 
 		ufRes := &urlfilter.DNSResult{}
 
+		// Warmup to fill the slices.
+		res, err := f.FilterRequestUF(ctx, req, ufReq, ufRes)
+		require.NoError(b, err)
+		require.NotNil(b, res)
+
 		b.ReportAllocs()
 		for b.Loop() {
 			ufRes.Reset()
 			res, err = f.FilterRequestUF(ctx, req, ufReq, ufRes)
 		}
 
-		assert.NoError(b, err)
-		assert.NotNil(b, res)
+		require.NoError(b, err)
+		require.NotNil(b, res)
 	})
 
 	// Most recent results:
-	//
-	// goos: darwin
-	// goarch: arm64
-	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch
-	// cpu: Apple M1 Pro
-	// BenchmarkFilter_FilterRequestUF/no_match-8         	27804783	        43.23 ns/op	       0 B/op	       0 allocs/op
-	// BenchmarkFilter_FilterRequestUF/ip-8               	 3136018	       382.3 ns/op	     672 B/op	      11 allocs/op
-	// BenchmarkFilter_FilterRequestUF/domain-8           	 4929343	       237.8 ns/op	     400 B/op	       7 allocs/op
+	//	goos: linux
+	//	goarch: amd64
+	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch
+	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
+	//	BenchmarkFilter_FilterRequestUF/no_match-16       	18863545	        62.65 ns/op	       0 B/op	       0 allocs/op
+	//	BenchmarkFilter_FilterRequestUF/ip-16             	 1516423	       784.0 ns/op	     664 B/op	      10 allocs/op
+	//	BenchmarkFilter_FilterRequestUF/domain-16         	 2859573	       424.6 ns/op	     320 B/op	       6 allocs/op
 }
 
 // newTestFilter creates a new [*safesearch.Filter] for testing, and refreshes

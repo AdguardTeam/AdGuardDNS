@@ -96,7 +96,7 @@ func (f *baseFilter) SetURLFilterResult(
 				return false
 			}
 
-			shallowCloneInto(res, cachedRes)
+			cachedRes.ShallowCloneInto(res)
 
 			return true
 		}
@@ -111,23 +111,12 @@ func (f *baseFilter) SetURLFilterResult(
 
 	if ok {
 		cachedRes = &urlfilter.DNSResult{}
-		shallowCloneInto(cachedRes, res)
+		res.ShallowCloneInto(cachedRes)
 	}
 
 	f.cache.Set(cacheKey, cachedRes)
 
 	return ok
-}
-
-// shallowCloneInto sets properties in other, as if making a shallow clone.
-// other must not be nil and should be empty or reset using [DNSResult.Reset].
-//
-// TODO(a.garipov):  Add to urlfilter.
-func shallowCloneInto(other, res *urlfilter.DNSResult) {
-	other.NetworkRule = res.NetworkRule
-	other.HostRulesV4 = append(other.HostRulesV4, res.HostRulesV4...)
-	other.HostRulesV6 = append(other.HostRulesV6, res.HostRulesV6...)
-	other.NetworkRules = append(other.NetworkRules, res.NetworkRules...)
 }
 
 // ID returns the filter list ID of this rule list filter, as well as the ID of

@@ -11,7 +11,7 @@
 
 Development is supported on Linux and macOS (aka Darwin) systems.
 
-1. Install Go 1.24 or later.
+1. Install Go 1.25 or later.
 
 2. Call `make init` to set up the Git pre-commit hook.
 
@@ -43,12 +43,26 @@ This is not an extensive list. See `../Makefile`.
 
     - `../internal/backendpb/dns.pb.go`
     - `../internal/backendpb/dns_grpc.pb.go`
-    - `../internal/ecscache/ecsblockilist_generate.go`
+    - `../internal/ecscache/ecsblocklist_generate.go`
     - `../internal/geoip/asntops_generate.go`
     - `../internal/geoip/country_generate.go`
     - `../internal/profiledb/internal/filecachepb/filecache.pb.go`
 
     You'll need to [install `protoc`][protoc] for the last one.
+
+    Use the `ONLY` environment variable to generate selected parts. This generates only the backend and file-cache protobuf files:
+
+    ```sh
+    make ONLY='backendpb filecachepb' go-gen
+    ```
+
+    Available values:
+
+    - `backendpb`
+    - `ecscache`
+    - `filecachepb`
+    - `geoip_asntops`
+    - `geoip_country`
 
 - `make go-lint`: Run Go checkers and static analysis.
 

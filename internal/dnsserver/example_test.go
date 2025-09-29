@@ -2,7 +2,6 @@ package dnsserver_test
 
 import (
 	"context"
-	"log/slog"
 	"net/netip"
 	"os"
 
@@ -30,7 +29,6 @@ func ExampleNewServerDNS() {
 
 	baseLogger := slogutil.New(&slogutil.Config{
 		Format: slogutil.FormatText,
-		Level:  slog.LevelDebug,
 	}).With("server_name", "test")
 
 	// Init the server with this handler func
@@ -81,7 +79,6 @@ func ExampleWithMiddlewares() {
 
 	baseLogger := slogutil.New(&slogutil.Config{
 		Format: slogutil.FormatText,
-		Level:  slog.LevelDebug,
 	})
 
 	middleware := querylog.NewLogMiddleware(os.Stdout, baseLogger)

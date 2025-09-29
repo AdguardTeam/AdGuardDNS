@@ -10,6 +10,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,10 +21,11 @@ func TestFileSystem_Write(t *testing.T) {
 	require.NoError(t, err)
 
 	l := querylog.NewFileSystem(&querylog.FileSystemConfig{
-		Logger:   slogutil.NewDiscardLogger(),
-		Metrics:  querylog.EmptyMetrics{},
-		Path:     f.Name(),
-		RandSeed: [32]byte{},
+		Logger:    slogutil.NewDiscardLogger(),
+		Metrics:   querylog.EmptyMetrics{},
+		Semaphore: syncutil.EmptySemaphore{},
+		Path:      f.Name(),
+		RandSeed:  [32]byte{},
 	})
 
 	ctx := context.Background()
@@ -110,10 +112,11 @@ func BenchmarkFileSystem_Write_file(b *testing.B) {
 	require.NoError(b, err)
 
 	l := querylog.NewFileSystem(&querylog.FileSystemConfig{
-		Logger:   slogutil.NewDiscardLogger(),
-		Metrics:  querylog.EmptyMetrics{},
-		Path:     f.Name(),
-		RandSeed: [32]byte{},
+		Logger:    slogutil.NewDiscardLogger(),
+		Metrics:   querylog.EmptyMetrics{},
+		Semaphore: syncutil.EmptySemaphore{},
+		Path:      f.Name(),
+		RandSeed:  [32]byte{},
 	})
 
 	e := testEntry()

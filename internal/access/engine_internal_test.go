@@ -10,6 +10,7 @@ import (
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // testTimeout is the common timeout for tests.
@@ -95,16 +96,12 @@ func TestBlockedHostEngine_IsBlocked_concurrent(t *testing.T) {
 
 	wg := &sync.WaitGroup{}
 	for i := range routinesLimit {
-		wg.Add(1)
-
 		host := fmt.Sprintf("%d.%s", i, "block.test")
 
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			req := dnsservertest.NewReq(host, dns.TypeA, dns.ClassINET)
 			assert.True(t, engine.isBlocked(testutil.ContextWithTimeout(t, testTimeout), req))
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -120,35 +117,38 @@ func BenchmarkBlockedHostEngine_IsBlocked(b *testing.B) {
 	b.Run("pass", func(b *testing.B) {
 		req := dnsservertest.NewReq("pass.test", dns.TypeA, dns.ClassINET)
 
-		var blocked bool
+		// Warmup to fill the pools and the slices.
+		blocked := engine.isBlocked(ctx, req)
+		require.False(b, blocked)
 
 		b.ReportAllocs()
 		for b.Loop() {
 			blocked = engine.isBlocked(ctx, req)
 		}
 
-		assert.False(b, blocked)
+		require.False(b, blocked)
 	})
 
 	b.Run("block", func(b *testing.B) {
 		req := dnsservertest.NewReq("block.test", dns.TypeA, dns.ClassINET)
 
-		var blocked bool
+		// Warmup to fill the pools and the slices.
+		blocked := engine.isBlocked(ctx, req)
+		require.True(b, blocked)
 
 		b.ReportAllocs()
 		for b.Loop() {
 			blocked = engine.isBlocked(ctx, req)
 		}
 
-		assert.True(b, blocked)
+		require.True(b, blocked)
 	})
 
 	// Most recent results:
-	//
 	//	goos: linux
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/access
 	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkBlockedHostEngine_IsBlocked/pass-16         	 3362199	       369.1 ns/op	      16 B/op	       1 allocs/op
-	//	BenchmarkBlockedHostEngine_IsBlocked/block-16        	 2299890	       510.6 ns/op	      24 B/op	       1 allocs/op
+	//	BenchmarkBlockedHostEngine_IsBlocked/pass-16         	 3750295	       317.8 ns/op	      16 B/op	       1 allocs/op
+	//	BenchmarkBlockedHostEngine_IsBlocked/block-16        	 3407104	       350.2 ns/op	      24 B/op	       1 allocs/op
 }

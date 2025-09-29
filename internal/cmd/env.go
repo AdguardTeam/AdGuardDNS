@@ -55,6 +55,8 @@ type environment struct {
 	BackendRateLimitAPIKey string `env:"BACKEND_RATELIMIT_API_KEY"`
 	BillStatAPIKey         string `env:"BILLSTAT_API_KEY"`
 	ConfPath               string `env:"CONFIG_PATH" envDefault:"./config.yaml"`
+	CrashOutputDir         string `env:"CRASH_OUTPUT_DIR"`
+	CrashOutputPrefix      string `env:"CRASH_OUTPUT_PREFIX" envDefault:"agdns"`
 	CustomDomainsAPIKey    string `env:"CUSTOM_DOMAINS_API_KEY"`
 	CustomDomainsCachePath string `env:"CUSTOM_DOMAINS_CACHE_PATH"`
 	DNSCheckKVType         string `env:"DNSCHECK_KV_TYPE"`
@@ -94,17 +96,22 @@ type environment struct {
 
 	// TODO(a.garipov):  Rename to DNSCHECK_CACHE_KV_COUNT?
 	DNSCheckCacheKVSize int `env:"DNSCHECK_CACHE_KV_SIZE"`
+	MaxThreads          int `env:"MAX_THREADS"`
+
+	QueryLogSemaphoreLimit uint `env:"QUERYLOG_SEMAPHORE_LIMIT"`
 
 	ListenPort uint16 `env:"LISTEN_PORT" envDefault:"8181"`
 
 	Verbosity uint8 `env:"VERBOSE" envDefault:"0"`
 
 	AdultBlockingEnabled     strictBool `env:"ADULT_BLOCKING_ENABLED" envDefault:"1"`
+	CrashOutputEnabled       strictBool `env:"CRASH_OUTPUT_ENABLED" envDefault:"0"`
 	CustomDomainsEnabled     strictBool `env:"CUSTOM_DOMAINS_ENABLED" envDefault:"1"`
 	LogTimestamp             strictBool `env:"LOG_TIMESTAMP" envDefault:"1"`
 	NewRegDomainsEnabled     strictBool `env:"NEW_REG_DOMAINS_ENABLED" envDefault:"1"`
 	SafeBrowsingEnabled      strictBool `env:"SAFE_BROWSING_ENABLED" envDefault:"1"`
 	BlockedServiceEnabled    strictBool `env:"BLOCKED_SERVICE_ENABLED" envDefault:"1"`
+	QueryLogSemaphoreEnabled strictBool `env:"QUERYLOG_SEMAPHORE_ENABLED"`
 	GeneralSafeSearchEnabled strictBool `env:"GENERAL_SAFE_SEARCH_ENABLED" envDefault:"1"`
 	YoutubeSafeSearchEnabled strictBool `env:"YOUTUBE_SAFE_SEARCH_ENABLED" envDefault:"1"`
 	WebStaticDirEnabled      strictBool `env:"WEB_STATIC_DIR_ENABLED" envDefault:"0"`
@@ -126,7 +133,9 @@ var _ validate.Interface = (*environment)(nil)
 
 // Validate implements the [validate.Interface] interface for *environment.
 func (envs *environment) Validate() (err error) {
-	var errs []error
+	errs := []error{
+		validate.NotNegative("MAX_THREADS", envs.MaxThreads),
+	}
 
 	errs = envs.validateHTTPURLs(errs)
 
@@ -153,12 +162,14 @@ func (envs *environment) Validate() (err error) {
 		errs = append(errs, fmt.Errorf("VERBOSE: %w", err))
 	}
 
+	errs = envs.validateCrashOutput(errs)
 	errs = envs.validateCustomDomains(errs)
 	errs = envs.validateDNSCheck(errs)
+	errs = envs.validateQueryLogSemaphore(errs)
 	errs = envs.validateRateLimit(errs)
+	errs = envs.validateRateLimitURLs(errs)
 	errs = envs.validateSessionTickets(errs)
 	errs = envs.validateStandardAccess(errs)
-	errs = envs.validateRateLimitURLs(errs)
 
 	return errors.Join(errs...)
 }
@@ -244,13 +255,19 @@ func (envs *environment) validateWebStaticDir() (err error) {
 		return nil
 	}
 
-	dir := envs.WebStaticDir
-	if dir == "" {
+	dirPath := envs.WebStaticDir
+	if dirPath == "" {
 		return errors.ErrEmptyValue
 	}
 
-	// Use a best-effort check to make sure the directory exists.
-	fi, err := os.Stat(dir)
+	return validateDir(dirPath)
+}
+
+// validateDir is a best-effort check to make sure the directory exists.
+//
+// TODO(a.garipov):  Consider moving to golibs.
+func validateDir(dirPath string) (err error) {
+	fi, err := os.Stat(dirPath)
 	if err != nil {
 		return err
 	}
@@ -260,6 +277,29 @@ func (envs *environment) validateWebStaticDir() (err error) {
 	}
 
 	return nil
+}
+
+// validateCrashOutput appends validation errors to errs if the environment
+// variables for crash reporting contain errors.
+func (envs *environment) validateCrashOutput(orig []error) (errs []error) {
+	errs = orig
+
+	if !envs.CrashOutputEnabled {
+		return errs
+	}
+
+	dirPath := envs.WebStaticDir
+	if dirPath != "" {
+		err := validateDir(dirPath)
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return append(errs,
+		validate.NotEmpty("CRASH_OUTPUT_DIR", envs.CrashOutputDir),
+		validate.NotEmpty("CRASH_OUTPUT_PREFIX", envs.CrashOutputPrefix),
+	)
 }
 
 // validateCustomDomains appends validation errors to errs if the environment
@@ -418,6 +458,24 @@ func (envs *environment) validateProfilesConf(profilesEnabled bool) (err error) 
 	}
 
 	return errors.Join(errs...)
+}
+
+// validateCache appends validation errors to orig if environment variables for
+// the querylog semaphore contain errors.
+func (envs *environment) validateQueryLogSemaphore(orig []error) (errs []error) {
+	errs = orig
+
+	if !envs.QueryLogSemaphoreEnabled {
+		return errs
+	}
+
+	err := validate.Positive("QUERYLOG_SEMAPHORE_LIMIT", envs.QueryLogSemaphoreLimit)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		errs = append(errs, err)
+	}
+
+	return errs
 }
 
 // validateCache appends validation errors to the given errs if environment
