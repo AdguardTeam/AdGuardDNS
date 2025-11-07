@@ -4,10 +4,12 @@ import (
 	"cmp"
 	"crypto/rand"
 	"crypto/tls"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
@@ -15,6 +17,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// testCertName is the name of the certificate used for tests.
+const testCertName agd.CertificateName = "test-cert"
+
+// testCustomCertName is the name of the custom certificate used for tests.
+const testCustomCertName agd.CertificateName = "test-custom-cert"
 
 // writeSesionKey is a helper function that writes generated session key to
 // specified path.
@@ -39,11 +47,12 @@ func writeSessionKey(tb testing.TB, sessKeyPath string) {
 
 // assertCertSerialNumber is a helper function that checks serial number of the
 // TLS certificate.
-func assertCertSerialNumber(tb testing.TB, conf *tls.Config, wantSN int64) {
+func assertCertSerialNumber(tb testing.TB, conf *tls.Config, wantSN int64, laddr netip.Addr) {
 	tb.Helper()
 
 	cert, err := conf.GetCertificate(&tls.ClientHelloInfo{
 		SupportedVersions: []uint16{tls.VersionTLS13},
+		Conn:              tlsconfig.NewLocalAddrConn(laddr),
 	})
 	require.NoError(tb, err)
 
@@ -88,14 +97,25 @@ func TestDefaultManager_Refresh(t *testing.T) {
 	writeCertAndKey(t, certDER, certPath, key, keyPath)
 
 	ctx := testutil.ContextWithTimeout(t, testTimeout)
-	err := m.Add(ctx, certPath, keyPath, false)
+	err := m.Add(ctx, &tlsconfig.AddParams{
+		Name:     testCertName,
+		CertPath: certPath,
+		KeyPath:  keyPath,
+		IsCustom: false,
+	})
+	require.NoError(t, err)
+
+	ip := netip.MustParseAddr("192.0.2.1")
+	subnet := netip.PrefixFrom(ip, 16)
+
+	err = m.Bind(ctx, testCertName, subnet)
 	require.NoError(t, err)
 
 	conf := m.Clone()
 	confWithMetrics := m.CloneWithMetrics("", "", nil)
 
-	assertCertSerialNumber(t, conf, snBefore)
-	assertCertSerialNumber(t, confWithMetrics, snBefore)
+	assertCertSerialNumber(t, conf, snBefore, ip)
+	assertCertSerialNumber(t, confWithMetrics, snBefore, ip)
 
 	certDER, key = newCertAndKey(t, snAfter)
 	writeCertAndKey(t, certDER, certPath, key, keyPath)
@@ -103,8 +123,8 @@ func TestDefaultManager_Refresh(t *testing.T) {
 	err = m.Refresh(ctx)
 	require.NoError(t, err)
 
-	assertCertSerialNumber(t, conf, snAfter)
-	assertCertSerialNumber(t, confWithMetrics, snAfter)
+	assertCertSerialNumber(t, conf, snAfter, ip)
+	assertCertSerialNumber(t, confWithMetrics, snAfter, ip)
 }
 
 func TestDefaultManager_Remove(t *testing.T) {
@@ -121,11 +141,23 @@ func TestDefaultManager_Remove(t *testing.T) {
 	m := newManager(t, nil)
 
 	ctx := testutil.ContextWithTimeout(t, testTimeout)
-	err := m.Add(ctx, certPath, keyPath, false)
+	err := m.Add(ctx, &tlsconfig.AddParams{
+		Name:     testCertName,
+		CertPath: certPath,
+		KeyPath:  keyPath,
+		IsCustom: true,
+	})
+	require.NoError(t, err)
+
+	addr := netip.MustParseAddr("192.0.2.1")
+
+	subnet := netip.PrefixFrom(addr, 16)
+	err = m.Bind(ctx, testCertName, subnet)
 	require.NoError(t, err)
 
 	chi := &tls.ClientHelloInfo{
 		SupportedVersions: []uint16{tls.VersionTLS13},
+		Conn:              tlsconfig.NewLocalAddrConn(addr),
 	}
 
 	c := m.Clone()
@@ -133,7 +165,7 @@ func TestDefaultManager_Remove(t *testing.T) {
 	assert.NoError(t, err)
 
 	ctx = testutil.ContextWithTimeout(t, testTimeout)
-	err = m.Remove(ctx, certPath, keyPath, false)
+	err = m.Remove(ctx, testCertName)
 	require.NoError(t, err)
 
 	c = m.Clone()
@@ -162,7 +194,12 @@ func TestDefaultManager_RotateTickets(t *testing.T) {
 	writeCertAndKey(t, certDER, certPath, key, keyPath)
 
 	ctx := testutil.ContextWithTimeout(t, testTimeout)
-	err := m.Add(ctx, certPath, keyPath, false)
+	err := m.Add(ctx, &tlsconfig.AddParams{
+		Name:     testCertName,
+		CertPath: certPath,
+		KeyPath:  keyPath,
+		IsCustom: false,
+	})
 	require.NoError(t, err)
 
 	err = m.RotateTickets(ctx)

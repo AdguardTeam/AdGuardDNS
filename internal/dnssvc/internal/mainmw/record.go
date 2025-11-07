@@ -14,14 +14,16 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/optslog"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 )
 
 // recordQueryInfo extracts loggable information from request, response, and
 // filtering data and writes them to the query log, billing, and filtering-rule
-// statistics, handling non-critical errors.
+// statistics, handling non-critical errors.  fctx and ri must not be nil.
 func (mw *Middleware) recordQueryInfo(
 	ctx context.Context,
 	fctx *filteringContext,
@@ -39,8 +41,8 @@ func (mw *Middleware) recordQueryInfo(
 
 	var reqCtry geoip.Country
 	var reqASN geoip.ASN
-	if g := ri.Location; g != nil {
-		reqCtry, reqASN = g.Country, g.ASN
+	if loc := ri.Location; loc != nil {
+		reqCtry, reqASN = loc.Country, loc.ASN
 	}
 
 	reqInfo := dnsserver.MustRequestInfoFromContext(ctx)
@@ -51,7 +53,36 @@ func (mw *Middleware) recordQueryInfo(
 		return
 	}
 
-	rcode, respIP, respDNSSEC := mw.responseData(ctx, fctx.filteredResponse)
+	e := &querylog.Entry{
+		RequestResult:  fctx.requestResult,
+		ResponseResult: fctx.responseResult,
+		Time:           start,
+		RequestID:      ri.ID,
+		ProfileID:      prof.ID,
+		DeviceID:       devID,
+		ClientCountry:  reqCtry,
+		DomainFQDN:     fctx.originalRequest.Question[0].Name,
+		Elapsed:        time.Since(start),
+		ClientASN:      reqASN,
+		RequestType:    ri.QType,
+		Protocol:       ri.ServerInfo.Protocol,
+	}
+
+	mw.writeQueryLogEntry(ctx, fctx, ri, e, blocked, prof.IPLogEnabled)
+}
+
+// writeQueryLogEntry adds properties to e and writes it to the query log.
+// fctx, ri, and e must not be nil.
+func (mw *Middleware) writeQueryLogEntry(
+	ctx context.Context,
+	fctx *filteringContext,
+	ri *agd.RequestInfo,
+	e *querylog.Entry,
+	blocked bool,
+	logIP bool,
+) {
+	var respIP netip.Addr
+	e.ResponseCode, respIP, e.DNSSEC = mw.responseData(ctx, fctx.filteredResponse)
 	if blocked {
 		// If the request or the response were blocked, resp may contain an
 		// unspecified IP address, a rewritten IP address, or none at all, while
@@ -60,34 +91,20 @@ func (mw *Middleware) recordQueryInfo(
 		_, respIP, _ = mw.responseData(ctx, fctx.originalResponse)
 	}
 
-	var clientIP netip.Addr
-	if prof.IPLogEnabled {
-		clientIP = ri.RemoteIP
+	if logIP {
+		e.RemoteIP = ri.RemoteIP
 	}
 
-	q := fctx.originalRequest.Question[0]
-	e := &querylog.Entry{
-		RequestResult:   fctx.requestResult,
-		ResponseResult:  fctx.responseResult,
-		Time:            start,
-		RequestID:       ri.ID,
-		ProfileID:       prof.ID,
-		DeviceID:        devID,
-		ClientCountry:   reqCtry,
-		ResponseCountry: mw.responseCountry(ctx, fctx, ri.Host, respIP, rcode),
-		DomainFQDN:      q.Name,
-		Elapsed:         time.Since(start),
-		ClientASN:       reqASN,
-		RequestType:     ri.QType,
-		ResponseCode:    rcode,
-		Protocol:        ri.ServerInfo.Protocol,
-		DNSSEC:          respDNSSEC,
-		RemoteIP:        clientIP,
-	}
+	e.ResponseCountry = mw.responseCountry(ctx, fctx, ri.Host, respIP, e.ResponseCode)
 
 	err := mw.queryLog.Write(ctx, e)
-	if err != nil {
-		// Consider query logging errors non-critical.
+	// Consider query logging errors non-critical and don't collect timeouts.
+	switch {
+	case err == nil:
+		// Go on.
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		mw.logger.DebugContext(ctx, "writing query log", slogutil.KeyError, err)
+	default:
 		errcoll.Collect(ctx, mw.errColl, mw.logger, "writing query log", err)
 	}
 }

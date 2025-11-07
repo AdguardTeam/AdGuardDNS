@@ -70,11 +70,7 @@ func (db *testKV) get(rw http.ResponseWriter, r *http.Request) {
 
 	rw.WriteHeader(http.StatusOK)
 
-	// TODO(a.garipov): Consider making testutil.RequireTypeAssert accept
-	// testutil.PanicT.
-	require.IsType(pt, ([]byte)(nil), v)
-
-	val := v.([]byte)
+	val := testutil.RequireTypeAssert[[]byte](pt, v)
 	err := json.NewEncoder(rw).Encode([]*consulkv.KeyReadResponse{{
 		Value: val,
 	}})

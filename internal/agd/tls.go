@@ -8,7 +8,7 @@ import (
 )
 
 // maxCertificateNameLen is the maximum length of a [CertificateName].
-const maxCertificateNameLen = 32
+const maxCertificateNameLen = 64
 
 // CertificateName is the unique name identifying the TLS certificate.
 type CertificateName string

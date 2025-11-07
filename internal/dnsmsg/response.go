@@ -18,10 +18,14 @@ func (c *Constructor) NewResp(req *dns.Msg) (resp *dns.Msg) {
 	}).SetReply(req)
 }
 
-// NewBlockedResp returns a blocked response DNS message based on the
-// constructor's blocking mode.
-func (c *Constructor) NewBlockedResp(req *dns.Msg) (msg *dns.Msg, err error) {
-	switch m := c.blockingMode.(type) {
+// NewBlockedResp returns a blocked response DNS message based on the given
+// blocking mode.  If mode is nil, the constructor's blocking mode is used.
+func (c *Constructor) NewBlockedResp(req *dns.Msg, mode BlockingMode) (msg *dns.Msg, err error) {
+	if mode == nil {
+		mode = c.blockingMode
+	}
+
+	switch m := mode.(type) {
 	case *BlockingModeCustomIP:
 		return c.newBlockedCustomIPResp(req, m)
 	case *BlockingModeNullIP:

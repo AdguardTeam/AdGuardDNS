@@ -28,8 +28,8 @@ func TestNewCertificateName(t *testing.T) {
 		wantErrMsg: "at index 3: bad symbol: '/'",
 	}, {
 		name:       "too_long",
-		value:      "this_is_a_very_long_certificate_name",
-		wantErrMsg: "length: out of range: must be no greater than 32, got 36",
+		value:      "this_is_a_very_long_certificate_name_which_should_be_64_symbols_long",
+		wantErrMsg: "length: out of range: must be no greater than 64, got 68",
 	}, {
 		name:       "ok",
 		value:      "ok_cert_name",

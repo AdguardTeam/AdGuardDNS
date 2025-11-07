@@ -162,7 +162,9 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 			BlocklistDomainRules: []string{"block.test"},
 			StandardEnabled:      true,
 		}),
-		BlockingMode: &dnsmsg.BlockingModeNullIP{},
+		AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		BlockingMode:             &dnsmsg.BlockingModeNullIP{},
+		SafeBrowsingBlockingMode: &dnsmsg.BlockingModeNullIP{},
 		Ratelimiter: agd.NewDefaultRatelimiter(&agd.RatelimitConfig{
 			ClientSubnets: []netip.Prefix{netip.MustParsePrefix("5.5.5.0/24")},
 			RPS:           100,

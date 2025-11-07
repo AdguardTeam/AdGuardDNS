@@ -8,7 +8,7 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/validate"
 	"github.com/ameshkov/dnscrypt/v2"
-	"gopkg.in/yaml.v2"
+	yaml "go.yaml.in/yaml/v4"
 )
 
 // dnsCryptConfig are the DNSCrypt server settings.

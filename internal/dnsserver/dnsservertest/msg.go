@@ -232,6 +232,27 @@ func NewSRV(name string, ttl uint32, target string, prio, weight, port uint16) (
 	}
 }
 
+// NewSVCB constructs the new resource record of type SVCB.
+func NewSVCB(
+	name string,
+	ttl uint32,
+	target string,
+	prio uint16,
+	values ...dns.SVCBKeyValue,
+) (rr dns.RR) {
+	return &dns.SVCB{
+		Hdr: dns.RR_Header{
+			Name:   dns.Fqdn(name),
+			Rrtype: dns.TypeSVCB,
+			Class:  dns.ClassINET,
+			Ttl:    ttl,
+		},
+		Priority: prio,
+		Target:   target,
+		Value:    values,
+	}
+}
+
 // NewTXT constructs the new resource record of type TXT.  txts are put into the
 // TXT record as is.
 func NewTXT(name string, ttl uint32, txts ...string) (rr dns.RR) {
@@ -243,6 +264,20 @@ func NewTXT(name string, ttl uint32, txts ...string) (rr dns.RR) {
 			Ttl:    ttl,
 		},
 		Txt: txts,
+	}
+}
+
+// NewMX constructs the new resource record of type MX.
+func NewMX(name string, ttl uint32, preference uint16, mx string) (rr dns.RR) {
+	return &dns.MX{
+		Hdr: dns.RR_Header{
+			Name:   dns.Fqdn(name),
+			Rrtype: dns.TypeMX,
+			Class:  dns.ClassINET,
+			Ttl:    ttl,
+		},
+		Preference: preference,
+		Mx:         mx,
 	}
 }
 

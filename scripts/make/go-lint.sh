@@ -66,7 +66,7 @@ set -f -u
 #
 #   *  internal/agdtest/profile.go: a test helper requiring the use of
 #      reflect.Type.
-#   *  internal/profiledb/internal/filecachepb/unsafe.go: a “safe” unsafe helper
+#   *  internal/agdprotobuf/unsafe.go: a “safe” unsafe helper
 #      to prevent excessive allocations.
 blocklist_imports() {
 	import_or_tab="$(printf '^\\(import \\|\t\\)')"
@@ -78,7 +78,7 @@ blocklist_imports() {
 		-name '*.go' \
 		'!' -name '*.pb.go' \
 		'!' -path './internal/agdtest/profile.go' \
-		'!' -path './internal/profiledb/internal/filecachepb/unsafe.go' \
+		'!' -path './internal/agdprotobuf/unsafe.go' \
 		')' \
 		-exec \
 		'grep' \
@@ -225,7 +225,7 @@ if [ "$shadow_output" != '' ]; then
 	exit 1
 fi
 
-run_linter gosec --exclude-generated --quiet work
+run_linter gosec --exclude-generated --quiet ./...
 
 run_linter errcheck work
 

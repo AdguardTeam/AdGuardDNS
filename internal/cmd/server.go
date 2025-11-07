@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net/netip"
@@ -19,67 +20,147 @@ import (
 // toInternal returns the configuration of DNS servers for a single server
 // group.  srvs and other parts of the configuration must be valid.
 func (srvs servers) toInternal(
+	ctx context.Context,
 	btdMgr *bindtodevice.Manager,
 	tlsMgr tlsconfig.Manager,
 	ratelimitConf *rateLimitConfig,
 	dnsConf *dnsConfig,
+	certNames []agd.CertificateName,
 	deviceDomains []string,
 ) (dnsSrvs []*agd.Server, err error) {
 	dnsSrvs = make([]*agd.Server, 0, len(srvs))
-	for _, srv := range srvs {
-		var bindData []*agd.ServerBindData
-		bindData, err = srv.bindData(btdMgr)
+	for i, srv := range srvs {
+		var dnsSrv *agd.Server
+		dnsSrv, err = srv.toInternal(
+			ctx,
+			tlsMgr,
+			btdMgr,
+			ratelimitConf,
+			dnsConf,
+			certNames,
+			deviceDomains,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("server %q: %w", srv.Name, err)
+			return nil, fmt.Errorf("server %q: at index %d: %w", srv.Name, i, err)
 		}
-
-		name := agd.ServerName(srv.Name)
-		dnsSrv := &agd.Server{
-			Name:            name,
-			ReadTimeout:     time.Duration(dnsConf.ReadTimeout),
-			WriteTimeout:    time.Duration(dnsConf.WriteTimeout),
-			LinkedIPEnabled: srv.LinkedIPEnabled,
-			Protocol:        srv.Protocol.toInternal(),
-		}
-
-		tcpConf := &agd.TCPConfig{
-			IdleTimeout:        time.Duration(dnsConf.TCPIdleTimeout),
-			MaxPipelineCount:   ratelimitConf.TCP.MaxPipelineCount,
-			MaxPipelineEnabled: ratelimitConf.TCP.Enabled,
-		}
-
-		switch dnsSrv.Protocol {
-		case agd.ProtoDNS:
-			dnsSrv.TCPConf = tcpConf
-			dnsSrv.UDPConf = &agd.UDPConfig{
-				// #nosec G115 -- The value has already been validated in
-				// [dnsConfig.validate].
-				MaxRespSize: uint16(dnsConf.MaxUDPResponseSize.Bytes()),
-			}
-		case agd.ProtoDNSCrypt:
-			var dcConf *agd.DNSCryptConfig
-			dcConf, err = srv.DNSCrypt.toInternal()
-			if err != nil {
-				return nil, fmt.Errorf("server %q: dnscrypt: %w", srv.Name, err)
-			}
-
-			dnsSrv.DNSCrypt = dcConf
-		default:
-			dnsSrv.TCPConf = tcpConf
-			dnsSrv.QUICConf = &agd.QUICConfig{
-				MaxStreamsPerPeer: ratelimitConf.QUIC.MaxStreamsPerPeer,
-				QUICLimitsEnabled: ratelimitConf.QUIC.Enabled,
-			}
-
-			dnsSrv.TLS = newTLSConfig(dnsSrv, tlsMgr, deviceDomains, srv)
-		}
-
-		dnsSrv.SetBindData(bindData)
 
 		dnsSrvs = append(dnsSrvs, dnsSrv)
 	}
 
 	return dnsSrvs, nil
+}
+
+// toInternal returns the configuration for a single server.  tlsMgr, btdMgr,
+// ratelimitConf, and dnsConf must not be nil, certNames items must be valid,
+// deviceDomains items must be a valid domain names.
+func (s *server) toInternal(
+	ctx context.Context,
+	tlsMgr tlsconfig.Manager,
+	btdMgr *bindtodevice.Manager,
+	ratelimitConf *rateLimitConfig,
+	dnsConf *dnsConfig,
+	certNames []agd.CertificateName,
+	deviceDomains []string,
+) (dnsSrv *agd.Server, err error) {
+	var bindData []*agd.ServerBindData
+	bindData, err = s.bindData(btdMgr)
+	if err != nil {
+		// Don't wrap the error, since it's informative enough as is.
+		return nil, err
+	}
+
+	name := agd.ServerName(s.Name)
+	dnsSrv = &agd.Server{
+		Name:            name,
+		ReadTimeout:     time.Duration(dnsConf.ReadTimeout),
+		WriteTimeout:    time.Duration(dnsConf.WriteTimeout),
+		LinkedIPEnabled: s.LinkedIPEnabled,
+		Protocol:        s.Protocol.toInternal(),
+	}
+	dnsSrv.SetBindData(bindData)
+
+	err = setProtoConfig(ctx, dnsSrv, s, dnsConf, ratelimitConf, tlsMgr, certNames, deviceDomains)
+	if err != nil {
+		return nil, fmt.Errorf("setting protocol-specific configuration: %w", err)
+	}
+
+	return dnsSrv, nil
+}
+
+// setProtoConfig sets the protocol-specific configuration to dnsSrv.
+func setProtoConfig(
+	ctx context.Context,
+	dnsSrv *agd.Server,
+	s *server,
+	dnsConf *dnsConfig,
+	ratelimitConf *rateLimitConfig,
+	tlsMgr tlsconfig.Manager,
+	certNames []agd.CertificateName,
+	deviceDomains []string,
+) (err error) {
+	switch dnsSrv.Protocol {
+	case agd.ProtoDNS:
+		dnsSrv.TCPConf = &agd.TCPConfig{
+			IdleTimeout:        time.Duration(dnsConf.TCPIdleTimeout),
+			MaxPipelineCount:   ratelimitConf.TCP.MaxPipelineCount,
+			MaxPipelineEnabled: ratelimitConf.TCP.Enabled,
+		}
+
+		dnsSrv.UDPConf = &agd.UDPConfig{
+			// #nosec G115 -- The value has already been validated in
+			// [dnsConfig.Validate].
+			MaxRespSize: uint16(dnsConf.MaxUDPResponseSize.Bytes()),
+		}
+	case agd.ProtoDNSCrypt:
+		var dcConf *agd.DNSCryptConfig
+		dcConf, err = s.DNSCrypt.toInternal()
+		if err != nil {
+			return fmt.Errorf("dnscrypt: %w", err)
+		}
+
+		dnsSrv.DNSCrypt = dcConf
+	default:
+		dnsSrv.TCPConf = &agd.TCPConfig{
+			IdleTimeout:        time.Duration(dnsConf.TCPIdleTimeout),
+			MaxPipelineCount:   ratelimitConf.TCP.MaxPipelineCount,
+			MaxPipelineEnabled: ratelimitConf.TCP.Enabled,
+		}
+
+		dnsSrv.QUICConf = &agd.QUICConfig{
+			MaxStreamsPerPeer: ratelimitConf.QUIC.MaxStreamsPerPeer,
+			QUICLimitsEnabled: ratelimitConf.QUIC.Enabled,
+		}
+
+		dnsSrv.TLS = newTLSConfig(dnsSrv, tlsMgr, deviceDomains, s)
+		err = bindTLSNames(ctx, dnsSrv, tlsMgr, certNames)
+		if err != nil {
+			// Don't wrap the error, since it's informative enough as is.
+			return err
+		}
+	}
+
+	return nil
+}
+
+// bindTLSNames binds the server to the specified certificate names in the TLS
+// manager.
+func bindTLSNames(
+	ctx context.Context,
+	s *agd.Server,
+	tlsMgr tlsconfig.Manager,
+	names []agd.CertificateName,
+) (err error) {
+	var errs []error
+	for _, pref := range s.BindDataPrefixes() {
+		for _, name := range names {
+			err = tlsMgr.Bind(ctx, name, pref)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("binding %q to %s: %w", name, pref, err))
+			}
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 // newTLSConfig returns the TLS configuration with metrics and ALPs set.

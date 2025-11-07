@@ -1,7 +1,6 @@
 package rulelist
 
 import (
-	"context"
 	"net/netip"
 	"testing"
 
@@ -18,6 +17,9 @@ const (
 
 	// testHostOther is the other request host for tests.
 	testHostOther = "other.example"
+
+	// cacheCount is the common count of cache items for filtering tests.
+	cacheCount = 1
 )
 
 // testRemoteIP is the client IP for tests
@@ -29,68 +31,80 @@ const testFltListID filter.ID = "fl1"
 // testBlockRule is the common blocking rule for tests.
 const testBlockRule = "||" + testHostBlocked + "\n"
 
-// TODO(a.garipov):  Add benchmarks with a cache.
 func BenchmarkBaseFilter_SetURLFilterResult(b *testing.B) {
-	f := newBaseFilter(
-		[]byte(testBlockRule),
-		testFltListID,
-		"",
-		EmptyResultCache{},
-	)
-
 	const qt = dns.TypeA
 
-	ctx := context.Background()
+	ctx := b.Context()
 
-	b.Run("blocked", func(b *testing.B) {
-		req := &urlfilter.DNSRequest{
+	benchCases := []struct {
+		request *urlfilter.DNSRequest
+		cache   ResultCache
+		want    require.BoolAssertionFunc
+		name    string
+	}{{
+		name:  "blocked",
+		cache: EmptyResultCache{},
+		request: &urlfilter.DNSRequest{
 			ClientIP: testRemoteIP,
 			Hostname: testHostBlocked,
 			DNSType:  qt,
-		}
-
-		res := &urlfilter.DNSResult{}
-
-		// Warmup to fill the slices.
-		ok := f.SetURLFilterResult(ctx, req, res)
-		require.True(b, ok)
-
-		b.ReportAllocs()
-		for b.Loop() {
-			res.Reset()
-			ok = f.SetURLFilterResult(ctx, req, res)
-		}
-
-		require.True(b, ok)
-	})
-
-	b.Run("other", func(b *testing.B) {
-		req := &urlfilter.DNSRequest{
+		},
+		want: require.True,
+	}, {
+		name:  "other",
+		cache: EmptyResultCache{},
+		request: &urlfilter.DNSRequest{
 			ClientIP: testRemoteIP,
 			Hostname: testHostOther,
 			DNSType:  qt,
-		}
+		},
+		want: require.False,
+	}, {
+		name:  "blocked_with_cache",
+		cache: NewResultCache(cacheCount, true),
+		request: &urlfilter.DNSRequest{
+			ClientIP: testRemoteIP,
+			Hostname: testHostBlocked,
+			DNSType:  qt,
+		},
+		want: require.True,
+	}, {
+		name:  "other_with_cache",
+		cache: NewResultCache(cacheCount, true),
+		request: &urlfilter.DNSRequest{
+			ClientIP: testRemoteIP,
+			Hostname: testHostOther,
+			DNSType:  qt,
+		},
+		want: require.False,
+	}}
 
-		res := &urlfilter.DNSResult{}
+	for _, bc := range benchCases {
+		b.Run(bc.name, func(b *testing.B) {
+			f := newBaseFilter([]byte(testBlockRule), testFltListID, "", bc.cache)
+			res := &urlfilter.DNSResult{}
 
-		// Warmup to fill the slices.
-		ok := f.SetURLFilterResult(ctx, req, res)
-		require.False(b, ok)
+			// Warmup to fill the slices.
+			ok := f.SetURLFilterResult(ctx, bc.request, res)
+			bc.want(b, ok)
 
-		b.ReportAllocs()
-		for b.Loop() {
-			res.Reset()
-			ok = f.SetURLFilterResult(ctx, req, res)
-		}
+			b.ReportAllocs()
+			for b.Loop() {
+				res.Reset()
+				ok = f.SetURLFilterResult(ctx, bc.request, res)
+			}
 
-		require.False(b, ok)
-	})
+			bc.want(b, ok)
+		})
+	}
 
 	// Most recent results:
-	//	goos: linux
-	//	goarch: amd64
+	//	goos: darwin
+	//	goarch: arm64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist
-	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkBaseFilter_SetURLFilterResult/blocked-16         	  911409	      1315 ns/op	      24 B/op	       1 allocs/op
-	//	BenchmarkBaseFilter_SetURLFilterResult/other-16           	 2824462	       425.0 ns/op	      24 B/op	       1 allocs/op
+	//	cpu: Apple M3
+	//	BenchmarkBaseFilter_SetURLFilterResult/blocked-8         	             1793678	        670.9 ns/op	      24 B/op	       1 allocs/op
+	//	BenchmarkBaseFilter_SetURLFilterResult/other-8           	             5599238	        222.0 ns/op	      24 B/op	       1 allocs/op
+	//	BenchmarkBaseFilter_SetURLFilterResult/blocked_with_cache-8         	38971425	        31.01 ns/op	       0 B/op	       0 allocs/op
+	//	BenchmarkBaseFilter_SetURLFilterResult/other_with_cache-8           	57606105	        21.05 ns/op	       0 B/op	       0 allocs/op
 }

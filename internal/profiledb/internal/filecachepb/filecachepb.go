@@ -90,6 +90,16 @@ func (x *Profile) toInternal(
 	cons *access.ProfileConstructor,
 	respSzEst datasize.ByteSize,
 ) (prof *agd.Profile, err error) {
+	adultBlockingMode, err := adultBlockingModeToInternal(x.AdultBlockingMode)
+	if err != nil {
+		return nil, fmt.Errorf("adult blocking mode: %w", err)
+	}
+
+	safeBrowsingBlockingMode, err := safeBrowsingBlockingModeToInternal(x.SafeBrowsingBlockingMode)
+	if err != nil {
+		return nil, fmt.Errorf("safe browsing blocking mode: %w", err)
+	}
+
 	m, err := blockingModeToInternal(x.BlockingMode)
 	if err != nil {
 		return nil, fmt.Errorf("blocking mode: %w", err)
@@ -102,7 +112,7 @@ func (x *Profile) toInternal(
 	}
 
 	// Consider the rules to have been prevalidated.
-	rules := unsafelyConvertStrSlice[string, filter.RuleText](pbFltConf.Custom.Rules)
+	rules := agdprotobuf.UnsafelyConvertStrSlice[string, filter.RuleText](pbFltConf.Custom.Rules)
 
 	var flt filter.Custom
 	if len(rules) > 0 {
@@ -130,7 +140,7 @@ func (x *Profile) toInternal(
 		Parental: &filter.ConfigParental{
 			PauseSchedule: schedule,
 			// Consider blocked-service IDs to have been prevalidated.
-			BlockedServices: unsafelyConvertStrSlice[string, filter.BlockedServiceID](
+			BlockedServices: agdprotobuf.UnsafelyConvertStrSlice[string, filter.BlockedServiceID](
 				pbFltConf.Parental.BlockedServices,
 			),
 			Enabled:                  pbFltConf.Parental.Enabled,
@@ -140,7 +150,7 @@ func (x *Profile) toInternal(
 		},
 		RuleList: &filter.ConfigRuleList{
 			// Consider rule-list IDs to have been prevalidated.
-			IDs:     unsafelyConvertStrSlice[string, filter.ID](pbFltConf.RuleList.Ids),
+			IDs:     agdprotobuf.UnsafelyConvertStrSlice[string, filter.ID](pbFltConf.RuleList.Ids),
 			Enabled: pbFltConf.RuleList.Enabled,
 		},
 		SafeBrowsing: &filter.ConfigSafeBrowsing{
@@ -154,16 +164,18 @@ func (x *Profile) toInternal(
 		CustomDomains: customDomains,
 		FilterConfig:  fltConf,
 
-		Access:       x.Access.toInternal(cons),
-		BlockingMode: m,
-		Ratelimiter:  x.Ratelimiter.toInternal(respSzEst),
+		Access:                   x.Access.toInternal(cons),
+		AdultBlockingMode:        adultBlockingMode,
+		BlockingMode:             m,
+		SafeBrowsingBlockingMode: safeBrowsingBlockingMode,
+		Ratelimiter:              x.Ratelimiter.toInternal(respSzEst),
 
 		AccountID: agd.AccountID(x.AccountId),
 		ID:        agd.ProfileID(x.ProfileId),
 
 		// Consider device IDs to have been prevalidated.
 		DeviceIDs: container.NewMapSet(
-			unsafelyConvertStrSlice[string, agd.DeviceID](x.DeviceIds)...,
+			agdprotobuf.UnsafelyConvertStrSlice[string, agd.DeviceID](x.DeviceIds)...,
 		),
 
 		// Consider rule-list IDs to have been prevalidated.
@@ -224,6 +236,8 @@ func (x *DayInterval) toInternal() (i *filter.DayInterval) {
 
 // blockingModeToInternal converts a protobuf blocking-mode sum-type to an
 // internal one.
+// TODO(d.kolyshev):  DRY with adultBlockingModeToInternal and
+// safeBrowsingBlockingModeToInternal.
 func blockingModeToInternal(pbm isProfile_BlockingMode) (m dnsmsg.BlockingMode, err error) {
 	switch pbm := pbm.(type) {
 	case *Profile_BlockingModeCustomIp:
@@ -252,6 +266,80 @@ func blockingModeToInternal(pbm isProfile_BlockingMode) (m dnsmsg.BlockingMode, 
 	default:
 		// Consider unhandled type-switch cases programmer errors.
 		return nil, fmt.Errorf("bad pb blocking mode %T(%[1]v)", pbm)
+	}
+}
+
+// adultBlockingModeToInternal converts a protobuf blocking-mode sum-type to an
+// internal one.
+func adultBlockingModeToInternal(
+	pbm isProfile_AdultBlockingMode,
+) (m dnsmsg.BlockingMode, err error) {
+	switch pbm := pbm.(type) {
+	case nil:
+		return nil, nil
+	case *Profile_AdultBlockingModeCustomIp:
+		var ipv4 []netip.Addr
+		ipv4, err = agdprotobuf.ByteSlicesToIPs(pbm.AdultBlockingModeCustomIp.Ipv4)
+		if err != nil {
+			return nil, fmt.Errorf("bad v4 custom ips: %w", err)
+		}
+
+		var ipv6 []netip.Addr
+		ipv6, err = agdprotobuf.ByteSlicesToIPs(pbm.AdultBlockingModeCustomIp.Ipv6)
+		if err != nil {
+			return nil, fmt.Errorf("bad v6 custom ips: %w", err)
+		}
+
+		return &dnsmsg.BlockingModeCustomIP{
+			IPv4: ipv4,
+			IPv6: ipv6,
+		}, nil
+	case *Profile_AdultBlockingModeNxdomain:
+		return &dnsmsg.BlockingModeNXDOMAIN{}, nil
+	case *Profile_AdultBlockingModeNullIp:
+		return &dnsmsg.BlockingModeNullIP{}, nil
+	case *Profile_AdultBlockingModeRefused:
+		return &dnsmsg.BlockingModeREFUSED{}, nil
+	default:
+		// Consider unhandled type-switch cases programmer errors.
+		return nil, fmt.Errorf("bad pb adult blocking mode %T(%[1]v)", pbm)
+	}
+}
+
+// safeBrowsingBlockingModeToInternal converts a protobuf blocking-mode sum-type to an
+// internal one.
+func safeBrowsingBlockingModeToInternal(
+	pbm isProfile_SafeBrowsingBlockingMode,
+) (m dnsmsg.BlockingMode, err error) {
+	switch pbm := pbm.(type) {
+	case nil:
+		return nil, nil
+	case *Profile_SafeBrowsingBlockingModeCustomIp:
+		var ipv4 []netip.Addr
+		ipv4, err = agdprotobuf.ByteSlicesToIPs(pbm.SafeBrowsingBlockingModeCustomIp.Ipv4)
+		if err != nil {
+			return nil, fmt.Errorf("bad v4 custom ips: %w", err)
+		}
+
+		var ipv6 []netip.Addr
+		ipv6, err = agdprotobuf.ByteSlicesToIPs(pbm.SafeBrowsingBlockingModeCustomIp.Ipv6)
+		if err != nil {
+			return nil, fmt.Errorf("bad v6 custom ips: %w", err)
+		}
+
+		return &dnsmsg.BlockingModeCustomIP{
+			IPv4: ipv4,
+			IPv6: ipv6,
+		}, nil
+	case *Profile_SafeBrowsingBlockingModeNxdomain:
+		return &dnsmsg.BlockingModeNXDOMAIN{}, nil
+	case *Profile_SafeBrowsingBlockingModeNullIp:
+		return &dnsmsg.BlockingModeNullIP{}, nil
+	case *Profile_SafeBrowsingBlockingModeRefused:
+		return &dnsmsg.BlockingModeREFUSED{}, nil
+	default:
+		// Consider unhandled type-switch cases programmer errors.
+		return nil, fmt.Errorf("bad pb safe browsing blocking mode %T(%[1]v)", pbm)
 	}
 }
 
@@ -476,14 +564,16 @@ func profileToProtobuf(p *agd.Profile) (pbProf *Profile) {
 	}()
 
 	return &Profile{
-		CustomDomains: customDomainsToProtobuf(p.CustomDomains),
-		FilterConfig:  filterConfigToProtobuf(p.FilterConfig),
-		Access:        accessToProtobuf(p.Access.Config()),
-		BlockingMode:  blockingModeToProtobuf(p.BlockingMode),
-		Ratelimiter:   ratelimiterToProtobuf(p.Ratelimiter.Config()),
-		AccountId:     string(p.AccountID),
-		ProfileId:     string(p.ID),
-		DeviceIds: unsafelyConvertStrSlice[agd.DeviceID, string](
+		CustomDomains:            customDomainsToProtobuf(p.CustomDomains),
+		FilterConfig:             filterConfigToProtobuf(p.FilterConfig),
+		Access:                   accessToProtobuf(p.Access.Config()),
+		AdultBlockingMode:        adultBlockingModeToProtobuf(p.AdultBlockingMode),
+		BlockingMode:             blockingModeToProtobuf(p.BlockingMode),
+		SafeBrowsingBlockingMode: safeBrowsingBlockingModeToProtobuf(p.SafeBrowsingBlockingMode),
+		Ratelimiter:              ratelimiterToProtobuf(p.Ratelimiter.Config()),
+		AccountId:                string(p.AccountID),
+		ProfileId:                string(p.ID),
+		DeviceIds: agdprotobuf.UnsafelyConvertStrSlice[agd.DeviceID, string](
 			p.DeviceIDs.Values(),
 		),
 		FilteredResponseTtl: durationpb.New(p.FilteredResponseTTL),
@@ -563,7 +653,7 @@ func customDomainConfigsToProtobuf(
 func filterConfigToProtobuf(c *filter.ConfigClient) (fc *FilterConfig) {
 	var rules []string
 	if c.Custom.Enabled {
-		rules = unsafelyConvertStrSlice[filter.RuleText, string](c.Custom.Filter.Rules())
+		rules = agdprotobuf.UnsafelyConvertStrSlice[filter.RuleText, string](c.Custom.Filter.Rules())
 	}
 
 	return &FilterConfig{
@@ -573,7 +663,7 @@ func filterConfigToProtobuf(c *filter.ConfigClient) (fc *FilterConfig) {
 		},
 		Parental: &FilterConfig_Parental{
 			PauseSchedule: scheduleToProtobuf(c.Parental.PauseSchedule),
-			BlockedServices: unsafelyConvertStrSlice[filter.BlockedServiceID, string](
+			BlockedServices: agdprotobuf.UnsafelyConvertStrSlice[filter.BlockedServiceID, string](
 				c.Parental.BlockedServices,
 			),
 			Enabled:                  c.Parental.Enabled,
@@ -582,7 +672,7 @@ func filterConfigToProtobuf(c *filter.ConfigClient) (fc *FilterConfig) {
 			SafeSearchYoutubeEnabled: c.Parental.SafeSearchYouTubeEnabled,
 		},
 		RuleList: &FilterConfig_RuleList{
-			Ids:     unsafelyConvertStrSlice[filter.ID, string](c.RuleList.IDs),
+			Ids:     agdprotobuf.UnsafelyConvertStrSlice[filter.ID, string](c.RuleList.IDs),
 			Enabled: c.RuleList.Enabled,
 		},
 		SafeBrowsing: &FilterConfig_SafeBrowsing{
@@ -669,6 +759,9 @@ func prefixesToProtobuf(nets []netip.Prefix) (cidrs []*CidrRange) {
 }
 
 // blockingModeToProtobuf converts a blocking-mode sum-type to a protobuf one.
+//
+// TODO(d.kolyshev):  DRY with adultBlockingModeToProtobuf and
+// safeBrowsingBlockingModeToProtobuf.
 func blockingModeToProtobuf(m dnsmsg.BlockingMode) (pbBlockingMode isProfile_BlockingMode) {
 	switch m := m.(type) {
 	case *dnsmsg.BlockingModeCustomIP:
@@ -692,6 +785,70 @@ func blockingModeToProtobuf(m dnsmsg.BlockingMode) (pbBlockingMode isProfile_Blo
 		}
 	default:
 		panic(fmt.Errorf("bad blocking mode %T(%[1]v)", m))
+	}
+}
+
+// adultBlockingModeToProtobuf converts a blocking-mode sum-type to a protobuf
+// one.
+func adultBlockingModeToProtobuf(
+	m dnsmsg.BlockingMode,
+) (pbBlockingMode isProfile_AdultBlockingMode) {
+	switch m := m.(type) {
+	case nil:
+		return nil
+	case *dnsmsg.BlockingModeCustomIP:
+		return &Profile_AdultBlockingModeCustomIp{
+			AdultBlockingModeCustomIp: &BlockingModeCustomIP{
+				Ipv4: ipsToByteSlices(m.IPv4),
+				Ipv6: ipsToByteSlices(m.IPv6),
+			},
+		}
+	case *dnsmsg.BlockingModeNXDOMAIN:
+		return &Profile_AdultBlockingModeNxdomain{
+			AdultBlockingModeNxdomain: &BlockingModeNXDOMAIN{},
+		}
+	case *dnsmsg.BlockingModeNullIP:
+		return &Profile_AdultBlockingModeNullIp{
+			AdultBlockingModeNullIp: &BlockingModeNullIP{},
+		}
+	case *dnsmsg.BlockingModeREFUSED:
+		return &Profile_AdultBlockingModeRefused{
+			AdultBlockingModeRefused: &BlockingModeREFUSED{},
+		}
+	default:
+		panic(fmt.Errorf("bad adult blocking mode %T(%[1]v)", m))
+	}
+}
+
+// safeBrowsingBlockingModeToProtobuf converts a blocking-mode sum-type to a
+// protobuf one.
+func safeBrowsingBlockingModeToProtobuf(
+	m dnsmsg.BlockingMode,
+) (pbBlockingMode isProfile_SafeBrowsingBlockingMode) {
+	switch m := m.(type) {
+	case nil:
+		return nil
+	case *dnsmsg.BlockingModeCustomIP:
+		return &Profile_SafeBrowsingBlockingModeCustomIp{
+			SafeBrowsingBlockingModeCustomIp: &BlockingModeCustomIP{
+				Ipv4: ipsToByteSlices(m.IPv4),
+				Ipv6: ipsToByteSlices(m.IPv6),
+			},
+		}
+	case *dnsmsg.BlockingModeNXDOMAIN:
+		return &Profile_SafeBrowsingBlockingModeNxdomain{
+			SafeBrowsingBlockingModeNxdomain: &BlockingModeNXDOMAIN{},
+		}
+	case *dnsmsg.BlockingModeNullIP:
+		return &Profile_SafeBrowsingBlockingModeNullIp{
+			SafeBrowsingBlockingModeNullIp: &BlockingModeNullIP{},
+		}
+	case *dnsmsg.BlockingModeREFUSED:
+		return &Profile_SafeBrowsingBlockingModeRefused{
+			SafeBrowsingBlockingModeRefused: &BlockingModeREFUSED{},
+		}
+	default:
+		panic(fmt.Errorf("bad safe browsing blocking mode %T(%[1]v)", m))
 	}
 }
 

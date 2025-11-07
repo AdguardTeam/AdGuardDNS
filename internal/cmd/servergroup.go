@@ -29,21 +29,18 @@ func (srvGrps serverGroups) toInternal(
 	ratelimitConf *rateLimitConfig,
 	dnsConf *dnsConfig,
 ) (svcSrvGrps []*dnssvc.ServerGroupConfig, err error) {
-	svcSrvGrps = make([]*dnssvc.ServerGroupConfig, len(srvGrps))
-	for i, g := range srvGrps {
+	svcSrvGrps = make([]*dnssvc.ServerGroupConfig, 0, len(srvGrps))
+	for _, g := range srvGrps {
+		// TODO(e.burkov):  Validate in [serverGroupsValidator.Validate].
 		fltGrpID := agd.FilteringGroupID(g.FilteringGroup)
 		_, ok := fltGrps[fltGrpID]
 		if !ok {
 			return nil, fmt.Errorf("server group %q: unknown filtering group %q", g.Name, fltGrpID)
 		}
 
-		var deviceDomains []string
-		deviceDomains, err = g.TLS.toInternal(ctx, tlsMgr)
-		if err != nil {
-			return nil, fmt.Errorf("tls %q: %w", g.Name, err)
-		}
+		certNames, deviceDomains := g.TLS.toInternal()
 
-		svcSrvGrps[i] = &dnssvc.ServerGroupConfig{
+		groupConfig := &dnssvc.ServerGroupConfig{
 			DDR:             g.DDR.toInternal(messages),
 			DeviceDomains:   deviceDomains,
 			Name:            agd.ServerGroupName(g.Name),
@@ -51,50 +48,23 @@ func (srvGrps serverGroups) toInternal(
 			ProfilesEnabled: g.ProfilesEnabled,
 		}
 
-		svcSrvGrps[i].Servers, err = g.Servers.toInternal(
+		groupConfig.Servers, err = g.Servers.toInternal(
+			ctx,
 			btdMgr,
 			tlsMgr,
 			ratelimitConf,
 			dnsConf,
+			certNames,
 			deviceDomains,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("server group %q: %w", g.Name, err)
 		}
+
+		svcSrvGrps = append(svcSrvGrps, groupConfig)
 	}
 
 	return svcSrvGrps, nil
-}
-
-// type check
-var _ validate.Interface = serverGroups(nil)
-
-// Validate implements the [validate.Interface] interface for serverGroups.
-func (srvGrps serverGroups) Validate() (err error) {
-	if len(srvGrps) == 0 {
-		return errors.ErrEmptyValue
-	}
-
-	var errs []error
-	names := container.NewMapSet[string]()
-	for i, g := range srvGrps {
-		err = g.Validate()
-		if err != nil {
-			errs = append(errs, fmt.Errorf("at index %d: %w", i, err))
-
-			continue
-		}
-
-		if names.Has(g.Name) {
-			errs = append(errs, fmt.Errorf("at index %d: %w: %q", i, errors.ErrDuplicated, g.Name))
-
-			continue
-		}
-
-		names.Add(g.Name)
-	}
-
-	return errors.Join(errs...)
 }
 
 // serverGroup defines a group of DNS servers all of which use the same
@@ -108,7 +78,7 @@ type serverGroup struct {
 	DDR *ddrConfig `yaml:"ddr"`
 
 	// TLS are the TLS settings for this server, if any.
-	TLS *tlsConfig `yaml:"tls"`
+	TLS *serverGroupTLSConfig `yaml:"tls"`
 
 	// Name is the unique name of the server group.
 	Name string `yaml:"name"`
@@ -125,10 +95,10 @@ type serverGroup struct {
 }
 
 // type check
-var _ validate.Interface = (*serverGroup)(nil)
+var _ tlsValidator = (*serverGroup)(nil)
 
-// Validate implements the [validate.Interface] interface for *serverGroup.
-func (g *serverGroup) Validate() (err error) {
+// validate implements the [validatorWithTLS] interface for *serverGroup.
+func (g *serverGroup) validate(tlsConf *tlsConfig, ts *tlsState) (err error) {
 	if g == nil {
 		return errors.ErrNoValue
 	}
@@ -145,7 +115,7 @@ func (g *serverGroup) Validate() (err error) {
 		errs = append(errs, fmt.Errorf("servers: %w", err))
 	}
 
-	err = g.TLS.validateIfNecessary(needsTLS)
+	err = g.TLS.validateIfNecessary(needsTLS, tlsConf, *ts)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("tls: %w", err))
 	}
@@ -169,4 +139,35 @@ func (srvGrps serverGroups) collectSessTicketPaths() (paths []string) {
 	}
 
 	return set.Values()
+}
+
+// type check
+var _ tlsValidator = (serverGroups)(nil)
+
+// validate implements the [tlsValidator] interface for serverGroups.
+func (srvGrps serverGroups) validate(tlsConf *tlsConfig, ts *tlsState) (err error) {
+	if len(srvGrps) == 0 {
+		return errors.ErrEmptyValue
+	}
+
+	var errs []error
+	names := container.NewMapSet[string]()
+	for i, g := range srvGrps {
+		err = g.validate(tlsConf, ts)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("at index %d: %w", i, err))
+
+			continue
+		}
+
+		if names.Has(g.Name) {
+			errs = append(errs, fmt.Errorf("at index %d: %w: %q", i, errors.ErrDuplicated, g.Name))
+
+			continue
+		}
+
+		names.Add(g.Name)
+	}
+
+	return errors.Join(errs...)
 }

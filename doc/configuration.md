@@ -19,6 +19,7 @@ Besides the [environment][env], AdGuard DNS uses a [YAML][yaml] file to store co
 - [Query log](#query_log)
 - [GeoIP database](#geoip)
 - [DNS-server check](#check)
+- [TLS](#tls)
 - [Web API](#web)
 - [Safe browsing](#safe_browsing)
 - [Adult-content blocking](#adult_blocking)
@@ -403,6 +404,25 @@ The `check` object has the following properties:
 
 [http-dnscheck]: http.md#dnscheck-test
 
+## <a href="#tls" id="tls" name="tls">TLS</a>
+
+The `tls` object has the following properties:
+
+- <a href="#tls-enabled" id="tls-enabled" name="tls-enabled">`enabled`</a>: If true, the TLS certificates are used. Otherwise, any object supporting TLS should be configured to not use it.
+
+    **Example:** `true`.
+
+- <a href="#tls-certificate_groups" id="tls-certificate_groups" name="tls-certificate_groups">`certificate_groups`</a>: The object maps certificate names to the certificate's file path and its private key's file path. The name of each certificate should be unique and should contain no more than 64 characters, which should be `a-z`, `A-Z`, `0-9`, `-`, or `_`.
+
+    **Property example:**
+
+    ```yaml
+    'certificate_groups':
+        'example-cert':
+            'certificate': '/path/to/cert.crt'
+            'key': '/path/to/cert.key'
+    ```
+
 ## <a href="#web" id="web" name="web">Web API</a>
 
 The optional `web` object has the following properties:
@@ -420,9 +440,8 @@ The optional `web` object has the following properties:
         'bind':
           - 'address': '127.0.0.1:80'
           - 'address': '127.0.0.1:443'
-            'certificates':
-              - 'certificate': './test/cert.crt'
-                'key': './test/cert.key'
+            'certificate_groups':
+              - 'name': 'example-cert'
     ```
 
 - <a href="#web-safe_browsing" id="web-safe_browsing" name="web-safe_browsing">`safe_browsing`</a>: The optional safe browsing block-page web server configurations. Every request is responded with the content from the file to which the `block_page` property points.
@@ -440,9 +459,8 @@ The optional `web` object has the following properties:
       'bind':
         - 'address': '127.0.0.1:80'
         - 'address': '127.0.0.1:443'
-          'certificates':
-            - 'certificate': './test/cert.crt'
-              'key': './test/cert.key'
+          'certificate_groups':
+            - 'name': 'example-cert'
       'block_page': '/var/www/block_page.html'
     ```
 
@@ -450,7 +468,7 @@ The optional `web` object has the following properties:
 
 - <a href="#web-general_blocking" id="web-general_blocking" name="web-general_blocking">`general_blocking`</a>: The optional general block-page web server configuration. The format of the values is the same as in the [`safe_browsing`](#web-safe_browsing) object above.
 
-- <a href="#web-non_doh_bind" id="web-non_doh_bind" name="web-non_doh_bind">`non_doh_bind`</a>: The optional listen addresses and optional TLS configuration for the web service in addition to the ones in the DNS-over-HTTPS handlers. The `certificates` array has the same format as the one in a server group's [TLS settings](#server_groups-*-tls). In the special case of `GET /robots.txt` requests, a special response is served; this response could be overwritten with static content.
+- <a href="#web-non_doh_bind" id="web-non_doh_bind" name="web-non_doh_bind">`non_doh_bind`</a>: The optional listen addresses and optional TLS configuration for the web service in addition to the ones in the DNS-over-HTTPS handlers. The `certificate_groups` array has the same format as [`certificate_groups`](#sg-*-tls-certificate_groups) in a server group's TLS settings. In the special case of `GET /robots.txt` requests, a special response is served; this response could be overwritten with static content.
 
     **Property example:**
 
@@ -458,9 +476,8 @@ The optional `web` object has the following properties:
     'non_doh_bind':
       - 'address': '127.0.0.1:80'
       - 'address': '127.0.0.1:443'
-        'certificates':
-          - 'certificate': './test/cert.crt'
-            'key': './test/cert.key'
+        'certificate_groups':
+          - 'name': 'example-cert'
     ```
 
 - <a href="#web-static_content" id="web-static_content" name="web-static_content">`static_content`</a>: The optional inline static content mapping. Not served on the `linked_ip`, `safe_browsing` and `adult_blocking` servers. Paths must not duplicate the ones used by the DNS-over-HTTPS server.
@@ -757,14 +774,14 @@ The DDR configuration object. Many of these data duplicate data from objects in 
 
 ### <a href="#server_groups-*-tls" id="server_groups-*-tls" name="server_groups-*-tls">TLS</a>
 
-- <a href="#sg-*-tls-certificates" id="sg-*-tls-certificates" name="sg-*-tls-certificates">`certificates`</a>: The array of objects with paths to the certificate and the private key for this server group.
+- <a href="#sg-*-tls-certificate_groups" id="sg-*-tls-certificate_groups" name="sg-*-tls-certificate_groups">`certificate_groups`</a>: The array of objects with names of the certificates to use for servers with standard encrypted protocols within the group.  See [`certificate_groups`](#tls-certificate_groups).
+  <a href="#sg-*-tls-certificates" id="sg-*-tls-certificates" name="sg-*-tls-certificates"><!-- Name of this field has changed, so keep the anchor to avoid breaking old links. --></a>
 
     **Property example:**
 
     ```yaml
-    'certificates':
-      - 'certificate': '/etc/dns/cert.crt'
-        'key': '/etc/dns/cert.key'
+    'certificate_groups':
+      - 'name': 'example-cert'
     ```
 
 - <a href="#sg-*-tls-session_keys" id="sg-*-tls-session_keys" name="sg-*-tls-session_keys">`session_keys`</a>: The array of file paths from which the each server's TLS session keys are updated. Session ticket key files must contain at least 32 bytes.

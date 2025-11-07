@@ -2,8 +2,6 @@ syntax = "proto3";
 
 package profiledb;
 
-option go_package = "./filecachepb";
-
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -43,6 +41,20 @@ message Profile {
   bool filtering_enabled = 16;
   bool ip_log_enabled = 17;
   bool query_log_enabled = 18;
+
+  oneof adult_blocking_mode {
+    BlockingModeCustomIP adult_blocking_mode_custom_ip = 21;
+    BlockingModeNXDOMAIN adult_blocking_mode_nxdomain = 22;
+    BlockingModeNullIP adult_blocking_mode_null_ip = 23;
+    BlockingModeREFUSED adult_blocking_mode_refused = 24;
+  }
+
+  oneof safe_browsing_blocking_mode {
+    BlockingModeCustomIP safe_browsing_blocking_mode_custom_ip = 25;
+    BlockingModeNXDOMAIN safe_browsing_blocking_mode_nxdomain = 26;
+    BlockingModeNullIP safe_browsing_blocking_mode_null_ip = 27;
+    BlockingModeREFUSED safe_browsing_blocking_mode_refused = 28;
+  }
 }
 
 message AccountCustomDomains {

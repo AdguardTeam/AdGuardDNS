@@ -83,10 +83,12 @@ func newDefaultProfileDB(tb testing.TB, devices <-chan []*agd.Device) (db *profi
 
 		return &profiledb.StorageProfilesResponse{
 			Profiles: []*agd.Profile{{
-				CustomDomains: &agd.AccountCustomDomains{},
-				BlockingMode:  &dnsmsg.BlockingModeNullIP{},
-				ID:            profiledbtest.ProfileID,
-				DeviceIDs:     devIDs,
+				CustomDomains:            &agd.AccountCustomDomains{},
+				AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
+				BlockingMode:             &dnsmsg.BlockingModeNullIP{},
+				SafeBrowsingBlockingMode: &dnsmsg.BlockingModeNullIP{},
+				ID:                       profiledbtest.ProfileID,
+				DeviceIDs:                devIDs,
 			}},
 			Devices: devices,
 		}, nil

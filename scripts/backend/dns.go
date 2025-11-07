@@ -258,9 +258,19 @@ func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *backendpb.DNS
 		BlockChromePrefetch: true,
 		BlockFirefoxCanary:  true,
 		BlockPrivateRelay:   true,
+		AdultBlockingMode: &backendpb.DNSProfile_AdultBlockingModeCustomIp{
+			AdultBlockingModeCustomIp: &backendpb.BlockingModeCustomIP{
+				Ipv4: []byte{1, 1, 1, 1},
+			},
+		},
 		BlockingMode: &backendpb.DNSProfile_BlockingModeCustomIp{
 			BlockingModeCustomIp: &backendpb.BlockingModeCustomIP{
 				Ipv4: []byte{1, 2, 3, 4},
+			},
+		},
+		SafeBrowsingBlockingMode: &backendpb.DNSProfile_SafeBrowsingBlockingModeCustomIp{
+			SafeBrowsingBlockingModeCustomIp: &backendpb.BlockingModeCustomIP{
+				Ipv4: []byte{2, 2, 2, 2},
 			},
 		},
 		RateLimit: &backendpb.RateLimitSettings{

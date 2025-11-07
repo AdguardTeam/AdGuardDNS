@@ -13,7 +13,11 @@ import (
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/publicsuffix"
 )
+
+// SubDomainNum is a common subDomainNum value for tests.
+const SubDomainNum = 4
 
 // NewHashprefixFilter is like [NewHashprefixFilterWithRepl], but the
 // replacement host is also set in accordance with id.
@@ -62,21 +66,23 @@ func NewHashprefixFilterWithRepl(
 	require.NoError(tb, err)
 
 	f, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
-		Logger:          slogutil.NewDiscardLogger(),
-		Cloner:          agdtest.NewCloner(),
-		CacheManager:    agdcache.EmptyManager{},
-		Hashes:          strg,
-		URL:             srvURL,
-		ErrColl:         agdtest.NewErrorCollector(),
-		HashPrefixMtcs:  hashprefix.EmptyMetrics{},
-		Metrics:         filter.EmptyMetrics{},
-		ID:              id,
-		CachePath:       cachePath,
-		ReplacementHost: replHost,
-		Staleness:       Staleness,
-		CacheTTL:        CacheTTL,
-		CacheCount:      CacheCount,
-		MaxSize:         FilterMaxSize,
+		Logger:            slogutil.NewDiscardLogger(),
+		Cloner:            agdtest.NewCloner(),
+		CacheManager:      agdcache.EmptyManager{},
+		Hashes:            strg,
+		URL:               srvURL,
+		ErrColl:           agdtest.NewErrorCollector(),
+		HashPrefixMetrics: hashprefix.EmptyMetrics{},
+		Metrics:           filter.EmptyMetrics{},
+		PublicSuffixList:  publicsuffix.List,
+		ID:                id,
+		CachePath:         cachePath,
+		ReplacementHost:   replHost,
+		Staleness:         Staleness,
+		CacheTTL:          CacheTTL,
+		CacheCount:        CacheCount,
+		MaxSize:           FilterMaxSize,
+		SubDomainNum:      SubDomainNum,
 	})
 	require.NoError(tb, err)
 

@@ -7,14 +7,11 @@ import (
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/validate"
-	"gopkg.in/yaml.v2"
+	yaml "go.yaml.in/yaml/v4"
 )
 
 // configuration represents the on-disk configuration of AdGuard DNS.  The order
-// of the fields should generally not be altered.
-//
-// TODO(a.garipov): Consider collecting all validation errors instead of
-// quitting after the first one.
+// of the fields defines their dependencies hierarchy and should not be altered.
 type configuration struct {
 	// RateLimit is the rate limiting configuration.
 	RateLimit *rateLimitConfig `yaml:"ratelimit"`
@@ -45,6 +42,9 @@ type configuration struct {
 
 	// Check is the configuration for the DNS server checker.
 	Check *checkConfig `yaml:"check"`
+
+	// TLS is the configuration of TLS certificates.
+	TLS *tlsConfig `yaml:"tls"`
 
 	// Web is the configuration for the DNS-over-HTTP server.
 	Web *webConfig `yaml:"web"`
@@ -92,6 +92,11 @@ func (c *configuration) Validate() (err error) {
 		return errors.ErrNoValue
 	}
 
+	tlsConfValidator := &tlsConfigValidator{
+		state:   tlsStateDisabled,
+		tlsConf: c.TLS,
+	}
+
 	// Keep this in the same order as the fields in the config.
 	validators := container.KeyValues[string, validate.Interface]{{
 		Key:   "ratelimit",
@@ -121,8 +126,15 @@ func (c *configuration) Validate() (err error) {
 		Key:   "check",
 		Value: c.Check,
 	}, {
-		Key:   "web",
-		Value: c.Web,
+		Key:   "tls",
+		Value: tlsConfValidator,
+	}, {
+		Key: "web",
+		Value: validatorWithTLS{
+			validator: c.Web,
+			tlsState:  &tlsConfValidator.state,
+			tlsConf:   c.TLS,
+		},
 	}, {
 		Key:   "safe_browsing",
 		Value: c.SafeBrowsing,
@@ -136,8 +148,12 @@ func (c *configuration) Validate() (err error) {
 		Key:   "filtering_groups",
 		Value: c.FilteringGroups,
 	}, {
-		Key:   "server_groups",
-		Value: c.ServerGroups,
+		Key: "server_groups",
+		Value: validatorWithTLS{
+			validator: c.ServerGroups,
+			tlsState:  &tlsConfValidator.state,
+			tlsConf:   c.TLS,
+		},
 	}, {
 		Key:   "connectivity_check",
 		Value: c.ConnectivityCheck,

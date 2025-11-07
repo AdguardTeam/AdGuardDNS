@@ -18,6 +18,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
@@ -145,6 +146,46 @@ func (c *webConfig) toInternal(
 	return conf, nil
 }
 
+// validate implements the [tlsValidator] interface for *webConfig.
+func (c *webConfig) validate(tlsConf *tlsConfig, ts *tlsState) (err error) {
+	if c == nil {
+		return nil
+	}
+
+	errs := []error{
+		validate.Positive("timeout", c.Timeout),
+	}
+	errs = validate.Append(errs, "static_content", c.StaticContent)
+
+	withTLS := validatorWithTLS{
+		tlsState: ts,
+		tlsConf:  tlsConf,
+	}
+	validators := container.KeyValues[string, tlsValidator]{{
+		Key:   "linked_ip",
+		Value: c.LinkedIP,
+	}, {
+		Key:   "adult_blocking",
+		Value: c.AdultBlocking,
+	}, {
+		Key:   "general_blocking",
+		Value: c.GeneralBlocking,
+	}, {
+		Key:   "safe_browsing",
+		Value: c.SafeBrowsing,
+	}, {
+		Key:   "non_doh_bind",
+		Value: c.NonDoHBind,
+	}}
+
+	for _, v := range validators {
+		withTLS.validator = v.Value
+		errs = validate.Append(errs, v.Key, withTLS)
+	}
+
+	return errors.Join(errs...)
+}
+
 // readErrorPages returns the contents for the error pages in the configuration
 // file and any errors encountered while reading them.
 func (c *webConfig) readErrorPages() (error404, error500 []byte, err error) {
@@ -181,29 +222,6 @@ func (c *webConfig) setStaticContent(envs *environment, conf *websvc.Config) (er
 	return nil
 }
 
-// type check
-var _ validate.Interface = (*webConfig)(nil)
-
-// Validate implements the [validate.Interface] interface for *webConfig.
-func (c *webConfig) Validate() (err error) {
-	if c == nil {
-		return nil
-	}
-
-	errs := []error{
-		validate.Positive("timeout", c.Timeout),
-	}
-
-	errs = validate.Append(errs, "linked_ip", c.LinkedIP)
-	errs = validate.Append(errs, "adult_blocking", c.AdultBlocking)
-	errs = validate.Append(errs, "general_blocking", c.GeneralBlocking)
-	errs = validate.Append(errs, "safe_browsing", c.SafeBrowsing)
-	errs = validate.Append(errs, "static_content", c.StaticContent)
-	errs = validate.Append(errs, "non_doh_bind", c.NonDoHBind)
-
-	return errors.Join(errs...)
-}
-
 // linkedIPServer is the linked IP web server configuration.
 type linkedIPServer struct {
 	// Bind are the bind addresses and optional TLS configuration for the linked
@@ -237,10 +255,10 @@ func (s *linkedIPServer) toInternal(
 }
 
 // type check
-var _ validate.Interface = (*linkedIPServer)(nil)
+var _ tlsValidator = (*linkedIPServer)(nil)
 
-// Validate implements the [validate.Interface] interface for *linkedIPServer.
-func (s *linkedIPServer) Validate() (err error) {
+// validate implements the [tlsValidator] interface for *linkedIPServer.
+func (s *linkedIPServer) validate(tlsConf *tlsConfig, ts *tlsState) (err error) {
 	if s == nil {
 		return nil
 	}
@@ -249,7 +267,10 @@ func (s *linkedIPServer) Validate() (err error) {
 		validate.NotEmptySlice("bind", s.Bind),
 	}
 
-	errs = validate.Append(errs, "bind", s.Bind)
+	err = s.Bind.validate(tlsConf, ts)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("bind: %w", err))
+	}
 
 	return errors.Join(errs...)
 }
@@ -287,10 +308,10 @@ func (s *blockPageServer) toInternal(
 }
 
 // type check
-var _ validate.Interface = (*blockPageServer)(nil)
+var _ tlsValidator = (*blockPageServer)(nil)
 
-// Validate implements the [validate.Interface] interface for *blockPageServer.
-func (s *blockPageServer) Validate() (err error) {
+// validate implements the [tlsValidator] interface for *blockPageServer.
+func (s *blockPageServer) validate(tlsConf *tlsConfig, ts *tlsState) (err error) {
 	if s == nil {
 		return nil
 	}
@@ -300,7 +321,10 @@ func (s *blockPageServer) Validate() (err error) {
 		validate.NotEmptySlice("bind", s.Bind),
 	}
 
-	errs = validate.Append(errs, "bind", s.Bind)
+	err = s.Bind.validate(tlsConf, ts)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("bind: %w", err))
+	}
 
 	return errors.Join(errs...)
 }
@@ -314,30 +338,41 @@ func (bd bindData) toInternal(
 	ctx context.Context,
 	tlsMgr tlsconfig.Manager,
 ) (data []*websvc.BindData, err error) {
-	data = make([]*websvc.BindData, len(bd))
+	var errs []error
+	data = make([]*websvc.BindData, 0, len(bd))
 
 	for i, d := range bd {
-		data[i], err = d.toInternal(ctx, tlsMgr)
+		var datum *websvc.BindData
+		datum, err = d.toInternal(ctx, tlsMgr)
 		if err != nil {
-			return nil, fmt.Errorf("bind data at index %d: %w", i, err)
+			errs = append(errs, fmt.Errorf("bind data: at index %d: %w", i, err))
+
+			continue
 		}
+
+		data = append(data, datum)
+	}
+
+	err = errors.Join(errs...)
+	if err != nil {
+		return nil, err
 	}
 
 	return data, nil
 }
 
 // type check
-var _ validate.Interface = bindData(nil)
+var _ tlsValidator = bindData(nil)
 
-// Validate implements the [validate.Interface] interface for bindData.
-func (bd bindData) Validate() (err error) {
+// validate implements the [tlsValidator] interface for bindData.
+func (bd bindData) validate(tlsConf *tlsConfig, ts *tlsState) (err error) {
 	if len(bd) == 0 {
 		return nil
 	}
 
 	var errs []error
 	for i, d := range bd {
-		err = d.Validate()
+		err = d.validate(tlsConf, ts)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("at index %d: %w", i, err))
 		}
@@ -351,8 +386,9 @@ type bindItem struct {
 	// Address is the binding address.
 	Address netip.AddrPort `yaml:"address"`
 
-	// Certificates are the optional TLS certificates for this HTTP(S) server.
-	Certificates tlsConfigCerts `yaml:"certificates"`
+	// CertificateGroups are the optional TLS certificates configuration for
+	// this HTTP(S) server.
+	CertificateGroups tlsCertificateGroupConfigs `yaml:"certificate_groups"`
 }
 
 // toInternal converts i to bind data for the AdGuard DNS web service.  i must
@@ -361,22 +397,35 @@ func (i *bindItem) toInternal(
 	ctx context.Context,
 	tlsMgr tlsconfig.Manager,
 ) (data *websvc.BindData, err error) {
-	tlsConf, err := i.Certificates.toInternal(ctx, tlsMgr)
+	if len(i.CertificateGroups) == 0 {
+		return &websvc.BindData{
+			Address: i.Address,
+		}, nil
+	}
+
+	addr := i.Address.Addr()
+
+	pref, err := addr.Prefix(addr.BitLen())
+	if err != nil {
+		return nil, fmt.Errorf("prefix: %w", err)
+	}
+
+	err = i.CertificateGroups.bind(ctx, tlsMgr, pref)
 	if err != nil {
 		return nil, fmt.Errorf("certificates: %w", err)
 	}
 
 	return &websvc.BindData{
-		TLS:     tlsConf,
+		TLS:     tlsMgr.Clone(),
 		Address: i.Address,
 	}, nil
 }
 
 // type check
-var _ validate.Interface = (*bindItem)(nil)
+var _ tlsValidator = (*bindItem)(nil)
 
-// Validate implements the [validate.Interface] interface for *bindItem.
-func (i *bindItem) Validate() (err error) {
+// validate implements the [tlsValidator] interface for *bindItem.
+func (i *bindItem) validate(tlsConf *tlsConfig, ts *tlsState) (err error) {
 	if i == nil {
 		return errors.ErrNoValue
 	}
@@ -385,7 +434,22 @@ func (i *bindItem) Validate() (err error) {
 		validate.NotEmpty("address", i.Address),
 	}
 
-	errs = validate.Append(errs, "certificates", i.Certificates)
+	switch *ts {
+	case tlsStateValid:
+		if i.CertificateGroups == nil {
+			// No TLS.
+			break
+		}
+
+		err = i.CertificateGroups.validate(tlsConf)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("certificate_groups: %w", err))
+		}
+	case tlsStateDisabled:
+		errs = append(errs, validate.EmptySlice("certificate_groups", i.CertificateGroups))
+	default:
+		// Ignore TLS configuration.
+	}
 
 	return errors.Join(errs...)
 }

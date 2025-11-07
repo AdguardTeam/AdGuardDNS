@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -50,6 +51,8 @@ type CustomDomainDB struct {
 
 	cacheDir string
 
+	bindPrefixes []netip.Prefix
+
 	initRetryIvl time.Duration
 	maxRetryIvl  time.Duration
 }
@@ -83,6 +86,10 @@ type CustomDomainDBConfig struct {
 	// exist, it is created.
 	CacheDirPath string
 
+	// BindPrefixes are the IP prefixes to bound to the custom-domain
+	// certificates.  All items must be valid.
+	BindPrefixes []netip.Prefix
+
 	// InitialRetryIvl is the initial interval for retrying a failed cert after
 	// a network or a ratelimiting error.  It must be positive.
 	InitialRetryIvl time.Duration
@@ -114,6 +121,8 @@ func NewCustomDomainDB(c *CustomDomainDBConfig) (db *CustomDomainDB, err error) 
 		manager: c.Manager,
 		metrics: c.Metrics,
 		strg:    c.Storage,
+
+		bindPrefixes: c.BindPrefixes,
 
 		cacheDir: c.CacheDirPath,
 
@@ -190,7 +199,7 @@ func (db *CustomDomainDB) removeCertData(
 
 	var errs []error
 	certPath, keyPath := db.cachePaths(certName)
-	err := db.manager.Remove(ctx, certPath, keyPath, true)
+	err := db.manager.Remove(ctx, certName)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("removing from manager: %w", err))
 	}
@@ -228,9 +237,9 @@ const (
 )
 
 // cachePaths returns the cache paths for the given certificate name.
-func (db *CustomDomainDB) cachePaths(certName agd.CertificateName) (certPath, keyPath string) {
-	certPath = filepath.Join(db.cacheDir, string(certName)+".crt.pem")
-	keyPath = filepath.Join(db.cacheDir, string(certName)+".key.pem")
+func (db *CustomDomainDB) cachePaths(name agd.CertificateName) (certPath, keyPath string) {
+	certPath = filepath.Join(db.cacheDir, string(name+".crt.pem"))
+	keyPath = filepath.Join(db.cacheDir, string(name+".key.pem"))
 
 	return certPath, keyPath
 }
@@ -414,9 +423,20 @@ func (db *CustomDomainDB) refreshCert(
 		// Add to the manager in case this is an initial refresh.
 		//
 		// TODO(a.garipov):  Consider splitting away the initial refresh logic.
-		err = db.manager.Add(ctx, certPath, keyPath, true)
+		err = db.manager.Add(ctx, &AddParams{
+			Name:     certName,
+			CertPath: certPath,
+			KeyPath:  keyPath,
+			IsCustom: true,
+		})
 		if err != nil {
 			return false, fmt.Errorf("adding previous cert to manager: %w", err)
+		}
+
+		err = db.bind(ctx, certName)
+		if err != nil {
+			// Don't wrap the error, because it's informative enough as is.
+			return false, err
 		}
 
 		return false, nil
@@ -434,7 +454,7 @@ func (db *CustomDomainDB) refreshCert(
 
 	l.InfoContext(ctx, "got data", "cert_len", len(certData), "key_len", len(keyData))
 
-	err = db.saveCertData(ctx, l, certPath, certData, keyPath, keyData)
+	err = db.saveCertData(ctx, l, certName, certPath, certData, keyPath, keyData)
 	if err != nil {
 		return false, fmt.Errorf("saving cert %q: %w", certName, err)
 	}
@@ -450,6 +470,7 @@ func (db *CustomDomainDB) refreshCert(
 func (db *CustomDomainDB) saveCertData(
 	ctx context.Context,
 	l *slog.Logger,
+	certName agd.CertificateName,
 	certPath string,
 	certData []byte,
 	keyPath string,
@@ -479,9 +500,20 @@ func (db *CustomDomainDB) saveCertData(
 
 	l.DebugContext(ctx, "saved key file", "path", keyPath)
 
-	err = db.manager.Add(ctx, certPath, keyPath, true)
+	err = db.manager.Add(ctx, &AddParams{
+		Name:     certName,
+		CertPath: certPath,
+		KeyPath:  keyPath,
+		IsCustom: true,
+	})
 	if err != nil {
 		return fmt.Errorf("adding to manager: %w", err)
+	}
+
+	err = db.bind(ctx, certName)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return err
 	}
 
 	return nil
@@ -626,4 +658,22 @@ func (db *CustomDomainDB) performRetries(
 	if err != nil {
 		errcoll.Collect(ctx, db.errColl, db.logger, "retrying certs", err)
 	}
+}
+
+// bind binds the certificate with certName name to the configured prefixes.
+func (db *CustomDomainDB) bind(ctx context.Context, certName agd.CertificateName) (err error) {
+	var errs []error
+	for _, pref := range db.bindPrefixes {
+		err = db.manager.Bind(ctx, certName, pref)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("binding cert %q: %w", certName, err))
+		}
+	}
+
+	err = errors.Join(errs...)
+	if err != nil {
+		return fmt.Errorf("binding cert %q: %w", certName, err)
+	}
+
+	return nil
 }

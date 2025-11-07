@@ -4,7 +4,10 @@
 package agdnet
 
 import (
+	"net/http/cookiejar"
 	"strings"
+
+	"github.com/AdguardTeam/golibs/netutil"
 )
 
 // These are suffixes of the FQDN in DNS queries for metrics that the DNS
@@ -64,4 +67,39 @@ func NormalizeQueryDomain(host string) (norm string) {
 	}
 
 	return NormalizeDomain(host)
+}
+
+// AppendSubdomains appends all subdomains to orig and limits result length with
+// subDomainNum.  publicList must not be nil.
+func AppendSubdomains(
+	orig []string,
+	domain string,
+	subDomainNum int,
+	publicList cookiejar.PublicSuffixList,
+) (sub []string) {
+	sub = orig
+	pubSuf := publicList.PublicSuffix(domain)
+
+	dotsNum := 0
+	i := strings.LastIndexFunc(domain, func(r rune) (ok bool) {
+		if r == '.' {
+			dotsNum++
+		}
+
+		return dotsNum == subDomainNum
+	})
+	if i != -1 {
+		domain = domain[i+1:]
+	}
+
+	sub = netutil.AppendSubdomains(sub, domain)
+	for i, s := range sub {
+		if s == pubSuf {
+			sub = sub[:i]
+
+			break
+		}
+	}
+
+	return sub
 }

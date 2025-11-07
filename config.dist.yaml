@@ -184,6 +184,15 @@ check:
       - 1234::cdee
       - 1234::cdef
 
+tls:
+    # If true, enable TLS.
+    enabled: true
+    # The list of certificate groups.
+    certificate_groups:
+        default:
+            certificate: './test/cert.crt'
+            key: './test/cert.key'
+
 # Web/HTTP(S) service configuration.  All non-root requests to the main service
 # not matching the static_content map are shown a 404 page.  In special
 # case of `/robots.txt` request the special response is served.
@@ -194,9 +203,8 @@ web:
         bind:
           - address: '127.0.0.1:9080'
           - address: '127.0.0.1:9443'
-            certificates:
-              - certificate: './test/cert.crt'
-                key: './test/cert.key'
+            certificate_groups:
+              - name: 'default'
     # Optional adult blocking web server configuration.  static_content is not
     # served on these addresses.  The addresses should be the same as in the
     # general_blocking and safe_browsing objects.
@@ -204,9 +212,8 @@ web:
         bind:
           - address: '127.0.0.1:9081'
           - address: '127.0.0.1:9444'
-            certificates:
-              - certificate: './test/cert.crt'
-                key: './test/cert.key'
+            certificate_groups:
+              - name: 'default'
         block_page: './test/block_page_adult.html'
     # Optional general blocking web server configuration.  static_content is not
     # served on these addresses.  The addresses should be the same as in the
@@ -215,9 +222,8 @@ web:
         bind:
           - address: '127.0.0.1:9082'
           - address: '127.0.0.1:9445'
-            certificates:
-              - certificate: './test/cert.crt'
-                key: './test/cert.key'
+            certificate_groups:
+              - name: 'default'
         block_page: './test/block_page_general.html'
     # Optional safe browsing web server configuration.  static_content is not
     # served on these addresses.  The addresses should be the same as in the
@@ -226,18 +232,16 @@ web:
         bind:
           - address: '127.0.0.1:9083'
           - address: '127.0.0.1:9446'
-            certificates:
-              - certificate: './test/cert.crt'
-                key: './test/cert.key'
+            certificate_groups:
+              - name: 'default'
         block_page: './test/block_page_sb.html'
     # Listen addresses for the web service in addition to the ones in the
     # DNS-over-HTTPS handlers.
     non_doh_bind:
       - address: '127.0.0.1:9084'
       - address: '127.0.0.1:9447'
-        certificates:
-          - certificate: './test/cert.crt'
-            key: './test/cert.key'
+        certificate_groups:
+          - name: 'default'
     # Static content map.  Not served on the linked_ip, safe_browsing and adult_blocking
     # servers.  Paths must not cross the ones used by the DNS-over-HTTPS server.
     static_content:
@@ -410,9 +414,8 @@ server_groups:
                 ipv6_hints:
                   - '::1'
     tls:
-        certificates:
-          - certificate: './test/cert.crt'
-            key: './test/cert.key'
+        certificate_groups:
+          - name: 'default'
         session_keys:
           - './test/tls_key_1'
           - './test/tls_key_2'

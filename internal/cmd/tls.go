@@ -2,10 +2,13 @@ package cmd
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
+	"maps"
+	"net/netip"
+	"slices"
 	"strings"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
@@ -18,10 +21,135 @@ const (
 	sessionTicketRemote = "remote"
 )
 
-// tlsConfig are the TLS settings of a DNS server, if any.
+// tlsCertificateConfig is a single TLS certificate configuration.
+type tlsCertificateConfig struct {
+	// CertificatePath is the path to the TLS certificate.
+	CertificatePath string `yaml:"certificate"`
+
+	// KeyPath is the path to the TLS private key.
+	KeyPath string `yaml:"key"`
+}
+
+// certificateGroupConfigs is a map of certificate group names to their
+// configurations.
+type certificateGroupConfigs map[string]*tlsCertificateConfig
+
+// tlsConfig is the common configuration of TLS certificates.
 type tlsConfig struct {
-	// Certificates are TLS certificates for this server.
-	Certificates tlsConfigCerts `yaml:"certificates"`
+	// CertificateGroups are the named groups of TLS certificates.
+	CertificateGroups certificateGroupConfigs `yaml:"certificate_groups"`
+
+	// Enabled is true if TLS is enabled.
+	Enabled bool `yaml:"enabled"`
+}
+
+// store stores the TLS certificates in the TLS manager.  c must be valid,
+// tlsMgr must not be nil.
+func (c tlsConfig) store(ctx context.Context, tlsMgr tlsconfig.Manager) (err error) {
+	var errs []error
+	for name, conf := range c.CertificateGroups {
+		err = tlsMgr.Add(ctx, &tlsconfig.AddParams{
+			// The name is validated in [tlsConfig.Validate].
+			Name:     agd.CertificateName(name),
+			CertPath: conf.CertificatePath,
+			KeyPath:  conf.KeyPath,
+			IsCustom: false,
+		})
+		if err != nil {
+			errs = append(errs, fmt.Errorf("adding certificate %q: %w", name, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+// type check
+var _ validate.Interface = (certificateGroupConfigs)(nil)
+
+// Validate implements the [validate.Interface] interface for
+// certificateGroupConfigs.
+//
+// TODO(e.burkov):  Consider checking the files existence with [os.Stat].
+func (c certificateGroupConfigs) Validate() (err error) {
+	var errs []error
+	for _, name := range slices.Sorted(maps.Keys(c)) {
+		_, err = agd.NewCertificateName(name)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("certificate group %q: %w", name, err))
+		}
+
+		cg := c[name]
+		if cg == nil {
+			errs = append(errs, fmt.Errorf("certificate group %q: %w", name, errors.ErrNoValue))
+
+			continue
+		}
+
+		err = validate.NotEmpty("certificate", cg.CertificatePath)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("certificate group %q: %w", name, err))
+		}
+
+		err = validate.NotEmpty("key", cg.KeyPath)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("certificate group %q: %w", name, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+// tlsCertificateGroupConfig defines a group of certificates used by a server
+// group.
+type tlsCertificateGroupConfig struct {
+	Name agd.CertificateName `yaml:"name"`
+}
+
+// tlsCertificateGroupConfigs is a slice of certificate group configs.
+type tlsCertificateGroupConfigs []*tlsCertificateGroupConfig
+
+// validate returns an error if the certificate group configs are invalid.
+func (c tlsCertificateGroupConfigs) validate(tlsConf *tlsConfig) (err error) {
+	if c == nil {
+		return errors.ErrNoValue
+	} else if len(c) == 0 {
+		return errors.ErrEmptyValue
+	}
+
+	var errs []error
+	for i, cg := range c {
+		nameStr := string(cg.Name)
+		if _, ok := tlsConf.CertificateGroups[nameStr]; !ok {
+			err = fmt.Errorf("at index %d: %q: %w", i, nameStr, errors.ErrBadEnumValue)
+			errs = append(errs, err)
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+// bind binds the certificate group configs to pref in tlsMgr.
+func (c tlsCertificateGroupConfigs) bind(
+	ctx context.Context,
+	tlsMgr tlsconfig.Manager,
+	pref netip.Prefix,
+) (err error) {
+	var errs []error
+	for i, cg := range c {
+		err = tlsMgr.Bind(ctx, cg.Name, pref)
+		if err != nil {
+			err = fmt.Errorf("at index %d: binding to %s: %w", i, pref, err)
+			errs = append(errs, err)
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+// serverGroupTLSConfig are the TLS settings of a DNS server, if any.
+type serverGroupTLSConfig struct {
+	// CertificateGroups are TLS certificate groups for this server.
+	CertificateGroups tlsCertificateGroupConfigs `yaml:"certificate_groups"`
 
 	// SessionKeys are paths to files containing the TLS session keys for this
 	// server.
@@ -40,29 +168,29 @@ type tlsConfig struct {
 
 // toInternal converts c to the TLS configuration for a DNS server.  c must be
 // valid.
-func (c *tlsConfig) toInternal(
-	ctx context.Context,
-	tlsMgr tlsconfig.Manager,
-) (deviceDomains []string, err error) {
+func (c *serverGroupTLSConfig) toInternal() (certNames []agd.CertificateName, wcDomains []string) {
 	if c == nil {
 		return nil, nil
 	}
 
-	err = c.Certificates.store(ctx, tlsMgr)
-	if err != nil {
-		return nil, fmt.Errorf("certificates: %w", err)
+	for _, cg := range c.CertificateGroups {
+		certNames = append(certNames, cg.Name)
 	}
 
 	for _, w := range c.DeviceIDWildcards {
-		deviceDomains = append(deviceDomains, strings.TrimPrefix(w, "*."))
+		wcDomains = append(wcDomains, strings.TrimPrefix(w, "*."))
 	}
 
-	return deviceDomains, nil
+	return certNames, wcDomains
 }
 
 // validateIfNecessary returns an error if the TLS configuration is invalid
 // depending on whether it is necessary or not.
-func (c *tlsConfig) validateIfNecessary(needsTLS bool) (err error) {
+func (c *serverGroupTLSConfig) validateIfNecessary(
+	needsTLS bool,
+	tlsConf *tlsConfig,
+	ts tlsState,
+) (err error) {
 	switch {
 	case c == nil:
 		if needsTLS {
@@ -73,15 +201,18 @@ func (c *tlsConfig) validateIfNecessary(needsTLS bool) (err error) {
 		return nil
 	case !needsTLS:
 		return errors.Error("server group does not require tls")
+	case ts == tlsStateDisabled:
+		return errors.Error("tls is disabled")
 	}
 
 	var errs []error
-	if err = validate.NotEmptySlice("certificates", c.Certificates); err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		errs = append(errs, err)
-	}
 
-	errs = validate.Append(errs, "certificates", c.Certificates)
+	if ts == tlsStateValid {
+		err = c.CertificateGroups.validate(tlsConf)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("certificate_groups: %w", err))
+		}
+	}
 
 	err = validateDeviceIDWildcards(c.DeviceIDWildcards)
 	if err != nil {
@@ -109,77 +240,85 @@ func validateDeviceIDWildcards(wildcards []string) (err error) {
 	return nil
 }
 
-// tlsConfigCert is a single TLS certificate.
-type tlsConfigCert struct {
-	// Certificate is the path to the TLS certificate.
-	Certificate string `yaml:"certificate"`
+// tlsState is the state of TLS validation.
+type tlsState string
 
-	// Key is the path to the TLS private key.
-	Key string `yaml:"key"`
-}
+// Valid tlsState values.
+const (
+	// tlsStateDisabled is the state of TLS validation when the TLS
+	// configuration is not specified.
+	tlsStateDisabled tlsState = "disabled"
 
-// tlsConfigCerts are TLS certificates.  A valid instance of tlsConfigCerts has
-// no nil items.
-type tlsConfigCerts []*tlsConfigCert
+	// tlsStateInvalid is the state of TLS validation when the result is
+	// negative.
+	tlsStateInvalid tlsState = "invalid"
 
-// store stores the TLS certificates in the TLS manager.  certs must be valid.
-func (certs tlsConfigCerts) store(ctx context.Context, tlsMgr tlsconfig.Manager) (err error) {
-	var errs []error
-	for i, c := range certs {
-		err = tlsMgr.Add(ctx, c.Certificate, c.Key, false)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("adding certificate at index %d: %w", i, err))
-		}
-	}
+	// tlsStateValid is the state of TLS validation when the result is positive.
+	tlsStateValid tlsState = "valid"
+)
 
-	return errors.Join(errs...)
-}
+// tlsConfigValidator validates the TLS configuration and updates the result's
+type tlsConfigValidator struct {
+	// tlsConf is the configuration to validate.
+	tlsConf *tlsConfig
 
-// toInternal is like [tlsConfigCerts.store] but it also returns the TLS
-// configuration.  certs must be valid.
-func (certs tlsConfigCerts) toInternal(
-	ctx context.Context,
-	tlsMgr tlsconfig.Manager,
-) (conf *tls.Config, err error) {
-	if len(certs) == 0 {
-		return nil, nil
-	}
-
-	err = certs.store(ctx, tlsMgr)
-	if err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		return nil, err
-	}
-
-	return tlsMgr.Clone(), nil
+	// state is the state of TLS validation.  It must not be used until
+	// [tlsConfigValidator.Validate] returns.
+	state tlsState
 }
 
 // type check
-var _ validate.Interface = tlsConfigCerts(nil)
+var _ validate.Interface = (*tlsConfigValidator)(nil)
 
-// Validate implements the [validate.Interface] interface for tlsConfigCerts.
-// certs may be nil.
-func (certs tlsConfigCerts) Validate() (err error) {
-	if len(certs) == 0 {
+// Validate implements the [validate.Interface] interface for
+// tlsConfigValidator.  It sets the state field of v to the corresponding
+// tlsState value.
+func (v *tlsConfigValidator) Validate() (err error) {
+	if v.tlsConf == nil {
+		v.state = tlsStateInvalid
+
+		return errors.ErrNoValue
+	}
+
+	if !v.tlsConf.Enabled {
+		v.state = tlsStateDisabled
+
 		return nil
 	}
 
-	var errs []error
-	for i, c := range certs {
-		if c == nil {
-			errs = append(errs, fmt.Errorf("at index %d: %w", i, errors.ErrNoValue))
-
-			continue
-		}
-
-		if err = validate.NotEmpty("certificate", c.Certificate); err != nil {
-			errs = append(errs, fmt.Errorf("at index %d: %w", i, err))
-		}
-
-		if err = validate.NotEmpty("key", c.Key); err != nil {
-			errs = append(errs, fmt.Errorf("at index %d: %w", i, err))
-		}
+	err = v.tlsConf.CertificateGroups.Validate()
+	if err != nil {
+		v.state = tlsStateInvalid
+	} else {
+		v.state = tlsStateValid
 	}
 
-	return errors.Join(errs...)
+	return err
+}
+
+// tlsValidator is like [validate.Interface], but accepts TLS configuration
+// and state to validate the web module configuration with.
+type tlsValidator interface {
+	// validate returns error if the configuration is not valid.  tlsConf must
+	// correspond to tlsState.
+	validate(tlsConf *tlsConfig, tlsState *tlsState) (err error)
+}
+
+type validatorWithTLS struct {
+	// validator is the entity to validate with TLS configuration.
+	validator tlsValidator
+
+	// tlsConf is the TLS configuration to validate with.
+	tlsConf *tlsConfig
+
+	// tlsState is the state of TLS validation.
+	tlsState *tlsState
+}
+
+// type check
+var _ validate.Interface = (*validatorWithTLS)(nil)
+
+// Validate implements the [validate.Interface] interface for validatorWithTLS.
+func (v validatorWithTLS) Validate() (err error) {
+	return v.validator.validate(v.tlsConf, v.tlsState)
 }

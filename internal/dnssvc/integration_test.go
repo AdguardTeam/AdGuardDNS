@@ -83,13 +83,15 @@ func newTestService(
 			},
 			SafeBrowsing: &filter.ConfigSafeBrowsing{},
 		},
-		Access:              access.EmptyProfile{},
-		BlockingMode:        &dnsmsg.BlockingModeNullIP{},
-		ID:                  dnssvctest.ProfileID,
-		DeviceIDs:           container.NewMapSet(dnssvctest.DeviceID),
-		FilteredResponseTTL: agdtest.FilteredResponseTTL,
-		FilteringEnabled:    true,
-		QueryLogEnabled:     true,
+		Access:                   access.EmptyProfile{},
+		AdultBlockingMode:        nil,
+		BlockingMode:             &dnsmsg.BlockingModeNullIP{},
+		SafeBrowsingBlockingMode: nil,
+		ID:                       dnssvctest.ProfileID,
+		DeviceIDs:                container.NewMapSet(dnssvctest.DeviceID),
+		FilteredResponseTTL:      agdtest.FilteredResponseTTL,
+		FilteringEnabled:         true,
+		QueryLogEnabled:          true,
 	}
 
 	profDB := agdtest.NewProfileDB()

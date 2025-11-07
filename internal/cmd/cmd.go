@@ -120,9 +120,9 @@ func Main(plugins *plugin.Registry) {
 
 	errors.Check(b.initTLSManager(ctx))
 
-	errors.Check(b.initCustomDomainDB(ctx))
-
 	errors.Check(b.initServerGroups(ctx))
+
+	errors.Check(b.initCustomDomainDB(ctx))
 
 	errors.Check(b.initTicketRotator(ctx))
 

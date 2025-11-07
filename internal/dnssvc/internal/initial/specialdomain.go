@@ -232,46 +232,45 @@ func (mw *Middleware) handleBadResolverARPA(
 	return errors.Annotate(err, "writing nodata resp for %q: %w", ri.Host)
 }
 
-// specialDomainHandler returns a handler that can handle a special-domain
-// query for Apple Private Relay or Firefox canary domain based on the request
-// or profile information, as well as the handler's name for debugging.
+// specialDomainHandler, based on the request or profile information, returns a
+// handler for a special-domain query for the following third-party services:
+//   - [Apple Private Relay]
+//   - [Chrome private prefetch proxy]
+//   - [Firefox DNS-over-HTTPS disabled detector]
+//
+// It also returns the handler's name for debugging.  ri must not be nil.
+//
+// [Apple Private Relay]: https://developer.apple.com/icloud/prepare-your-network-for-icloud-private-relay
+// [Chrome private prefetch proxy]: https://developer.chrome.com/docs/privacy-security/private-prefetch-proxy-for-network-admins
+// [Firefox DNS-over-HTTPS disabled detector]: https://support.mozilla.org/en-US/kb/configuring-networks-disable-dns-over-https
 func (mw *Middleware) specialDomainHandler(
 	ri *agd.RequestInfo,
 ) (f reqInfoHandlerFunc, name string) {
-	qt := ri.QType
-	if qt != dns.TypeA && qt != dns.TypeAAAA {
+	switch {
+	case shouldBlockPrivateRelay(ri):
+		return mw.handlePrivateRelay, "apple_private_relay"
+	case shouldBlockChromePrefetch(ri):
+		return mw.handleChromePrefetch, "chrome_prefetch"
+	case shouldBlockFirefoxCanary(ri):
+		return mw.handleFirefoxCanary, "firefox"
+	default:
 		return nil, ""
 	}
-
-	host := ri.Host
-	prof, _ := ri.DeviceData()
-
-	switch host {
-	case
-		ApplePrivateRelayMaskHost,
-		ApplePrivateRelayMaskH2Host,
-		ApplePrivateRelayMaskCanaryHost:
-		if shouldBlockPrivateRelay(ri, prof) {
-			return mw.handlePrivateRelay, "apple_private_relay"
-		}
-	case ChromePrefetchHost:
-		if shouldBlockChromePrefetch(ri, prof) {
-			return mw.handleChromePrefetch, "chrome_prefetch"
-		}
-	case FirefoxCanaryHost:
-		if shouldBlockFirefoxCanary(ri, prof) {
-			return mw.handleFirefoxCanary, "firefox"
-		}
-	default:
-		// Go on.
-	}
-
-	return nil, ""
 }
 
-// shouldBlockChromePrefetch returns true request information or profile
-// indicate that the Chrome prefetch domain should be blocked.
-func shouldBlockChromePrefetch(ri *agd.RequestInfo, prof *agd.Profile) (ok bool) {
+// shouldBlockChromePrefetch returns true if ri or the associated profile
+// indicates that the Chrome prefetch domain should be blocked.
+func shouldBlockChromePrefetch(ri *agd.RequestInfo) (ok bool) {
+	qt := ri.QType
+	if qt != dns.TypeA && qt != dns.TypeAAAA {
+		return false
+	}
+
+	if ri.Host != ChromePrefetchHost {
+		return false
+	}
+
+	prof, _ := ri.DeviceData()
 	if prof != nil {
 		return prof.BlockChromePrefetch
 	}
@@ -295,9 +294,19 @@ func (mw *Middleware) handleChromePrefetch(
 	return errors.Annotate(err, "writing chrome prefetch resp: %w")
 }
 
-// shouldBlockFirefoxCanary returns true request information or profile indicate
-// that the Firefox canary domain should be blocked.
-func shouldBlockFirefoxCanary(ri *agd.RequestInfo, prof *agd.Profile) (ok bool) {
+// shouldBlockFirefoxCanary returns true if ri or the associated profile
+// indicates that the Firefox canary domain should be blocked.
+func shouldBlockFirefoxCanary(ri *agd.RequestInfo) (ok bool) {
+	qt := ri.QType
+	if qt != dns.TypeA && qt != dns.TypeAAAA {
+		return false
+	}
+
+	if ri.Host != FirefoxCanaryHost {
+		return false
+	}
+
+	prof, _ := ri.DeviceData()
 	if prof != nil {
 		return prof.BlockFirefoxCanary
 	}
@@ -321,9 +330,20 @@ func (mw *Middleware) handleFirefoxCanary(
 	return errors.Annotate(err, "writing firefox canary resp: %w")
 }
 
-// shouldBlockPrivateRelay returns true request information or profile indicate
-// that the Apple Private Relay domain should be blocked.
-func shouldBlockPrivateRelay(ri *agd.RequestInfo, prof *agd.Profile) (ok bool) {
+// shouldBlockPrivateRelay returns true if ri or the associated profile
+// indicates that the Apple Private Relay domain should be blocked.
+func shouldBlockPrivateRelay(ri *agd.RequestInfo) (ok bool) {
+	switch ri.Host {
+	case
+		ApplePrivateRelayMaskHost,
+		ApplePrivateRelayMaskH2Host,
+		ApplePrivateRelayMaskCanaryHost:
+		// Go on.
+	default:
+		return false
+	}
+
+	prof, _ := ri.DeviceData()
 	if prof != nil {
 		return prof.BlockPrivateRelay
 	}

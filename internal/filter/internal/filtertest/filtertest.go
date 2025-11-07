@@ -57,6 +57,7 @@ const (
 	HostBlockedForClientIP    = "blocked-for-client-ip.example"
 	HostBlockedForClientName  = "blocked-for-client-name.example"
 	HostBlockedService1       = "service-1.example"
+	HostCNAME                 = "new-cname.example"
 	HostDangerous             = "dangerous-domain.example"
 	HostDangerousRepl         = "dangerous-domain-repl.example"
 	HostNewlyRegistered       = "newly-registered.example"
@@ -67,12 +68,15 @@ const (
 	HostSafeSearchGeneralRepl = "safe.search.example"
 	HostSafeSearchYouTube     = "video.example"
 	HostSafeSearchYouTubeRepl = "safe.video.example"
+	HostCategory              = "blocked.category.example"
+	HostCategorySub           = "a.b.c." + HostCategory
 
 	FQDN                      = Host + "."
 	FQDNAdultContent          = HostAdultContent + "."
 	FQDNAdultContentRepl      = HostAdultContentRepl + "."
 	FQDNBlocked               = HostBlocked + "."
 	FQDNBlockedForClientName  = HostBlockedForClientName + "."
+	FQDNCname                 = HostCNAME + "."
 	FQDNDangerous             = HostDangerous + "."
 	FQDNDangerousRepl         = HostDangerousRepl + "."
 	FQDNNewlyRegistered       = HostNewlyRegistered + "."
@@ -82,6 +86,7 @@ const (
 	FQDNSafeSearchGeneralIPv6 = HostSafeSearchGeneralIPv6 + "."
 	FQDNSafeSearchYouTube     = HostSafeSearchYouTube + "."
 	FQDNSafeSearchYouTubeRepl = HostSafeSearchYouTubeRepl + "."
+	FQDNCategory              = HostCategory + "."
 )
 
 // Common blocked-service IDs for tests.
@@ -120,11 +125,13 @@ const BlockedServiceIndex string = `{
 
 // Common rule-list IDs for tests.
 const (
-	RuleListID1Str = "rule_list_1"
-	RuleListID2Str = "rule_list_2"
+	RuleListID1Str      = "rule_list_1"
+	RuleListID2Str      = "rule_list_2"
+	RuleListIDDomainStr = "blocked-category"
 
-	RuleListID1 filter.ID = RuleListID1Str
-	RuleListID2 filter.ID = RuleListID2Str
+	RuleListID1      filter.ID = RuleListID1Str
+	RuleListID2      filter.ID = RuleListID2Str
+	RuleListIDDomain filter.ID = RuleListIDDomainStr
 )
 
 // NewRuleListIndex returns a rule-list index containing a record for a filter

@@ -359,9 +359,82 @@ func (pbm *BlockingModeCustomIP) toInternal() (m dnsmsg.BlockingMode, err error)
 	return custom, nil
 }
 
+// adultBlockingModeToInternal converts a protobuf adult blocking-mode sum-type
+// to an internal one.  If pbm is nil, it returns nil.
+func adultBlockingModeToInternal(
+	pbm isDNSProfile_AdultBlockingMode,
+) (m dnsmsg.BlockingMode, err error) {
+	switch pbm := pbm.(type) {
+	case nil:
+		return nil, nil
+	case *DNSProfile_AdultBlockingModeCustomIp:
+		return pbm.AdultBlockingModeCustomIp.toInternal()
+	case *DNSProfile_AdultBlockingModeNxdomain:
+		return &dnsmsg.BlockingModeNXDOMAIN{}, nil
+	case *DNSProfile_AdultBlockingModeNullIp:
+		return &dnsmsg.BlockingModeNullIP{}, nil
+	case *DNSProfile_AdultBlockingModeRefused:
+		return &dnsmsg.BlockingModeREFUSED{}, nil
+	default:
+		// Consider unhandled type-switch cases programmer errors.
+		return nil, fmt.Errorf("bad pb blocking mode %T(%[1]v)", pbm)
+	}
+}
+
+// safeBrowsingBlockingModeToInternal converts a protobuf safe browsing
+// blocking-mode sum-type to an internal one.  If pbm is nil, it returns nil.
+func safeBrowsingBlockingModeToInternal(
+	pbm isDNSProfile_SafeBrowsingBlockingMode,
+) (m dnsmsg.BlockingMode, err error) {
+	switch pbm := pbm.(type) {
+	case nil:
+		return nil, nil
+	case *DNSProfile_SafeBrowsingBlockingModeCustomIp:
+		return pbm.SafeBrowsingBlockingModeCustomIp.toInternal()
+	case *DNSProfile_SafeBrowsingBlockingModeNxdomain:
+		return &dnsmsg.BlockingModeNXDOMAIN{}, nil
+	case *DNSProfile_SafeBrowsingBlockingModeNullIp:
+		return &dnsmsg.BlockingModeNullIP{}, nil
+	case *DNSProfile_SafeBrowsingBlockingModeRefused:
+		return &dnsmsg.BlockingModeREFUSED{}, nil
+	default:
+		// Consider unhandled type-switch cases programmer errors.
+		return nil, fmt.Errorf("bad pb blocking mode %T(%[1]v)", pbm)
+	}
+}
+
+// blockingModesToInternal converts a protobuf blocking-mode sum-types to
+// internal blocking-mode objects.
+func blockingModesToInternal(p *DNSProfile) (
+	m dnsmsg.BlockingMode,
+	adultBlockingMode dnsmsg.BlockingMode,
+	safeBrowsingBlockingMode dnsmsg.BlockingMode,
+	err error,
+) {
+	m, err = blockingModeToInternal(p.BlockingMode)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("blocking mode: %w", err)
+	}
+
+	adultBlockingMode, err = adultBlockingModeToInternal(p.AdultBlockingMode)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("adult blocking mode: %w", err)
+	}
+
+	safeBrowsingBlockingMode, err = safeBrowsingBlockingModeToInternal(p.SafeBrowsingBlockingMode)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("safe browsing blocking mode: %w", err)
+	}
+
+	return m, adultBlockingMode, safeBrowsingBlockingMode, nil
+}
+
 // blockingModeToInternal converts a protobuf blocking-mode sum-type to an
 // internal one.  If pbm is nil, blockingModeToInternal returns a null-IP
 // blocking mode.
+//
+// TODO(d.kolyshev):  DRY with adultBlockingModeToInternal and
+// safeBrowsingBlockingModeToInternal.
 func blockingModeToInternal(pbm isDNSProfile_BlockingMode) (m dnsmsg.BlockingMode, err error) {
 	switch pbm := pbm.(type) {
 	case nil:

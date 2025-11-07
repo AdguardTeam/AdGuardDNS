@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -25,9 +26,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// testCertName is the common certificate name for tests.
-const testCertName agd.CertificateName = "cert1234"
 
 // testProfileID is the common profile ID for tests.
 const testProfileID agd.ProfileID = "prof1234"
@@ -53,6 +51,12 @@ var testDomains = []string{
 	testWildcard,
 }
 
+// testBindPrefixes are the common bind prefixes for tests.
+var testBindPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("127.0.0.1/32"),
+	netip.MustParsePrefix("::1/128"),
+}
+
 // Time values for tests.
 var (
 	testTimeExpired = testTimeNow.Add(-1 * timeutil.Day)
@@ -65,28 +69,28 @@ var (
 	testStateDisabled = &agd.CustomDomainStateCurrent{
 		NotBefore: testTimeNow.Add(-1 * timeutil.Day),
 		NotAfter:  testTimeNow.Add(1 * timeutil.Day),
-		CertName:  testCertName,
+		CertName:  testCustomCertName,
 		Enabled:   false,
 	}
 
 	testStateExpired = &agd.CustomDomainStateCurrent{
 		NotBefore: testTimeExpired.Add(-1 * timeutil.Day),
 		NotAfter:  testTimeExpired,
-		CertName:  testCertName,
+		CertName:  testCustomCertName,
 		Enabled:   true,
 	}
 
 	testStateFuture = &agd.CustomDomainStateCurrent{
 		NotBefore: testTimeFuture.Add(-1 * timeutil.Day),
 		NotAfter:  testTimeFuture,
-		CertName:  testCertName,
+		CertName:  testCustomCertName,
 		Enabled:   true,
 	}
 
 	testStateOK = &agd.CustomDomainStateCurrent{
 		NotBefore: testTimeNow.Add(-1 * timeutil.Day),
 		NotAfter:  testTimeNow.Add(1 * timeutil.Day),
-		CertName:  testCertName,
+		CertName:  testCustomCertName,
 		Enabled:   true,
 	}
 )
@@ -295,7 +299,8 @@ func TestCustomDomainDB_AddCertificate(t *testing.T) {
 			t.Parallel()
 
 			db := newCustomDomainDB(t, &tlsconfig.CustomDomainDBConfig{
-				Clock: clock,
+				Clock:        clock,
+				BindPrefixes: testBindPrefixes,
 			})
 
 			ctx := testutil.ContextWithTimeout(t, testTimeout)
@@ -488,18 +493,32 @@ func (s *testCustomDomainStorage) CertificateData(
 
 // testManager is the [tlsconfig.Manager] for tests.
 type testManager struct {
-	onAdd              func(ctx context.Context, certPath, keyPath string, isCustom bool) (err error)
+	onAdd  func(ctx context.Context, params *tlsconfig.AddParams) (err error)
+	onBind func(
+		ctx context.Context,
+		name agd.CertificateName,
+		pref netip.Prefix,
+	) (err error)
 	onClone            func() (c *tls.Config)
 	onCloneWithMetrics func(proto, srvName string, deviceDomains []string) (c *tls.Config)
-	onRemove           func(ctx context.Context, certPath, keyPath string, isCustom bool) (err error)
+	onRemove           func(ctx context.Context, name agd.CertificateName) (err error)
 }
 
 // type check
 var _ tlsconfig.Manager = (*testManager)(nil)
 
 // Add implements the [tlsconfig.Manager] interface for *testManager.
-func (m *testManager) Add(ctx context.Context, certPath, keyPath string, isCustom bool) (err error) {
-	return m.onAdd(ctx, certPath, keyPath, isCustom)
+func (m *testManager) Add(ctx context.Context, params *tlsconfig.AddParams) (err error) {
+	return m.onAdd(ctx, params)
+}
+
+// Bind implements the [tlsconfig.Manager] interface for *testManager.
+func (m *testManager) Bind(
+	ctx context.Context,
+	name agd.CertificateName,
+	pref netip.Prefix,
+) (err error) {
+	return m.onBind(ctx, name, pref)
 }
 
 // Clone implements the [tlsconfig.Manager] interface for *testManager.
@@ -518,15 +537,18 @@ func (m *testManager) CloneWithMetrics(
 }
 
 // Remove implements the [tlsconfig.Manager] interface for *testManager.
-func (m *testManager) Remove(ctx context.Context, certPath, keyPath string, isCustom bool) (err error) {
-	return m.onRemove(ctx, certPath, keyPath, isCustom)
+func (m *testManager) Remove(ctx context.Context, name agd.CertificateName) (err error) {
+	return m.onRemove(ctx, name)
 }
 
 // newTestManager returns a new *testManager all methods of which panic.
 func newTestManager() (m *testManager) {
 	return &testManager{
-		onAdd: func(ctx context.Context, certPath, keyPath string, isCustom bool) (err error) {
-			panic(testutil.UnexpectedCall(ctx, certPath, keyPath, isCustom))
+		onAdd: func(ctx context.Context, params *tlsconfig.AddParams) (err error) {
+			panic(testutil.UnexpectedCall(ctx, params))
+		},
+		onBind: func(ctx context.Context, name agd.CertificateName, pref netip.Prefix) (err error) {
+			panic(testutil.UnexpectedCall(ctx, name, pref))
 		},
 		onClone: func() (c *tls.Config) {
 			panic(testutil.UnexpectedCall())
@@ -534,8 +556,8 @@ func newTestManager() (m *testManager) {
 		onCloneWithMetrics: func(proto, srvName string, deviceDomains []string) (c *tls.Config) {
 			panic(testutil.UnexpectedCall(proto, srvName, deviceDomains))
 		},
-		onRemove: func(ctx context.Context, certPath, keyPath string, isCustom bool) (err error) {
-			panic(testutil.UnexpectedCall(ctx, certPath, keyPath, isCustom))
+		onRemove: func(ctx context.Context, name agd.CertificateName) (err error) {
+			panic(testutil.UnexpectedCall(ctx, name))
 		},
 	}
 }
@@ -580,7 +602,7 @@ func TestCustomDomainDB_Refresh(t *testing.T) {
 			ctx context.Context,
 			certName agd.CertificateName,
 		) (cert, key []byte, err error) {
-			assert.Equal(t, testCertName, certName)
+			assert.Equal(t, testCustomCertName, certName)
 
 			certDER, rsaKey := newCertAndKey(t, 1)
 
@@ -592,19 +614,23 @@ func TestCustomDomainDB_Refresh(t *testing.T) {
 	wantCertPath, wantKeyPath := newCertAndKeyPaths(cacheDir)
 
 	mgrWithAdd := newTestManager()
-	mgrWithAdd.onAdd = func(ctx context.Context, certPath, keyPath string, isCustom bool) (err error) {
-		assert.Equal(t, wantCertPath, certPath)
-		assert.Equal(t, wantKeyPath, keyPath)
-		assert.True(t, isCustom)
+	mgrWithAdd.onAdd = func(ctx context.Context, params *tlsconfig.AddParams) (err error) {
+		assert.Equal(t, wantCertPath, params.CertPath)
+		assert.Equal(t, wantKeyPath, params.KeyPath)
+		assert.True(t, params.IsCustom)
+
+		return nil
+	}
+	mgrWithAdd.onBind = func(ctx context.Context, n agd.CertificateName, p netip.Prefix) (err error) {
+		assert.Equal(t, testCustomCertName, n)
+		assert.Contains(t, testBindPrefixes, p)
 
 		return nil
 	}
 
 	mgrWithRemove := newTestManager()
-	mgrWithRemove.onRemove = func(ctx context.Context, certPath, keyPath string, isCustom bool) (err error) {
-		assert.Equal(t, wantCertPath, certPath)
-		assert.Equal(t, wantKeyPath, keyPath)
-		assert.True(t, isCustom)
+	mgrWithRemove.onRemove = func(ctx context.Context, name agd.CertificateName) (err error) {
+		assert.Equal(t, testCustomCertName, name)
 
 		return nil
 	}
@@ -614,6 +640,7 @@ func TestCustomDomainDB_Refresh(t *testing.T) {
 			Manager:      mgrWithAdd,
 			Storage:      strg,
 			CacheDirPath: cacheDir,
+			BindPrefixes: testBindPrefixes,
 		})
 
 		ctx := testutil.ContextWithTimeout(t, testTimeout)
@@ -632,6 +659,7 @@ func TestCustomDomainDB_Refresh(t *testing.T) {
 			Manager:      mgrWithAdd,
 			Storage:      strg,
 			CacheDirPath: cacheDir,
+			BindPrefixes: testBindPrefixes,
 		})
 
 		ctx := testutil.ContextWithTimeout(t, testTimeout)
@@ -650,6 +678,7 @@ func TestCustomDomainDB_Refresh(t *testing.T) {
 			Manager:      mgrWithRemove,
 			Storage:      strg,
 			CacheDirPath: cacheDir,
+			BindPrefixes: testBindPrefixes,
 		})
 
 		ctx := testutil.ContextWithTimeout(t, testTimeout)
@@ -668,8 +697,8 @@ func TestCustomDomainDB_Refresh(t *testing.T) {
 // newCertAndKeyPaths is a helper that returns paths for the certificate and
 // the key using the test's temporary directory.
 func newCertAndKeyPaths(cacheDir string) (certPath, keyPath string) {
-	return filepath.Join(cacheDir, string(testCertName)+tlsconfig.CustomDomainCertExt),
-		filepath.Join(cacheDir, string(testCertName)+tlsconfig.CustomDomainKeyExt)
+	return filepath.Join(cacheDir, string(testCustomCertName)+tlsconfig.CustomDomainCertExt),
+		filepath.Join(cacheDir, string(testCustomCertName)+tlsconfig.CustomDomainKeyExt)
 }
 
 func TestCustomDomainDB_Refresh_retry(t *testing.T) {
@@ -679,17 +708,22 @@ func TestCustomDomainDB_Refresh_retry(t *testing.T) {
 	wantCertPath, wantKeyPath := newCertAndKeyPaths(cacheDir)
 
 	mgr := newTestManager()
-	mgr.onAdd = func(ctx context.Context, certPath, keyPath string, isCustom bool) (err error) {
-		assert.Equal(t, wantCertPath, certPath)
-		assert.Equal(t, wantKeyPath, keyPath)
-		assert.True(t, isCustom)
+	mgr.onAdd = func(ctx context.Context, params *tlsconfig.AddParams) (err error) {
+		assert.Equal(t, testCustomCertName, params.Name)
+		assert.Equal(t, wantCertPath, params.CertPath)
+		assert.Equal(t, wantKeyPath, params.KeyPath)
+		assert.True(t, params.IsCustom)
 
 		return nil
 	}
-	mgr.onRemove = func(ctx context.Context, certPath, keyPath string, isCustom bool) (err error) {
-		assert.Equal(t, wantCertPath, certPath)
-		assert.Equal(t, wantKeyPath, keyPath)
-		assert.True(t, isCustom)
+	mgr.onRemove = func(ctx context.Context, name agd.CertificateName) (err error) {
+		assert.Equal(t, testCustomCertName, name)
+
+		return nil
+	}
+	mgr.onBind = func(ctx context.Context, name agd.CertificateName, p netip.Prefix) (err error) {
+		assert.Equal(t, testCustomCertName, name)
+		assert.Contains(t, testBindPrefixes, p)
 
 		return nil
 	}
@@ -709,7 +743,7 @@ func TestCustomDomainDB_Refresh_retry(t *testing.T) {
 				return nil, nil, strgErr
 			}
 
-			assert.Equal(t, testCertName, certName)
+			assert.Equal(t, testCustomCertName, certName)
 
 			certDER, rsaKey := newCertAndKey(t, 1)
 
@@ -728,6 +762,7 @@ func TestCustomDomainDB_Refresh_retry(t *testing.T) {
 		ErrColl: &agdtest.ErrorCollector{
 			OnCollect: func(_ context.Context, err error) {},
 		},
+		BindPrefixes: testBindPrefixes,
 	})
 
 	require.True(t, t.Run("rate_limited", func(t *testing.T) {
@@ -801,12 +836,13 @@ func TestCustomDomainDB_Refresh_present(t *testing.T) {
 				ctx context.Context,
 				certName agd.CertificateName,
 			) (cert, key []byte, err error) {
-				assert.Equal(t, testCertName, certName)
+				assert.Equal(t, testCustomCertName, certName)
 
 				return certDER, x509.MarshalPKCS1PrivateKey(rsaKey), nil
 			},
 		},
 		CacheDirPath: cacheDir,
+		BindPrefixes: testBindPrefixes,
 	}
 
 	require.True(t, t.Run("both_present", func(t *testing.T) {

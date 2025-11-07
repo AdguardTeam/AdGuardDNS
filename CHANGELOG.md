@@ -7,6 +7,81 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 [kec]: https://keepachangelog.com/en/1.0.0/
 [sem]: https://semver.org/spec/v2.0.0.html
 
+## AGDNS-3287 / Build 1081
+
+- Profiles’ file cache version has been incremented to support custom block-page data.
+
+## AGDNS-3133 / Build 1078
+
+- The new `tls` have been added:
+
+    ```yaml
+    tls:
+        enabled: true
+        certificate_groups:
+            example-cert:
+                certificate: '/path/to/cert.crt'
+                key: '/path/to/cert.key'
+    ```
+
+- The property `certificates` of the object `server_groups.tls` has been replaced with the new object, `certificate_groups`.  So replace this:
+
+    ```yaml
+    server_groups:
+        tls:
+            certificates:
+              - certificate: '/path/to/cert.crt'
+                key: '/path/to/cert.key'
+            # …
+    ```
+
+    with this:
+
+    ```yaml
+    server_groups:
+        tls:
+            certificate_groups:
+              - name: 'example-cert'
+            # …
+    ```
+
+- The property `certificates` of the objects `web.linked_ip.bind`, `web.adult_blocking.bind`, `web.general_blocking.bind`, `web.safe_browsing.bind`, as well as of the `web.non_doh_bind` have been replaced with the new object, `certificate_groups`.  So replace this:
+
+    ```yaml
+    web:
+        linked_ip:
+            bind:
+              - # …
+                certificates:
+                  - certificate: '/path/to/cert.crt'
+                    key: '/path/to/cert.key'
+            # …
+        non_doh_bind:
+          - # …
+            certificates:
+              - certificate: './test/cert.crt'
+                key: './test/cert.key'
+
+        # …
+    ```
+
+    with this:
+
+    ```yaml
+    web:
+        linked_ip:
+            bind:
+              - # …
+                certificate_groups:
+                  - name: 'example-cert'
+            # …
+        non_doh_bind:
+          - # …
+            certificate_groups:
+              - name: 'default'
+        # …
+    ```
+
 ## AGDNS-3241 / Build 1067
 
 - The environment variables `QUERYLOG_SEMAPHORE_ENABLED` and `QUERYLOG_SEMAPHORE_LIMIT` have been added.

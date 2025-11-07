@@ -1,12 +1,14 @@
 package mainmw
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/miekg/dns"
@@ -220,7 +222,8 @@ func resultData(
 
 // setFilteredResponse sets the response in fctx if the filtering results
 // require that.  After calling setFilteredResponse, fctx.filteredResponse will
-// not be nil.  All errors are reported using [Middleware.reportf].
+// not be nil.  All errors are reported using [Middleware.reportf].  fctx and ri
+// must not be nil.
 func (mw *Middleware) setFilteredResponse(
 	ctx context.Context,
 	fctx *filteringContext,
@@ -230,21 +233,28 @@ func (mw *Middleware) setFilteredResponse(
 	case nil:
 		mw.setFilteredResponseNoReq(ctx, fctx, ri)
 	case *filter.ResultBlocked:
-		var err error
-		fctx.filteredResponse, err = ri.Messages.NewBlockedResp(fctx.originalRequest)
-		if err != nil {
-			errcoll.Collect(
-				ctx,
-				mw.errColl,
-				mw.logger,
-				"creating blocked resp for filtered req",
-				err,
-			)
-			fctx.filteredResponse = fctx.originalResponse
+		blockingMode := resultBlockingMode(ri, reqRes)
+
+		mw.setFilteredResponseFromBlockingMode(ctx, fctx, ri, blockingMode)
+	case *filter.ResultAllowed:
+		fctx.filteredResponse = fctx.originalResponse
+	case *filter.ResultModifiedRequest:
+		blockingMode := filterBlockingMode(ri, reqRes)
+		if blockingMode != nil {
+			mw.setFilteredResponseFromBlockingMode(ctx, fctx, ri, blockingMode)
+
+			return
 		}
-	case *filter.ResultAllowed, *filter.ResultModifiedRequest:
+
 		fctx.filteredResponse = fctx.originalResponse
 	case *filter.ResultModifiedResponse:
+		blockingMode := filterBlockingMode(ri, reqRes)
+		if blockingMode != nil {
+			mw.setFilteredResponseFromBlockingMode(ctx, fctx, ri, blockingMode)
+
+			return
+		}
+
 		// Only use the request filtering result in case it's already a
 		// response.  Otherwise, it's a CNAME rewrite result, which isn't
 		// filtered after resolving.
@@ -256,6 +266,25 @@ func (mw *Middleware) setFilteredResponse(
 			Name:    "reqRes",
 			Message: fmt.Sprintf("unexpected type %T", reqRes),
 		})
+	}
+}
+
+// setFilteredResponseFromBlockingMode sets the response in fctx if for the
+// given blocking mode.  After calling, fctx.filteredResponse will not be nil.
+// All errors are reported using [Middleware.reportf].  fctx and ri must not be
+// nil.
+func (mw *Middleware) setFilteredResponseFromBlockingMode(
+	ctx context.Context,
+	fctx *filteringContext,
+	ri *agd.RequestInfo,
+	blockingMode dnsmsg.BlockingMode,
+) {
+	var err error
+	fctx.filteredResponse, err = ri.Messages.NewBlockedResp(fctx.originalRequest, blockingMode)
+	if err != nil {
+		errcoll.Collect(ctx, mw.errColl, mw.logger, "creating blocked resp for filtered req", err)
+
+		fctx.filteredResponse = fctx.originalResponse
 	}
 }
 
@@ -273,8 +302,10 @@ func (mw *Middleware) setFilteredResponseNoReq(
 	case nil, *filter.ResultAllowed:
 		fctx.filteredResponse = fctx.originalResponse
 	case *filter.ResultBlocked:
+		blockingMode := resultBlockingMode(ri, respRes)
+
 		var err error
-		fctx.filteredResponse, err = ri.Messages.NewBlockedResp(fctx.originalRequest)
+		fctx.filteredResponse, err = ri.Messages.NewBlockedResp(fctx.originalRequest, blockingMode)
 		if err != nil {
 			errcoll.Collect(
 				ctx,
@@ -295,4 +326,48 @@ func (mw *Middleware) setFilteredResponseNoReq(
 			Message: fmt.Sprintf("unexpected type %T", respRes),
 		})
 	}
+}
+
+// resultBlockingMode returns the blocking mode for the given filtering result,
+// returns profile's blocking mode if the result is not related to adult
+// blocking or safe browsing filters.  ri must not be nil.
+//
+// TODO(a.garipov):  Remove this temp solution by improving blocking mode API.
+func resultBlockingMode(ri *agd.RequestInfo, res filter.Result) (m dnsmsg.BlockingMode) {
+	profile, _ := ri.DeviceData()
+	if profile == nil {
+		return nil
+	}
+
+	fltID, _ := res.MatchedRule()
+	switch fltID {
+	case filter.IDAdultBlocking:
+		return cmp.Or(profile.AdultBlockingMode, profile.BlockingMode)
+	case filter.IDSafeBrowsing:
+		return cmp.Or(profile.SafeBrowsingBlockingMode, profile.BlockingMode)
+	}
+
+	return profile.BlockingMode
+}
+
+// filterBlockingMode returns the blocking mode for the given filtering result,
+// returns nil if the result is not related to adult blocking or safe browsing
+// filters.  ri must not be nil.
+//
+// TODO(a.garipov):  Remove this temp solution by improving blocking mode API.
+func filterBlockingMode(ri *agd.RequestInfo, res filter.Result) (m dnsmsg.BlockingMode) {
+	profile, _ := ri.DeviceData()
+	if profile == nil {
+		return nil
+	}
+
+	fltID, _ := res.MatchedRule()
+	switch fltID {
+	case filter.IDAdultBlocking:
+		return profile.AdultBlockingMode
+	case filter.IDSafeBrowsing:
+		return profile.SafeBrowsingBlockingMode
+	}
+
+	return nil
 }

@@ -111,44 +111,117 @@ message DNSProfilesRequest {
   google.protobuf.Timestamp sync_time = 1;
 }
 
+/**
+ * Message DNSProfile contains both the data of the account and the data of the
+ * DNS server.
+ *
+ * The fields are ordered in a way that optimizes the generated structures'
+ * layouts.
+ *
+ * TODO(a.garipov):  Expand the field documentation.
+ */
 message DNSProfile {
-  string dns_id = 1;
-  bool filtering_enabled = 2;
-  bool query_log_enabled = 3;
-  bool deleted = 4;
+  // Message fields
+
   SafeBrowsingSettings safe_browsing = 5;
   ParentalSettings parental = 6;
   RuleListsSettings rule_lists = 7;
-
-  /*
-   * Field devices contains the COMPLETE list of all devices in the profile.
-   * Field device_changes contains only the list of changes that have happened
-   * to the profile's devices since sync_time.
-   *
-   * devices and device_changes MUST NOT be set at the same time, but they MAY
-   * both be empty.
-   *
-   * device_changes MUST NOT contain multiple changes for the same device.
-   */
-  repeated DeviceSettings devices = 8;
-  repeated string custom_rules = 9;
   google.protobuf.Duration filtered_response_ttl = 10;
-  bool block_private_relay = 11;
-  bool block_firefox_canary = 12;
+  AccessSettings access = 18;
+  RateLimitSettings rate_limit = 20;
+  CustomDomainSettings custom_domain = 22;
+
+  // One-of fields
+
+  /**
+   * Field blocking_mode defines the blocking mode for general rule-list based
+   * filtering.  If field deleted is false, field blocking_mode MUST be
+   * present.
+   */
   oneof blocking_mode {
     BlockingModeCustomIP blocking_mode_custom_ip = 13;
     BlockingModeNXDOMAIN blocking_mode_nxdomain = 14;
     BlockingModeNullIP blocking_mode_null_ip = 15;
     BlockingModeREFUSED blocking_mode_refused = 16;
   }
-  bool ip_log_enabled = 17;
-  AccessSettings access = 18;
-  bool auto_devices_enabled = 19;
-  RateLimitSettings rate_limit = 20;
-  bool block_chrome_prefetch = 21;
-  CustomDomainSettings custom_domain = 22;
+
+  /**
+   * Field adult_blocking_mode defines the blocking mode for the adult-content
+   * filter.  If absent, the default is used.
+   */
+  oneof adult_blocking_mode {
+    BlockingModeCustomIP adult_blocking_mode_custom_ip = 26;
+    BlockingModeNXDOMAIN adult_blocking_mode_nxdomain = 27;
+    BlockingModeNullIP adult_blocking_mode_null_ip = 28;
+    BlockingModeREFUSED adult_blocking_mode_refused = 29;
+  }
+
+  /**
+   * Field safe_browsing_blocking_mode defines the blocking mode for the
+   * safe-browsing filter.  If absent, the default is used.
+   */
+  oneof safe_browsing_blocking_mode {
+    BlockingModeCustomIP safe_browsing_blocking_mode_custom_ip = 30;
+    BlockingModeNXDOMAIN safe_browsing_blocking_mode_nxdomain = 31;
+    BlockingModeNullIP safe_browsing_blocking_mode_null_ip = 32;
+    BlockingModeREFUSED safe_browsing_blocking_mode_refused = 33;
+  }
+
+  // String fields
+
+  /**
+   * Field dns_id is the ID of the DNS server.  Not to be confused with the ID
+   * of the account, see account_id below.  dns_id MUST be present.
+   */
+  string dns_id = 1;
+
+  /**
+   * Field account_id is the ID of the account to which this DNS server
+   * belongs.  If field deleted is false, account_id MUST be present.
+   */
   string account_id = 23;
+
+  // Repeated fields
+
+  /**
+   * Field devices contains the complete list of all devices in the profile, if
+   * any.  Fields devices and device_changes MUST NOT be set at the same time,
+   * but they MAY both be empty.  Field devices MUST NOT contain duplicates.
+   */
+  repeated DeviceSettings devices = 8;
+
+  /**
+   * Field device_changes contains only the list of changes that have happened
+   * to the profile's devices since sync_time, if any.  Fields devices and
+   * device_changes MUST NOT be set at the same time, but they MAY both be
+   * empty.  Field device_changes MUST NOT contain multiple changes for the
+   * same device.
+   */
   repeated DeviceSettingsChange device_changes = 24;
+
+  /**
+   * Field custom_rules contains custom filtering rules for this DNS server, if
+   * any.  All items MUST contain only valid UTF-8 characters and have the size
+   * less than or equal to UTF-8 1024 characters (not bytes).
+   */
+  repeated string custom_rules = 9;
+
+  // Boolean fields
+
+  bool filtering_enabled = 2;
+  bool query_log_enabled = 3;
+
+  /**
+   * Field deleted, if true, means that this DNS server has been deleted.  All
+   * other fields except dns_id SHOULD be absent.
+   */
+  bool deleted = 4;
+
+  bool block_private_relay = 11;
+  bool block_firefox_canary = 12;
+  bool ip_log_enabled = 17;
+  bool auto_devices_enabled = 19;
+  bool block_chrome_prefetch = 21;
   bool standard_access_settings_enabled = 25;
 }
 
@@ -248,8 +321,23 @@ message RuleListsSettings {
   repeated string ids = 2;
 }
 
+/**
+ * Message BlockingModeCustomIP contains custom IP addresses typically leading
+ * to a blocking page.
+ */
 message BlockingModeCustomIP {
+  /**
+   * Field ipv4 defines the IPv4 address to use to respond to a blocked
+   * request.  If absent, blocked A requests are responded with a NODATA
+   * response.
+   */
   bytes ipv4 = 1;
+
+  /**
+   * Field ipv6 defines the IPv6 address to use to respond to a blocked
+   * request.  If absent, blocked AAAA requests are responded with a NODATA
+   * response.
+   */
   bytes ipv6 = 2;
 }
 

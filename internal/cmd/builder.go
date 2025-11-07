@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
@@ -54,6 +55,7 @@ import (
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/net/publicsuffix"
 )
 
 // Constants that define debug identifiers for the debug HTTP service.
@@ -73,6 +75,11 @@ const (
 	// debugIDPrefixPlugin is the prefix for plugin debug identifiers.
 	debugIDPrefixPlugin = "plugin/"
 )
+
+// defaultSubDomainNum is default subDomainNumValue for filters.
+//
+// TODO(a.garipov): Make configurable and validate to fit into int.
+const defaultSubDomainNum = 4
 
 // builder contains the logic of configuring and combining together AdGuard DNS
 // entities.
@@ -293,6 +300,15 @@ func (b *builder) initMsgCloner(ctx context.Context) (err error) {
 	return nil
 }
 
+// hashPrefixFilterInitFunc is a function that initializes the hash-prefix
+// filter, populates the necessary [builder] fields and returns a RefreshWorker
+// to update the initialized filter.
+type hashPrefixFilterInitFunc func(
+	ctx context.Context,
+	maxSize datasize.ByteSize,
+	cacheDir string,
+) (refr *service.RefreshWorker, err error)
+
 // initHashPrefixFilters initializes the hashprefix storages and filters.
 //
 // [builder.initMsgCloner] must be called before this method.
@@ -301,51 +317,107 @@ func (b *builder) initHashPrefixFilters(ctx context.Context) (err error) {
 	maxSize := b.conf.Filters.MaxSize
 	cacheDir := b.env.FilterCachePath
 
-	matchers := map[string]*hashprefix.Storage{}
-
 	b.filterMtrc, err = metrics.NewFilter(b.mtrcNamespace, b.promRegisterer)
 	if err != nil {
 		return fmt.Errorf("registering filter metrics: %w", err)
 	}
 
 	// TODO(a.garipov):  Merge the three functions below together.
-
-	err = b.initAdultBlocking(ctx, matchers, maxSize, cacheDir)
-	if err != nil {
-		return fmt.Errorf("initializing adult-blocking filter: %w", err)
+	initFuncs := []hashPrefixFilterInitFunc{
+		b.initAdultBlocking,
+		b.initNewRegDomains,
+		b.initSafeBrowsing,
 	}
 
-	err = b.initNewRegDomains(ctx, maxSize, cacheDir)
+	workers, err := b.runHashPrefixInit(ctx, initFuncs, maxSize, cacheDir)
 	if err != nil {
-		return fmt.Errorf("initializing newly-registered domain filter: %w", err)
+		return fmt.Errorf("initializing hash prefixes: %w", err)
 	}
 
-	err = b.initSafeBrowsing(ctx, matchers, maxSize, cacheDir)
-	if err != nil {
-		return fmt.Errorf("initializing safe-browsing filter: %w", err)
-	}
-
-	b.hashMatcher = hashprefix.NewMatcher(matchers)
+	b.populateHashPrefix(workers)
 
 	b.logger.DebugContext(ctx, "initialized hash prefixes")
 
 	return nil
 }
 
+// runHashPrefixInit runs the hash prefix filter initialization functions with
+// the specified arguments, creating a RefreshWorker for each enabled filter.
+//
+// It must be called from [builder.initHashPrefixFilters].
+func (b *builder) runHashPrefixInit(
+	ctx context.Context,
+	initFuncs []hashPrefixFilterInitFunc,
+	maxSize datasize.ByteSize,
+	cacheDir string,
+) (workers []*service.RefreshWorker, err error) {
+	wg := &sync.WaitGroup{}
+
+	workers = make([]*service.RefreshWorker, len(initFuncs))
+	initErrs := make([]error, len(initFuncs))
+	for i, fn := range initFuncs {
+		wg.Go(func() {
+			defer slogutil.RecoverAndLog(ctx, b.logger)
+
+			workers[i], initErrs[i] = fn(ctx, maxSize, cacheDir)
+		})
+	}
+
+	wg.Wait()
+	err = errors.Join(initErrs...)
+	if err != nil {
+		return nil, fmt.Errorf("initializing hash prefixes: %w", err)
+	}
+
+	return workers, nil
+}
+
+// populateHashPrefix populates [builder.debugRefrs], [builder.hashMatcher] and
+// [builder.sigHdlr] with necessary values for each enabled hash prefix filter.
+//
+// It must be called from [builder.initHashPrefixFilters].
+func (b *builder) populateHashPrefix(workers []*service.RefreshWorker) {
+	matchers := map[string]*hashprefix.Storage{}
+
+	if b.env.AdultBlockingEnabled {
+		adultPrefix := path.Join(hashprefix.IDPrefix, string(filter.IDAdultBlocking))
+		matchers[filter.AdultBlockingTXTSuffix] = b.adultBlockingHashes
+		b.debugRefrs[adultPrefix] = b.adultBlocking
+	}
+
+	if b.env.NewRegDomainsEnabled {
+		newRegDomainsPrefix := path.Join(hashprefix.IDPrefix, string(filter.IDNewRegDomains))
+		b.debugRefrs[newRegDomainsPrefix] = b.newRegDomains
+	}
+
+	if b.env.SafeBrowsingEnabled {
+		safeBrowsingPrefix := path.Join(hashprefix.IDPrefix, string(filter.IDSafeBrowsing))
+		matchers[filter.GeneralTXTSuffix] = b.safeBrowsingHashes
+		b.debugRefrs[safeBrowsingPrefix] = b.safeBrowsing
+	}
+
+	b.hashMatcher = hashprefix.NewMatcher(matchers)
+
+	for _, worker := range workers {
+		if worker != nil {
+			b.sigHdlr.AddService(worker)
+		}
+	}
+}
+
 // initAdultBlocking initializes the adult-blocking filter and hash storage.  It
-// also adds the refresher with ID
-// [hashprefix.IDPrefix]/[filter.IDAdultBlocking] to the debug refreshers.
+// also adds the refresher with ID.
 //
 // It must be called from [builder.initHashPrefixFilters].
 func (b *builder) initAdultBlocking(
 	ctx context.Context,
-	matchers map[string]*hashprefix.Storage,
 	maxSize datasize.ByteSize,
 	cacheDir string,
-) (err error) {
+) (refr *service.RefreshWorker, err error) {
 	if !b.env.AdultBlockingEnabled {
-		return nil
+		return nil, nil
 	}
+	defer func() { err = errors.Annotate(err, "initializing adult-blocking filter: %w") }()
 
 	b.adultBlockingHashes, err = hashprefix.NewStorage(nil)
 	if err != nil {
@@ -359,47 +431,49 @@ func (b *builder) initAdultBlocking(
 
 	const id = filter.IDAdultBlocking
 
-	hashPrefMtcs, err := metrics.NewHashPrefixFilter(
+	hashPrefMtrc, err := metrics.NewHashPrefixFilter(
 		b.mtrcNamespace,
 		string(id),
 		b.promRegisterer,
 	)
 	if err != nil {
-		return fmt.Errorf("registering hashprefix filter metrics: %w", err)
+		return nil, fmt.Errorf("registering hashprefix filter metrics: %w", err)
 	}
 
 	prefix := path.Join(hashprefix.IDPrefix, string(id))
 
 	b.adultBlocking, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
-		Logger:          b.baseLogger.With(slogutil.KeyPrefix, prefix),
-		Cloner:          b.cloner,
-		CacheManager:    b.cacheManager,
-		Hashes:          b.adultBlockingHashes,
-		URL:             &b.env.AdultBlockingURL.URL,
-		ErrColl:         b.errColl,
-		HashPrefixMtcs:  hashPrefMtcs,
-		Metrics:         b.filterMtrc,
-		ID:              id,
-		CachePath:       filepath.Join(cacheDir, string(id)),
-		ReplacementHost: c.BlockHost,
-		Staleness:       refrIvl,
-		RefreshTimeout:  refrTimeout,
-		CacheTTL:        time.Duration(c.CacheTTL),
+		Logger:            b.baseLogger.With(slogutil.KeyPrefix, prefix),
+		Cloner:            b.cloner,
+		CacheManager:      b.cacheManager,
+		Hashes:            b.adultBlockingHashes,
+		URL:               &b.env.AdultBlockingURL.URL,
+		ErrColl:           b.errColl,
+		HashPrefixMetrics: hashPrefMtrc,
+		Metrics:           b.filterMtrc,
+		PublicSuffixList:  publicsuffix.List,
+		ID:                id,
+		CachePath:         filepath.Join(cacheDir, string(id)),
+		ReplacementHost:   c.BlockHost,
+		Staleness:         refrIvl,
+		RefreshTimeout:    refrTimeout,
+		CacheTTL:          time.Duration(c.CacheTTL),
 		// TODO(a.garipov):  Make all sizes [datasize.ByteSize] and rename cache
 		// entity counts to fooCount.
-		CacheCount: c.CacheSize,
-		MaxSize:    maxSize,
+		CacheCount:   c.CacheSize,
+		MaxSize:      maxSize,
+		SubDomainNum: defaultSubDomainNum,
 	})
 	if err != nil {
-		return fmt.Errorf("creating filter: %w", err)
+		return nil, fmt.Errorf("creating filter: %w", err)
 	}
 
 	err = b.adultBlocking.RefreshInitial(ctx)
 	if err != nil {
-		return fmt.Errorf("initial refresh: %w", err)
+		return nil, fmt.Errorf("initial refresh: %w", err)
 	}
 
-	refr := service.NewRefreshWorker(&service.RefreshWorkerConfig{
+	refr = service.NewRefreshWorker(&service.RefreshWorkerConfig{
 		// Note that we also set the same timeout for the http.Client in
 		// [hashprefix.NewFilter].
 		ContextConstructor: contextutil.NewTimeoutConstructor(refrTimeout),
@@ -413,16 +487,10 @@ func (b *builder) initAdultBlocking(
 	// routines.
 	err = refr.Start(context.WithoutCancel(ctx))
 	if err != nil {
-		return fmt.Errorf("starting refresher: %w", err)
+		return nil, fmt.Errorf("starting refresher: %w", err)
 	}
 
-	b.sigHdlr.AddService(refr)
-
-	matchers[filter.AdultBlockingTXTSuffix] = b.adultBlockingHashes
-
-	b.debugRefrs[prefix] = b.adultBlocking
-
-	return nil
+	return refr, nil
 }
 
 // newSlogErrorHandler is a convenient wrapper around
@@ -436,18 +504,20 @@ func newSlogErrorHandler(baseLogger *slog.Logger, prefix string) (h *service.Slo
 }
 
 // initNewRegDomains initializes the newly-registered domain filter and hash
-// storage.  It also adds the refresher with ID
-// [hashprefix.IDPrefix]/[filter.IDNewRegDomains] to the debug refreshers.
+// storage.
 //
 // It must be called from [builder.initHashPrefixFilters].
 func (b *builder) initNewRegDomains(
 	ctx context.Context,
 	maxSize datasize.ByteSize,
 	cacheDir string,
-) (err error) {
+) (refr *service.RefreshWorker, err error) {
 	if !b.env.NewRegDomainsEnabled {
-		return nil
+		return nil, nil
 	}
+	defer func() {
+		err = errors.Annotate(err, "initializing newly-registered domains filter: %w")
+	}()
 
 	b.newRegDomainsHashes, err = hashprefix.NewStorage(nil)
 	if err != nil {
@@ -463,45 +533,47 @@ func (b *builder) initNewRegDomains(
 
 	const id = filter.IDNewRegDomains
 
-	hashPrefMtcs, err := metrics.NewHashPrefixFilter(
+	hashPrefMtrc, err := metrics.NewHashPrefixFilter(
 		b.mtrcNamespace,
 		string(id),
 		b.promRegisterer,
 	)
 	if err != nil {
-		return fmt.Errorf("registering hashprefix filter metrics: %w", err)
+		return nil, fmt.Errorf("registering hashprefix filter metrics: %w", err)
 	}
 
 	prefix := path.Join(hashprefix.IDPrefix, string(id))
 
 	b.newRegDomains, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
-		Logger:          b.baseLogger.With(slogutil.KeyPrefix, prefix),
-		Cloner:          b.cloner,
-		CacheManager:    b.cacheManager,
-		Hashes:          b.newRegDomainsHashes,
-		URL:             &b.env.NewRegDomainsURL.URL,
-		ErrColl:         b.errColl,
-		HashPrefixMtcs:  hashPrefMtcs,
-		Metrics:         b.filterMtrc,
-		ID:              id,
-		CachePath:       filepath.Join(cacheDir, string(id)),
-		ReplacementHost: c.BlockHost,
-		Staleness:       refrIvl,
-		RefreshTimeout:  refrTimeout,
-		CacheTTL:        time.Duration(c.CacheTTL),
-		CacheCount:      c.CacheSize,
-		MaxSize:         maxSize,
+		Logger:            b.baseLogger.With(slogutil.KeyPrefix, prefix),
+		Cloner:            b.cloner,
+		CacheManager:      b.cacheManager,
+		Hashes:            b.newRegDomainsHashes,
+		URL:               &b.env.NewRegDomainsURL.URL,
+		ErrColl:           b.errColl,
+		HashPrefixMetrics: hashPrefMtrc,
+		Metrics:           b.filterMtrc,
+		PublicSuffixList:  publicsuffix.List,
+		ID:                id,
+		CachePath:         filepath.Join(cacheDir, string(id)),
+		ReplacementHost:   c.BlockHost,
+		Staleness:         refrIvl,
+		RefreshTimeout:    refrTimeout,
+		CacheTTL:          time.Duration(c.CacheTTL),
+		CacheCount:        c.CacheSize,
+		MaxSize:           maxSize,
+		SubDomainNum:      defaultSubDomainNum,
 	})
 	if err != nil {
-		return fmt.Errorf("creating filter: %w", err)
+		return nil, fmt.Errorf("creating filter: %w", err)
 	}
 
 	err = b.newRegDomains.RefreshInitial(ctx)
 	if err != nil {
-		return fmt.Errorf("initial refresh: %w", err)
+		return nil, fmt.Errorf("initial refresh: %w", err)
 	}
 
-	refr := service.NewRefreshWorker(&service.RefreshWorkerConfig{
+	refr = service.NewRefreshWorker(&service.RefreshWorkerConfig{
 		// Note that we also set the same timeout for the http.Client in
 		// [hashprefix.NewFilter].
 		ContextConstructor: contextutil.NewTimeoutConstructor(refrTimeout),
@@ -512,30 +584,24 @@ func (b *builder) initNewRegDomains(
 	})
 	err = refr.Start(context.WithoutCancel(ctx))
 	if err != nil {
-		return fmt.Errorf("starting refresher: %w", err)
+		return nil, fmt.Errorf("starting refresher: %w", err)
 	}
 
-	b.sigHdlr.AddService(refr)
-
-	b.debugRefrs[prefix] = b.newRegDomains
-
-	return nil
+	return refr, nil
 }
 
-// initSafeBrowsing initializes the safe-browsing filter and hash storage.  It
-// also adds the refresher with ID [hashprefix.IDPrefix]/[filter.IDSafeBrowsing]
-// to the debug refreshers.
+// initSafeBrowsing initializes the safe-browsing filter and hash storage.
 //
 // It must be called from [builder.initHashPrefixFilters].
 func (b *builder) initSafeBrowsing(
 	ctx context.Context,
-	matchers map[string]*hashprefix.Storage,
 	maxSize datasize.ByteSize,
 	cacheDir string,
-) (err error) {
+) (refr *service.RefreshWorker, err error) {
 	if !b.env.SafeBrowsingEnabled {
-		return nil
+		return nil, nil
 	}
+	defer func() { err = errors.Annotate(err, "initializing safe-browsing filter: %w") }()
 
 	b.safeBrowsingHashes, err = hashprefix.NewStorage(nil)
 	if err != nil {
@@ -549,45 +615,47 @@ func (b *builder) initSafeBrowsing(
 
 	const id = filter.IDSafeBrowsing
 
-	hashPrefMtcs, err := metrics.NewHashPrefixFilter(
+	hashPrefMtrc, err := metrics.NewHashPrefixFilter(
 		b.mtrcNamespace,
 		string(id),
 		b.promRegisterer,
 	)
 	if err != nil {
-		return fmt.Errorf("registering hashprefix filter metrics: %w", err)
+		return nil, fmt.Errorf("registering hashprefix filter metrics: %w", err)
 	}
 
 	prefix := path.Join(hashprefix.IDPrefix, string(id))
 
 	b.safeBrowsing, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
-		Logger:          b.baseLogger.With(slogutil.KeyPrefix, prefix),
-		Cloner:          b.cloner,
-		CacheManager:    b.cacheManager,
-		Hashes:          b.safeBrowsingHashes,
-		URL:             &b.env.SafeBrowsingURL.URL,
-		ErrColl:         b.errColl,
-		HashPrefixMtcs:  hashPrefMtcs,
-		Metrics:         b.filterMtrc,
-		ID:              id,
-		CachePath:       filepath.Join(cacheDir, string(id)),
-		ReplacementHost: c.BlockHost,
-		Staleness:       refrIvl,
-		RefreshTimeout:  refrTimeout,
-		CacheTTL:        time.Duration(c.CacheTTL),
-		CacheCount:      c.CacheSize,
-		MaxSize:         maxSize,
+		Logger:            b.baseLogger.With(slogutil.KeyPrefix, prefix),
+		Cloner:            b.cloner,
+		CacheManager:      b.cacheManager,
+		Hashes:            b.safeBrowsingHashes,
+		URL:               &b.env.SafeBrowsingURL.URL,
+		ErrColl:           b.errColl,
+		HashPrefixMetrics: hashPrefMtrc,
+		Metrics:           b.filterMtrc,
+		PublicSuffixList:  publicsuffix.List,
+		ID:                id,
+		CachePath:         filepath.Join(cacheDir, string(id)),
+		ReplacementHost:   c.BlockHost,
+		Staleness:         refrIvl,
+		RefreshTimeout:    refrTimeout,
+		CacheTTL:          time.Duration(c.CacheTTL),
+		CacheCount:        c.CacheSize,
+		MaxSize:           maxSize,
+		SubDomainNum:      defaultSubDomainNum,
 	})
 	if err != nil {
-		return fmt.Errorf("creating filter: %w", err)
+		return nil, fmt.Errorf("creating filter: %w", err)
 	}
 
 	err = b.safeBrowsing.RefreshInitial(ctx)
 	if err != nil {
-		return fmt.Errorf("initial refresh: %w", err)
+		return nil, fmt.Errorf("initial refresh: %w", err)
 	}
 
-	refr := service.NewRefreshWorker(&service.RefreshWorkerConfig{
+	refr = service.NewRefreshWorker(&service.RefreshWorkerConfig{
 		// Note that we also set the same timeout for the http.Client in
 		// [hashprefix.NewFilter].
 		ContextConstructor: contextutil.NewTimeoutConstructor(refrTimeout),
@@ -598,16 +666,10 @@ func (b *builder) initSafeBrowsing(
 	})
 	err = refr.Start(context.WithoutCancel(ctx))
 	if err != nil {
-		return fmt.Errorf("starting refresher: %w", err)
+		return nil, fmt.Errorf("starting refresher: %w", err)
 	}
 
-	b.sigHdlr.AddService(refr)
-
-	matchers[filter.GeneralTXTSuffix] = b.safeBrowsingHashes
-
-	b.debugRefrs[prefix] = b.safeBrowsing
-
-	return nil
+	return refr, nil
 }
 
 // initStandardAccess initializes the standard access settings.
@@ -996,11 +1058,11 @@ func (b *builder) initTLSManager(ctx context.Context) (err error) {
 	}
 
 	mgr, err := tlsconfig.NewDefaultManager(&tlsconfig.DefaultManagerConfig{
-		Logger:         b.baseLogger.With(slogutil.KeyPrefix, "tlsconfig"),
-		ErrColl:        b.errColl,
-		Metrics:        mtrc,
-		TicketDB:       tickDB,
-		KeyLogFilename: logFile,
+		Logger:     b.baseLogger.With(slogutil.KeyPrefix, "tlsconfig"),
+		ErrColl:    b.errColl,
+		Metrics:    mtrc,
+		TicketDB:   tickDB,
+		KeyLogPath: logFile,
 	})
 	if err != nil {
 		return fmt.Errorf("initializing tls manager: %w", err)
@@ -1008,6 +1070,11 @@ func (b *builder) initTLSManager(ctx context.Context) (err error) {
 
 	b.tlsManager = mgr
 	b.debugRefrs[debugIDTLSConfig] = mgr
+
+	err = b.conf.TLS.store(ctx, mgr)
+	if err != nil {
+		return fmt.Errorf("storing tls certificates: %w", err)
+	}
 
 	b.logger.DebugContext(ctx, "initialized tls manager")
 
@@ -1066,7 +1133,9 @@ func (b *builder) newTicketDB(ctx context.Context) (db tlsconfig.TicketDB, err e
 
 // initCustomDomainDB initializes the database for the custom domains.
 //
-// [builder.initTLSManager] must be called before this method.
+// The following methods must be called before this one:
+//   - [builder.initTLSManager]
+//   - [builder.initServerGroups]
 func (b *builder) initCustomDomainDB(ctx context.Context) (err error) {
 	if !bool(b.env.CustomDomainsEnabled) || !b.profilesEnabled {
 		b.logger.WarnContext(ctx, "custom domains are disabled")
@@ -1100,6 +1169,8 @@ func (b *builder) initCustomDomainDB(ctx context.Context) (err error) {
 		return fmt.Errorf("registering custom domain database metrics: %w", err)
 	}
 
+	customDomainPrefixes := b.customDomainPrefixes()
+
 	b.customDomainDB, err = tlsconfig.NewCustomDomainDB(&tlsconfig.CustomDomainDBConfig{
 		Logger:          b.baseLogger.With(slogutil.KeyPrefix, "custom_domain_db"),
 		Clock:           timeutil.SystemClock{},
@@ -1109,6 +1180,7 @@ func (b *builder) initCustomDomainDB(ctx context.Context) (err error) {
 		Storage:         strg,
 		CacheDirPath:    b.env.CustomDomainsCachePath,
 		InitialRetryIvl: time.Duration(b.env.CustomDomainsRefreshIvl),
+		BindPrefixes:    customDomainPrefixes,
 		// TODO(a.garipov): Consider making configurable.
 		MaxRetryIvl: 1 * timeutil.Day,
 	})
@@ -1126,6 +1198,23 @@ func (b *builder) initCustomDomainDB(ctx context.Context) (err error) {
 	b.logger.DebugContext(ctx, "prepared custom domain db")
 
 	return nil
+}
+
+// customDomainPrefixes returns the IP prefixes for the custom-domain
+// certificates to bind to.
+func (b *builder) customDomainPrefixes() (prefixes []netip.Prefix) {
+	for _, g := range b.serverGroups {
+		if !g.ProfilesEnabled {
+			continue
+		}
+
+		for _, s := range g.Servers {
+			prefixes = append(prefixes, s.BindDataPrefixes()...)
+		}
+
+	}
+
+	return prefixes
 }
 
 // initServerGroups initializes the server groups.

@@ -74,7 +74,8 @@ func (db *LocalTicketDB) Paths(_ context.Context) (paths []string, err error) {
 
 // RemoteTicketDBConfig is the configuration structure for [RemoteTicketDB].
 type RemoteTicketDBConfig struct {
-	// Logger is used for logging the operation of the ticket database.
+	// Logger is used for logging the operation of the ticket database.  It must
+	// not be nil.
 	Logger *slog.Logger
 
 	// Storage is used to retrieve the session tickets.  It must not be nil.
@@ -84,8 +85,8 @@ type RemoteTicketDBConfig struct {
 	Clock timeutil.Clock
 
 	// CacheDirPath is the directory where the session tickets are cached.  It
-	// must be a valid non-empty path to a directory.  If the directory doesn't
-	// exist, it is created.
+	// should be a valid non-empty path to a directory.  If the directory
+	// doesn't exist, it is created.
 	CacheDirPath string
 
 	// IndexFileName is the base name of the index file.  Stored session tickets

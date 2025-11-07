@@ -184,7 +184,7 @@ func TestProfileStorage_NewProfile(t *testing.T) {
 		_, _, _, err := profileStorage.newProfile(ctx, dp, true)
 		testutil.AssertErrorMsg(
 			t,
-			"parental: pause schedule: loading timezone: unknown time zone invalid",
+			"filter config: parental: pause schedule: loading timezone: unknown time zone invalid",
 			err,
 		)
 	})
@@ -201,7 +201,7 @@ func TestProfileStorage_NewProfile(t *testing.T) {
 		_, _, _, err := profileStorage.newProfile(ctx, dp, true)
 		testutil.AssertErrorMsg(
 			t,
-			"parental: pause schedule: weekday Sunday: end: out of range: 1 is less than start 16",
+			"filter config: parental: pause schedule: weekday Sunday: end: out of range: 1 is less than start 16",
 			err,
 		)
 	})
@@ -210,7 +210,7 @@ func TestProfileStorage_NewProfile(t *testing.T) {
 		t.Parallel()
 
 		dp := NewTestDNSProfile(t)
-		bm := dp.BlockingMode.(*DNSProfile_BlockingModeCustomIp)
+		bm := testutil.RequireTypeAssert[*DNSProfile_BlockingModeCustomIp](t, dp.BlockingMode)
 		bm.BlockingModeCustomIp.Ipv4 = []byte("1")
 
 		_, _, _, err := profileStorage.newProfile(ctx, dp, true)
@@ -221,7 +221,7 @@ func TestProfileStorage_NewProfile(t *testing.T) {
 		t.Parallel()
 
 		dp := NewTestDNSProfile(t)
-		bm := dp.BlockingMode.(*DNSProfile_BlockingModeCustomIp)
+		bm := testutil.RequireTypeAssert[*DNSProfile_BlockingModeCustomIp](t, dp.BlockingMode)
 		bm.BlockingModeCustomIp.Ipv6 = []byte("1")
 
 		_, _, _, err := profileStorage.newProfile(ctx, dp, true)
@@ -232,7 +232,7 @@ func TestProfileStorage_NewProfile(t *testing.T) {
 		t.Parallel()
 
 		dp := NewTestDNSProfile(t)
-		bm := dp.BlockingMode.(*DNSProfile_BlockingModeCustomIp)
+		bm := testutil.RequireTypeAssert[*DNSProfile_BlockingModeCustomIp](t, dp.BlockingMode)
 		bm.BlockingModeCustomIp.Ipv4 = nil
 		bm.BlockingModeCustomIp.Ipv6 = nil
 
@@ -252,6 +252,144 @@ func TestProfileStorage_NewProfile(t *testing.T) {
 
 		wantProf := newProfile(t)
 		wantProf.BlockingMode = &dnsmsg.BlockingModeNullIP{}
+
+		agdtest.AssertEqualProfile(t, wantProf, got)
+		assert.Equal(t, newDevices(t), gotDevices)
+		assert.Equal(t, wantDevChg, gotDevChg)
+	})
+
+	t.Run("inv_adult_blocking_mode_v4", func(t *testing.T) {
+		t.Parallel()
+
+		dp := NewTestDNSProfile(t)
+		bm := testutil.RequireTypeAssert[*DNSProfile_AdultBlockingModeCustomIp](
+			t,
+			dp.AdultBlockingMode,
+		)
+		bm.AdultBlockingModeCustomIp.Ipv4 = []byte("1")
+
+		_, _, _, err := profileStorage.newProfile(ctx, dp, true)
+		testutil.AssertErrorMsg(
+			t,
+			"adult blocking mode: bad custom ipv4: unexpected slice size",
+			err,
+		)
+	})
+
+	t.Run("inv_adult_blocking_mode_v6", func(t *testing.T) {
+		t.Parallel()
+
+		dp := NewTestDNSProfile(t)
+		bm := testutil.RequireTypeAssert[*DNSProfile_AdultBlockingModeCustomIp](
+			t,
+			dp.AdultBlockingMode,
+		)
+		bm.AdultBlockingModeCustomIp.Ipv6 = []byte("1")
+
+		_, _, _, err := profileStorage.newProfile(ctx, dp, true)
+		testutil.AssertErrorMsg(
+			t,
+			"adult blocking mode: bad custom ipv6: unexpected slice size",
+			err,
+		)
+	})
+
+	t.Run("nil_ips_adult_blocking_mode", func(t *testing.T) {
+		t.Parallel()
+
+		dp := NewTestDNSProfile(t)
+		bm := testutil.RequireTypeAssert[*DNSProfile_AdultBlockingModeCustomIp](
+			t,
+			dp.AdultBlockingMode,
+		)
+		bm.AdultBlockingModeCustomIp.Ipv4 = nil
+		bm.AdultBlockingModeCustomIp.Ipv6 = nil
+
+		_, _, _, err := profileStorage.newProfile(ctx, dp, true)
+		testutil.AssertErrorMsg(t, "adult blocking mode: no valid custom ips found", err)
+	})
+
+	t.Run("nil_adult_blocking_mode", func(t *testing.T) {
+		t.Parallel()
+
+		dp := NewTestDNSProfile(t)
+		dp.AdultBlockingMode = nil
+
+		got, gotDevices, gotDevChg, err := profileStorage.newProfile(ctx, dp, true)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+
+		wantProf := newProfile(t)
+		wantProf.AdultBlockingMode = nil
+
+		agdtest.AssertEqualProfile(t, wantProf, got)
+		assert.Equal(t, newDevices(t), gotDevices)
+		assert.Equal(t, wantDevChg, gotDevChg)
+	})
+
+	t.Run("inv_safe_browsing_blocking_mode_v4", func(t *testing.T) {
+		t.Parallel()
+
+		dp := NewTestDNSProfile(t)
+		bm := testutil.RequireTypeAssert[*DNSProfile_SafeBrowsingBlockingModeCustomIp](
+			t,
+			dp.SafeBrowsingBlockingMode,
+		)
+		bm.SafeBrowsingBlockingModeCustomIp.Ipv4 = []byte("1")
+
+		_, _, _, err := profileStorage.newProfile(ctx, dp, true)
+		testutil.AssertErrorMsg(
+			t,
+			"safe browsing blocking mode: bad custom ipv4: unexpected slice size",
+			err,
+		)
+	})
+
+	t.Run("inv_safe_browsing_blocking_mode_v6", func(t *testing.T) {
+		t.Parallel()
+
+		dp := NewTestDNSProfile(t)
+		bm := testutil.RequireTypeAssert[*DNSProfile_SafeBrowsingBlockingModeCustomIp](
+			t,
+			dp.SafeBrowsingBlockingMode,
+		)
+		bm.SafeBrowsingBlockingModeCustomIp.Ipv6 = []byte("1")
+
+		_, _, _, err := profileStorage.newProfile(ctx, dp, true)
+		testutil.AssertErrorMsg(
+			t,
+			"safe browsing blocking mode: bad custom ipv6: unexpected slice size",
+			err,
+		)
+	})
+
+	t.Run("nil_ips_safe_browsing_blocking_mode", func(t *testing.T) {
+		t.Parallel()
+
+		dp := NewTestDNSProfile(t)
+		bm := testutil.RequireTypeAssert[*DNSProfile_SafeBrowsingBlockingModeCustomIp](
+			t,
+			dp.SafeBrowsingBlockingMode,
+		)
+		bm.SafeBrowsingBlockingModeCustomIp.Ipv4 = nil
+		bm.SafeBrowsingBlockingModeCustomIp.Ipv6 = nil
+
+		_, _, _, err := profileStorage.newProfile(ctx, dp, true)
+		testutil.AssertErrorMsg(t, "safe browsing blocking mode: no valid custom ips found", err)
+	})
+
+	t.Run("nil_safe_browsing_blocking_mode", func(t *testing.T) {
+		t.Parallel()
+
+		dp := NewTestDNSProfile(t)
+		dp.SafeBrowsingBlockingMode = nil
+
+		got, gotDevices, gotDevChg, err := profileStorage.newProfile(ctx, dp, true)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+
+		wantProf := newProfile(t)
+		wantProf.SafeBrowsingBlockingMode = nil
 
 		agdtest.AssertEqualProfile(t, wantProf, got)
 		assert.Equal(t, newDevices(t), gotDevices)
@@ -457,6 +595,18 @@ func NewTestDNSProfile(tb testing.TB) (dp *DNSProfile) {
 				Ipv6: ipToBytes(tb, netip.MustParseAddr("1234::cdef")),
 			},
 		},
+		AdultBlockingMode: &DNSProfile_AdultBlockingModeCustomIp{
+			AdultBlockingModeCustomIp: &BlockingModeCustomIP{
+				Ipv4: ipToBytes(tb, netip.MustParseAddr("1.1.1.1")),
+				Ipv6: ipToBytes(tb, netip.MustParseAddr("1111::cdef")),
+			},
+		},
+		SafeBrowsingBlockingMode: &DNSProfile_SafeBrowsingBlockingModeCustomIp{
+			SafeBrowsingBlockingModeCustomIp: &BlockingModeCustomIP{
+				Ipv4: ipToBytes(tb, netip.MustParseAddr("2.2.2.2")),
+				Ipv6: ipToBytes(tb, netip.MustParseAddr("2222::cdef")),
+			},
+		},
 		Access: &AccessSettings{
 			AllowlistCidr: []*CidrRange{{
 				Address: netip.MustParseAddr("1.1.1.0").AsSlice(),
@@ -549,9 +699,19 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 		NewlyRegisteredDomainsEnabled: false,
 	}
 
+	wantAdultBlockingMode := &dnsmsg.BlockingModeCustomIP{
+		IPv4: []netip.Addr{netip.MustParseAddr("1.1.1.1")},
+		IPv6: []netip.Addr{netip.MustParseAddr("1111::cdef")},
+	}
+
 	wantBlockingMode := &dnsmsg.BlockingModeCustomIP{
 		IPv4: []netip.Addr{netip.MustParseAddr("1.2.3.4")},
 		IPv6: []netip.Addr{netip.MustParseAddr("1234::cdef")},
+	}
+
+	wantSafeBrowsingBlockingMode := &dnsmsg.BlockingModeCustomIP{
+		IPv4: []netip.Addr{netip.MustParseAddr("2.2.2.2")},
+		IPv6: []netip.Addr{netip.MustParseAddr("2222::cdef")},
 	}
 
 	wantAccess := TestProfileAccessConstructor.New(&access.ProfileConfig{
@@ -600,10 +760,12 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 			RuleList:     wantRuleList,
 			SafeBrowsing: wantSafeBrowsing,
 		},
-		Access:       wantAccess,
-		BlockingMode: wantBlockingMode,
-		Ratelimiter:  wantRateLimiter,
-		ID:           TestProfileID,
+		Access:                   wantAccess,
+		AdultBlockingMode:        wantAdultBlockingMode,
+		BlockingMode:             wantBlockingMode,
+		SafeBrowsingBlockingMode: wantSafeBrowsingBlockingMode,
+		Ratelimiter:              wantRateLimiter,
+		ID:                       TestProfileID,
 		DeviceIDs: container.NewMapSet(
 			TestDeviceID,
 			"2222bbbb",

@@ -20,12 +20,13 @@ import (
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/publicsuffix"
 )
 
 // type check
 var _ composite.RequestFilter = (*hashprefix.Filter)(nil)
 
-func TestFilter_FilterRequest_host(t *testing.T) {
+func TestFilter_FilterRequest(t *testing.T) {
 	t.Parallel()
 
 	msgs := agdtest.NewConstructor(t)
@@ -115,7 +116,7 @@ func TestFilter_FilterRequest_host(t *testing.T) {
 			var wantRes filter.Result
 			if tc.wantResult {
 				if tc.replHost == filtertest.HostAdultContentRepl {
-					wantRes = newModReqResult(req, tc.wantRule)
+					wantRes = newModReqResult(t, req, tc.wantRule)
 				} else {
 					wantRes = newModRespResult(t, req, msgs, filtertest.IPv4AdultContentRepl)
 				}
@@ -124,9 +125,15 @@ func TestFilter_FilterRequest_host(t *testing.T) {
 			filtertest.AssertEqualResult(t, wantRes, r)
 		})
 	}
+}
+
+func TestFilter_FilterRequest_cache(t *testing.T) {
+	t.Parallel()
+
+	f := filtertest.NewHashprefixFilter(t, filter.IDAdultBlocking)
 
 	require.True(t, t.Run("cached_success", func(t *testing.T) {
-		f := filtertest.NewHashprefixFilter(t, filter.IDAdultBlocking)
+		t.Parallel()
 
 		req := filtertest.NewARequest(t, filtertest.HostAdultContent)
 
@@ -141,21 +148,27 @@ func TestFilter_FilterRequest_host(t *testing.T) {
 	}))
 
 	require.True(t, t.Run("cached_no_match", func(t *testing.T) {
-		f := filtertest.NewHashprefixFilter(t, filter.IDAdultBlocking)
+		t.Parallel()
 
 		req := filtertest.NewARequest(t, filtertest.Host)
 
 		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
-		r, err := f.FilterRequest(ctx, req)
+		original, err := f.FilterRequest(ctx, req)
 		require.NoError(t, err)
 
 		cached, err := f.FilterRequest(ctx, req)
 		require.NoError(t, err)
 
-		filtertest.AssertEqualResult(t, cached, r)
+		filtertest.AssertEqualResult(t, cached, original)
 	}))
+}
+
+func TestFilter_FilterRequest_https(t *testing.T) {
+	t.Parallel()
 
 	require.True(t, t.Run("https", func(t *testing.T) {
+		t.Parallel()
+
 		f := filtertest.NewHashprefixFilter(t, filter.IDAdultBlocking)
 
 		req := filtertest.NewRequest(
@@ -171,11 +184,13 @@ func TestFilter_FilterRequest_host(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, r)
 
-		wantRes := newModReqResult(req.DNS, filtertest.HostAdultContent)
+		wantRes := newModReqResult(t, req.DNS, filtertest.HostAdultContent)
 		filtertest.AssertEqualResult(t, wantRes, r)
 	}))
 
 	require.True(t, t.Run("https_ip", func(t *testing.T) {
+		t.Parallel()
+
 		f := filtertest.NewHashprefixFilterWithRepl(
 			t,
 			filter.IDAdultBlocking,
@@ -204,37 +219,6 @@ func TestFilter_FilterRequest_host(t *testing.T) {
 	}))
 }
 
-// newModRespResult is a helper for creating modified results for tests.
-func newModRespResult(
-	tb testing.TB,
-	req *dns.Msg,
-	messages *dnsmsg.Constructor,
-	replIP netip.Addr,
-) (r *filter.ResultModifiedResponse) {
-	tb.Helper()
-
-	resp, err := messages.NewRespIP(req, replIP)
-	require.NoError(tb, err)
-
-	return &filter.ResultModifiedResponse{
-		Msg:  resp,
-		List: filter.IDAdultBlocking,
-		Rule: filtertest.HostAdultContent,
-	}
-}
-
-// newModReqResult is a helper for creating modified results for tests.
-func newModReqResult(req *dns.Msg, rule filter.RuleText) (r *filter.ResultModifiedRequest) {
-	req = dnsmsg.Clone(req)
-	req.Question[0].Name = filtertest.FQDNAdultContentRepl
-
-	return &filter.ResultModifiedRequest{
-		Msg:  req,
-		List: filter.IDAdultBlocking,
-		Rule: rule,
-	}
-}
-
 func TestFilter_Refresh(t *testing.T) {
 	t.Parallel()
 
@@ -245,21 +229,23 @@ func TestFilter_Refresh(t *testing.T) {
 	require.NoError(t, err)
 
 	f, err := hashprefix.NewFilter(&hashprefix.FilterConfig{
-		Logger:          slogutil.NewDiscardLogger(),
-		Cloner:          agdtest.NewCloner(),
-		CacheManager:    agdcache.EmptyManager{},
-		Hashes:          strg,
-		URL:             srvURL,
-		ErrColl:         agdtest.NewErrorCollector(),
-		HashPrefixMtcs:  hashprefix.EmptyMetrics{},
-		Metrics:         filter.EmptyMetrics{},
-		ID:              filter.IDAdultBlocking,
-		CachePath:       cachePath,
-		ReplacementHost: filtertest.HostAdultContentRepl,
-		Staleness:       filtertest.Staleness,
-		CacheTTL:        filtertest.CacheTTL,
-		CacheCount:      filtertest.CacheCount,
-		MaxSize:         filtertest.FilterMaxSize,
+		Logger:            slogutil.NewDiscardLogger(),
+		Cloner:            agdtest.NewCloner(),
+		CacheManager:      agdcache.EmptyManager{},
+		Hashes:            strg,
+		URL:               srvURL,
+		ErrColl:           agdtest.NewErrorCollector(),
+		HashPrefixMetrics: hashprefix.EmptyMetrics{},
+		Metrics:           filter.EmptyMetrics{},
+		PublicSuffixList:  publicsuffix.List,
+		ID:                filter.IDAdultBlocking,
+		CachePath:         cachePath,
+		ReplacementHost:   filtertest.HostAdultContentRepl,
+		Staleness:         filtertest.Staleness,
+		CacheTTL:          filtertest.CacheTTL,
+		CacheCount:        filtertest.CacheCount,
+		MaxSize:           filtertest.FilterMaxSize,
+		SubDomainNum:      filtertest.SubDomainNum,
 	})
 	require.NoError(t, err)
 
@@ -298,21 +284,23 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	cloner := agdtest.NewCloner()
 
 	fconf := &hashprefix.FilterConfig{
-		Logger:          slogutil.NewDiscardLogger(),
-		Cloner:          cloner,
-		CacheManager:    agdcache.EmptyManager{},
-		Hashes:          strg,
-		URL:             srvURL,
-		ErrColl:         agdtest.NewErrorCollector(),
-		HashPrefixMtcs:  hashprefix.EmptyMetrics{},
-		Metrics:         filter.EmptyMetrics{},
-		ID:              filter.IDAdultBlocking,
-		CachePath:       cachePath,
-		ReplacementHost: filtertest.HostAdultContentRepl,
-		Staleness:       filtertest.Staleness,
-		CacheTTL:        filtertest.CacheTTL,
-		CacheCount:      filtertest.CacheCount,
-		MaxSize:         filtertest.FilterMaxSize,
+		Logger:            slogutil.NewDiscardLogger(),
+		Cloner:            cloner,
+		CacheManager:      agdcache.EmptyManager{},
+		Hashes:            strg,
+		URL:               srvURL,
+		ErrColl:           agdtest.NewErrorCollector(),
+		HashPrefixMetrics: hashprefix.EmptyMetrics{},
+		Metrics:           filter.EmptyMetrics{},
+		PublicSuffixList:  publicsuffix.List,
+		ID:                filter.IDAdultBlocking,
+		CachePath:         cachePath,
+		ReplacementHost:   filtertest.HostAdultContentRepl,
+		Staleness:         filtertest.Staleness,
+		CacheTTL:          filtertest.CacheTTL,
+		CacheCount:        filtertest.CacheCount,
+		MaxSize:           filtertest.FilterMaxSize,
+		SubDomainNum:      filtertest.SubDomainNum,
 	}
 	f, err := hashprefix.NewFilter(fconf)
 	require.NoError(t, err)
@@ -339,7 +327,7 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 		r, err = f.FilterRequest(ctx, otherHostReq)
 		require.NoError(t, err)
 
-		wantRes := newModReqResult(otherHostReq.DNS, filtertest.Host)
+		wantRes := newModReqResult(t, otherHostReq.DNS, filtertest.Host)
 		filtertest.AssertEqualResult(t, wantRes, r)
 	}))
 
@@ -374,7 +362,46 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 		r, err = f.FilterRequest(ctx, hostReq)
 		require.NoError(t, err)
 
-		wantRes := newModReqResult(hostReq.DNS, filtertest.HostAdultContent)
+		wantRes := newModReqResult(t, hostReq.DNS, filtertest.HostAdultContent)
 		filtertest.AssertEqualResult(t, wantRes, r)
 	}))
+}
+
+// newModRespResult is a helper for creating modified response result for tests.
+// req must not be nil.
+func newModRespResult(
+	tb testing.TB,
+	req *dns.Msg,
+	messages *dnsmsg.Constructor,
+	replIP netip.Addr,
+) (r *filter.ResultModifiedResponse) {
+	tb.Helper()
+
+	resp, err := messages.NewRespIP(req, replIP)
+	require.NoError(tb, err)
+
+	return &filter.ResultModifiedResponse{
+		Msg:  resp,
+		List: filter.IDAdultBlocking,
+		Rule: filtertest.HostAdultContent,
+	}
+}
+
+// newModReqResult is a helper for creating modified request result for tests.
+// req must not be nil.
+func newModReqResult(
+	tb testing.TB,
+	req *dns.Msg,
+	rule filter.RuleText,
+) (r *filter.ResultModifiedRequest) {
+	tb.Helper()
+
+	req = dnsmsg.Clone(req)
+	req.Question[0].Name = filtertest.FQDNAdultContentRepl
+
+	return &filter.ResultModifiedRequest{
+		Msg:  req,
+		List: filter.IDAdultBlocking,
+		Rule: rule,
+	}
 }

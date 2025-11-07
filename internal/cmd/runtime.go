@@ -9,7 +9,7 @@ import (
 )
 
 // setMaxThreads sets the maximum number of threads for the Go runtime, if
-// necessary.  l must not be nil, envs must not be negative.
+// necessary.  l must not be nil, n must not be negative.
 func setMaxThreads(ctx context.Context, l *slog.Logger, n int) {
 	if n == 0 {
 		l.Log(ctx, slogutil.LevelTrace, "go max threads not set")

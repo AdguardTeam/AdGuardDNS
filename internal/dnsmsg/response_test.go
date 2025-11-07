@@ -59,7 +59,7 @@ func TestConstructor_NewBlockedResp_nullIP(t *testing.T) {
 
 			req := dnsservertest.NewReq(testFQDN, tc.qt, dns.ClassINET, reqExtra)
 
-			resp, respErr := msgs.NewBlockedResp(req)
+			resp, respErr := msgs.NewBlockedResp(req, nil)
 			require.NoError(t, respErr)
 			require.NotNil(t, resp)
 
@@ -73,7 +73,7 @@ func TestConstructor_NewBlockedResp_nullIP(t *testing.T) {
 func TestConstructor_NewBlockedResp_customIP(t *testing.T) {
 	t.Parallel()
 
-	cloner := agdtest.NewCloner()
+	msgs := agdtest.NewConstructor(t)
 
 	// TODO(a.garipov):  Test the forged extra as well if the EDE with that code
 	// is used again.
@@ -139,20 +139,11 @@ func TestConstructor_NewBlockedResp_customIP(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			msgs, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
-				Cloner:              cloner,
-				BlockingMode:        tc.blockingMode,
-				StructuredErrors:    agdtest.NewSDEConfig(true),
-				FilteredResponseTTL: agdtest.FilteredResponseTTL,
-				EDEEnabled:          true,
-			})
-			require.NoError(t, err)
-
 			t.Run("a", func(t *testing.T) {
 				t.Parallel()
 
 				req := dnsservertest.NewReq(testFQDN, dns.TypeA, dns.ClassINET, reqExtra)
-				resp, respErr := msgs.NewBlockedResp(req)
+				resp, respErr := msgs.NewBlockedResp(req, tc.blockingMode)
 				require.NoError(t, respErr)
 				require.NotNil(t, resp)
 
@@ -165,7 +156,7 @@ func TestConstructor_NewBlockedResp_customIP(t *testing.T) {
 				t.Parallel()
 
 				req := dnsservertest.NewReq(testFQDN, dns.TypeAAAA, dns.ClassINET, reqExtra)
-				resp, respErr := msgs.NewBlockedResp(req)
+				resp, respErr := msgs.NewBlockedResp(req, tc.blockingMode)
 				require.NoError(t, respErr)
 				require.NotNil(t, resp)
 
@@ -180,10 +171,11 @@ func TestConstructor_NewBlockedResp_customIP(t *testing.T) {
 func TestConstructor_NewBlockedResp_nodata(t *testing.T) {
 	t.Parallel()
 
+	msgs := agdtest.NewConstructor(t)
+
 	req := dnsservertest.NewReq(testFQDN, dns.TypeA, dns.ClassINET, dnsservertest.SectionExtra{
 		dnsservertest.NewOPT(true, dns.MaxMsgSize, &dns.EDNS0_EDE{}),
 	})
-	cloner := agdtest.NewCloner()
 
 	wantExtra := []dns.RR{dnsservertest.NewOPT(true, dns.MaxMsgSize, &dns.EDNS0_EDE{
 		InfoCode:  dns.ExtendedErrorCodeFiltered,
@@ -208,16 +200,7 @@ func TestConstructor_NewBlockedResp_nodata(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			msgs, err := dnsmsg.NewConstructor(&dnsmsg.ConstructorConfig{
-				Cloner:              cloner,
-				BlockingMode:        tc.blockingMode,
-				StructuredErrors:    agdtest.NewSDEConfig(true),
-				FilteredResponseTTL: agdtest.FilteredResponseTTL,
-				EDEEnabled:          true,
-			})
-			require.NoError(t, err)
-
-			resp, err := msgs.NewBlockedResp(req)
+			resp, err := msgs.NewBlockedResp(req, tc.blockingMode)
 			require.NoError(t, err)
 			require.NotNil(t, resp)
 
@@ -312,7 +295,7 @@ func TestConstructor_NewBlockedResp_sde(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			resp, err := msgs.NewBlockedResp(tc.req)
+			resp, err := msgs.NewBlockedResp(tc.req, nil)
 			require.NoError(t, err)
 			require.NotNil(t, resp)
 

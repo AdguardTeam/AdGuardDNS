@@ -124,64 +124,83 @@ func TestRefreshable_Refresh(t *testing.T) {
 }
 
 func BenchmarkRefreshable_SetURLFilterResult(b *testing.B) {
-	rl := rulelist.NewFromString(
-		filtertest.RuleBlockStr,
-		filtertest.RuleListID1,
-		"",
-		rulelist.EmptyResultCache{},
-	)
+	ctx := b.Context()
 
-	ctx := testutil.ContextWithTimeout(b, filtertest.Timeout)
-
-	b.Run("blocked", func(b *testing.B) {
-		req := &urlfilter.DNSRequest{
+	benchCases := []struct {
+		request *urlfilter.DNSRequest
+		cache   rulelist.ResultCache
+		want    require.BoolAssertionFunc
+		name    string
+	}{{
+		name:  "blocked",
+		cache: rulelist.EmptyResultCache{},
+		request: &urlfilter.DNSRequest{
 			ClientIP: filtertest.IPv4Client,
 			Hostname: filtertest.HostBlocked,
 			DNSType:  dns.TypeA,
-		}
-
-		res := &urlfilter.DNSResult{}
-
-		// Warmup to fill the slices.
-		ok := rl.SetURLFilterResult(ctx, req, res)
-		require.True(b, ok)
-
-		b.ReportAllocs()
-		for b.Loop() {
-			res.Reset()
-			ok = rl.SetURLFilterResult(ctx, req, res)
-		}
-
-		require.True(b, ok)
-	})
-
-	b.Run("other", func(b *testing.B) {
-		req := &urlfilter.DNSRequest{
+		},
+		want: require.True,
+	}, {
+		name:  "other",
+		cache: rulelist.EmptyResultCache{},
+		request: &urlfilter.DNSRequest{
 			ClientIP: filtertest.IPv4Client,
 			Hostname: filtertest.Host,
 			DNSType:  dns.TypeA,
-		}
+		},
+		want: require.False,
+	}, {
+		name:  "blocked_with_cache",
+		cache: rulelist.NewResultCache(filtertest.CacheCount, true),
+		request: &urlfilter.DNSRequest{
+			ClientIP: filtertest.IPv4Client,
+			Hostname: filtertest.HostBlocked,
+			DNSType:  dns.TypeA,
+		},
+		want: require.True,
+	}, {
+		name:  "other_with_cache",
+		cache: rulelist.NewResultCache(filtertest.CacheCount, true),
+		request: &urlfilter.DNSRequest{
+			ClientIP: filtertest.IPv4Client,
+			Hostname: filtertest.Host,
+			DNSType:  dns.TypeA,
+		},
+		want: require.False,
+	}}
 
-		res := &urlfilter.DNSResult{}
+	for _, bc := range benchCases {
+		b.Run(bc.name, func(b *testing.B) {
+			rl := rulelist.NewFromString(
+				filtertest.RuleBlockStr,
+				filtertest.RuleListID1,
+				"",
+				bc.cache,
+			)
 
-		// Warmup to fill the slices.
-		ok := rl.SetURLFilterResult(ctx, req, res)
-		require.False(b, ok)
+			res := &urlfilter.DNSResult{}
 
-		b.ReportAllocs()
-		for b.Loop() {
-			res.Reset()
-			ok = rl.SetURLFilterResult(ctx, req, res)
-		}
+			// Warmup to fill the slices.
+			ok := rl.SetURLFilterResult(ctx, bc.request, res)
+			bc.want(b, ok)
 
-		require.False(b, ok)
-	})
+			b.ReportAllocs()
+			for b.Loop() {
+				res.Reset()
+				ok = rl.SetURLFilterResult(ctx, bc.request, res)
+			}
+
+			bc.want(b, ok)
+		})
+	}
 
 	// Most recent results:
-	//	goos: linux
-	//	goarch: amd64
+	//	goos: darwin
+	//	goarch: arm64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist
-	//	cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	//	BenchmarkRefreshable_SetURLFilterResult/blocked-16        	 1352236	       887.3 ns/op	      24 B/op	       1 allocs/op
-	//	BenchmarkRefreshable_SetURLFilterResult/other-16          	 2772519	       432.6 ns/op	      24 B/op	       1 allocs/op
+	//	cpu: Apple M3
+	//	BenchmarkRefreshable_SetURLFilterResult/blocked-8         	             2762634	        428.2 ns/op	      24 B/op	       1 allocs/op
+	//	BenchmarkRefreshable_SetURLFilterResult/other-8           	             5687978	        242.0 ns/op	      24 B/op	       1 allocs/op
+	//	BenchmarkRefreshable_SetURLFilterResult/blocked_with_cache-8         	33770551	        35.38 ns/op	       0 B/op	       0 allocs/op
+	//	BenchmarkRefreshable_SetURLFilterResult/other_with_cache-8           	43484037	        31.63 ns/op	       0 B/op	       0 allocs/op
 }

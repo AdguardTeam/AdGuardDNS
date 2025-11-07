@@ -230,14 +230,10 @@ func (s *ProfileStorage) newProfile(
 		return nil, nil, nil, errors.ErrNoValue
 	}
 
-	parental, err := p.Parental.toInternal(ctx, s.errColl, s.logger)
+	m, adultBlockingMode, safeBrowsingBlockingMode, err := blockingModesToInternal(p)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("parental: %w", err)
-	}
-
-	m, err := blockingModeToInternal(p.BlockingMode)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("blocking mode: %w", err)
+		// Do not wrap the error, because it's informative enough as is.
+		return nil, nil, nil, err
 	}
 
 	devChg = &profiledb.StorageDeviceChange{}
@@ -282,12 +278,62 @@ func (s *ProfileStorage) newProfile(
 		return nil, nil, nil, fmt.Errorf("account id: %w", err)
 	}
 
+	filterConf, err := s.newFilterConfig(ctx, p, profID, s.logger, s.errColl)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("filter config: %w", err)
+	}
+
 	var fltRespTTL time.Duration
 	if respTTL := p.FilteredResponseTtl; respTTL != nil {
 		fltRespTTL = respTTL.AsDuration()
 	}
 
-	customRules := rulesToInternal(ctx, p.CustomRules, s.errColl, s.logger)
+	accessProf := p.Access.toInternal(
+		ctx,
+		s.logger,
+		s.errColl,
+		s.profAccessCons,
+		p.StandardAccessSettingsEnabled,
+	)
+
+	return &agd.Profile{
+		CustomDomains:            p.CustomDomain.toInternal(ctx, s.errColl, s.logger),
+		DeviceIDs:                container.NewMapSet(deviceIDs...),
+		FilterConfig:             filterConf,
+		Access:                   accessProf,
+		AdultBlockingMode:        adultBlockingMode,
+		BlockingMode:             m,
+		SafeBrowsingBlockingMode: safeBrowsingBlockingMode,
+		Ratelimiter:              p.RateLimit.toInternal(ctx, s.errColl, s.logger, s.respSzEst),
+		AccountID:                accID,
+		ID:                       profID,
+		FilteredResponseTTL:      fltRespTTL,
+		AutoDevicesEnabled:       p.AutoDevicesEnabled,
+		BlockChromePrefetch:      p.BlockChromePrefetch,
+		BlockFirefoxCanary:       p.BlockFirefoxCanary,
+		BlockPrivateRelay:        p.BlockPrivateRelay,
+		Deleted:                  p.Deleted,
+		FilteringEnabled:         p.FilteringEnabled,
+		IPLogEnabled:             p.IpLogEnabled,
+		QueryLogEnabled:          p.QueryLogEnabled,
+	}, devices, devChg, nil
+}
+
+// newFilterConfig creates a new filter configuration from the protobuf profile.
+// p, logger and errColl must not be nil.
+func (s *ProfileStorage) newFilterConfig(
+	ctx context.Context,
+	p *DNSProfile,
+	profID agd.ProfileID,
+	logger *slog.Logger,
+	errColl errcoll.Interface,
+) (conf *filter.ConfigClient, err error) {
+	parental, err := p.Parental.toInternal(ctx, s.errColl, s.logger)
+	if err != nil {
+		return nil, fmt.Errorf("parental: %w", err)
+	}
+
+	customRules := rulesToInternal(ctx, p.CustomRules, errColl, logger)
 	customEnabled := len(customRules) > 0
 
 	var customFilter filter.Custom
@@ -304,38 +350,12 @@ func (s *ProfileStorage) newProfile(
 		Enabled: customEnabled,
 	}
 
-	accessProf := p.Access.toInternal(
-		ctx,
-		s.logger,
-		s.errColl,
-		s.profAccessCons,
-		p.StandardAccessSettingsEnabled,
-	)
-
-	return &agd.Profile{
-		CustomDomains: p.CustomDomain.toInternal(ctx, s.errColl, s.logger),
-		DeviceIDs:     container.NewMapSet(deviceIDs...),
-		FilterConfig: &filter.ConfigClient{
-			Custom:       customConf,
-			Parental:     parental,
-			RuleList:     p.RuleLists.toInternal(ctx, s.errColl, s.logger),
-			SafeBrowsing: p.SafeBrowsing.toInternal(),
-		},
-		Access:              accessProf,
-		BlockingMode:        m,
-		Ratelimiter:         p.RateLimit.toInternal(ctx, s.errColl, s.logger, s.respSzEst),
-		AccountID:           accID,
-		ID:                  profID,
-		FilteredResponseTTL: fltRespTTL,
-		AutoDevicesEnabled:  p.AutoDevicesEnabled,
-		BlockChromePrefetch: p.BlockChromePrefetch,
-		BlockFirefoxCanary:  p.BlockFirefoxCanary,
-		BlockPrivateRelay:   p.BlockPrivateRelay,
-		Deleted:             p.Deleted,
-		FilteringEnabled:    p.FilteringEnabled,
-		IPLogEnabled:        p.IpLogEnabled,
-		QueryLogEnabled:     p.QueryLogEnabled,
-	}, devices, devChg, nil
+	return &filter.ConfigClient{
+		Custom:       customConf,
+		Parental:     parental,
+		RuleList:     p.RuleLists.toInternal(ctx, errColl, logger),
+		SafeBrowsing: p.SafeBrowsing.toInternal(),
+	}, nil
 }
 
 // toProtobuf converts a storage request structure into the protobuf structure.

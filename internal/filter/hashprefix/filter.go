@@ -4,13 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http/cookiejar"
 	"net/netip"
 	"net/url"
 	"path"
-	"strings"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
@@ -18,9 +19,9 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/service"
+	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/c2h5oh/datasize"
 	"github.com/miekg/dns"
-	"golang.org/x/net/publicsuffix"
 )
 
 // FilterConfig is the hash-prefix filter configuration structure.
@@ -43,11 +44,15 @@ type FilterConfig struct {
 	// ErrColl is used to collect non-critical and rare errors.
 	ErrColl errcoll.Interface
 
-	// HashPrefixMtcs are the specific metrics for the hashprefix filter.
-	HashPrefixMtcs Metrics
+	// HashPrefixMetrics are the specific metrics for the hashprefix filter.
+	HashPrefixMetrics Metrics
 
 	// Metrics are the metrics for the hashprefix filter.
 	Metrics filter.Metrics
+
+	// PublicSuffixList is used for obtaining public suffix for specified
+	// domain.
+	PublicSuffixList cookiejar.PublicSuffixList
 
 	// ID is the ID of this hash storage for logging and error reporting.
 	ID filter.ID
@@ -79,22 +84,29 @@ type FilterConfig struct {
 
 	// MaxSize is the maximum size of the downloadable rule-list.
 	MaxSize datasize.ByteSize
+
+	// SubDomainNum defines how many labels should be hashed to match against a
+	// hash prefix filter.  It must be positive and fit into int.
+	SubDomainNum uint
 }
 
 // Filter is a filter that matches hosts by their hashes based on a hash-prefix
 // table.  It should be initially refreshed with [Filter.RefreshInitial].
 type Filter struct {
-	logger         *slog.Logger
-	cloner         *dnsmsg.Cloner
-	hashes         *Storage
-	refr           *refreshable.Refreshable
-	errColl        errcoll.Interface
-	hashprefixMtcs Metrics
-	metrics        filter.Metrics
-	resCache       agdcache.Interface[rulelist.CacheKey, filter.Result]
-	id             filter.ID
-	repIP          netip.Addr
-	repFQDN        string
+	logger           *slog.Logger
+	cloner           *dnsmsg.Cloner
+	hashes           *Storage
+	refr             *refreshable.Refreshable
+	subDomainsPool   *syncutil.Pool[[]string]
+	errColl          errcoll.Interface
+	hashprefixMtrc   Metrics
+	publicSuffixList cookiejar.PublicSuffixList
+	metrics          filter.Metrics
+	resCache         agdcache.Interface[rulelist.CacheKey, filter.Result]
+	id               filter.ID
+	repIP            netip.Addr
+	repFQDN          string
+	subDomainNum     int
 }
 
 // IDPrefix is a common prefix for cache IDs, logging, and refreshes of
@@ -116,14 +128,22 @@ func NewFilter(c *FilterConfig) (f *Filter, err error) {
 	c.CacheManager.Add(path.Join(IDPrefix, string(id)), resCache)
 
 	f = &Filter{
-		logger:         c.Logger,
-		cloner:         c.Cloner,
-		hashes:         c.Hashes,
-		errColl:        c.ErrColl,
-		hashprefixMtcs: c.HashPrefixMtcs,
-		metrics:        c.Metrics,
-		resCache:       resCache,
-		id:             id,
+		logger: c.Logger,
+		cloner: c.Cloner,
+		hashes: c.Hashes,
+		// #nosec G115 -- Assume that c.SubDomainNum is always less then or
+		// equal to 63.
+		//
+		// TODO(f.setrakov): Validate c.SubDomainsNum.
+		subDomainsPool:   syncutil.NewSlicePool[string](int(c.SubDomainNum)),
+		errColl:          c.ErrColl,
+		hashprefixMtrc:   c.HashPrefixMetrics,
+		publicSuffixList: c.PublicSuffixList,
+		metrics:          c.Metrics,
+		resCache:         resCache,
+		id:               id,
+		// #nosec G115 -- The value is a constant less than int accommodates.
+		subDomainNum: int(c.SubDomainNum),
 	}
 
 	repHost := c.ReplacementHost
@@ -165,7 +185,7 @@ func (f *Filter) FilterRequest(
 
 	cacheKey := rulelist.NewCacheKey(host, qt, cl, false)
 	item, ok := f.resCache.Get(cacheKey)
-	f.hashprefixMtcs.IncrementLookups(ctx, ok)
+	f.hashprefixMtrc.IncrementLookups(ctx, ok)
 	if ok {
 		return f.clonedResult(req.DNS, item), nil
 	}
@@ -176,8 +196,11 @@ func (f *Filter) FilterRequest(
 	}
 
 	var matched string
-	sub := hashableSubdomains(host)
-	for _, s := range sub {
+	subPtr := f.subDomainsPool.Get()
+	defer f.subDomainsPool.Put(subPtr)
+
+	*subPtr = agdnet.AppendSubdomains((*subPtr)[:0], host, f.subDomainNum, f.publicSuffixList)
+	for _, s := range *subPtr {
 		if f.hashes.Matches(s) {
 			matched = s
 
@@ -199,7 +222,7 @@ func (f *Filter) FilterRequest(
 
 	f.setInCache(cacheKey, r)
 
-	f.hashprefixMtcs.UpdateCacheSize(ctx, f.resCache.Len())
+	f.hashprefixMtrc.UpdateCacheSize(ctx, f.resCache.Len())
 
 	return r, nil
 }
@@ -232,7 +255,7 @@ func (f *Filter) clonedResult(req *dns.Msg, r filter.Result) (clone filter.Resul
 	}
 }
 
-// filteredResult returns a filtered request or response.
+// filteredResult returns a filtered request or response.  req must not be nil.
 func (f *Filter) filteredResult(
 	req *filter.Request,
 	matched string,
@@ -274,7 +297,7 @@ func (f *Filter) respForFamily(
 		//
 		// TODO(ameshkov): Consider putting the resolved IP addresses into hints
 		// to show the blocked page here as well?
-		return req.Messages.NewBlockedResp(req.DNS)
+		return req.Messages.NewBlockedResp(req.DNS, nil)
 	}
 
 	ip := f.repIP
@@ -367,41 +390,4 @@ func (f *Filter) refresh(ctx context.Context, acceptStale bool) (err error) {
 	f.logger.InfoContext(ctx, "reset hosts", "num", count)
 
 	return nil
-}
-
-// subDomainNum defines how many labels should be hashed to match against a hash
-// prefix filter.
-const subDomainNum = 4
-
-// hashableSubdomains returns all subdomains that should be checked by the hash
-// prefix filter.
-func hashableSubdomains(domain string) (sub []string) {
-	pubSuf, icann := publicsuffix.PublicSuffix(domain)
-	if !icann {
-		// Check the full private domain space.
-		pubSuf = ""
-	}
-
-	dotsNum := 0
-	i := strings.LastIndexFunc(domain, func(r rune) (ok bool) {
-		if r == '.' {
-			dotsNum++
-		}
-
-		return dotsNum == subDomainNum
-	})
-	if i != -1 {
-		domain = domain[i+1:]
-	}
-
-	sub = netutil.Subdomains(domain)
-	for i, s := range sub {
-		if s == pubSuf {
-			sub = sub[:i]
-
-			break
-		}
-	}
-
-	return sub
 }

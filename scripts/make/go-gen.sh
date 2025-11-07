@@ -41,9 +41,25 @@ ecscache() (
 	gofumpt -l -w ./ecsblocklist.go
 )
 
+fcpb() (
+	# TODO(f.setrakov): Change directory to ./internal/profiledb/internal/, so
+	# we don't need to go up later.
+	cd ./internal/profiledb/internal/filecachepb/
+	protoc \
+		--go_opt=paths=source_relative \
+		--go_out=../fcpb/ \
+		--go_opt=default_api_level=API_OPAQUE \
+		--go_opt=Mfilecache.proto=github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/fcpb \
+		./filecache.proto
+)
+
 filecachepb() (
 	cd ./internal/profiledb/internal/filecachepb/
-	protoc --go_opt=paths=source_relative --go_out=. ./filecache.proto
+	protoc \
+		--go_opt=paths=source_relative \
+		--go_out=. \
+		--go_opt=Mfilecache.proto=github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecachepb \
+		./filecache.proto
 )
 
 geoip_asntops() (
@@ -59,6 +75,7 @@ geoip_country() (
 if [ -z "${ONLY:-}" ]; then
 	backendpb
 	ecscache
+	fcpb
 	filecachepb
 	geoip_asntops
 	geoip_country
@@ -71,6 +88,10 @@ else
 
 	if [ "${padded##* ecscache *}" = '' ]; then
 		ecscache
+	fi
+
+	if [ "${padded##* fcpb *}" = '' ]; then
+		fcpb
 	fi
 
 	if [ "${padded##* filecachepb *}" = '' ]; then

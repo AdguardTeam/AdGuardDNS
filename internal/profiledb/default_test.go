@@ -428,11 +428,13 @@ func TestDefault_CreateAutoDevice(t *testing.T) {
 		HumanIDLower: profiledbtest.HumanIDLower,
 	}
 	wantProf := &agd.Profile{
-		CustomDomains:      &agd.AccountCustomDomains{},
-		BlockingMode:       &dnsmsg.BlockingModeNullIP{},
-		ID:                 profiledbtest.ProfileID,
-		DeviceIDs:          nil,
-		AutoDevicesEnabled: true,
+		CustomDomains:            &agd.AccountCustomDomains{},
+		AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		BlockingMode:             &dnsmsg.BlockingModeNullIP{},
+		SafeBrowsingBlockingMode: &dnsmsg.BlockingModeNullIP{},
+		ID:                       profiledbtest.ProfileID,
+		DeviceIDs:                nil,
+		AutoDevicesEnabled:       true,
 	}
 
 	ps := &agdtest.ProfileStorage{
@@ -495,9 +497,11 @@ func TestDefault_deviceChanges(t *testing.T) {
 	)
 
 	profBefore := &agd.Profile{
-		CustomDomains: &agd.AccountCustomDomains{},
-		BlockingMode:  &dnsmsg.BlockingModeNullIP{},
-		ID:            profiledbtest.ProfileID,
+		CustomDomains:            &agd.AccountCustomDomains{},
+		AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		BlockingMode:             &dnsmsg.BlockingModeNullIP{},
+		SafeBrowsingBlockingMode: &dnsmsg.BlockingModeNullIP{},
+		ID:                       profiledbtest.ProfileID,
 		DeviceIDs: container.NewMapSet(
 			profiledbtest.DeviceID,
 			profiledbtest.DeviceIDAuto,
@@ -506,9 +510,11 @@ func TestDefault_deviceChanges(t *testing.T) {
 	}
 
 	profAfter := &agd.Profile{
-		CustomDomains: &agd.AccountCustomDomains{},
-		BlockingMode:  &dnsmsg.BlockingModeNullIP{},
-		ID:            profiledbtest.ProfileID,
+		CustomDomains:            &agd.AccountCustomDomains{},
+		AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		BlockingMode:             &dnsmsg.BlockingModeNullIP{},
+		SafeBrowsingBlockingMode: &dnsmsg.BlockingModeNullIP{},
+		ID:                       profiledbtest.ProfileID,
 		DeviceIDs: container.NewMapSet(
 			profiledbtest.DeviceID,
 		),
@@ -599,19 +605,23 @@ func TestDefault_noDeviceChanges(t *testing.T) {
 	}
 
 	profBefore := &agd.Profile{
-		CustomDomains:    &agd.AccountCustomDomains{},
-		BlockingMode:     &dnsmsg.BlockingModeNullIP{},
-		ID:               profiledbtest.ProfileID,
-		FilteringEnabled: true,
-		DeviceIDs:        container.NewMapSet(profiledbtest.DeviceID),
+		CustomDomains:            &agd.AccountCustomDomains{},
+		AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		BlockingMode:             &dnsmsg.BlockingModeNullIP{},
+		SafeBrowsingBlockingMode: &dnsmsg.BlockingModeNullIP{},
+		ID:                       profiledbtest.ProfileID,
+		FilteringEnabled:         true,
+		DeviceIDs:                container.NewMapSet(profiledbtest.DeviceID),
 	}
 
 	profAfter := &agd.Profile{
-		CustomDomains:    &agd.AccountCustomDomains{},
-		BlockingMode:     &dnsmsg.BlockingModeNullIP{},
-		ID:               profiledbtest.ProfileID,
-		FilteringEnabled: false,
-		DeviceIDs:        container.NewMapSet(profiledbtest.DeviceID),
+		CustomDomains:            &agd.AccountCustomDomains{},
+		AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		BlockingMode:             &dnsmsg.BlockingModeNullIP{},
+		SafeBrowsingBlockingMode: &dnsmsg.BlockingModeNullIP{},
+		ID:                       profiledbtest.ProfileID,
+		FilteringEnabled:         false,
+		DeviceIDs:                container.NewMapSet(profiledbtest.DeviceID),
 	}
 
 	var (

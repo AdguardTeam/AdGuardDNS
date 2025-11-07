@@ -9,7 +9,9 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
@@ -19,14 +21,18 @@ import (
 
 // TODO(a.garipov): Rewrite into cases in external tests.
 func TestMiddleware_setFilteredResponse(t *testing.T) {
+	t.Parallel()
+
 	const (
-		respTTL = 60
+		respTTL    = 60
+		fltRespTTL = agdtest.FilteredResponseTTLSec
 	)
 
-	const fltRespTTL = agdtest.FilteredResponseTTLSec
 	respIP := netip.MustParseAddr("1.2.3.4")
 	rewrIP := netip.MustParseAddr("5.6.7.8")
 	blockIP := netip.IPv4Unspecified()
+	blockIPAdult := netip.MustParseAddr("2.2.2.2")
+	blockIPSafeBrowsing := netip.MustParseAddr("3.3.3.3")
 
 	const domain = "example.com"
 	origReq := dnsservertest.NewReq(domain, dns.TypeA, dns.ClassINET)
@@ -62,6 +68,22 @@ func TestMiddleware_setFilteredResponse(t *testing.T) {
 		name:    "blocked_req",
 		wantTTL: fltRespTTL,
 	}, {
+		reqRes: &filter.ResultBlocked{
+			List: filter.IDAdultBlocking,
+		},
+		respRes: nil,
+		wantIP:  blockIPAdult,
+		name:    "blocked_req_adult",
+		wantTTL: fltRespTTL,
+	}, {
+		reqRes: &filter.ResultBlocked{
+			List: filter.IDSafeBrowsing,
+		},
+		respRes: nil,
+		wantIP:  blockIPSafeBrowsing,
+		name:    "blocked_req_safe_browsing",
+		wantTTL: fltRespTTL,
+	}, {
 		reqRes:  &filter.ResultModifiedResponse{Msg: rewrResp},
 		respRes: nil,
 		wantIP:  rewrIP,
@@ -79,14 +101,46 @@ func TestMiddleware_setFilteredResponse(t *testing.T) {
 		wantIP:  blockIP,
 		name:    "blocked_resp",
 		wantTTL: fltRespTTL,
+	}, {
+		reqRes: nil,
+		respRes: &filter.ResultBlocked{
+			List: filter.IDAdultBlocking,
+		},
+		wantIP:  blockIPAdult,
+		name:    "blocked_resp_adult",
+		wantTTL: fltRespTTL,
+	}, {
+		reqRes: nil,
+		respRes: &filter.ResultBlocked{
+			List: filter.IDSafeBrowsing,
+		},
+		wantIP:  blockIPSafeBrowsing,
+		name:    "blocked_resp_safe_browsing",
+		wantTTL: fltRespTTL,
 	}}
 
+	device := &agd.Device{ID: dnssvctest.DeviceID}
+	profile := &agd.Profile{
+		ID: dnssvctest.ProfileID,
+		AdultBlockingMode: &dnsmsg.BlockingModeCustomIP{
+			IPv4: []netip.Addr{blockIPAdult},
+		},
+		SafeBrowsingBlockingMode: &dnsmsg.BlockingModeCustomIP{
+			IPv4: []netip.Addr{blockIPSafeBrowsing},
+		},
+	}
 	ri := &agd.RequestInfo{
+		DeviceResult: &agd.DeviceResultOK{
+			Device:  device,
+			Profile: profile,
+		},
 		Messages: agdtest.NewConstructor(t),
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			origResp := dnsservertest.NewResp(dns.RcodeSuccess, origReq)
 			origResp.Answer = append(origResp.Answer, dnsservertest.NewA(domain, respTTL, respIP))
 
@@ -115,6 +169,8 @@ func TestMiddleware_setFilteredResponse(t *testing.T) {
 	}
 
 	t.Run("modified_resp", func(t *testing.T) {
+		t.Parallel()
+
 		wantPanicMsg := (&agd.ArgumentError{
 			Name:    "respRes",
 			Message: fmt.Sprintf("unexpected type %T", &filter.ResultModifiedResponse{}),

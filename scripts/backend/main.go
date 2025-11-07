@@ -37,6 +37,9 @@ func main() {
 	sessTickSrv := newMockSessionTicketServiceServer(l.With(slogutil.KeyPrefix, "session_ticket"))
 	backendpb.RegisterSessionTicketServiceServer(grpcSrv, sessTickSrv)
 
+	customDomainSrv := newCustomDomainServiceServer(l.With(slogutil.KeyPrefix, "custom_domain"))
+	backendpb.RegisterCustomDomainServiceServer(grpcSrv, customDomainSrv)
+
 	l.Info("starting serving", "laddr", listenAddr)
 	err = grpcSrv.Serve(lsnr)
 	if err != nil {

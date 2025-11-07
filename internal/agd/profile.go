@@ -37,9 +37,18 @@ type Profile struct {
 	// Access is the access manager for this profile.  It must not be nil.
 	Access access.Profile
 
+	// AdultBlockingMode defines the way blocked responses for adult-content are
+	// constructed.  In case of nil, the default BlockingMode is used.
+	AdultBlockingMode dnsmsg.BlockingMode
+
 	// BlockingMode defines the way blocked responses are constructed.  It must
 	// not be nil.
 	BlockingMode dnsmsg.BlockingMode
+
+	// SafeBrowsingBlockingMode defines the way blocked responses for
+	// safe-browsing content are constructed.  In case of nil, the default
+	// BlockingMode is used.
+	SafeBrowsingBlockingMode dnsmsg.BlockingMode
 
 	// Ratelimiter is the custom ratelimiter for this profile.  It must not be
 	// nil.

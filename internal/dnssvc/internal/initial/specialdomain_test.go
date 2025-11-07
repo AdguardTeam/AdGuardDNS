@@ -71,8 +71,16 @@ func TestMiddleware_Wrap_specialDomain(t *testing.T) {
 		wantRCode: dns.RcodeSuccess,
 	}, {
 		reqInfo:   newSpecDomReqInfo(t, nil, fltGrpBlocked, appleHost, dns.TypeTXT),
-		name:      "no_private_relay_qtype",
-		wantRCode: dns.RcodeSuccess,
+		name:      "private_relay_blocked_txt",
+		wantRCode: dns.RcodeNameError,
+	}, {
+		reqInfo:   newSpecDomReqInfo(t, nil, fltGrpBlocked, appleHost, dns.TypeCNAME),
+		name:      "private_relay_blocked_cname",
+		wantRCode: dns.RcodeNameError,
+	}, {
+		reqInfo:   newSpecDomReqInfo(t, nil, fltGrpBlocked, appleHost, dns.TypeHTTPS),
+		name:      "private_relay_blocked_https",
+		wantRCode: dns.RcodeNameError,
 	}, {
 		reqInfo:   newSpecDomReqInfo(t, profBlocked, fltGrpAllowed, appleHost, dns.TypeA),
 		name:      "private_relay_blocked_by_prof",

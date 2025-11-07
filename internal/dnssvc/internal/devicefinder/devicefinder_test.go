@@ -124,17 +124,21 @@ var (
 // Common profiles, devices, and results for tests.
 var (
 	profNormal = &agd.Profile{
-		BlockingMode: &dnsmsg.BlockingModeNullIP{},
-		ID:           dnssvctest.ProfileID,
-		DeviceIDs:    container.NewMapSet(dnssvctest.DeviceID),
-		Deleted:      false,
+		AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		BlockingMode:             &dnsmsg.BlockingModeNullIP{},
+		SafeBrowsingBlockingMode: &dnsmsg.BlockingModeNullIP{},
+		ID:                       dnssvctest.ProfileID,
+		DeviceIDs:                container.NewMapSet(dnssvctest.DeviceID),
+		Deleted:                  false,
 	}
 
 	profDeleted = &agd.Profile{
-		BlockingMode: &dnsmsg.BlockingModeNullIP{},
-		ID:           dnssvctest.ProfileID,
-		DeviceIDs:    container.NewMapSet(dnssvctest.DeviceID),
-		Deleted:      true,
+		AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		BlockingMode:             &dnsmsg.BlockingModeNullIP{},
+		SafeBrowsingBlockingMode: &dnsmsg.BlockingModeNullIP{},
+		ID:                       dnssvctest.ProfileID,
+		DeviceIDs:                container.NewMapSet(dnssvctest.DeviceID),
+		Deleted:                  true,
 	}
 
 	devNormal = &agd.Device{
