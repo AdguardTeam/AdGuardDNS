@@ -36,6 +36,7 @@ type environment struct {
 	BackendRateLimitURL      *urlutil.URL `env:"BACKEND_RATELIMIT_URL"`
 	BillStatURL              *urlutil.URL `env:"BILLSTAT_URL"`
 	BlockedServiceIndexURL   *urlutil.URL `env:"BLOCKED_SERVICE_INDEX_URL"`
+	CategoryFilterIndexURL   *urlutil.URL `env:"CATEGORY_FILTER_INDEX_URL"`
 	ConsulAllowlistURL       *urlutil.URL `env:"CONSUL_ALLOWLIST_URL"`
 	ConsulDNSCheckKVURL      *urlutil.URL `env:"CONSUL_DNSCHECK_KV_URL"`
 	ConsulDNSCheckSessionURL *urlutil.URL `env:"CONSUL_DNSCHECK_SESSION_URL"`
@@ -90,6 +91,7 @@ type environment struct {
 
 	CustomDomainsRefreshIvl  timeutil.Duration `env:"CUSTOM_DOMAINS_REFRESH_INTERVAL"`
 	DNSCheckKVTTL            timeutil.Duration `env:"DNSCHECK_KV_TTL"`
+	ProfilesCacheIvl         timeutil.Duration `env:"PROFILES_CACHE_INTERVAL"`
 	SessionTicketRefreshIvl  timeutil.Duration `env:"SESSION_TICKET_REFRESH_INTERVAL"`
 	StandardAccessRefreshIvl timeutil.Duration `env:"STANDARD_ACCESS_REFRESH_INTERVAL"`
 	StandardAccessTimeout    timeutil.Duration `env:"STANDARD_ACCESS_TIMEOUT"`
@@ -105,6 +107,7 @@ type environment struct {
 	Verbosity uint8 `env:"VERBOSE" envDefault:"0"`
 
 	AdultBlockingEnabled     strictBool `env:"ADULT_BLOCKING_ENABLED" envDefault:"1"`
+	CategoryFilterEnabled    strictBool `env:"CATEGORY_FILTER_ENABLED" envDefault:"0"`
 	CrashOutputEnabled       strictBool `env:"CRASH_OUTPUT_ENABLED" envDefault:"0"`
 	CustomDomainsEnabled     strictBool `env:"CUSTOM_DOMAINS_ENABLED" envDefault:"1"`
 	LogTimestamp             strictBool `env:"LOG_TIMESTAMP" envDefault:"1"`
@@ -145,6 +148,11 @@ func (envs *environment) Validate() (err error) {
 			"%s: not a valid http(s) url or file uri",
 			"FILTER_INDEX_URL",
 		))
+	}
+
+	err = envs.validateCategoryFilterIndex()
+	if err != nil {
+		errs = append(errs, fmt.Errorf("CATEGORY_FILTER_INDEX_URL: %w", err))
 	}
 
 	err = envs.validateWebStaticDir()
@@ -246,6 +254,25 @@ func (envs *environment) validateHTTPURLs(errs []error) (res []error) {
 	}
 
 	return res
+}
+
+// validateCategoryFilterIndex returns an error if the CATEGORY_FILTER_INDEX_URL
+// environment variable contains an invalid value.
+func (envs *environment) validateCategoryFilterIndex() (err error) {
+	if !envs.CategoryFilterEnabled {
+		return nil
+	}
+
+	if envs.CategoryFilterIndexURL == nil {
+		return errors.ErrNoValue
+	}
+
+	s := envs.CategoryFilterIndexURL.Scheme
+	if !strings.EqualFold(s, urlutil.SchemeFile) && !urlutil.IsValidHTTPURLScheme(s) {
+		return errors.Error("not a valid http(s) url or file uri")
+	}
+
+	return nil
 }
 
 // validateWebStaticDir returns an error if the WEB_STATIC_DIR environment
@@ -442,20 +469,18 @@ func (envs *environment) validateStandardAccess(errs []error) (res []error) {
 // validateProfilesConf returns an error if environment variables for profiles
 // database configuration contain errors.
 func (envs *environment) validateProfilesConf(profilesEnabled bool) (err error) {
-	var errs []error
-
-	if profilesEnabled {
-		errs = envs.validateProfilesURLs(errs)
-
-		err = validate.NoGreaterThan(
-			"PROFILES_MAX_RESP_SIZE",
-			envs.ProfilesMaxRespSize,
-			math.MaxInt,
-		)
-		if err != nil {
-			errs = append(errs, err)
-		}
+	if !profilesEnabled {
+		return nil
 	}
+
+	var errs []error
+	errs = envs.validateProfilesURLs(errs)
+
+	errs = append(
+		errs,
+		validate.NoGreaterThan("PROFILES_MAX_RESP_SIZE", envs.ProfilesMaxRespSize, math.MaxInt),
+		validate.Positive("PROFILES_CACHE_INTERVAL", envs.ProfilesCacheIvl),
+	)
 
 	return errors.Join(errs...)
 }

@@ -1,9 +1,10 @@
-// NOTE: Keep in sync with the fcpb/fc.proto
+// NOTE: Keep in sync with the filecachepb/filecache.proto
 //
-// TODO(f.setrakov): Remove when migration to opaque api will be finished.
+// TODO(f.setrakov): Remove filecachepb/filecache.proto when migration to opaque
+// api will be finished.
 syntax = "proto3";
 
-package filecachepb;
+package fcpb;
 
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";

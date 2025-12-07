@@ -10,6 +10,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterstorage"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/domain"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
@@ -69,6 +70,8 @@ var (
 //
 //   - A rule-list index with one filter with ID [filtertest.RuleListID1] and a
 //     rule to block [filtertest.HostBlocked].
+//   - A category index with one filter with ID [filtertest.CategoryID] and a
+//     rule to block [filtertest.HostBlocked].
 //   - Safe-search filters, both general and YouTube, with rules for
 //     [filtertest.HostSafeSearchGeneral] and
 //     [filtertest.HostSafeSearchYouTube].
@@ -78,9 +81,10 @@ var (
 //     [filtertest.HostDangerous], and [filtertest.HostNewlyRegistered].
 func newDefault(tb testing.TB) (s *filterstorage.Default) {
 	const (
-		blockData = filtertest.RuleBlockStr + "\n"
-		ssGenData = filtertest.RuleSafeSearchGeneralHostStr + "\n"
-		ssYTData  = filtertest.RuleSafeSearchYouTubeStr + "\n"
+		blockData   = filtertest.RuleBlockStr + "\n"
+		blockDomain = filtertest.HostBlocked + "\n"
+		ssGenData   = filtertest.RuleSafeSearchGeneralHostStr + "\n"
+		ssYTData    = filtertest.RuleSafeSearchYouTubeStr + "\n"
 	)
 
 	rlCh := make(chan unit, 1)
@@ -95,6 +99,13 @@ func newDefault(tb testing.TB) (s *filterstorage.Default) {
 		http.StatusOK,
 	)
 
+	catCh := make(chan unit, 1)
+	_, catURL := filtertest.PrepareRefreshable(tb, catCh, blockDomain, http.StatusOK)
+	catIdxData := filtertest.NewCategoryIndex(catURL.String())
+
+	catIdxCh := make(chan unit, 1)
+	_, catIdxURL := filtertest.PrepareRefreshable(tb, catIdxCh, string(catIdxData), http.StatusOK)
+
 	ssGenCh, ssYTCh := make(chan unit, 1), make(chan unit, 1)
 	_, safeSearchGenURL := filtertest.PrepareRefreshable(tb, ssGenCh, ssGenData, http.StatusOK)
 	_, safeSearchYTURL := filtertest.PrepareRefreshable(tb, ssYTCh, ssYTData, http.StatusOK)
@@ -107,7 +118,7 @@ func newDefault(tb testing.TB) (s *filterstorage.Default) {
 		http.StatusOK,
 	)
 
-	c := newDisabledConfig(tb, newConfigRuleLists(ruleListIdxURL))
+	c := newDisabledConfig(tb, newIndexConfig(ruleListIdxURL), newIndexConfig(catIdxURL))
 	c.BlockedServices = newConfigBlockedServices(svcIdxURL)
 	c.HashPrefix = &filterstorage.HashPrefixConfig{
 		Adult:           filtertest.NewHashprefixFilter(tb, filter.IDAdultBlocking),
@@ -131,6 +142,8 @@ func newDefault(tb testing.TB) (s *filterstorage.Default) {
 
 	testutil.RequireReceive(tb, rlCh, filtertest.Timeout)
 	testutil.RequireReceive(tb, rlIdxCh, filtertest.Timeout)
+	testutil.RequireReceive(tb, catCh, filtertest.Timeout)
+	testutil.RequireReceive(tb, catIdxCh, filtertest.Timeout)
 	testutil.RequireReceive(tb, ssGenCh, filtertest.Timeout)
 	testutil.RequireReceive(tb, ssYTCh, filtertest.Timeout)
 	testutil.RequireReceive(tb, svcIdxCh, filtertest.Timeout)
@@ -138,12 +151,16 @@ func newDefault(tb testing.TB) (s *filterstorage.Default) {
 	return s
 }
 
+// defaultSubDomainNum is default subDomainNumValue for filters.
+const defaultSubDomainNum = 4
+
 // newDisabledConfig returns a new [*filterstorage.Config] with fields related
 // to filters set to disabled (if possible) and others, to the default test
 // entities.
 func newDisabledConfig(
 	tb testing.TB,
-	rlConf *filterstorage.RuleListsConfig,
+	rlConf *filterstorage.IndexConfig,
+	catConf *filterstorage.IndexConfig,
 ) (c *filterstorage.Config) {
 	tb.Helper()
 
@@ -153,11 +170,12 @@ func newDisabledConfig(
 		BlockedServices: &filterstorage.BlockedServicesConfig{
 			Enabled: false,
 		},
+		CategoryDomainsIndex: catConf,
 		Custom: &filterstorage.CustomConfig{
 			CacheCount: filtertest.CacheCount,
 		},
-		HashPrefix: &filterstorage.HashPrefixConfig{},
-		RuleLists:  rlConf,
+		HashPrefix:     &filterstorage.HashPrefixConfig{},
+		RuleListsIndex: rlConf,
 		SafeSearchGeneral: &filterstorage.SafeSearchConfig{
 			ID:      filter.IDGeneralSafeSearch,
 			Enabled: false,
@@ -166,11 +184,13 @@ func newDisabledConfig(
 			ID:      filter.IDYoutubeSafeSearch,
 			Enabled: false,
 		},
-		CacheManager: agdcache.EmptyManager{},
-		Clock:        timeutil.SystemClock{},
-		ErrColl:      agdtest.NewErrorCollector(),
-		Metrics:      filter.EmptyMetrics{},
-		CacheDir:     tb.TempDir(),
+		CacheManager:             agdcache.EmptyManager{},
+		Clock:                    timeutil.SystemClock{},
+		DomainMetrics:            domain.EmptyMetrics{},
+		ErrColl:                  agdtest.NewErrorCollector(),
+		Metrics:                  filter.EmptyMetrics{},
+		CacheDir:                 tb.TempDir(),
+		DomainFilterSubDomainNum: defaultSubDomainNum,
 	}
 }
 
@@ -189,11 +209,11 @@ func newConfigBlockedServices(indexURL *url.URL) (c *filterstorage.BlockedServic
 	}
 }
 
-// newConfigRuleLists is a test helper that returns a new *ConfigRuleLists with
-// the given index URL.  The rest of the fields are set to the corresponding
+// newIndexConfig is a test helper that returns a new *IndexConfig with the
+// given index URL.  The rest of the fields are set to the corresponding
 // [filtertest] values.
-func newConfigRuleLists(indexURL *url.URL) (c *filterstorage.RuleListsConfig) {
-	return &filterstorage.RuleListsConfig{
+func newIndexConfig(indexURL *url.URL) (c *filterstorage.IndexConfig) {
+	return &filterstorage.IndexConfig{
 		IndexURL:            indexURL,
 		IndexMaxSize:        filtertest.FilterMaxSize,
 		MaxSize:             filtertest.FilterMaxSize,
@@ -203,6 +223,7 @@ func newConfigRuleLists(indexURL *url.URL) (c *filterstorage.RuleListsConfig) {
 		Staleness:           filtertest.Staleness,
 		ResultCacheCount:    filtertest.CacheCount,
 		ResultCacheEnabled:  true,
+		Enabled:             true,
 	}
 }
 

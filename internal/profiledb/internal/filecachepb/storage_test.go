@@ -34,8 +34,9 @@ func TestStorage(t *testing.T) {
 	}
 
 	ctx := profiledbtest.ContextWithTimeout(t)
-	err := s.Store(ctx, fc)
+	n, err := s.Store(ctx, fc)
 	require.NoError(t, err)
+	assert.Positive(t, n)
 
 	gotFC, err := s.Load(ctx)
 	require.NoError(t, err)

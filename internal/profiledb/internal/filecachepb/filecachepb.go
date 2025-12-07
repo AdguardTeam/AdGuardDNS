@@ -138,6 +138,7 @@ func (x *Profile) toInternal(
 			Enabled: pbFltConf.Custom.Enabled,
 		},
 		Parental: &filter.ConfigParental{
+			Categories:    categoryFilterToInternal(pbFltConf.CategoryFilter),
 			PauseSchedule: schedule,
 			// Consider blocked-service IDs to have been prevalidated.
 			BlockedServices: agdprotobuf.UnsafelyConvertStrSlice[string, filter.BlockedServiceID](
@@ -190,6 +191,25 @@ func (x *Profile) toInternal(
 		IPLogEnabled:        x.IpLogEnabled,
 		QueryLogEnabled:     x.QueryLogEnabled,
 	}, nil
+}
+
+// categoryFilterToInternal converts filter config's protobuf category filter
+// structure to internal one.  If pbCatFlt is nil, returns a disabled config.
+func categoryFilterToInternal(
+	pbCatFlt *FilterConfig_CategoryFilter,
+) (c *filter.ConfigCategories) {
+	if pbCatFlt == nil {
+		return &filter.ConfigCategories{
+			Enabled: false,
+		}
+	}
+
+	// Consider the categories to have been prevalidated.
+	ids := agdprotobuf.UnsafelyConvertStrSlice[string, filter.CategoryID](pbCatFlt.GetIds())
+	return &filter.ConfigCategories{
+		IDs:     ids,
+		Enabled: pbCatFlt.GetEnabled(),
+	}
 }
 
 // toInternal converts a protobuf protection-schedule structure to an internal
@@ -473,7 +493,7 @@ func dohPasswordToInternal(
 ) (p agdpasswd.Authenticator, err error) {
 	switch pbp := pbp.(type) {
 	case nil:
-		return nil, nil
+		return agdpasswd.AllowAuthenticator{}, nil
 	case *AuthenticationSettings_PasswordHashBcrypt:
 		return agdpasswd.NewPasswordHashBcrypt(pbp.PasswordHashBcrypt), nil
 	default:
@@ -657,6 +677,14 @@ func filterConfigToProtobuf(c *filter.ConfigClient) (fc *FilterConfig) {
 	}
 
 	return &FilterConfig{
+		// TODO(a.garipov):  Move to parental.
+		CategoryFilter: &FilterConfig_CategoryFilter{
+			Enabled: c.Parental.Categories.Enabled,
+			Ids: agdprotobuf.UnsafelyConvertStrSlice[
+				filter.CategoryID,
+				string,
+			](c.Parental.Categories.IDs),
+		},
 		Custom: &FilterConfig_Custom{
 			Rules:   rules,
 			Enabled: c.Custom.Enabled,
@@ -767,8 +795,8 @@ func blockingModeToProtobuf(m dnsmsg.BlockingMode) (pbBlockingMode isProfile_Blo
 	case *dnsmsg.BlockingModeCustomIP:
 		return &Profile_BlockingModeCustomIp{
 			BlockingModeCustomIp: &BlockingModeCustomIP{
-				Ipv4: ipsToByteSlices(m.IPv4),
-				Ipv6: ipsToByteSlices(m.IPv6),
+				Ipv4: agdprotobuf.IPsToByteSlices(m.IPv4),
+				Ipv6: agdprotobuf.IPsToByteSlices(m.IPv6),
 			},
 		}
 	case *dnsmsg.BlockingModeNXDOMAIN:
@@ -799,8 +827,8 @@ func adultBlockingModeToProtobuf(
 	case *dnsmsg.BlockingModeCustomIP:
 		return &Profile_AdultBlockingModeCustomIp{
 			AdultBlockingModeCustomIp: &BlockingModeCustomIP{
-				Ipv4: ipsToByteSlices(m.IPv4),
-				Ipv6: ipsToByteSlices(m.IPv6),
+				Ipv4: agdprotobuf.IPsToByteSlices(m.IPv4),
+				Ipv6: agdprotobuf.IPsToByteSlices(m.IPv6),
 			},
 		}
 	case *dnsmsg.BlockingModeNXDOMAIN:
@@ -831,8 +859,8 @@ func safeBrowsingBlockingModeToProtobuf(
 	case *dnsmsg.BlockingModeCustomIP:
 		return &Profile_SafeBrowsingBlockingModeCustomIp{
 			SafeBrowsingBlockingModeCustomIp: &BlockingModeCustomIP{
-				Ipv4: ipsToByteSlices(m.IPv4),
-				Ipv6: ipsToByteSlices(m.IPv6),
+				Ipv4: agdprotobuf.IPsToByteSlices(m.IPv4),
+				Ipv6: agdprotobuf.IPsToByteSlices(m.IPv6),
 			},
 		}
 	case *dnsmsg.BlockingModeNXDOMAIN:
@@ -850,29 +878,6 @@ func safeBrowsingBlockingModeToProtobuf(
 	default:
 		panic(fmt.Errorf("bad safe browsing blocking mode %T(%[1]v)", m))
 	}
-}
-
-// ipsToByteSlices is a wrapper around netip.Addr.MarshalBinary that ignores the
-// always-nil errors.
-func ipsToByteSlices(ips []netip.Addr) (data [][]byte) {
-	if ips == nil {
-		return nil
-	}
-
-	data = make([][]byte, 0, len(ips))
-	for _, ip := range ips {
-		data = append(data, ipToBytes(ip))
-	}
-
-	return data
-}
-
-// ipToBytes is a wrapper around netip.Addr.MarshalBinary that ignores the
-// always-nil error.
-func ipToBytes(ip netip.Addr) (b []byte) {
-	b, _ = ip.MarshalBinary()
-
-	return b
 }
 
 // ratelimiterToProtobuf converts the rate-limit settings to protobuf.
@@ -895,10 +900,10 @@ func devicesToProtobuf(devices []*agd.Device) (pbDevices []*Device) {
 		pbDevices = append(pbDevices, &Device{
 			Authentication:   authToProtobuf(d.Auth),
 			DeviceId:         string(d.ID),
-			LinkedIp:         ipToBytes(d.LinkedIP),
+			LinkedIp:         agdprotobuf.IPToBytes(d.LinkedIP),
 			HumanIdLower:     string(d.HumanIDLower),
 			DeviceName:       string(d.Name),
-			DedicatedIps:     ipsToByteSlices(d.DedicatedIPs),
+			DedicatedIps:     agdprotobuf.IPsToByteSlices(d.DedicatedIPs),
 			FilteringEnabled: d.FilteringEnabled,
 		})
 	}
@@ -925,7 +930,9 @@ func dohPasswordToProtobuf(
 	p agdpasswd.Authenticator,
 ) (pbp isAuthenticationSettings_DohPasswordHash) {
 	switch p := p.(type) {
-	case agdpasswd.AllowAuthenticator:
+	// TODO(a.garipov):  Remove nil once we make sure that the caches on prod
+	// are valid.
+	case nil, agdpasswd.AllowAuthenticator:
 		return nil
 	case *agdpasswd.PasswordHashBcrypt:
 		return &AuthenticationSettings_PasswordHashBcrypt{

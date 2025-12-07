@@ -9,6 +9,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/domain"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 )
@@ -27,6 +28,10 @@ type Config struct {
 	// default filter storage.  It must not be nil
 	BlockedServices *BlockedServicesConfig
 
+	// CategoryDomainsIndex is the domain-list configuration of a category
+	// filter storage.  It must not be nil.
+	CategoryDomainsIndex *IndexConfig
+
 	// Custom is the configuration of a custom filters storage for a default
 	// filter storage.  It must not be nil
 	Custom *CustomConfig
@@ -35,9 +40,9 @@ type Config struct {
 	// storage.  It must not be nil
 	HashPrefix *HashPrefixConfig
 
-	// RuleLists is the rule-list configuration for a default filter storage.
-	// It must not be nil.
-	RuleLists *RuleListsConfig
+	// RuleListsIndex is the rule-list index configuration for a default filter
+	// storage.  It must not be nil.
+	RuleListsIndex *IndexConfig
 
 	// SafeSearchGeneral is the general safe-search configuration for a default
 	// filter storage.  It must not be nil.
@@ -58,16 +63,26 @@ type Config struct {
 	// It must not be nil.
 	Clock timeutil.Clock
 
+	// DomainMetrics is the metrics for the domain filters in the storage.  It
+	// must not be nil, if [Config.CategoryDomainsIndex.Enabled] is true.
+	DomainMetrics domain.Metrics
+
 	// ErrColl is used to collect non-critical and rare errors as well as
 	// refresh errors.  It must not be nil.
 	ErrColl errcoll.Interface
 
-	// Metrics are the metrics for the filters in the storage.
+	// Metrics are the metrics for the filters in the storage.  It must not be
+	// nil.
 	Metrics filter.Metrics
 
 	// CacheDir is the path to the directory where the cached filter files are
 	// put.  It must not be empty and the directory must exist.
 	CacheDir string
+
+	// DomainFilterSubDomainNum defines how many labels should be hashed to
+	// match against a hash prefix filter.  It must be positive and fit into
+	// int.
+	DomainFilterSubDomainNum uint
 }
 
 // BlockedServicesConfig is the blocked-service filter configuration for a
@@ -130,30 +145,30 @@ type HashPrefixConfig struct {
 	NewlyRegistered *hashprefix.Filter
 }
 
-// RuleListsConfig is the rule-list configuration for a default filter storage.
-type RuleListsConfig struct {
-	// IndexURL is the URL of the rule-list filter index.  It must not be
-	// modified after calling [New].  It must not be nil.
+// IndexConfig is the filters index configuration for a default filter storage.
+type IndexConfig struct {
+	// IndexURL is the URL of the filter index.  It must not be modified after
+	// calling [New].  It must not be nil.
 	IndexURL *url.URL
 
-	// IndexMaxSize is the maximum size of the downloadable filter-index
+	// IndexMaxSize is the maximum size of the downloadable filter index
 	// content.  It must be positive.
 	IndexMaxSize datasize.ByteSize
 
-	// MaxSize is the maximum size of the content of a single rule-list filter.
-	// It must be positive.
+	// MaxSize is the maximum size of the content of a single filter index.  It
+	// must be positive.
 	MaxSize datasize.ByteSize
 
-	// IndexRefreshTimeout is the timeout for the update of the rule-list filter
-	// index.  It must be positive.
+	// IndexRefreshTimeout is the timeout for the update of the filter index.
+	// It must be positive.
 	IndexRefreshTimeout time.Duration
 
 	// IndexStaleness is the time after which the cached index file is
 	// considered stale.  It must be positive.
 	IndexStaleness time.Duration
 
-	// RefreshTimeout is the timeout for the update of a single rule-list
-	// filter.  It must be positive.
+	// RefreshTimeout is the timeout for the update of a single filter.  It must
+	// be positive.
 	RefreshTimeout time.Duration
 
 	// Staleness is the time after which the cached filter files are considered
@@ -161,11 +176,14 @@ type RuleListsConfig struct {
 	Staleness time.Duration
 
 	// ResultCacheCount is the count of items to keep in the LRU result cache of
-	// a single rule-list filter.  It must be greater than zero.
+	// a single filter.  It must be greater than zero.
 	ResultCacheCount int
 
-	// ResultCacheEnabled enables caching of results of the rule-list filters.
+	// ResultCacheEnabled enables caching of results of the filters.
 	ResultCacheEnabled bool
+
+	// Enabled shows whether the filters index is enabled.
+	Enabled bool
 }
 
 // SafeSearchConfig is the single safe-search configuration for a default filter

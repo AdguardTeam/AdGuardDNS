@@ -2,71 +2,56 @@ package dnsservertest
 
 import (
 	"context"
+	"slices"
 	"sync"
 
-	"github.com/quic-go/quic-go/logging"
+	"github.com/quic-go/quic-go"
+	"github.com/quic-go/quic-go/qlog"
+	"github.com/quic-go/quic-go/qlogwriter"
 )
 
-// QUICTracer is a helper structure for tracing QUIC connections.
-type QUICTracer struct {
-	// mu protects fields of *QUICTracer and also protects fields of every
-	// nested *quicConnTracer.
-	mu *sync.Mutex
-
-	connTracers []*quicConnTracer
+// Tracer collects QUIC connection traces for testing.
+//
+// TODO(f.setrakov): Consider moving to golibs.
+type Tracer struct {
+	tracers []*quicTracer
 }
 
-// NewQUICTracer returns a new QUIC tracer helper.
-func NewQUICTracer() (t *QUICTracer) {
-	return &QUICTracer{
-		mu: &sync.Mutex{},
-	}
-}
-
-// TracerForConnection implements the logging.Tracer interface for *quicTracer.
-func (t *QUICTracer) TracerForConnection(
+// TraceForConnection creates a tracer for a QUIC connection.
+func (t *Tracer) TraceForConnection(
 	_ context.Context,
-	_ logging.Perspective,
-	_ logging.ConnectionID,
-) (connTracer *logging.ConnectionTracer) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	_ bool,
+	_ quic.ConnectionID,
+) (tracer qlogwriter.Trace) {
+	newTracer := &quicTracer{recorder: &headerRecorder{}}
+	t.tracers = append(t.tracers, newTracer)
 
-	ct := &quicConnTracer{
-		parentMu: t.mu,
-	}
-
-	t.connTracers = append(t.connTracers, ct)
-
-	return &logging.ConnectionTracer{
-		SentLongHeaderPacket: ct.SentLongHeaderPacket,
-	}
+	return newTracer
 }
 
-// ConnectionsInfo returns the traced connections' information.
-func (t *QUICTracer) ConnectionsInfo() (conns []*QUICConnInfo) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+// ConnectionsInfo returns info for all traced connections.
+func (t *Tracer) ConnectionsInfo() (res []*connInfo) {
+	res = make([]*connInfo, 0, len(t.tracers))
+	for _, tracer := range t.tracers {
+		hdrs := tracer.recorder.headersWithLock()
 
-	for _, tracer := range t.connTracers {
-		conns = append(conns, &QUICConnInfo{
-			headers: tracer.headers,
+		res = append(res, &connInfo{
+			headers: hdrs,
 		})
 	}
 
-	return conns
+	return res
 }
 
-// QUICConnInfo contains information about packets that were recorded by a
-// [QUICTracer].
-type QUICConnInfo struct {
-	headers []*logging.Header
+// connInfo contains all trace event headers recorded for single connection.
+type connInfo struct {
+	headers []qlog.PacketHeader
 }
 
-// Is0RTT returns true if this connection's packets contain 0-RTT packets.
-func (c *QUICConnInfo) Is0RTT() (ok bool) {
+// Is0RTT returns true if the connection used 0-RTT packets.
+func (c *connInfo) Is0RTT() (ok bool) {
 	for _, hdr := range c.headers {
-		if t := logging.PacketTypeFromHeader(hdr); t == logging.PacketType0RTT {
+		if hdr.PacketType == qlog.PacketType0RTT {
 			return true
 		}
 	}
@@ -74,23 +59,60 @@ func (c *QUICConnInfo) Is0RTT() (ok bool) {
 	return false
 }
 
-// quicConnTracer is a helper structure for tracing QUIC connections.
-type quicConnTracer struct {
-	parentMu *sync.Mutex
-	headers  []*logging.Header
+// quicTracer is an implementation of [qlogwriter.Trace] for testing.
+type quicTracer struct {
+	// recorder is used for recording trace events.  It must not be nil.
+	recorder *headerRecorder
 }
 
-// SentLongHeaderPacket is a method for the [logging.ConnectionTracer] method.
-func (q *quicConnTracer) SentLongHeaderPacket(
-	extHdr *logging.ExtendedHeader,
-	_ logging.ByteCount,
-	_ logging.ECN,
-	_ *logging.AckFrame,
-	_ []logging.Frame,
-) {
-	q.parentMu.Lock()
-	defer q.parentMu.Unlock()
+// type check
+var _ qlogwriter.Trace = (*quicTracer)(nil)
 
-	hdr := extHdr.Header
-	q.headers = append(q.headers, &hdr)
+// AddProducer implements the [qlogwriter.Trace] interface for *quicTracer.
+func (q *quicTracer) AddProducer() (recorder qlogwriter.Recorder) {
+	return q.recorder
+}
+
+// SupportsSchemas implements the [qlogwriter.Trace] interface for *quicTracer.
+func (q *quicTracer) SupportsSchemas(_ string) (ok bool) {
+	return false
+}
+
+// Recorder is an implementation of [qlogwriter.Recorder] that records
+// [qlog.PacketSent] events headers.
+type headerRecorder struct {
+	headers []qlog.PacketHeader
+	mx      sync.Mutex
+}
+
+// type check
+var _ qlogwriter.Recorder = (*headerRecorder)(nil)
+
+// RecordEvent implements the [qlogwriter.Recorder] interface for
+// *headerRecorder.
+func (r *headerRecorder) RecordEvent(ev qlogwriter.Event) {
+	event, ok := ev.(qlog.PacketSent)
+	if !ok {
+		return
+	}
+
+	r.mx.Lock()
+	defer r.mx.Unlock()
+
+	r.headers = append(r.headers, event.Header)
+}
+
+// headersWithLock returns copy of recorded headers.  It is safe for concurrent
+// use.
+func (r *headerRecorder) headersWithLock() (res []qlog.PacketHeader) {
+	r.mx.Lock()
+	defer r.mx.Unlock()
+
+	return slices.Clone(r.headers)
+}
+
+// Close implements the [qlogwriter.Recorder] interface for
+// *headerRecorder.
+func (*headerRecorder) Close() (err error) {
+	return nil
 }

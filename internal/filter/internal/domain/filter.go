@@ -34,9 +34,6 @@ type FilterConfig struct {
 	// Logger is used for logging the operation of the filter.
 	Logger *slog.Logger
 
-	// Cloner is used to clone messages taken from filtering-result cache.
-	Cloner *dnsmsg.Cloner
-
 	// CacheManager is the global cache manager.  CacheManager must not be nil.
 	CacheManager agdcache.Manager
 
@@ -56,8 +53,13 @@ type FilterConfig struct {
 	// domain.
 	PublicSuffixList cookiejar.PublicSuffixList
 
-	// ID is the ID of this storage for logging and error reporting.
-	ID filter.ID
+	// CategoryID is the category identifier used for logging and error
+	// reporting.
+	CategoryID filter.CategoryID
+
+	// ResultListID is the identifier of the filter list used in the request
+	// filtering result.
+	ResultListID filter.ID
 
 	// CachePath is the path to the file containing the cached filtered
 	// hostnames, one per line.
@@ -91,7 +93,6 @@ type FilterConfig struct {
 // TODO(f.setrakov): Consider DRYing it with the hasprefix filter.
 type Filter struct {
 	logger           *slog.Logger
-	cloner           *dnsmsg.Cloner
 	domains          *atomic.Pointer[container.MapSet[string]]
 	refr             *refreshable.Refreshable
 	subDomainsPool   *syncutil.Pool[[]string]
@@ -100,7 +101,8 @@ type Filter struct {
 	publicSuffixList cookiejar.PublicSuffixList
 	metrics          filter.Metrics
 	resCache         agdcache.Interface[rulelist.CacheKey, filter.Result]
-	id               filter.ID
+	catID            filter.CategoryID
+	resListID        filter.ID
 	subDomainNum     int
 }
 
@@ -110,21 +112,19 @@ type Filter struct {
 // TODO(a.garipov):  Consider better names.
 const IDPrefix = "filters/domain"
 
-// NewFilter returns a new domain filter.  It also adds the caches with IDs
-// [FilterListIDAdultBlocking], [FilterListIDSafeBrowsing], and
-// [FilterListIDNewRegDomains] to the cache manager.  c must not be nil.
+// NewFilter returns a new domain filter.  It adds the cache to the cache
+// manager specified in c.  c must not be nil.
 func NewFilter(c *FilterConfig) (f *Filter, err error) {
-	id := c.ID
+	catID := c.CategoryID
 
 	resCache := agdcache.NewLRU[rulelist.CacheKey, filter.Result](&agdcache.LRUConfig{
 		Count: c.CacheCount,
 	})
 
-	c.CacheManager.Add(path.Join(IDPrefix, string(id)), resCache)
+	c.CacheManager.Add(path.Join(IDPrefix, string(catID)), resCache)
 
 	f = &Filter{
 		logger:  c.Logger,
-		cloner:  c.Cloner,
 		domains: &atomic.Pointer[container.MapSet[string]]{},
 		errColl: c.ErrColl,
 		// #nosec G115 -- Assume that c.SubDomainNum is always less then or
@@ -136,7 +136,8 @@ func NewFilter(c *FilterConfig) (f *Filter, err error) {
 		metrics:          c.Metrics,
 		publicSuffixList: c.PublicSuffixList,
 		resCache:         resCache,
-		id:               id,
+		catID:            catID,
+		resListID:        c.ResultListID,
 		// #nosec G115 -- The value is a constant less than int accommodates.
 		subDomainNum: int(c.SubDomainNum),
 	}
@@ -144,7 +145,7 @@ func NewFilter(c *FilterConfig) (f *Filter, err error) {
 	f.refr, err = refreshable.New(&refreshable.Config{
 		Logger:    f.logger,
 		URL:       c.URL,
-		ID:        id,
+		ID:        filter.ID(catID),
 		CachePath: c.CachePath,
 		Staleness: c.Staleness,
 		Timeout:   c.RefreshTimeout,
@@ -158,7 +159,7 @@ func NewFilter(c *FilterConfig) (f *Filter, err error) {
 }
 
 // FilterRequest implements the [composite.RequestFilter] interface for *Filter.
-// It modifies the request or response if host matches f.
+// It blocks the request if host matches f.
 func (f *Filter) FilterRequest(
 	ctx context.Context,
 	req *filter.Request,
@@ -167,9 +168,9 @@ func (f *Filter) FilterRequest(
 
 	cacheKey := rulelist.NewCacheKey(host, qt, cl, false)
 	item, ok := f.resCache.Get(cacheKey)
-	f.domainMtrc.IncrementLookups(ctx, ok)
+	f.domainMtrc.IncrementLookups(ctx, f.catID, ok)
 	if ok {
-		return f.clonedResult(req.DNS, item), nil
+		return item, nil
 	}
 
 	if !isFilterable(qt) {
@@ -197,15 +198,14 @@ func (f *Filter) FilterRequest(
 		return nil, nil
 	}
 
-	r, err = f.filteredResult(req, matched)
-	if err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		return nil, err
+	r = &filter.ResultBlocked{
+		List: f.resListID,
+		Rule: filter.RuleText(f.catID),
 	}
 
-	f.setInCache(cacheKey, r)
+	f.resCache.Set(cacheKey, r)
 
-	f.domainMtrc.UpdateCacheSize(ctx, f.resCache.Len())
+	f.domainMtrc.UpdateCacheSize(ctx, f.catID, f.resCache.Len())
 
 	return r, nil
 }
@@ -215,55 +215,6 @@ func isFilterable(qt dnsmsg.RRType) (ok bool) {
 	fam := netutil.AddrFamilyFromRRType(qt)
 
 	return qt == dns.TypeHTTPS || fam != netutil.AddrFamilyNone
-}
-
-// clonedResult returns a clone of the result based on its type.  r must be nil,
-// [*filter.ResultModifiedRequest], or [*filter.ResultModifiedResponse].
-func (f *Filter) clonedResult(req *dns.Msg, r filter.Result) (clone filter.Result) {
-	switch r := r.(type) {
-	case nil:
-		return nil
-	case *filter.ResultModifiedRequest:
-		return r.Clone(f.cloner)
-	case *filter.ResultModifiedResponse:
-		return r.CloneForReq(f.cloner, req)
-	default:
-		panic(fmt.Errorf("domain: unexpected type for result: %T(%[1]v)", r))
-	}
-}
-
-// filteredResult returns a filtered request or response.
-func (f *Filter) filteredResult(
-	req *filter.Request,
-	matched string,
-) (r filter.Result, err error) {
-	resp, err := req.Messages.NewBlockedResp(req.DNS, nil)
-	if err != nil {
-		return nil, fmt.Errorf("filter %s: creating modified result: %w", f.id, err)
-	}
-
-	return &filter.ResultModifiedResponse{
-		Msg:  resp,
-		List: f.id,
-		Rule: filter.RuleText(matched),
-	}, nil
-}
-
-// setInCache sets r in cache.  It clones the result to make sure that
-// modifications to the result message down the pipeline don't interfere with
-// the cached value.  r must be either [*filter.ResultModifiedRequest] or
-// [*filter.ResultModifiedResponse].
-//
-// See AGDNS-359.
-func (f *Filter) setInCache(k rulelist.CacheKey, r filter.Result) {
-	switch r := r.(type) {
-	case *filter.ResultModifiedRequest:
-		f.resCache.Set(k, r.Clone(f.cloner))
-	case *filter.ResultModifiedResponse:
-		f.resCache.Set(k, r.Clone(f.cloner))
-	default:
-		panic(fmt.Errorf("domain: unexpected type for result: %T(%[1]v)", r))
-	}
 }
 
 // type check
@@ -276,7 +227,7 @@ func (f *Filter) Refresh(ctx context.Context) (err error) {
 
 	err = f.refresh(ctx, false)
 	if err != nil {
-		errcoll.Collect(ctx, f.errColl, f.logger, fmt.Sprintf("refreshing %q", f.id), err)
+		errcoll.Collect(ctx, f.errColl, f.logger, fmt.Sprintf("refreshing %q", f.catID), err)
 	}
 
 	return err
@@ -303,7 +254,8 @@ func (f *Filter) refresh(ctx context.Context, acceptStale bool) (err error) {
 	var count int
 	defer func() {
 		// TODO(a.garipov):  Consider using [agdtime.Clock].
-		f.metrics.SetFilterStatus(ctx, string(f.id), time.Now(), count, err)
+		// TODO(a.garipov):  Consider using a prefix or a label for categories.
+		f.metrics.SetFilterStatus(ctx, string(f.catID), time.Now(), count, err)
 	}()
 
 	b, err := f.refr.Refresh(ctx, acceptStale)
@@ -314,7 +266,7 @@ func (f *Filter) refresh(ctx context.Context, acceptStale bool) (err error) {
 
 	count, err = f.resetDomains(b)
 	if err != nil {
-		return fmt.Errorf("%s: resetting: %w", f.id, err)
+		return fmt.Errorf("%s: resetting: %w", f.catID, err)
 	}
 
 	f.resCache.Clear()

@@ -70,6 +70,10 @@ type Custom interface {
 
 // ConfigParental is the configuration for parental-control filtering.
 type ConfigParental struct {
+	// Categories is the configuration for category filtering.  It must not be
+	// nil.  It is ignored if [ConfigParental.Enabled] is false.
+	Categories *ConfigCategories
+
 	// PauseSchedule is the schedule for the pausing of the parental-control
 	// filtering.  If it is nil, the parental-control filtering is never paused.
 	// It is ignored if [ConfigParental.Enabled] is false.
@@ -94,6 +98,16 @@ type ConfigParental struct {
 	// SafeSearchYouTubeEnabled shows whether the YouTube safe-search filtering
 	// should be enforced.  It is ignored if [ConfigParental.Enabled] is false.
 	SafeSearchYouTubeEnabled bool
+}
+
+// ConfigCategories is the configuration for category filtering.
+type ConfigCategories struct {
+	// IDs are the IDs of the filtering categories used for this filtering
+	// configuration.  They are ignored if [ConfigRuleList.Enabled] is false.
+	IDs []CategoryID
+
+	// Enabled shows whether the category filtering is enabled.
+	Enabled bool
 }
 
 // ConfigRuleList is the configuration for rule-list based filtering.

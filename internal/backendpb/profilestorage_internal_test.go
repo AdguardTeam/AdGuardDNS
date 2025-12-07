@@ -631,7 +631,11 @@ func NewTestDNSProfile(tb testing.TB) (dp *DNSProfile) {
 		},
 		BlockChromePrefetch: true,
 		CustomDomain:        customDomain,
-		AccountId:           TestAccountIDStr,
+		CategoryFilter: &CategoryFilterSettings{
+			Ids:     []string{"games"},
+			Enabled: true,
+		},
+		AccountId: TestAccountIDStr,
 	}
 }
 
@@ -666,7 +670,13 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 		Enabled: true,
 	}
 
+	wantCategories := &filter.ConfigCategories{
+		Enabled: true,
+		IDs:     []filter.CategoryID{"games"},
+	}
+
 	wantParental := &filter.ConfigParental{
+		Categories: wantCategories,
 		PauseSchedule: &filter.ConfigSchedule{
 			Week: &filter.WeeklySchedule{
 				nil,

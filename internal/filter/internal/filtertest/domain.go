@@ -14,21 +14,22 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
-// NewDomainFilter is a helper constructor of domain filters for tests.
+// NewDomainFilter is a helper constructor of domain filters for tests.  Sets
+// the filter category ID to [CategoryID].
 func NewDomainFilter(tb testing.TB, data string) (f *domain.Filter) {
 	tb.Helper()
 
 	cachePath, srvURL := PrepareRefreshable(tb, nil, data, http.StatusOK)
 	f, err := domain.NewFilter(&domain.FilterConfig{
 		Logger:           slogutil.NewDiscardLogger(),
-		Cloner:           agdtest.NewCloner(),
 		CacheManager:     agdcache.EmptyManager{},
 		URL:              srvURL,
 		ErrColl:          agdtest.NewErrorCollector(),
 		DomainMetrics:    domain.EmptyMetrics{},
 		Metrics:          filter.EmptyMetrics{},
 		PublicSuffixList: publicsuffix.List,
-		ID:               RuleListIDDomain,
+		CategoryID:       CategoryID,
+		ResultListID:     filter.IDCategory,
 		CachePath:        cachePath,
 		Staleness:        Staleness,
 		CacheTTL:         CacheTTL,

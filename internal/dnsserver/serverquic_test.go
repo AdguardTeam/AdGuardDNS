@@ -117,12 +117,12 @@ func TestServerQUIC_integration_0RTT(t *testing.T) {
 		return srv.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
 	})
 
-	quicTracer := dnsservertest.NewQUICTracer()
+	quicTracer := dnsservertest.Tracer{}
 
 	// quicConfig with TokenStore set so that 0-RTT was enabled.
 	quicConfig := &quic.Config{
 		TokenStore: quic.NewLRUTokenStore(1, 10),
-		Tracer:     quicTracer.TracerForConnection,
+		Tracer:     quicTracer.TraceForConnection,
 	}
 
 	// ClientSessionCache in the tls.Config must also be set for 0-RTT to work.
@@ -141,6 +141,33 @@ func TestServerQUIC_integration_0RTT(t *testing.T) {
 	require.Len(t, conns, 2)
 	require.False(t, conns[0].Is0RTT())
 	require.True(t, conns[1].Is0RTT())
+}
+
+// testQUICExchange initializes a new QUIC connection and sends one test DNS
+// query through it.
+func testQUICExchange(
+	t *testing.T,
+	addr *net.UDPAddr,
+	tlsConfig *tls.Config,
+	quicConfig *quic.Config,
+) {
+	conn, err := quic.DialAddrEarly(context.Background(), addr.String(), tlsConfig, quicConfig)
+	require.NoError(t, err)
+
+	defer testutil.CleanupAndRequireSuccess(t, func() (err error) {
+		return conn.CloseWithError(0, "")
+	})
+
+	defer func(conn *quic.Conn, code quic.ApplicationErrorCode, s string) {
+		_ = conn.CloseWithError(code, s)
+	}(conn, 0, "")
+
+	// Create a test message.
+	req := dnsservertest.NewReq("example.org.", dns.TypeA, dns.ClassINET)
+	req.RecursionDesired = true
+
+	resp := requireSendQUICMessage(t, conn, req)
+	require.NotNil(t, resp)
 }
 
 func TestServerQUIC_integration_largeQuery(t *testing.T) {
@@ -179,33 +206,6 @@ func TestServerQUIC_integration_largeQuery(t *testing.T) {
 	resp := requireSendQUICMessage(t, conn, req)
 	require.NotNil(t, resp)
 	require.True(t, resp.Response)
-}
-
-// testQUICExchange initializes a new QUIC connection and sends one test DNS
-// query through it.
-func testQUICExchange(
-	t *testing.T,
-	addr *net.UDPAddr,
-	tlsConfig *tls.Config,
-	quicConfig *quic.Config,
-) {
-	conn, err := quic.DialAddrEarly(context.Background(), addr.String(), tlsConfig, quicConfig)
-	require.NoError(t, err)
-
-	defer testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return conn.CloseWithError(0, "")
-	})
-
-	defer func(conn *quic.Conn, code quic.ApplicationErrorCode, s string) {
-		_ = conn.CloseWithError(code, s)
-	}(conn, 0, "")
-
-	// Create a test message.
-	req := dnsservertest.NewReq("example.org.", dns.TypeA, dns.ClassINET)
-	req.RecursionDesired = true
-
-	resp := requireSendQUICMessage(t, conn, req)
-	require.NotNil(t, resp)
 }
 
 // sendQUICMessage is a test helper that sends a test QUIC message.

@@ -342,7 +342,9 @@ func newContext(
 	})
 
 	fltConf := &filter.ConfigGroup{
-		Parental: &filter.ConfigParental{},
+		Parental: &filter.ConfigParental{
+			Categories: &filter.ConfigCategories{},
+		},
 		RuleList: &filter.ConfigRuleList{
 			IDs: []filter.ID{
 				dnssvctest.FilterListID1,

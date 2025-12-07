@@ -125,11 +125,23 @@ message DNSProfile {
 
   SafeBrowsingSettings safe_browsing = 5;
   ParentalSettings parental = 6;
+
+  /**
+   * Field rule_lists contains settings for the rule-list filters.  If absent,
+   * the rule-list filtering is disabled.
+   */
   RuleListsSettings rule_lists = 7;
+
   google.protobuf.Duration filtered_response_ttl = 10;
   AccessSettings access = 18;
   RateLimitSettings rate_limit = 20;
   CustomDomainSettings custom_domain = 22;
+
+  /**
+   * Field category_filter contains settings for the category filtering.  If
+   * absent, the category filtering is disabled.
+   */
+  CategoryFilterSettings category_filter = 34;
 
   // One-of fields
 
@@ -316,9 +328,24 @@ message DayRange {
   google.protobuf.Duration end = 2;
 }
 
+/**
+ * Message RuleListsSettings contains settings for the rule-list filters.
+ *
+ * The fields are ordered in a way that optimizes the generated structures'
+ * layouts.
+ */
 message RuleListsSettings {
-  bool enabled = 1;
+  /**
+   * Field ids contains unique identifiers of the rule-list filters being used.
+   * IDs MUST be unique, between 1 and 128 bytes long, and only contain ASCII
+   * symbols with no slashes.
+   */
   repeated string ids = 2;
+
+  /**
+   * Field enabled, if true, enables the rule-list filter feature.
+   */
+  bool enabled = 1;
 }
 
 /**
@@ -465,4 +492,24 @@ message SessionTicketResponse {
 message SessionTicket {
   string name = 1;
   bytes data = 2;
+}
+
+/**
+ * Message CategoryFilterSettings contains settings for the category filtering.
+ *
+ * The fields are ordered in a way that optimizes the generated structures'
+ * layouts.
+ */
+message CategoryFilterSettings {
+  /**
+   * Field ids contains unique identifiers of the categories being blocked.
+   * IDs MUST be unique, between 1 and 128 bytes long, and only contain ASCII
+   * symbols with no slashes.
+   */
+  repeated string ids = 2;
+
+  /**
+   * Field enabled, if true, enables the category filter feature.
+   */
+  bool enabled = 1;
 }

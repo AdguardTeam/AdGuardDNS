@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/netip"
 	"path/filepath"
 	"slices"
@@ -85,6 +86,10 @@ type Default struct {
 	// requests to the storage, unless it's a full synchronization.
 	syncTime time.Time
 
+	// lastCacheSync is the time of the last successful cache file
+	// synchronization.
+	lastCacheSync time.Time
+
 	// lastFullSync is the time of the last successful full synchronization.
 	lastFullSync time.Time
 
@@ -92,6 +97,9 @@ type Default struct {
 	// synchronization.  If the last full synchronization was successful, this
 	// field is time.Time{}.
 	lastFullSyncError time.Time
+
+	// cacheIvl is the interval between two cache file synchronizations.
+	cacheIvl time.Duration
 
 	// fullSyncIvl is the interval between two full synchronizations with the
 	// storage.
@@ -150,6 +158,7 @@ func New(c *Config) (db *Default, err error) {
 		dedicatedIPToDeviceID: make(map[netip.Addr]agd.DeviceID),
 		humanIDToDeviceID:     make(map[humanIDKey]agd.DeviceID),
 		linkedIPToDeviceID:    make(map[netip.Addr]agd.DeviceID),
+		cacheIvl:              c.CacheFileIvl,
 		fullSyncIvl:           c.FullSyncIvl,
 		fullSyncRetryIvl:      c.FullSyncRetryIvl,
 	}
@@ -197,7 +206,7 @@ func (db *Default) Refresh(ctx context.Context) (err error) {
 		db.metrics.HandleProfilesUpdate(ctx, &UpdateMetrics{
 			ProfilesNum: profNum,
 			DevicesNum:  devNum,
-			Duration:    time.Since(startTime),
+			Duration:    db.clock.Now().Sub(startTime),
 			IsSuccess:   err == nil,
 			IsFullSync:  false,
 		})
@@ -215,6 +224,10 @@ func (db *Default) Refresh(ctx context.Context) (err error) {
 	devNum = uint(len(devices))
 
 	db.setProfiles(ctx, profiles, devices, resp.DeviceChanges)
+
+	if db.clock.Now().Sub(db.lastCacheSync) >= db.cacheIvl {
+		return db.storeCache(ctx)
+	}
 
 	return nil
 }
@@ -273,10 +286,7 @@ func (db *Default) applyChanges(p *agd.Profile, devChg *StorageDeviceChange) {
 		return
 	}
 
-	// TODO(a.garipov):  Consider adding container.MapSet.Union.
-	for prevID := range prev.DeviceIDs.Range {
-		p.DeviceIDs.Add(prevID)
-	}
+	p.DeviceIDs = p.DeviceIDs.Union(p.DeviceIDs, prev.DeviceIDs)
 
 	for _, delDevID := range devChg.DeletedDeviceIDs {
 		p.DeviceIDs.Delete(delDevID)
@@ -374,7 +384,7 @@ func (db *Default) refreshFull(ctx context.Context) (err error) {
 		db.metrics.HandleProfilesUpdate(ctx, &UpdateMetrics{
 			ProfilesNum: profNum,
 			DevicesNum:  devNum,
-			Duration:    time.Since(startTime),
+			Duration:    db.clock.Now().Sub(startTime),
 			IsSuccess:   err == nil,
 			IsFullSync:  true,
 		})
@@ -398,15 +408,30 @@ func (db *Default) refreshFull(ctx context.Context) (err error) {
 	db.lastFullSync = db.clock.Now()
 	db.lastFullSyncError = time.Time{}
 
-	err = db.cache.Store(ctx, &internal.FileCache{
+	return db.storeCache(ctx)
+}
+
+// storeCache stores the profiles and devices in db to the cache file.
+func (db *Default) storeCache(ctx context.Context) (err error) {
+	db.mapsMu.RLock()
+	defer db.mapsMu.RUnlock()
+
+	start := db.clock.Now()
+
+	n, err := db.cache.Store(ctx, &internal.FileCache{
 		SyncTime: db.syncTime,
-		Profiles: profiles,
-		Devices:  devices,
+		Profiles: slices.Collect(maps.Values(db.profiles)),
+		Devices:  slices.Collect(maps.Values(db.devices)),
 		Version:  internal.FileCacheVersion,
 	})
 	if err != nil {
 		return fmt.Errorf("saving cache: %w", err)
 	}
+
+	db.lastCacheSync = db.clock.Now()
+	db.metrics.SetLastFileCacheSyncTime(ctx, db.lastCacheSync)
+	db.metrics.SetFileCacheSize(ctx, n)
+	db.metrics.ObserveFileCacheStoreDuration(ctx, db.clock.Now().Sub(start))
 
 	return nil
 }
@@ -461,7 +486,9 @@ func (db *Default) fetchProfiles(
 // be locked.
 func (db *Default) needsFullSync(ctx context.Context) (isFull bool) {
 	lastFull := db.lastFullSync
-	sinceFull := time.Since(lastFull)
+	now := db.clock.Now()
+
+	sinceFull := now.Sub(lastFull)
 
 	if db.lastFullSyncError.IsZero() {
 		return sinceFull >= db.fullSyncIvl
@@ -474,7 +501,7 @@ func (db *Default) needsFullSync(ctx context.Context) (isFull bool) {
 		"last_successful_sync_time", lastFull,
 	)
 
-	sinceLastError := time.Since(db.lastFullSyncError)
+	sinceLastError := now.Sub(db.lastFullSyncError)
 
 	return sinceLastError >= db.fullSyncRetryIvl
 }
@@ -483,10 +510,10 @@ func (db *Default) needsFullSync(ctx context.Context) (isFull bool) {
 // attempt.  db.refreshMu must be locked.
 func (db *Default) sinceLastFull() (sinceFull time.Duration) {
 	if !db.lastFullSyncError.IsZero() {
-		return time.Since(db.lastFullSyncError)
+		return db.clock.Now().Sub(db.lastFullSyncError)
 	}
 
-	return time.Since(db.lastFullSync)
+	return db.clock.Now().Sub(db.lastFullSync)
 }
 
 // loadFileCache loads the profiles data from the filesystem cache.
@@ -519,7 +546,7 @@ func (db *Default) loadFileCache(ctx context.Context) (err error) {
 		"version", c.Version,
 		"prof_num", profNum,
 		"dev_num", devNum,
-		"elapsed", time.Since(start),
+		"elapsed", db.clock.Now().Sub(start),
 	)
 
 	if profNum == 0 || devNum == 0 {
@@ -529,7 +556,7 @@ func (db *Default) loadFileCache(ctx context.Context) (err error) {
 	}
 
 	db.setProfilesFull(ctx, c.Profiles, c.Devices)
-	db.syncTime, db.lastFullSync = c.SyncTime, c.SyncTime
+	db.syncTime, db.lastFullSync, db.lastCacheSync = c.SyncTime, c.SyncTime, c.SyncTime
 
 	return nil
 }

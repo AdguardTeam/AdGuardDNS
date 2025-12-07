@@ -49,6 +49,10 @@ type Config struct {
 	// the string "none", filesystem cache is disabled.  It must not be empty.
 	CacheFilePath string
 
+	// CacheFileIvl is the interval between updates of the profile cache file.
+	// It must be positive if filesystem cache is enabled, see CacheFilePath.
+	CacheFileIvl time.Duration
+
 	// FullSyncIvl is the interval between two full synchronizations with the
 	// storage.  It must be positive.
 	FullSyncIvl time.Duration

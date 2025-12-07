@@ -42,19 +42,18 @@ ecscache() (
 )
 
 fcpb() (
-	# TODO(f.setrakov): Change directory to ./internal/profiledb/internal/, so
-	# we don't need to go up later.
-	cd ./internal/profiledb/internal/filecachepb/
+	cd ./internal/profiledb/internal/fcpb/
 	protoc \
 		--go_opt=paths=source_relative \
-		--go_out=../fcpb/ \
+		--go_out=./ \
 		--go_opt=default_api_level=API_OPAQUE \
-		--go_opt=Mfilecache.proto=github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/fcpb \
-		./filecache.proto
+		--go_opt=Mfc.proto=github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/fcpb \
+		./fc.proto
 )
 
 filecachepb() (
 	cd ./internal/profiledb/internal/filecachepb/
+
 	protoc \
 		--go_opt=paths=source_relative \
 		--go_out=. \

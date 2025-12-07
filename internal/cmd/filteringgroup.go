@@ -114,6 +114,9 @@ type fltGrpParental struct {
 // group.  c must be valid.
 func (c *fltGrpParental) toInternal() (fltConf *filter.ConfigParental) {
 	return &filter.ConfigParental{
+		Categories: &filter.ConfigCategories{
+			Enabled: false,
+		},
 		PauseSchedule:            nil,
 		BlockedServices:          nil,
 		Enabled:                  c.Enabled,

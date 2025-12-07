@@ -281,7 +281,11 @@ func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *backendpb.DNS
 			Rps:     100,
 			Enabled: true,
 		},
-		CustomDomain:                  customDomain,
+		CustomDomain: customDomain,
+		CategoryFilter: &backendpb.CategoryFilterSettings{
+			Ids:     []string{"games"},
+			Enabled: true,
+		},
 		AccountId:                     "acc1234",
 		DeviceChanges:                 deviceChanges,
 		StandardAccessSettingsEnabled: true,

@@ -177,12 +177,17 @@ type jsonlEntry struct {
 	// FilterListID is the ID of the first filter the rules of which matched.
 	// If no rules matched, this field is omitted.
 	//
+	// If the entry is matched by a blocked service, FilterListID is set to
+	// [filter.IDBlockedService].  In case of a category filter, FilterListID
+	// is set to [filter.IDCategory].
+	//
 	// The short name "l" stands for "list of filter rules".
 	FilterListID filter.ID `json:"l,omitempty"`
 
-	// FilterRule is the first rule that matched the request or the ID of the
-	// blocked service, if FilterListID is [filter.IDBlockedService].  If no
-	// rules matched, this field is omitted.
+	// FilterRule is the reason why the request was filtered.  It is the text of
+	// the rule that matched the request, or the ID of the blocked service, or
+	// the ID of the category.  If no rules matched, this field is
+	// omitted.
 	//
 	// The short name "m" stands for "match".
 	FilterRule filter.RuleText `json:"m,omitempty"`

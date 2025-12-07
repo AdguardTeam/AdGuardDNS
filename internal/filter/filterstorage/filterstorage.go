@@ -12,6 +12,7 @@ import (
 const (
 	FilterIDBlockedServiceIndex   filter.ID = "blocked_service_index"
 	FilterIDRuleListIndex         filter.ID = "rule_list_index"
+	FilterIDCategoryDomainsIndex  filter.ID = "category_domains_index"
 	FilterIDStandardProfileAccess filter.ID = "standard_profile_access"
 )
 
@@ -19,6 +20,7 @@ const (
 const (
 	indexFileNameBlockedServices       = "services.json"
 	indexFileNameRuleLists             = "filters.json"
+	indexFileNameCategoryDomains       = "category_filters.json"
 	indexFileNameStandardProfileAccess = "standard_profile_access.json"
 )
 

@@ -75,8 +75,10 @@ func newTestService(
 
 	prof := &agd.Profile{
 		FilterConfig: &filter.ConfigClient{
-			Custom:   &filter.ConfigCustom{},
-			Parental: &filter.ConfigParental{},
+			Custom: &filter.ConfigCustom{},
+			Parental: &filter.ConfigParental{
+				Categories: &filter.ConfigCategories{},
+			},
 			RuleList: &filter.ConfigRuleList{
 				IDs:     []filter.ID{dnssvctest.FilterListID1},
 				Enabled: true,
@@ -206,7 +208,9 @@ func newTestService(
 
 	fltGrp := &agd.FilteringGroup{
 		FilterConfig: &filter.ConfigGroup{
-			Parental: &filter.ConfigParental{},
+			Parental: &filter.ConfigParental{
+				Categories: &filter.ConfigCategories{},
+			},
 			RuleList: &filter.ConfigRuleList{
 				IDs:     []filter.ID{dnssvctest.FilterListID1},
 				Enabled: true,

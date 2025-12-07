@@ -7,6 +7,20 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 [kec]: https://keepachangelog.com/en/1.0.0/
 [sem]: https://semver.org/spec/v2.0.0.html
 
+## AGDNS-3491 / Build 1109
+
+- The new environment variable `CATEGORY_FILTER_ENABLED` has been added.
+
+- The environment variable `CATEGORY_FILTER_INDEX_URL` is no longer required if `CATEGORY_FILTER_ENABLED` is set to `0`.
+
+## AGDNS-3435 / Build 1102
+
+- The new required environment variable `CATEGORY_FILTER_INDEX_URL` has been added.
+
+## AGDNS-3410 / Build 1095
+
+- The environment variable `PROFILES_CACHE_INTERVAL` has been added.
+
 ## AGDNS-3287 / Build 1081
 
 - Profiles’ file cache version has been incremented to support custom block-page data.

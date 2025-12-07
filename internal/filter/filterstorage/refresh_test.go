@@ -23,9 +23,10 @@ import (
 func TestDefault_Refresh(t *testing.T) {
 	// TODO(a.garipov):  Consider ways to DRY this code with [newDefault].
 	const (
-		blockRule = filtertest.RuleBlockStr + "\n"
-		ssGenRule = filtertest.RuleSafeSearchGeneralHostStr + "\n"
-		ssYTRule  = filtertest.RuleSafeSearchYouTubeStr + "\n"
+		blockRule   = filtertest.RuleBlockStr + "\n"
+		blockDomain = filtertest.HostBlocked + "\n"
+		ssGenRule   = filtertest.RuleSafeSearchGeneralHostStr + "\n"
+		ssYTRule    = filtertest.RuleSafeSearchYouTubeStr + "\n"
 	)
 
 	rlCh := make(chan unit, 1)
@@ -34,6 +35,13 @@ func TestDefault_Refresh(t *testing.T) {
 
 	rlIdxCh := make(chan unit, 1)
 	_, ruleListIdxURL := filtertest.PrepareRefreshable(t, rlIdxCh, string(rlIdxData), http.StatusOK)
+
+	catCh := make(chan unit, 1)
+	_, catURL := filtertest.PrepareRefreshable(t, catCh, blockDomain, http.StatusOK)
+	catIdxData := filtertest.NewCategoryIndex(catURL.String())
+
+	catIdxCh := make(chan unit, 1)
+	_, catIdxURL := filtertest.PrepareRefreshable(t, catIdxCh, string(catIdxData), http.StatusOK)
 
 	ssGenCh, ssYTCh := make(chan unit, 1), make(chan unit, 1)
 	_, safeSearchGenURL := filtertest.PrepareRefreshable(t, ssGenCh, ssGenRule, http.StatusOK)
@@ -47,7 +55,7 @@ func TestDefault_Refresh(t *testing.T) {
 		http.StatusOK,
 	)
 
-	c := newDisabledConfig(t, newConfigRuleLists(ruleListIdxURL))
+	c := newDisabledConfig(t, newIndexConfig(ruleListIdxURL), newIndexConfig(catIdxURL))
 	c.BlockedServices = newConfigBlockedServices(svcIdxURL)
 	c.SafeSearchGeneral = newConfigSafeSearch(safeSearchGenURL, filter.IDGeneralSafeSearch)
 	c.SafeSearchYouTube = newConfigSafeSearch(safeSearchYTURL, filter.IDYoutubeSafeSearch)
@@ -60,7 +68,9 @@ func TestDefault_Refresh(t *testing.T) {
 	require.NoError(t, err)
 
 	testutil.RequireReceive(t, rlCh, filtertest.Timeout)
+	testutil.RequireReceive(t, catCh, filtertest.Timeout)
 	testutil.RequireReceive(t, rlIdxCh, filtertest.Timeout)
+	testutil.RequireReceive(t, catIdxCh, filtertest.Timeout)
 	testutil.RequireReceive(t, ssGenCh, filtertest.Timeout)
 	testutil.RequireReceive(t, ssYTCh, filtertest.Timeout)
 	testutil.RequireReceive(t, svcIdxCh, filtertest.Timeout)
@@ -73,7 +83,9 @@ func TestDefault_Refresh(t *testing.T) {
 
 	// Make sure that the servers weren't called the second time.
 	require.Empty(t, rlCh)
+	require.Empty(t, catCh)
 	require.Empty(t, rlIdxCh)
+	require.Empty(t, catIdxCh)
 	require.Empty(t, ssGenCh)
 	require.Empty(t, ssYTCh)
 	require.Empty(t, svcIdxCh)
@@ -83,7 +95,8 @@ func TestDefault_Refresh(t *testing.T) {
 
 func TestDefault_Refresh_usePrevious(t *testing.T) {
 	const (
-		blockRule = filtertest.RuleBlockStr + "\n"
+		blockRule   = filtertest.RuleBlockStr + "\n"
+		blockDomain = filtertest.Host + "\n"
 	)
 
 	codeCh := make(chan int, 2)
@@ -92,21 +105,24 @@ func TestDefault_Refresh_usePrevious(t *testing.T) {
 	ruleListURL := newCodeServer(t, blockRule, codeCh)
 
 	rlIdxData := filtertest.NewRuleListIndex(ruleListURL.String())
-	_, ruleListIdxURL := filtertest.PrepareRefreshable(t, nil, string(rlIdxData), http.StatusOK)
+	_, rlIdxURL := filtertest.PrepareRefreshable(t, nil, string(rlIdxData), http.StatusOK)
+
+	_, catURL := filtertest.PrepareRefreshable(t, nil, blockDomain, http.StatusOK)
+	catIdxData := filtertest.NewCategoryIndex(catURL.String())
+	_, catIdxURL := filtertest.PrepareRefreshable(t, nil, string(catIdxData), http.StatusOK)
 
 	// Use a smaller staleness value to make sure that the filter is refreshed.
-	ruleListsConf := newConfigRuleLists(ruleListIdxURL)
+	ruleListsConf := newIndexConfig(rlIdxURL)
 	ruleListsConf.Staleness = 1 * time.Microsecond
 
-	c := newDisabledConfig(t, ruleListsConf)
-	c.RuleLists = ruleListsConf
+	c := newDisabledConfig(t, ruleListsConf, newIndexConfig(catIdxURL))
 	c.ErrColl = &agdtest.ErrorCollector{
 		OnCollect: func(_ context.Context, err error) {
 			errStatus := &agdhttp.StatusError{}
 			assert.ErrorAs(t, err, &errStatus)
-			assert.Equal(t, errStatus.Expected, http.StatusOK)
-			assert.Equal(t, errStatus.Got, http.StatusNotFound)
-			assert.Equal(t, errStatus.ServerName, filtertest.ServerName)
+			assert.Equal(t, http.StatusOK, errStatus.Expected)
+			assert.Equal(t, http.StatusNotFound, errStatus.Got)
+			assert.Equal(t, filtertest.ServerName, errStatus.ServerName)
 		},
 	}
 
@@ -120,8 +136,10 @@ func TestDefault_Refresh_usePrevious(t *testing.T) {
 	require.True(t, s.HasListID(filtertest.RuleListID1))
 
 	fltConf := &filter.ConfigClient{
-		Custom:   &filter.ConfigCustom{},
-		Parental: &filter.ConfigParental{},
+		Custom: &filter.ConfigCustom{},
+		Parental: &filter.ConfigParental{
+			Categories: &filter.ConfigCategories{},
+		},
 		RuleList: &filter.ConfigRuleList{
 			IDs:     []filter.ID{filtertest.RuleListID1},
 			Enabled: true,

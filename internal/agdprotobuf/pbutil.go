@@ -25,3 +25,26 @@ func ByteSlicesToIPs(data [][]byte) (ips []netip.Addr, err error) {
 
 	return ips, nil
 }
+
+// IPsToByteSlices is a wrapper around [netip.Addr.MarshalBinary] that ignores the
+// always-nil errors.
+func IPsToByteSlices(ips []netip.Addr) (data [][]byte) {
+	if ips == nil {
+		return nil
+	}
+
+	data = make([][]byte, 0, len(ips))
+	for _, ip := range ips {
+		data = append(data, IPToBytes(ip))
+	}
+
+	return data
+}
+
+// IPToBytes is a wrapper around [netip.Addr.MarshalBinary] that ignores the
+// always-nil error.
+func IPToBytes(ip netip.Addr) (b []byte) {
+	b, _ = ip.MarshalBinary()
+
+	return b
+}

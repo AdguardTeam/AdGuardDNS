@@ -55,7 +55,7 @@ readonly committime
 
 # Compile them in.
 version_pkg='github.com/AdguardTeam/AdGuardDNS/internal/version'
-ldflags="-s -w"
+ldflags=""
 ldflags="${ldflags} -X ${version_pkg}.branch=${branch}"
 ldflags="${ldflags} -X ${version_pkg}.committime=${committime}"
 ldflags="${ldflags} -X ${version_pkg}.revision=${revision}"

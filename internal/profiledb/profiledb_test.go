@@ -52,6 +52,7 @@ func newProfileDB(tb testing.TB, c *profiledb.Config) (db *profiledb.Default) {
 	c.Storage = cmp.Or[profiledb.Storage](c.Storage, agdtest.NewProfileStorage())
 
 	c.CacheFilePath = cmp.Or(c.CacheFilePath, "none")
+	c.CacheFileIvl = cmp.Or(c.CacheFileIvl, 1*time.Minute)
 
 	c.FullSyncIvl = cmp.Or(c.FullSyncIvl, 1*time.Minute)
 	c.FullSyncRetryIvl = cmp.Or(c.FullSyncRetryIvl, 1*time.Minute)

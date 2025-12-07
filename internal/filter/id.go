@@ -60,6 +60,10 @@ const (
 	// by the service blocker.
 	IDBlockedService ID = "blocked_service"
 
+	// IDCategory is the special shared filter ID used when a request was
+	// filtered by a category filter.
+	IDCategory ID = "category"
+
 	// IDCustom is the special shared filter ID used when a request was filtered
 	// by a custom profile rule.
 	IDCustom ID = "custom"

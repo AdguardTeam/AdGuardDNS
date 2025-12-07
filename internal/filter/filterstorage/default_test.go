@@ -71,9 +71,9 @@ func TestNew(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			c := newDisabledConfig(t, newConfigRuleLists(indexURL))
+			c := newDisabledConfig(t, newIndexConfig(indexURL), newIndexConfig(indexURL))
 			c.BlockedServices = tc.services
-			c.RuleLists = newConfigRuleLists(indexURL)
+			c.RuleListsIndex = newIndexConfig(indexURL)
 			c.SafeSearchGeneral = tc.safeSearchGen
 			c.SafeSearchYouTube = tc.safeSearchYT
 			s, err := filterstorage.New(c)
@@ -250,6 +250,7 @@ func TestDefault_ForConfig_common(t *testing.T) {
 // features properly enabled or disabled.
 func newFltConfigParental(hpAdult, svc, ssGen, ssYT bool) (c *filter.ConfigParental) {
 	c = &filter.ConfigParental{
+		Categories:               &filter.ConfigCategories{},
 		Enabled:                  svc || hpAdult || ssGen || ssYT,
 		AdultBlockingEnabled:     hpAdult,
 		SafeSearchGeneralEnabled: ssGen,
@@ -300,9 +301,7 @@ func newFltConfigCli(
 	sbConf *filter.ConfigSafeBrowsing,
 ) (c *filter.ConfigClient) {
 	return &filter.ConfigClient{
-		Custom: &filter.ConfigCustom{
-			Enabled: false,
-		},
+		Custom:       &filter.ConfigCustom{},
 		Parental:     pConf,
 		RuleList:     rlConf,
 		SafeBrowsing: sbConf,

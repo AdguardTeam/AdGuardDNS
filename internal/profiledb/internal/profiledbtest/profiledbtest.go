@@ -16,6 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/container"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/c2h5oh/datasize"
@@ -52,6 +53,26 @@ const WellKnownPath = "/.well-known/pki-validation/abcd1234"
 // Logger is the common logger for tests.
 var Logger = slogutil.NewDiscardLogger()
 
+var (
+	// IPv4 is a common IPv4 address for tests.
+	IPv4 = netip.MustParseAddr("192.0.2.0")
+
+	// IPv6 is a common IPv6 address for tests.
+	IPv6 = netip.MustParseAddr("2001:db8::")
+
+	// IPv4Bytes is a common binary marshalled IPv4 address for tests.
+	IPv4Bytes = errors.Must(IPv4.MarshalBinary())
+
+	// IPv6Bytes is a common binary marshalled IPv6 address for tests.
+	IPv6Bytes = errors.Must(IPv6.MarshalBinary())
+
+	// IPv4Prefix is a common IPv4 prefix for tests.
+	IPv4Prefix = netip.PrefixFrom(IPv4, 24)
+
+	// IPv6Prefix is a common IPv6 prefix for tests.
+	IPv6Prefix = netip.PrefixFrom(IPv6, 32)
+)
+
 // ProfileAccessConstructor is the common constructor of profile access managers
 // for tests.
 var ProfileAccessConstructor = access.NewProfileConstructor(&access.ProfileConstructorConfig{
@@ -64,6 +85,26 @@ func ContextWithTimeout(tb testing.TB) (ctx context.Context) {
 	return testutil.ContextWithTimeout(tb, Timeout)
 }
 
+// NewDevice returns a new device with the given ID and name for tests.
+func NewDevice(tb testing.TB, id agd.DeviceID, name agd.DeviceName) (d *agd.Device) {
+	tb.Helper()
+
+	return &agd.Device{
+		Auth: &agd.AuthSettings{
+			Enabled:      true,
+			DoHAuthOnly:  true,
+			PasswordHash: agdpasswd.NewPasswordHashBcrypt([]byte("test")),
+		},
+		ID:       id,
+		LinkedIP: netip.MustParseAddr("1.2.3.4"),
+		Name:     name,
+		DedicatedIPs: []netip.Addr{
+			netip.MustParseAddr("1.2.4.5"),
+		},
+		FilteringEnabled: true,
+	}
+}
+
 // NewProfile returns the common profile and device for tests.  The profile has
 // ID [ProfileID] and the device, [DeviceID].  The response size estimate for
 // the rate limiter is [RespSzEst].
@@ -73,24 +114,13 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 	loc, err := agdtime.LoadLocation("Europe/Brussels")
 	require.NoError(tb, err)
 
-	dev := &agd.Device{
-		Auth: &agd.AuthSettings{
-			Enabled:      true,
-			DoHAuthOnly:  true,
-			PasswordHash: agdpasswd.NewPasswordHashBcrypt([]byte("test")),
-		},
-		ID:       DeviceID,
-		LinkedIP: netip.MustParseAddr("1.2.3.4"),
-		Name:     "dev1",
-		DedicatedIPs: []netip.Addr{
-			netip.MustParseAddr("1.2.4.5"),
-		},
-		FilteringEnabled: true,
-	}
-
 	const schedEnd = 701
 
 	parental := &filter.ConfigParental{
+		Categories: &filter.ConfigCategories{
+			IDs:     []filter.CategoryID{"games"},
+			Enabled: true,
+		},
 		PauseSchedule: &filter.ConfigSchedule{
 			Week: &filter.WeeklySchedule{
 				time.Monday:    {Start: 0, End: schedEnd},
@@ -135,6 +165,8 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 		Logger: Logger,
 		Rules:  []filter.RuleText{"|blocked-by-custom.example^"},
 	}
+
+	dev := NewDevice(tb, DeviceID, "dev1")
 
 	return &agd.Profile{
 		CustomDomains: customDomains,

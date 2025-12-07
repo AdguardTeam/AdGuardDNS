@@ -105,12 +105,12 @@ func BenchmarkCache(b *testing.B) {
 
 	// Most recent results:
 	//
-	// goos: linux
-	// goarch: amd64
+	// goos: darwin
+	// goarch: arm64
 	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecachepb
-	// cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	// BenchmarkCache/to_protobuf-16         	  274957	      5419 ns/op	    3000 B/op	      60 allocs/op
-	// BenchmarkCache/from_protobuf-16       	   40694	     27856 ns/op	    9792 B/op	      70 allocs/op
-	// BenchmarkCache/encode-16              	  171058	      6776 ns/op	     480 B/op	       1 allocs/op
-	// BenchmarkCache/decode-16              	   72825	     14257 ns/op	    3016 B/op	      74 allocs/op
+	// cpu: Apple M1 Pro
+	// BenchmarkCache/to_protobuf-8         	  553504	      2186 ns/op	    3240 B/op	      65 allocs/op
+	// BenchmarkCache/from_protobuf-8       	   49960	     24243 ns/op	   10096 B/op	      77 allocs/op
+	// BenchmarkCache/encode-8              	  456519	      2715 ns/op	     512 B/op	       1 allocs/op
+	// BenchmarkCache/decode-8              	  243376	      5100 ns/op	    3280 B/op	      81 allocs/op
 }

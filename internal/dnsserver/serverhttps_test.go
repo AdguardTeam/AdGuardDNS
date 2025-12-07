@@ -362,12 +362,12 @@ func TestServerHTTPS_0RTT(t *testing.T) {
 		return srv.Shutdown(context.Background())
 	})
 
-	quicTracer := dnsservertest.NewQUICTracer()
+	quicTracer := dnsservertest.Tracer{}
 
 	// quicConfig with TokenStore set so that 0-RTT was enabled.
 	quicConfig := &quic.Config{
 		TokenStore: quic.NewLRUTokenStore(1, 10),
-		Tracer:     quicTracer.TracerForConnection,
+		Tracer:     quicTracer.TraceForConnection,
 	}
 
 	// ClientSessionCache in the tls.Config must also be set for 0-RTT to work.

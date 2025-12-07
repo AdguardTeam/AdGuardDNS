@@ -16,6 +16,7 @@ AdGuard DNS uses information from external HTTP APIs for filtering and other pie
 - [Consul key-value storage](#consul)
 - [Filtering](#filters)
     - [Blocked services](#filters-blocked-services)
+    - [Category filters rule lists](#category-filters-lists)
     - [Filtering rule lists](#filters-lists)
     - [Safe search](#filters-safe-search)
 - [Proxied linked IP and dynamic DNS (DDNS) Endpoints](#backend-linkip)
@@ -99,6 +100,22 @@ This endpoint, defined by [`BLOCKED_SERVICE_INDEX_URL`][env-services], must resp
 
 All properties must be filled with valid IDs and rules. Additional fields in objects are ignored.
 
+### <a href="#category-filters-lists" id="category-filters-lists" name="category-filters-lists">Category filters rule lists</a>
+
+This endpoint, defined by [`CATEGORY_FILTER_INDEX_URL`][env-category-filters], must respond with a `200 OK` response code and a JSON document in the following format:
+
+```json
+{
+  "filters": {
+    "my_category_name": {
+      "downloadUrl": "https://cdn.example.com/assets/category/my_category_name.txt"
+    }
+  }
+}
+```
+
+All properties must be filled with valid IDs and URLs. Additional fields in objects are ignored.
+
 ### <a href="#filters-lists" id="filters-lists" name="filters-lists">Filtering rule lists</a>
 
 This endpoint, defined by [`FILTER_INDEX_URL`][env-filters], must respond with a `200 OK` response code and a JSON document in the following format:
@@ -128,10 +145,11 @@ These endpoints, defined by [`GENERAL_SAFE_SEARCH_URL`][env-general] and [`YOUTU
 |youtubei.googleapis.com^$dnsrewrite=NOERROR;CNAME;restrictmoderate.youtube.com
 ```
 
-[env-filters]:  environment.md#FILTER_INDEX_URL
-[env-general]:  environment.md#GENERAL_SAFE_SEARCH_URL
-[env-services]: environment.md#BLOCKED_SERVICE_INDEX_URL
-[env-youtube]:  environment.md#YOUTUBE_SAFE_SEARCH_URL
+[env-category-filters]: environment.md#CATEGORY_FILTER_INDEX_URL
+[env-filters]:          environment.md#FILTER_INDEX_URL
+[env-general]:          environment.md#GENERAL_SAFE_SEARCH_URL
+[env-services]:         environment.md#BLOCKED_SERVICE_INDEX_URL
+[env-youtube]:          environment.md#YOUTUBE_SAFE_SEARCH_URL
 
 <!--
     TODO(a.garipov): Replace with a link to the new KB when it is finished.

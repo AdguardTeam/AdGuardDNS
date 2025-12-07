@@ -3,6 +3,8 @@ package profiledb
 import (
 	"context"
 	"time"
+
+	"github.com/c2h5oh/datasize"
 )
 
 // Metrics is an interface that is used for the collection of the user profiles
@@ -21,6 +23,17 @@ type Metrics interface {
 
 	// IncrementDeleted increments the total number of deleted user profiles.
 	IncrementDeleted(ctx context.Context)
+
+	// SetLastFileCacheSyncTime sets the time of the last successful cache file
+	// synchronization.
+	SetLastFileCacheSyncTime(ctx context.Context, t time.Time)
+
+	// SetFileCacheSize sets the size of the cache file.
+	SetFileCacheSize(ctx context.Context, size datasize.ByteSize)
+
+	// ObserveFileCacheStoreDuration observes the duration of storing file cache
+	// to disk.
+	ObserveFileCacheStoreDuration(ctx context.Context, d time.Duration)
 }
 
 // UpdateMetrics is an alias for a structure that contains the information about
@@ -64,3 +77,13 @@ func (EmptyMetrics) IncrementSyncTimeouts(_ context.Context, _ bool) {}
 
 // IncrementDeleted implements the [Metrics] interface for EmptyMetrics.
 func (EmptyMetrics) IncrementDeleted(_ context.Context) {}
+
+// SetLastFileCacheSyncTime implements the [Metrics] interface for EmptyMetrics.
+func (EmptyMetrics) SetLastFileCacheSyncTime(_ context.Context, _ time.Time) {}
+
+// SetFileCacheSize implements the [Metrics] interface for EmptyMetrics.
+func (EmptyMetrics) SetFileCacheSize(_ context.Context, _ datasize.ByteSize) {}
+
+// ObserveFileCacheStoreDuration implements the [Metrics] interface for
+// EmptyMetrics.
+func (EmptyMetrics) ObserveFileCacheStoreDuration(_ context.Context, _ time.Duration) {}

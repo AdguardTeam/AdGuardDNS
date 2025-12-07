@@ -511,6 +511,30 @@ func TestFilter_FilterRequest_services(t *testing.T) {
 	assert.Equal(t, want, res)
 }
 
+func TestFilter_FilterRequest_domainFilters(t *testing.T) {
+	t.Parallel()
+
+	const (
+		fltRespTTL = agdtest.FilteredResponseTTLSec
+		testDomain = filtertest.HostBlocked
+	)
+
+	domainFilter := filtertest.NewDomainFilter(t, testDomain)
+	f := newComposite(t, &composite.Config{
+		CategoryFilters: []composite.RequestFilter{domainFilter},
+	})
+
+	ctx, req := newReqData(t)
+	res, err := f.FilterRequest(ctx, req)
+	require.NoError(t, err)
+
+	want := &filter.ResultBlocked{
+		List: filter.IDCategory,
+		Rule: filter.RuleText(filtertest.CategoryIDStr),
+	}
+	assert.Equal(t, want, res)
+}
+
 func TestFilter_FilterResponse(t *testing.T) {
 	t.Parallel()
 

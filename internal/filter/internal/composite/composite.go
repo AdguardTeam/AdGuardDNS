@@ -66,6 +66,9 @@ type Config struct {
 	// Custom is the custom rule-list filter of the profile, if any.
 	Custom filter.Custom
 
+	// CategoryFilters are the enabled category request filters of the profile.
+	CategoryFilters []RequestFilter
+
 	// RuleLists are the enabled rule-list filters of the profile or filtering
 	// group, if any.  All items must not be nil.
 	RuleLists []*rulelist.Refreshable
@@ -94,6 +97,10 @@ func New(c *Config) (f *Filter) {
 	f.reqFilters = appendIfNotNilUF(f.reqFilters, c.GeneralSafeSearch, f.ufReq, f.ufRes)
 	f.reqFilters = appendIfNotNilUF(f.reqFilters, c.YouTubeSafeSearch, f.ufReq, f.ufRes)
 	f.reqFilters = appendIfNotNil(f.reqFilters, c.NewRegisteredDomains)
+
+	for _, df := range c.CategoryFilters {
+		f.reqFilters = appendIfNotNil(f.reqFilters, df)
+	}
 
 	return f
 }

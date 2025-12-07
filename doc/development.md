@@ -191,11 +191,16 @@ If you're using an OS different from Linux, you also need to make these changes:
 - Remove the `interface_listeners` section.
 - Remove `bind_interfaces` from the `default_dns` server configuration and replace it with `bind_addresses`.
 
+<!--
+    TODO(a.garipov,e.burkov): Update the script below.
+-->
+
 ```sh
 env \
     ADULT_BLOCKING_URL='https://raw.githubusercontent.com/ameshkov/stuff/master/DNS/adult_blocking.txt' \
     BILLSTAT_URL='grpc://localhost:6062' \
     BLOCKED_SERVICE_INDEX_URL='https://adguardteam.github.io/HostlistsRegistry/assets/services.json' \
+    CATEGORY_FILTER_INDEX_URL='https://filters.adtidy.org/dns/category/filters.json' \
     CONSUL_ALLOWLIST_URL='https://raw.githubusercontent.com/ameshkov/stuff/master/DNS/consul_allowlist.json' \
     CONFIG_PATH='./config.yaml' \
     FILTER_INDEX_URL='https://adguardteam.github.io/HostlistsRegistry/assets/filters.json' \

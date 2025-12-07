@@ -1,4 +1,4 @@
-package filecachepb
+package filecacheopb
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/fcpb"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/c2h5oh/datasize"
 	renameio "github.com/google/renameio/v2"
@@ -76,24 +77,24 @@ func (s *Storage) Load(ctx context.Context) (c *internal.FileCache, err error) {
 		return nil, err
 	}
 
-	fc := &FileCache{}
+	fc := &fcpb.FileCache{}
 	err = proto.Unmarshal(b, fc)
 	if err != nil {
 		return nil, fmt.Errorf("decoding protobuf: %w", err)
 	}
 
-	if fc.Version != internal.FileCacheVersion {
+	if fc.GetVersion() != internal.FileCacheVersion {
 		// Do not decode protobuf file contents in case it probably has
 		// unexpected structure.
 		return nil, fmt.Errorf(
 			"%w: version %d is different from %d",
 			internal.CacheVersionError,
-			fc.Version,
+			fc.GetVersion(),
 			internal.FileCacheVersion,
 		)
 	}
 
-	return toInternal(fc, s.baseCustomLogger, s.profAccessCons, s.respSzEst)
+	return fileCacheToInternal(fc, s.baseCustomLogger, s.profAccessCons, s.respSzEst)
 }
 
 // Store implements the [internal.FileCacheStorage] interface for *Storage.
@@ -113,7 +114,7 @@ func (s *Storage) Store(
 		"devs", devNum,
 	)
 
-	fc := toProtobuf(c)
+	fc := fileCacheToProtobuf(c)
 	b, err := proto.Marshal(fc)
 	if err != nil {
 		return 0, fmt.Errorf("encoding protobuf: %w", err)

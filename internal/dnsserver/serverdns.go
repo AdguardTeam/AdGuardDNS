@@ -278,7 +278,7 @@ func (s *ServerDNS) unblockTCPConns(ctx context.Context) {
 
 	s.tcpConns.Range(func(conn net.Conn) (cont bool) {
 		err := conn.SetReadDeadline(time.Unix(1, 0))
-		if err != nil {
+		if err != nil && !errors.Is(err, net.ErrClosed) {
 			s.baseLogger.WarnContext(ctx, "failed to unblock conn", slogutil.KeyError, err)
 		}
 

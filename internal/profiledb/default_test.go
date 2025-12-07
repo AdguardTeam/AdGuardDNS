@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/netip"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/profiledbtest"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/testutil/faketime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -355,13 +357,14 @@ func TestDefault_fileCache_success(t *testing.T) {
 	})
 
 	ctx := profiledbtest.ContextWithTimeout(t)
-	err := pbCache.Store(ctx, &internal.FileCache{
+	n, err := pbCache.Store(ctx, &internal.FileCache{
 		SyncTime: wantSyncTime,
 		Profiles: []*agd.Profile{prof},
 		Devices:  []*agd.Device{dev},
 		Version:  internal.FileCacheVersion,
 	})
 	require.NoError(t, err)
+	assert.Positive(t, n)
 
 	db := newProfileDB(t, &profiledb.Config{
 		Storage:       ps,
@@ -404,10 +407,11 @@ func TestDefault_fileCache_badVersion(t *testing.T) {
 	})
 
 	ctx := profiledbtest.ContextWithTimeout(t)
-	err := pbCache.Store(ctx, &internal.FileCache{
+	n, err := pbCache.Store(ctx, &internal.FileCache{
 		Version: 10000,
 	})
 	require.NoError(t, err)
+	assert.Positive(t, n)
 
 	db := newProfileDB(t, &profiledb.Config{
 		Storage:       ps,
@@ -418,6 +422,150 @@ func TestDefault_fileCache_badVersion(t *testing.T) {
 	require.NoError(t, db.Refresh(ctx))
 
 	assert.True(t, storageCalled)
+}
+
+func TestDefault_fileCache_refresh(t *testing.T) {
+	t.Parallel()
+
+	prof, dev0 := profiledbtest.NewProfile(t)
+	dev1 := profiledbtest.NewDevice(t, "dev1", "dev1")
+	dev2 := profiledbtest.NewDevice(t, "dev2", "dev2")
+	dev3 := profiledbtest.NewDevice(t, "dev3", "dev3")
+
+	// Use the time with monotonic clocks stripped down.
+	dbSyncTime := time.Now().Round(0).UTC()
+
+	ps := agdtest.NewProfileStorage()
+	ps.OnProfiles = func(
+		_ context.Context,
+		req *profiledb.StorageProfilesRequest,
+	) (resp *profiledb.StorageProfilesResponse, err error) {
+		return &profiledb.StorageProfilesResponse{
+			SyncTime: dbSyncTime,
+			Profiles: []*agd.Profile{prof},
+			Devices:  []*agd.Device{dev1},
+		}, nil
+	}
+
+	cacheFilePath := filepath.Join(t.TempDir(), "profiles.pb")
+	pbCache := filecachepb.New(&filecachepb.Config{
+		Logger:                   profiledbtest.Logger,
+		BaseCustomLogger:         profiledbtest.Logger,
+		ProfileAccessConstructor: profiledbtest.ProfileAccessConstructor,
+		CacheFilePath:            cacheFilePath,
+		ResponseSizeEstimate:     profiledbtest.RespSzEst,
+	})
+
+	ctx := profiledbtest.ContextWithTimeout(t)
+	n, err := pbCache.Store(ctx, &internal.FileCache{
+		SyncTime: dbSyncTime,
+		Profiles: []*agd.Profile{prof},
+		Devices:  []*agd.Device{dev0},
+		Version:  internal.FileCacheVersion,
+	})
+	require.NoError(t, err)
+	assert.Positive(t, n)
+
+	cacheFileIvl := time.Minute
+	testTimeNow := dbSyncTime
+
+	db := newProfileDB(t, &profiledb.Config{
+		Clock: &faketime.Clock{OnNow: func() (now time.Time) {
+			return testTimeNow
+		}},
+		Storage:       ps,
+		CacheFilePath: cacheFilePath,
+		CacheFileIvl:  cacheFileIvl,
+		FullSyncIvl:   cacheFileIvl * 2,
+	})
+
+	// Check file cache content after init.
+	assertCacheData(t, pbCache, dbSyncTime, prof, dev0)
+
+	// Set time to next full sync interval.
+	testTimeNow = testTimeNow.Add(cacheFileIvl * 2)
+
+	// Full sync refresh with cache file update.
+	require.NoError(t, db.Refresh(ctx))
+
+	assertCacheData(t, pbCache, dbSyncTime, prof, dev1)
+
+	// New device dev2 is added.
+	newSyncTime := dbSyncTime.Add(time.Second)
+	ps.OnProfiles = func(
+		_ context.Context,
+		req *profiledb.StorageProfilesRequest,
+	) (resp *profiledb.StorageProfilesResponse, err error) {
+		return &profiledb.StorageProfilesResponse{
+			SyncTime: newSyncTime,
+			Profiles: []*agd.Profile{prof},
+			Devices:  []*agd.Device{dev1, dev2},
+		}, nil
+	}
+
+	// Partial sync refresh without file cache update.
+	require.NoError(t, db.Refresh(ctx))
+
+	assertCacheData(t, pbCache, dbSyncTime, prof, dev1)
+
+	// New device dev3 is added.
+	dbSyncTime = dbSyncTime.Add(time.Second)
+	ps.OnProfiles = func(
+		_ context.Context,
+		req *profiledb.StorageProfilesRequest,
+	) (resp *profiledb.StorageProfilesResponse, err error) {
+		return &profiledb.StorageProfilesResponse{
+			SyncTime: dbSyncTime,
+			Profiles: []*agd.Profile{prof},
+			Devices:  []*agd.Device{dev1, dev2, dev3},
+		}, nil
+	}
+
+	// Set time to next cache file interval.
+	testTimeNow = testTimeNow.Add(cacheFileIvl)
+
+	// Partial sync refresh with file cache update.
+	require.NoError(t, db.Refresh(ctx))
+
+	assertCacheData(t, pbCache, dbSyncTime, prof, dev1, dev2, dev3)
+}
+
+// assertCacheData checks that the file cache contains the expected profile and
+// devices.
+func assertCacheData(
+	tb testing.TB,
+	pbCache internal.FileCacheStorage,
+	dbSyncTime time.Time,
+	prof *agd.Profile,
+	devs ...*agd.Device,
+) {
+	tb.Helper()
+
+	ctx := profiledbtest.ContextWithTimeout(tb)
+
+	gotCache, err := pbCache.Load(ctx)
+	require.NoError(tb, err)
+	assert.Equal(tb, dbSyncTime, gotCache.SyncTime)
+
+	require.Len(tb, gotCache.Profiles, 1)
+	assert.Equal(tb, prof.ID, gotCache.Profiles[0].ID)
+
+	require.Len(tb, gotCache.Devices, len(devs))
+
+	var gotDevIDs []agd.DeviceID
+	for _, d := range gotCache.Devices {
+		gotDevIDs = append(gotDevIDs, d.ID)
+	}
+
+	var wantDevIDs []agd.DeviceID
+	for _, d := range devs {
+		wantDevIDs = append(wantDevIDs, d.ID)
+	}
+
+	slices.Sort(gotDevIDs)
+	slices.Sort(wantDevIDs)
+
+	assert.Equal(tb, wantDevIDs, gotDevIDs)
 }
 
 func TestDefault_CreateAutoDevice(t *testing.T) {

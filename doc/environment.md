@@ -12,6 +12,8 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`BILLSTAT_URL`](#BILLSTAT_URL)
 - [`BLOCKED_SERVICE_ENABLED`](#BLOCKED_SERVICE_ENABLED)
 - [`BLOCKED_SERVICE_INDEX_URL`](#BLOCKED_SERVICE_INDEX_URL)
+- [`CATEGORY_FILTER_ENABLED`](#CATEGORY_FILTER_ENABLED)
+- [`CATEGORY_FILTER_INDEX_URL`](#CATEGORY_FILTER_INDEX_URL)
 - [`CONFIG_PATH`](#CONFIG_PATH)
 - [`CONSUL_ALLOWLIST_URL`](#CONSUL_ALLOWLIST_URL)
 - [`CONSUL_DNSCHECK_KV_URL`](#CONSUL_DNSCHECK_KV_URL)
@@ -143,6 +145,20 @@ The HTTP(S) URL of the blocked service index file server. See the [external HTTP
 **Default:** No default value, the variable is required if `BLOCKED_SERVICE_ENABLED` is set to `1`.
 
 [ext-blocked]: externalhttp.md#filters-blocked-services
+
+## <a href="#CATEGORY_FILTER_ENABLED" id="CATEGORY_FILTER_ENABLED" name="CATEGORY_FILTER_ENABLED">`CATEGORY_FILTER_ENABLED`</a>
+
+Then set to `1`, enable the category filter. When set to `0`, disable it.
+
+**Default:** `0`.
+
+## <a href="#CATEGORY_FILTER_INDEX_URL" id="CATEGORY_FILTER_INDEX_URL" name="CATEGORY_FILTER_INDEX_URL">`CATEGORY_FILTER_INDEX_URL`</a>
+
+The HTTP(S) URL or a hostless file URI (e.g. `file:///tmp/category_filters.json`) of the category filtering rule index file server. See the [external HTTP API requirements section][ext-category-lists] on the expected format of the response.
+
+**Default:** No default value, the variable is required if `CATEGORY_FILTER_ENABLED` is set to `1`.
+
+[ext-category-lists]: externalhttp.md#category-filters-lists
 
 ## <a href="#CONFIG_PATH" id="CONFIG_PATH" name="CONFIG_PATH">`CONFIG_PATH`</a>
 
@@ -373,6 +389,14 @@ The name of this server node.  Used in [debug DNS API][debug-dns-api] and [DNS c
 The API key to use when authenticating queries to the profiles API, if any. The API key should be valid as defined by [RFC 6750].
 
 **Default:** **Unset.**
+
+## <a href="#PROFILES_CACHE_INTERVAL" id="PROFILES_CACHE_INTERVAL" name="PROFILES_CACHE_INTERVAL">`PROFILES_CACHE_INTERVAL`</a>
+
+The interval between profiles cache file updates, as a human-readable duration. Setting this variable to a value less than [refresh interval][conf-backend-refresh_interval] makes no sense, as the configured variable is checked only on the refresh intervals.
+
+**Default:** No default value, the variable is **required** if `PROFILES_CACHE_PATH` is set to a non-`none` value.
+
+[conf-backend-refresh_interval]: configuration.md#backend-refresh_interval
 
 ## <a href="#PROFILES_CACHE_PATH" id="PROFILES_CACHE_PATH" name="PROFILES_CACHE_PATH">`PROFILES_CACHE_PATH`</a>
 

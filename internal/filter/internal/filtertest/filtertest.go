@@ -132,6 +132,9 @@ const (
 	RuleListID1      filter.ID = RuleListID1Str
 	RuleListID2      filter.ID = RuleListID2Str
 	RuleListIDDomain filter.ID = RuleListIDDomainStr
+
+	CategoryIDStr                   = RuleListIDDomainStr
+	CategoryID    filter.CategoryID = CategoryIDStr
 )
 
 // NewRuleListIndex returns a rule-list index containing a record for a filter
@@ -142,6 +145,18 @@ func NewRuleListIndex(downloadURL string) (b []byte) {
 			"filterKey":   RuleListID1Str,
 			"downloadUrl": downloadURL,
 		}},
+	}))
+}
+
+// NewCategoryIndex returns a category rule-list index containing a filter for
+// [CategoryIDStr] and downloadURL as the download URL.
+func NewCategoryIndex(downloadURL string) (b []byte) {
+	return errors.Must(json.Marshal(map[string]any{
+		"filters": map[string]any{
+			CategoryIDStr: map[string]any{
+				"downloadUrl": downloadURL,
+			},
+		},
 	}))
 }
 

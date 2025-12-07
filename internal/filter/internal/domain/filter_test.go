@@ -2,7 +2,6 @@ package domain_test
 
 import (
 	"net/http"
-	"net/netip"
 	"os"
 	"testing"
 	"time"
@@ -30,6 +29,12 @@ var _ composite.RequestFilter = (*domain.Filter)(nil)
 
 // testDomains is the host data for tests.
 const testDomains = filtertest.HostCategory + "\n"
+
+// testResult is the common blocked result for tests.
+var testResult = &filter.ResultBlocked{
+	List: filter.IDCategory,
+	Rule: filter.RuleText(filtertest.RuleListIDDomain),
+}
 
 func TestFilter_FilterRequest(t *testing.T) {
 	t.Parallel()
@@ -80,18 +85,9 @@ func TestFilter_FilterRequest(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			var wantRes filter.Result
 			if tc.wantResult {
-				wantRes = newModRespResult(
-					t,
-					req,
-					msgs,
-					netip.IPv4Unspecified(),
-					filtertest.HostCategory,
-				)
+				filtertest.AssertEqualResult(t, testResult, r)
 			}
-
-			filtertest.AssertEqualResult(t, wantRes, r)
 		})
 	}
 }
@@ -140,14 +136,14 @@ func TestFilter_Refresh(t *testing.T) {
 
 	f, err := domain.NewFilter(&domain.FilterConfig{
 		Logger:           slogutil.NewDiscardLogger(),
-		Cloner:           agdtest.NewCloner(),
 		CacheManager:     agdcache.EmptyManager{},
 		URL:              srvURL,
 		ErrColl:          agdtest.NewErrorCollector(),
 		DomainMetrics:    domain.EmptyMetrics{},
 		Metrics:          filter.EmptyMetrics{},
 		PublicSuffixList: publicsuffix.List,
-		ID:               filtertest.RuleListIDDomain,
+		CategoryID:       filtertest.CategoryID,
+		ResultListID:     filter.IDCategory,
 		CachePath:        cachePath,
 		Staleness:        filtertest.Staleness,
 		CacheTTL:         filtertest.CacheTTL,
@@ -175,8 +171,6 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	refrCh := make(chan struct{}, 1)
 	cachePath, srvURL := filtertest.PrepareRefreshable(t, refrCh, testDomains, http.StatusOK)
 
-	msgs := agdtest.NewConstructor(t)
-
 	// Put some initial data into the cache to avoid the first refresh.
 
 	cf, err := os.OpenFile(cachePath, os.O_WRONLY|os.O_APPEND, os.ModeAppend)
@@ -188,18 +182,16 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 
 	// Create the filter.
 
-	cloner := agdtest.NewCloner()
-
 	fconf := &domain.FilterConfig{
 		Logger:           slogutil.NewDiscardLogger(),
-		Cloner:           cloner,
 		CacheManager:     agdcache.EmptyManager{},
 		URL:              srvURL,
 		ErrColl:          agdtest.NewErrorCollector(),
 		DomainMetrics:    domain.EmptyMetrics{},
 		Metrics:          filter.EmptyMetrics{},
 		PublicSuffixList: publicsuffix.List,
-		ID:               filtertest.RuleListIDDomain,
+		CategoryID:       filtertest.CategoryID,
+		ResultListID:     filter.IDCategory,
 		CachePath:        cachePath,
 		Staleness:        filtertest.Staleness,
 		CacheTTL:         filtertest.CacheTTL,
@@ -232,14 +224,7 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 		r, err = f.FilterRequest(ctx, otherHostReq)
 		require.NoError(t, err)
 
-		wantRes := newModRespResult(
-			t,
-			otherHostReq.DNS,
-			msgs,
-			netip.IPv4Unspecified(),
-			filtertest.Host,
-		)
-		filtertest.AssertEqualResult(t, wantRes, r)
+		filtertest.AssertEqualResult(t, testResult, r)
 	}))
 
 	require.True(t, t.Run("refresh", func(t *testing.T) {
@@ -273,34 +258,6 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 		r, err = f.FilterRequest(ctx, hostReq)
 		require.NoError(t, err)
 
-		wantRes := newModRespResult(
-			t,
-			hostReq.DNS,
-			msgs,
-			netip.IPv4Unspecified(),
-			filtertest.HostCategory,
-		)
-		filtertest.AssertEqualResult(t, wantRes, r)
+		filtertest.AssertEqualResult(t, testResult, r)
 	}))
-}
-
-// newModRespResult is a helper for creating modified response result for tests.
-// req must not be nil.
-func newModRespResult(
-	tb testing.TB,
-	req *dns.Msg,
-	messages *dnsmsg.Constructor,
-	replIP netip.Addr,
-	rule string,
-) (r *filter.ResultModifiedResponse) {
-	tb.Helper()
-
-	resp, err := messages.NewRespIP(req, replIP)
-	require.NoError(tb, err)
-
-	return &filter.ResultModifiedResponse{
-		Msg:  resp,
-		List: filtertest.RuleListIDDomain,
-		Rule: filter.RuleText(rule),
-	}
 }

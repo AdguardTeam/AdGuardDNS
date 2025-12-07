@@ -7,6 +7,7 @@ import (
 
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/c2h5oh/datasize"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -32,6 +33,18 @@ type ProfileDB struct {
 	// devicesNewCount is a gauge with the number of user devices downloaded
 	// during the last sync.
 	devicesNewCount prometheus.Gauge
+
+	// fileCacheSize is a gauge with the size of the last successfully
+	// synchronized cache file.
+	fileCacheSize prometheus.Gauge
+
+	// fileCacheSyncTime is a gauge with the timestamp of the last successful
+	// cache file synchronization.
+	fileCacheSyncTime prometheus.Gauge
+
+	// fileCacheStoreDuration is a histogram with the duration of storing the
+	// file cache to disk.
+	fileCacheStoreDuration prometheus.Histogram
 
 	// profilesCount is a gauge with the total number of user profiles loaded
 	// from the backend.
@@ -77,6 +90,9 @@ func NewProfileDB(namespace string, reg prometheus.Registerer) (m *ProfileDB, er
 	const (
 		devicesCount             = "devices_total"
 		devicesNewCount          = "devices_newly_synced_total"
+		fileCacheSize            = "file_cache_size_bytes"
+		fileCacheStoreDuration   = "file_cache_store_duration_seconds"
+		fileCacheSyncTime        = "file_cache_sync_timestamp"
 		profilesCount            = "profiles_total"
 		profilesNewCount         = "profiles_newly_synced_total"
 		profilesDeletedTotal     = "profiles_deleted_total"
@@ -109,6 +125,25 @@ func NewProfileDB(namespace string, reg prometheus.Registerer) (m *ProfileDB, er
 			Namespace: namespace,
 			Help: "The number of user devices that were changed or added since " +
 				"the previous sync.",
+		}),
+		fileCacheSize: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name:      fileCacheSize,
+			Subsystem: subsystemBackend,
+			Namespace: namespace,
+			Help:      "The size of the last successfully synchronized cache file.",
+		}),
+		fileCacheStoreDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:      fileCacheStoreDuration,
+			Subsystem: subsystemBackend,
+			Namespace: namespace,
+			Help:      "Time elapsed on storing file cache to disk, in seconds.",
+			Buckets:   []float64{0.001, 0.01, 0.1, 0.5, 1, 2, 5},
+		}),
+		fileCacheSyncTime: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name:      fileCacheSyncTime,
+			Subsystem: subsystemBackend,
+			Namespace: namespace,
+			Help:      "The time when the file cache was synced last time.",
 		}),
 		profilesCount: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name:      profilesCount,
@@ -165,6 +200,15 @@ func NewProfileDB(namespace string, reg prometheus.Registerer) (m *ProfileDB, er
 	}
 
 	collectors := container.KeyValues[string, prometheus.Collector]{{
+		Key:   fileCacheSize,
+		Value: m.fileCacheSize,
+	}, {
+		Key:   fileCacheStoreDuration,
+		Value: m.fileCacheStoreDuration,
+	}, {
+		Key:   fileCacheSyncTime,
+		Value: m.fileCacheSyncTime,
+	}, {
 		Key:   devicesCount,
 		Value: m.devicesCount,
 	}, {
@@ -251,6 +295,22 @@ func (m *ProfileDB) IncrementSyncTimeouts(_ context.Context, isFullSync bool) {
 // IncrementDeleted implements the [profiledb.Metrics] interface for *ProfileDB.
 func (m *ProfileDB) IncrementDeleted(_ context.Context) {
 	m.profilesDeletedTotal.Inc()
+}
+
+// SetLastFileCacheSyncTime implements the [profiledb.Metrics] interface for
+// *ProfileDB.
+func (m *ProfileDB) SetLastFileCacheSyncTime(_ context.Context, t time.Time) {
+	m.fileCacheSyncTime.Set(float64(t.Unix()))
+}
+
+// SetFileCacheSize implements the [profiledb.Metrics] interface for *ProfileDB.
+func (m *ProfileDB) SetFileCacheSize(_ context.Context, size datasize.ByteSize) {
+	m.fileCacheSize.Set(float64(size))
+}
+
+// ObserveFileCacheStoreDuration records the duration of storing file cache to disk.
+func (m *ProfileDB) ObserveFileCacheStoreDuration(_ context.Context, d time.Duration) {
+	m.fileCacheStoreDuration.Observe(d.Seconds())
 }
 
 // BackendProfileDB is the Prometheus-based implementation of the

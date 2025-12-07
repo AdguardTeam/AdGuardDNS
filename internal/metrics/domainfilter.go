@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -14,51 +15,35 @@ import (
 type DomainFilter struct {
 	// cacheSize is a gauge with the total count of records in the DomainStorage
 	// cache.
-	cacheSize prometheus.Gauge
+	cacheSize *prometheus.GaugeVec
 
-	// hits is a counter of the total number of lookups to the DomainStorage
-	// cache that succeeded.
-	hits prometheus.Counter
-
-	// misses is a counter of the total number of lookups to the DomainStorage
-	// cache that resulted in a miss.
-	misses prometheus.Counter
+	// lookups is a counter of the total number of lookups to the DomainStorage
+	// cache.
+	lookups *prometheus.CounterVec
 }
 
-// NewDomainFilter registers the filtering metrics in reg and returns a
-// properly initialized *DomainFilter.  filterName must be a valid label
-// name.
-func NewDomainFilter(
-	namespace string,
-	filterName string,
-	reg prometheus.Registerer,
-) (m *DomainFilter, err error) {
+// NewDomainFilter registers the filtering metrics in reg and returns a properly
+// initialized *DomainFilter.
+func NewDomainFilter(namespace string, reg prometheus.Registerer) (m *DomainFilter, err error) {
 	const (
 		cacheLookups = "domain_filter_cache_lookups"
 		cacheSize    = "domain_filter_cache_size"
 	)
 
-	labels := prometheus.Labels{"filter": filterName}
-
-	lookups := prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name:      cacheLookups,
-		Subsystem: subsystemFilter,
-		Namespace: namespace,
-		Help: "Total number of lookups to DomainFilter host cache lookups. " +
-			"Label hit is the lookup result, either 1 for hit or 0 for miss.",
-		ConstLabels: labels,
-	}, []string{"hit"})
-
 	m = &DomainFilter{
-		cacheSize: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name:        cacheSize,
-			Subsystem:   subsystemFilter,
-			Namespace:   namespace,
-			Help:        "The total number of items in the DomainFilter cache.",
-			ConstLabels: labels,
-		}),
-		hits:   lookups.WithLabelValues("1"),
-		misses: lookups.WithLabelValues("0"),
+		cacheSize: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name:      cacheSize,
+			Subsystem: subsystemFilter,
+			Namespace: namespace,
+			Help:      "The total number of items in the DomainFilter cache.",
+		}, []string{"category"}),
+		lookups: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name:      cacheLookups,
+			Subsystem: subsystemFilter,
+			Namespace: namespace,
+			Help: "Total number of lookups to DomainFilter host cache lookups. " +
+				"Label hit is the lookup result, either 1 for hit or 0 for miss.",
+		}, []string{"category", "hit"}),
 	}
 
 	var errs []error
@@ -67,7 +52,7 @@ func NewDomainFilter(
 		Value: m.cacheSize,
 	}, {
 		Key:   cacheLookups,
-		Value: lookups,
+		Value: m.lookups,
 	}}
 
 	for _, c := range collectors {
@@ -84,14 +69,18 @@ func NewDomainFilter(
 	return m, nil
 }
 
-// IncrementLookups implements the [domain.Metrics] interface for
-// *DomainFilter.
-func (m *DomainFilter) IncrementLookups(_ context.Context, hit bool) {
-	IncrementCond(hit, m.hits, m.misses)
+// IncrementLookups implements the [domain.Metrics] interface for *DomainFilter.
+func (m *DomainFilter) IncrementLookups(_ context.Context, categoryID filter.CategoryID, hit bool) {
+	catIDStr := string(categoryID)
+
+	if hit {
+		m.lookups.WithLabelValues(catIDStr, "1").Inc()
+	} else {
+		m.lookups.WithLabelValues(catIDStr, "0").Inc()
+	}
 }
 
-// UpdateCacheSize implements the [domain.Metrics] interface for
-// *DomainFilter.
-func (m *DomainFilter) UpdateCacheSize(_ context.Context, size int) {
-	m.cacheSize.Set(float64(size))
+// UpdateCacheSize implements the [domain.Metrics] interface for *DomainFilter.
+func (m *DomainFilter) UpdateCacheSize(_ context.Context, categoryID filter.CategoryID, size int) {
+	m.cacheSize.WithLabelValues(string(categoryID)).Set(float64(size))
 }

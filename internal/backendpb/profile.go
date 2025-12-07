@@ -25,8 +25,11 @@ func (x *ParentalSettings) toInternal(
 	ctx context.Context,
 	errColl errcoll.Interface,
 	logger *slog.Logger,
+	categoryFilter *CategoryFilterSettings,
 ) (c *filter.ConfigParental, err error) {
-	c = &filter.ConfigParental{}
+	c = &filter.ConfigParental{
+		Categories: categoryFilter.toInternal(ctx, errColl, logger),
+	}
 	if x == nil {
 		return c, nil
 	}
@@ -503,6 +506,37 @@ func (x *RuleListsSettings) toInternal(
 		if err != nil {
 			err = fmt.Errorf("at index %d: %w", i, err)
 			errcoll.Collect(ctx, errColl, logger, "converting filter id", err)
+
+			continue
+		}
+
+		c.IDs = append(c.IDs, id)
+	}
+
+	return c
+}
+
+// toInternal is a helper that converts category filter settings from backend
+// response to AdGuard DNS filter categories configuration.  If x is nil,
+// toInternal returns a disabled configuration.
+func (x *CategoryFilterSettings) toInternal(
+	ctx context.Context,
+	errColl errcoll.Interface,
+	logger *slog.Logger,
+) (c *filter.ConfigCategories) {
+	c = &filter.ConfigCategories{}
+	if x == nil {
+		return c
+	}
+
+	c.Enabled = x.Enabled
+	c.IDs = make([]filter.CategoryID, 0, len(x.Ids))
+
+	for i, idStr := range x.Ids {
+		id, err := filter.NewCategoryID(idStr)
+		if err != nil {
+			err = fmt.Errorf("at index %d: %w", i, err)
+			errcoll.Collect(ctx, errColl, logger, "converting category id", err)
 
 			continue
 		}

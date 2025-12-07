@@ -19,12 +19,14 @@ import (
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/c2h5oh/datasize"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // profilesToInternal converts protobuf profile structures into internal ones.
 // baseCustomLogger and cons must not be nil.
 //
-//lint:ignore U1000 TODO(f.setrakov): Use.
+// TODO(f.setrakov): Do not rely on builders and reuse entities.
 func profilesToInternal(
 	pbProfiles []*fcpb.Profile,
 	baseCustomLogger *slog.Logger,
@@ -170,6 +172,23 @@ func configClientToInternal(
 	return fltConf, nil
 }
 
+// categoryFilterToInternal converts filter config's protobuf category filter
+// structure to internal one.  If pbCatFlt is nil, returns a disabled config.
+func categoryFilterToInternal(
+	pbCatFlt *fcpb.FilterConfig_CategoryFilter,
+) (c *filter.ConfigCategories) {
+	if pbCatFlt == nil {
+		return &filter.ConfigCategories{}
+	}
+
+	// Consider the categories to have been prevalidated.
+	ids := agdprotobuf.UnsafelyConvertStrSlice[string, filter.CategoryID](pbCatFlt.GetIds())
+	return &filter.ConfigCategories{
+		IDs:     ids,
+		Enabled: pbCatFlt.GetEnabled(),
+	}
+}
+
 // configParentalToInternal converts filter config's protobuf parental config
 // structures to internal ones.  pbFltConf must not be nil.
 func configParentalToInternal(
@@ -179,6 +198,7 @@ func configParentalToInternal(
 	parental := pbFltConf.GetParental()
 
 	return &filter.ConfigParental{
+		Categories:    categoryFilterToInternal(pbFltConf.GetCategoryFilter()),
 		PauseSchedule: schedule,
 		// Consider blocked-service IDs to have been prevalidated.
 		BlockedServices: agdprotobuf.UnsafelyConvertStrSlice[string, filter.BlockedServiceID](
@@ -469,4 +489,319 @@ func accessToInternal(pbAccess *fcpb.Access, cons *access.ProfileConstructor) (a
 		BlocklistDomainRules: pbAccess.GetBlocklistDomainRules(),
 		StandardEnabled:      pbAccess.GetStandardEnabled(),
 	})
+}
+
+// profilesToProtobuf converts a slice of profiles to protobuf structures.
+func profilesToProtobuf(profiles []*agd.Profile) (pbProfiles []*fcpb.Profile) {
+	pbProfiles = make([]*fcpb.Profile, 0, len(profiles))
+	for i, p := range profiles {
+		if p == nil {
+			panic(fmt.Errorf("converting profiles: at index %d: %w", i, errors.ErrNoValue))
+		}
+
+		pbProfiles = append(pbProfiles, profileToProtobuf(p))
+	}
+
+	return pbProfiles
+}
+
+// profileToProtobuf converts a profile to protobuf.  p must not be nil.
+func profileToProtobuf(p *agd.Profile) (pbProf *fcpb.Profile) {
+	defer func() {
+		err := errors.FromRecovered(recover())
+		if err != nil {
+			// Repanic adding the profile information for easier debugging.
+			panic(fmt.Errorf("converting profile %q: %w", p.ID, err))
+		}
+	}()
+
+	pbProfBuilder := &fcpb.Profile_builder{
+		CustomDomains: customDomainsToProtobuf(p.CustomDomains),
+		FilterConfig:  filterConfigToProtobuf(p.FilterConfig),
+		Access:        accessToProtobuf(p.Access.Config()),
+		Ratelimiter:   ratelimiterToProtobuf(p.Ratelimiter.Config()),
+		AccountId:     string(p.AccountID),
+		ProfileId:     string(p.ID),
+		DeviceIds: agdprotobuf.UnsafelyConvertStrSlice[agd.DeviceID, string](
+			p.DeviceIDs.Values(),
+		),
+		FilteredResponseTtl: durationpb.New(p.FilteredResponseTTL),
+		AutoDevicesEnabled:  p.AutoDevicesEnabled,
+		BlockChromePrefetch: p.BlockChromePrefetch,
+		BlockFirefoxCanary:  p.BlockFirefoxCanary,
+		BlockPrivateRelay:   p.BlockPrivateRelay,
+		Deleted:             p.Deleted,
+		FilteringEnabled:    p.FilteringEnabled,
+		IpLogEnabled:        p.IPLogEnabled,
+		QueryLogEnabled:     p.QueryLogEnabled,
+	}
+
+	setBlockingMode(pbProfBuilder, p.BlockingMode)
+	setAdultBlockingMode(pbProfBuilder, p.AdultBlockingMode)
+	setSafeBrowsingBlockingMode(pbProfBuilder, p.SafeBrowsingBlockingMode)
+
+	return pbProfBuilder.Build()
+}
+
+// customDomainsToProtobuf converts the custom-domains configuration to
+// protobuf.  acd must not be nil.
+func customDomainsToProtobuf(acd *agd.AccountCustomDomains) (pbACD *fcpb.AccountCustomDomains) {
+	return fcpb.AccountCustomDomains_builder{
+		Domains: customDomainConfigsToProtobuf(acd.Domains),
+		Enabled: acd.Enabled,
+	}.Build()
+}
+
+// customDomainConfigsToProtobuf converts the configuration of custom-domain
+// sets to protobuf.
+func customDomainConfigsToProtobuf(
+	confs []*agd.CustomDomainConfig,
+) (pbConfs []*fcpb.CustomDomainConfig) {
+	l := len(confs)
+	if l == 0 {
+		return nil
+	}
+
+	pbConfs = make([]*fcpb.CustomDomainConfig, 0, l)
+	for i, c := range confs {
+		conf := fcpb.CustomDomainConfig_builder{
+			Domains: slices.Clone(c.Domains),
+		}.Build()
+
+		switch s := c.State.(type) {
+		case *agd.CustomDomainStateCurrent:
+			curr := fcpb.CustomDomainConfig_StateCurrent_builder{
+				NotBefore: timestamppb.New(s.NotBefore),
+				NotAfter:  timestamppb.New(s.NotAfter),
+				CertName:  string(s.CertName),
+				Enabled:   s.Enabled,
+			}.Build()
+
+			conf.SetStateCurrent(curr)
+
+		case *agd.CustomDomainStatePending:
+			pend := fcpb.CustomDomainConfig_StatePending_builder{
+				Expire:        timestamppb.New(s.Expire),
+				WellKnownPath: s.WellKnownPath,
+			}.Build()
+
+			conf.SetStatePending(pend)
+		default:
+			panic(fmt.Errorf(
+				"at index %d: custom domain state: %T(%[2]v): %w",
+				i,
+				s,
+				errors.ErrBadEnumValue,
+			))
+		}
+
+		pbConfs = append(pbConfs, conf)
+	}
+
+	return pbConfs
+}
+
+// filterConfigToProtobuf converts the filtering configuration to protobuf.  c
+// must not be nil.
+func filterConfigToProtobuf(c *filter.ConfigClient) (fc *fcpb.FilterConfig) {
+	var rules []string
+	if c.Custom.Enabled {
+		filterRules := c.Custom.Filter.Rules()
+		rules = agdprotobuf.UnsafelyConvertStrSlice[filter.RuleText, string](filterRules)
+	}
+
+	custom := fcpb.FilterConfig_Custom_builder{
+		Rules:   rules,
+		Enabled: c.Custom.Enabled,
+	}.Build()
+
+	parental := fcpb.FilterConfig_Parental_builder{
+		PauseSchedule: scheduleToProtobuf(c.Parental.PauseSchedule),
+		BlockedServices: agdprotobuf.UnsafelyConvertStrSlice[filter.BlockedServiceID, string](
+			c.Parental.BlockedServices,
+		),
+		Enabled:                  c.Parental.Enabled,
+		AdultBlockingEnabled:     c.Parental.AdultBlockingEnabled,
+		SafeSearchGeneralEnabled: c.Parental.SafeSearchGeneralEnabled,
+		SafeSearchYoutubeEnabled: c.Parental.SafeSearchYouTubeEnabled,
+	}.Build()
+
+	ruleList := fcpb.FilterConfig_RuleList_builder{
+		Ids:     agdprotobuf.UnsafelyConvertStrSlice[filter.ID, string](c.RuleList.IDs),
+		Enabled: c.RuleList.Enabled,
+	}.Build()
+
+	safeBrowsing := fcpb.FilterConfig_SafeBrowsing_builder{
+		Enabled:                       c.SafeBrowsing.Enabled,
+		DangerousDomainsEnabled:       c.SafeBrowsing.DangerousDomainsEnabled,
+		NewlyRegisteredDomainsEnabled: c.SafeBrowsing.NewlyRegisteredDomainsEnabled,
+	}.Build()
+
+	categories := fcpb.FilterConfig_CategoryFilter_builder{
+		Ids: agdprotobuf.UnsafelyConvertStrSlice[
+			filter.CategoryID,
+			string,
+		](c.Parental.Categories.IDs),
+		Enabled: c.Parental.Categories.Enabled,
+	}.Build()
+
+	return fcpb.FilterConfig_builder{
+		Custom:         custom,
+		Parental:       parental,
+		RuleList:       ruleList,
+		SafeBrowsing:   safeBrowsing,
+		CategoryFilter: categories,
+	}.Build()
+}
+
+// scheduleToProtobuf converts schedule configuration to protobuf.  If c is nil,
+// conf is nil.
+func scheduleToProtobuf(c *filter.ConfigSchedule) (conf *fcpb.FilterConfig_Schedule) {
+	if c == nil {
+		return nil
+	}
+
+	return fcpb.FilterConfig_Schedule_builder{
+		TimeZone: c.TimeZone.String(),
+		Week: fcpb.FilterConfig_WeeklySchedule_builder{
+			Mon: dayIntervalToProtobuf(c.Week[time.Monday]),
+			Tue: dayIntervalToProtobuf(c.Week[time.Tuesday]),
+			Wed: dayIntervalToProtobuf(c.Week[time.Wednesday]),
+			Thu: dayIntervalToProtobuf(c.Week[time.Thursday]),
+			Fri: dayIntervalToProtobuf(c.Week[time.Friday]),
+			Sat: dayIntervalToProtobuf(c.Week[time.Saturday]),
+			Sun: dayIntervalToProtobuf(c.Week[time.Sunday]),
+		}.Build(),
+	}.Build()
+}
+
+// dayIntervalToProtobuf converts a daily schedule interval to protobuf.  If i
+// is nil, ivl is nil.
+func dayIntervalToProtobuf(i *filter.DayInterval) (ivl *fcpb.DayInterval) {
+	if i == nil {
+		return nil
+	}
+
+	return fcpb.DayInterval_builder{
+		Start: uint32(i.Start),
+		End:   uint32(i.End),
+	}.Build()
+}
+
+// accessToProtobuf converts access settings to protobuf structure.  if c is
+// nil, ac is nil.
+func accessToProtobuf(c *access.ProfileConfig) (ac *fcpb.Access) {
+	if c == nil {
+		return nil
+	}
+
+	allowedASNs := agdprotobuf.UnsafelyConvertUint32Slice[geoip.ASN, uint32](c.AllowedASN)
+	blockedASNs := agdprotobuf.UnsafelyConvertUint32Slice[geoip.ASN, uint32](c.BlockedASN)
+
+	return fcpb.Access_builder{
+		AllowlistAsn:         allowedASNs,
+		AllowlistCidr:        prefixesToProtobuf(c.AllowedNets),
+		BlocklistAsn:         blockedASNs,
+		BlocklistCidr:        prefixesToProtobuf(c.BlockedNets),
+		BlocklistDomainRules: c.BlocklistDomainRules,
+		StandardEnabled:      c.StandardEnabled,
+	}.Build()
+}
+
+// prefixesToProtobuf converts slice of [netip.Prefix] to protobuf structure.
+// nets must be valid.
+func prefixesToProtobuf(nets []netip.Prefix) (cidrs []*fcpb.CidrRange) {
+	for _, n := range nets {
+		cidr := fcpb.CidrRange_builder{
+			Address: n.Addr().AsSlice(),
+			// #nosec G115 -- Assume that the prefixes from profiledb are always
+			// valid.
+			Prefix: uint32(n.Bits()),
+		}.Build()
+
+		cidrs = append(cidrs, cidr)
+	}
+
+	return cidrs
+}
+
+// setBlockingMode populates protobuf profile builder with a blocking-mode
+// sum-type.
+//
+// TODO(d.kolyshev):  DRY with setProtobufAdultBlockingMode and
+// setProtobufSafeBrowsingBlockingMode.
+func setBlockingMode(pb *fcpb.Profile_builder, m dnsmsg.BlockingMode) {
+	switch m := m.(type) {
+	case *dnsmsg.BlockingModeCustomIP:
+		pb.BlockingModeCustomIp = fcpb.BlockingModeCustomIP_builder{
+			Ipv4: agdprotobuf.IPsToByteSlices(m.IPv4),
+			Ipv6: agdprotobuf.IPsToByteSlices(m.IPv6),
+		}.Build()
+	case *dnsmsg.BlockingModeNXDOMAIN:
+		pb.BlockingModeNxdomain = &fcpb.BlockingModeNXDOMAIN{}
+	case *dnsmsg.BlockingModeNullIP:
+		pb.BlockingModeNullIp = &fcpb.BlockingModeNullIP{}
+	case *dnsmsg.BlockingModeREFUSED:
+		pb.BlockingModeRefused = &fcpb.BlockingModeREFUSED{}
+	default:
+		panic(fmt.Errorf("bad blocking mode %T(%[1]v)", m))
+	}
+}
+
+// setAdultBlockingMode populates protobuf profile builder with a blocking-mode
+// sum-type.
+func setAdultBlockingMode(pb *fcpb.Profile_builder, m dnsmsg.BlockingMode) {
+	switch m := m.(type) {
+	case nil:
+		return
+	case *dnsmsg.BlockingModeCustomIP:
+		pb.AdultBlockingModeCustomIp = fcpb.BlockingModeCustomIP_builder{
+			Ipv4: agdprotobuf.IPsToByteSlices(m.IPv4),
+			Ipv6: agdprotobuf.IPsToByteSlices(m.IPv6),
+		}.Build()
+	case *dnsmsg.BlockingModeNXDOMAIN:
+		pb.AdultBlockingModeNxdomain = &fcpb.BlockingModeNXDOMAIN{}
+	case *dnsmsg.BlockingModeNullIP:
+		pb.AdultBlockingModeNullIp = &fcpb.BlockingModeNullIP{}
+	case *dnsmsg.BlockingModeREFUSED:
+		pb.AdultBlockingModeRefused = &fcpb.BlockingModeREFUSED{}
+	default:
+		panic(fmt.Errorf("bad adult blocking mode %T(%[1]v)", m))
+	}
+}
+
+// setSafeBrowsingBlockingMode populates protobuf profile builder with a
+// blocking-mode sum-type.
+func setSafeBrowsingBlockingMode(pb *fcpb.Profile_builder, m dnsmsg.BlockingMode) {
+	switch m := m.(type) {
+	case nil:
+		return
+	case *dnsmsg.BlockingModeCustomIP:
+		pb.SafeBrowsingBlockingModeCustomIp = fcpb.BlockingModeCustomIP_builder{
+			Ipv4: agdprotobuf.IPsToByteSlices(m.IPv4),
+			Ipv6: agdprotobuf.IPsToByteSlices(m.IPv6),
+		}.Build()
+	case *dnsmsg.BlockingModeNXDOMAIN:
+		pb.SafeBrowsingBlockingModeNxdomain = &fcpb.BlockingModeNXDOMAIN{}
+	case *dnsmsg.BlockingModeNullIP:
+		pb.SafeBrowsingBlockingModeNullIp = &fcpb.BlockingModeNullIP{}
+	case *dnsmsg.BlockingModeREFUSED:
+		pb.SafeBrowsingBlockingModeRefused = &fcpb.BlockingModeREFUSED{}
+	default:
+		panic(fmt.Errorf("bad safe browsing blocking mode %T(%[1]v)", m))
+	}
+}
+
+// ratelimiterToProtobuf converts the rate-limit settings to protobuf.  if c is
+// nil, r is nil.
+func ratelimiterToProtobuf(c *agd.RatelimitConfig) (r *fcpb.Ratelimiter) {
+	if c == nil {
+		return nil
+	}
+
+	return fcpb.Ratelimiter_builder{
+		ClientCidr: prefixesToProtobuf(c.ClientSubnets),
+		Rps:        c.RPS,
+		Enabled:    c.Enabled,
+	}.Build()
 }

@@ -58,6 +58,8 @@ Property names have been chosen to be single-letter but still have mnemonic rule
 
     - `blocked_service`: the request was blocked by the service blocker. The property `m` contains the ID of that blocked service.
 
+    - `category`: the request was filtered by a category filter.
+
     - `custom`: the request was filtered by a custom profile rule.
 
     - `general_safe_search`: the request was modified by the general safe search filter.
@@ -68,7 +70,13 @@ Property names have been chosen to be single-letter but still have mnemonic rule
 
     - `youtube_safe_search`: the request was modified by the YouTube safe search filter.
 
-- <a href="#properties-m" id="properties-m" name="properties-m">`m`</a>: The text of the first rule that matched this query or the ID of the blocked service, if the ID of the filtering rule list is `blocked_service`. If no rules matched, this property is omitted. The short name `m` stands for “match”.
+- <a href="#properties-m" id="properties-m" name="properties-m">`m`</a>: The text of the first rule that matched this query. If no rules matched, this property is omitted. The short name `m` stands for “match”.
+
+    The special cases are:
+
+    - It contains the ID of the blocked service, if the request was blocked by the service blocker.
+
+    - It contains the ID of the category, if the request was filtered by a category filter.
 
     **Object examples:**
 

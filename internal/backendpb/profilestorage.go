@@ -328,7 +328,7 @@ func (s *ProfileStorage) newFilterConfig(
 	logger *slog.Logger,
 	errColl errcoll.Interface,
 ) (conf *filter.ConfigClient, err error) {
-	parental, err := p.Parental.toInternal(ctx, s.errColl, s.logger)
+	parental, err := p.Parental.toInternal(ctx, s.errColl, s.logger, p.CategoryFilter)
 	if err != nil {
 		return nil, fmt.Errorf("parental: %w", err)
 	}

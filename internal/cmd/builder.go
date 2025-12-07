@@ -763,6 +763,17 @@ func (b *builder) initFilterStorage(ctx context.Context) (err error) {
 		blockedSvcIdxURL = &b.env.BlockedServiceIndexURL.URL
 	}
 
+	var domainMtrc *metrics.DomainFilter
+	var categoryIdxURL *url.URL
+	if b.env.CategoryFilterEnabled {
+		categoryIdxURL = &b.env.CategoryFilterIndexURL.URL
+
+		domainMtrc, err = metrics.NewDomainFilter(b.mtrcNamespace, b.promRegisterer)
+		if err != nil {
+			return fmt.Errorf("registering domain filter metrics: %w", err)
+		}
+	}
+
 	b.filterStorage, err = filterstorage.New(&filterstorage.Config{
 		BaseLogger: b.baseLogger,
 		Logger:     b.baseLogger.With(slogutil.KeyPrefix, filter.StoragePrefix),
@@ -780,6 +791,22 @@ func (b *builder) initFilterStorage(ctx context.Context) (err error) {
 			ResultCacheEnabled: c.RuleListCache.Enabled,
 			Enabled:            bool(b.env.BlockedServiceEnabled),
 		},
+		CategoryDomainsIndex: &filterstorage.IndexConfig{
+			IndexURL: categoryIdxURL,
+			// TODO(a.garipov):  Consider adding a separate parameter here.
+			IndexMaxSize:        c.MaxSize,
+			MaxSize:             c.MaxSize,
+			IndexRefreshTimeout: time.Duration(c.IndexRefreshTimeout),
+			// TODO(a.garipov):  Consider adding a separate parameter here.
+			IndexStaleness: refrIvl,
+			// TODO(a.garipov):  Consider adding a separate parameter here.
+			RefreshTimeout: refrTimeout,
+			// TODO(a.garipov):  Consider adding a separate parameter here.
+			Staleness:          refrIvl,
+			ResultCacheCount:   c.RuleListCache.Size,
+			ResultCacheEnabled: c.RuleListCache.Enabled,
+			Enabled:            bool(b.env.CategoryFilterEnabled),
+		},
 		Custom: &filterstorage.CustomConfig{
 			CacheCount: c.CustomFilterCacheSize,
 		},
@@ -788,7 +815,7 @@ func (b *builder) initFilterStorage(ctx context.Context) (err error) {
 			Dangerous:       b.safeBrowsing,
 			NewlyRegistered: b.newRegDomains,
 		},
-		RuleLists: &filterstorage.RuleListsConfig{
+		RuleListsIndex: &filterstorage.IndexConfig{
 			IndexURL: &b.env.FilterIndexURL.URL,
 			// TODO(a.garipov):  Consider adding a separate parameter here.
 			IndexMaxSize:        c.MaxSize,
@@ -801,6 +828,8 @@ func (b *builder) initFilterStorage(ctx context.Context) (err error) {
 			Staleness:          refrIvl,
 			ResultCacheCount:   c.RuleListCache.Size,
 			ResultCacheEnabled: c.RuleListCache.Enabled,
+			// TODO(a.garipov):  Consider making configurable.
+			Enabled: true,
 		},
 		SafeSearchGeneral: b.newSafeSearchConfig(
 			b.env.GeneralSafeSearchURL,
@@ -812,11 +841,13 @@ func (b *builder) initFilterStorage(ctx context.Context) (err error) {
 			filter.IDYoutubeSafeSearch,
 			bool(b.env.YoutubeSafeSearchEnabled),
 		),
-		CacheManager: b.cacheManager,
-		Clock:        timeutil.SystemClock{},
-		ErrColl:      b.errColl,
-		Metrics:      b.filterMtrc,
-		CacheDir:     b.env.FilterCachePath,
+		CacheManager:             b.cacheManager,
+		Clock:                    timeutil.SystemClock{},
+		DomainMetrics:            domainMtrc,
+		ErrColl:                  b.errColl,
+		Metrics:                  b.filterMtrc,
+		CacheDir:                 b.env.FilterCachePath,
+		DomainFilterSubDomainNum: defaultSubDomainNum,
 	})
 	if err != nil {
 		return fmt.Errorf("creating default filter storage: %w", err)
@@ -1513,6 +1544,7 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 		Metrics:                  profDBMtrc,
 		Storage:                  strg,
 		CacheFilePath:            b.env.ProfilesCachePath,
+		CacheFileIvl:             time.Duration(b.env.ProfilesCacheIvl),
 		FullSyncIvl:              time.Duration(c.FullRefreshIvl),
 		FullSyncRetryIvl:         time.Duration(c.FullRefreshRetryIvl),
 		ResponseSizeEstimate:     respSzEst,

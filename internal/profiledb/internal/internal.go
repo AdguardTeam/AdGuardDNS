@@ -8,6 +8,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/c2h5oh/datasize"
 )
 
 // FileCacheVersion is the version of cached data structure.  It must be
@@ -35,9 +36,10 @@ type FileCacheStorage interface {
 	// must return a nil *FileCache.  Load must return an informative error.
 	Load(ctx context.Context) (c *FileCache, err error)
 
-	// Store writes the data to the cache file.  c must not be nil.  Store must
-	// return an informative error.
-	Store(ctx context.Context, c *FileCache) (err error)
+	// Store writes the data to the cache file.  c must not be nil.  Returns the
+	// length of the written file and error.  The returned error must be
+	// informative.
+	Store(ctx context.Context, c *FileCache) (n datasize.ByteSize, err error)
 }
 
 // EmptyFileCacheStorage is the empty file-cache storage that does nothing and
@@ -53,4 +55,6 @@ func (EmptyFileCacheStorage) Load(_ context.Context) (_ *FileCache, _ error) { r
 
 // Store implements the [FileCacheStorage] interface for EmptyFileCacheStorage.
 // It does nothing and returns nil.
-func (EmptyFileCacheStorage) Store(_ context.Context, _ *FileCache) (_ error) { return nil }
+func (EmptyFileCacheStorage) Store(_ context.Context, _ *FileCache) (_ datasize.ByteSize, _ error) {
+	return 0, nil
+}

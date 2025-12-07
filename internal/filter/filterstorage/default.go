@@ -14,6 +14,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/composite"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/domain"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch"
@@ -41,26 +42,39 @@ type Default struct {
 	safeSearchGeneral *safesearch.Filter
 	safeSearchYouTube *safesearch.Filter
 
-	// ruleListsMu protects [Default.ruleLists].
+	// domainFiltersMu protects domainFilters.
+	domainFiltersMu *sync.RWMutex
+	domainFilters   domainFilters
+
+	// ruleListsMu protects ruleLists.
 	ruleListsMu *sync.RWMutex
 	ruleLists   ruleLists
 
-	ruleListIdxRefr *refreshable.Refreshable
+	categoryDomainsIdxRefr *refreshable.Refreshable
+	ruleListIdxRefr        *refreshable.Refreshable
 
-	cacheManager agdcache.Manager
-	clock        timeutil.Clock
-	errColl      errcoll.Interface
-	metrics      filter.Metrics
+	cacheManager  agdcache.Manager
+	clock         timeutil.Clock
+	domainMetrics domain.Metrics
+	errColl       errcoll.Interface
+	metrics       filter.Metrics
 
 	cacheDir string
+
+	categoryDomainsStaleness      time.Duration
+	categoryDomainsRefreshTimeout time.Duration
 
 	ruleListStaleness      time.Duration
 	ruleListRefreshTimeout time.Duration
 
-	ruleListMaxSize datasize.ByteSize
+	categoryDomainsMaxSize datasize.ByteSize
+	ruleListMaxSize        datasize.ByteSize
 
-	ruleListResCacheCount int
-	serviceResCacheCount  int
+	categoryDomainsResCacheCount int
+	ruleListResCacheCount        int
+	serviceResCacheCount         int
+
+	domainFilterSubDomainNum uint
 
 	ruleListCacheEnabled   bool
 	serviceResCacheEnabled bool
@@ -68,6 +82,9 @@ type Default struct {
 
 // ruleLists is convenient alias for an ID to filter mapping.
 type ruleLists = map[filter.ID]*rulelist.Refreshable
+
+// domainFilters is convenient alias for a category ID to filter mapping.
+type domainFilters = map[filter.CategoryID]*domain.Filter
 
 // New returns a new default filter storage ready for initial refresh with
 // [Default.RefreshInitial].  c must not be nil.
@@ -89,30 +106,46 @@ func New(c *Config) (s *Default, err error) {
 		safeSearchGeneral: nil,
 		safeSearchYouTube: nil,
 
+		domainFiltersMu: &sync.RWMutex{},
+
+		// Initialized in [Default.RefreshInitial].
+		domainFilters: nil,
+
 		ruleListsMu: &sync.RWMutex{},
 
 		// Initialized in [Default.RefreshInitial].
 		ruleLists: nil,
 
+		// Initialized in [Default.initCategoryDomainIdxRefr].
+		categoryDomainsIdxRefr: nil,
+
 		// Initialized in [Default.initRuleListRefr].
 		ruleListIdxRefr: nil,
 
-		cacheManager: c.CacheManager,
-		clock:        c.Clock,
-		errColl:      c.ErrColl,
-		metrics:      c.Metrics,
+		cacheManager:  c.CacheManager,
+		clock:         c.Clock,
+		domainMetrics: c.DomainMetrics,
+		errColl:       c.ErrColl,
+		metrics:       c.Metrics,
 
 		cacheDir: c.CacheDir,
 
-		ruleListStaleness:      c.RuleLists.Staleness,
-		ruleListRefreshTimeout: c.RuleLists.RefreshTimeout,
+		categoryDomainsStaleness:      c.CategoryDomainsIndex.Staleness,
+		categoryDomainsRefreshTimeout: c.CategoryDomainsIndex.RefreshTimeout,
 
-		ruleListMaxSize: c.RuleLists.MaxSize,
+		ruleListStaleness:      c.RuleListsIndex.Staleness,
+		ruleListRefreshTimeout: c.RuleListsIndex.RefreshTimeout,
 
-		ruleListResCacheCount: c.RuleLists.ResultCacheCount,
-		serviceResCacheCount:  c.BlockedServices.ResultCacheCount,
+		categoryDomainsMaxSize: c.CategoryDomainsIndex.MaxSize,
+		ruleListMaxSize:        c.RuleListsIndex.MaxSize,
 
-		ruleListCacheEnabled:   c.RuleLists.ResultCacheEnabled,
+		categoryDomainsResCacheCount: c.CategoryDomainsIndex.ResultCacheCount,
+		ruleListResCacheCount:        c.RuleListsIndex.ResultCacheCount,
+		serviceResCacheCount:         c.BlockedServices.ResultCacheCount,
+
+		domainFilterSubDomainNum: c.DomainFilterSubDomainNum,
+
+		ruleListCacheEnabled:   c.RuleListsIndex.ResultCacheEnabled,
 		serviceResCacheEnabled: c.BlockedServices.ResultCacheEnabled,
 	}
 
@@ -140,7 +173,13 @@ func (s *Default) init(c *Config) (err error) {
 		errs = append(errs, err)
 	}
 
-	err = s.initRuleListRefr(c.RuleLists)
+	err = s.initRuleListRefr(c.RuleListsIndex)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		errs = append(errs, err)
+	}
+
+	err = s.initCategoryDomainIdxRefr(c.CategoryDomainsIndex)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		errs = append(errs, err)
@@ -231,13 +270,17 @@ func newSafeSearch(
 
 // initRuleListRefr initializes the rule-list refresher in s.  c must not be
 // nil.
-func (s *Default) initRuleListRefr(c *RuleListsConfig) (err error) {
+func (s *Default) initRuleListRefr(c *IndexConfig) (err error) {
+	if !c.Enabled {
+		return nil
+	}
+
 	s.ruleListIdxRefr, err = refreshable.New(&refreshable.Config{
 		Logger: s.baseLogger.With(
 			slogutil.KeyPrefix, path.Join("filters", string(FilterIDRuleListIndex)),
 		),
 		URL:       c.IndexURL,
-		ID:        filter.ID(FilterIDRuleListIndex),
+		ID:        FilterIDRuleListIndex,
 		CachePath: filepath.Join(s.cacheDir, indexFileNameRuleLists),
 		Staleness: c.IndexStaleness,
 		Timeout:   c.IndexRefreshTimeout,
@@ -245,6 +288,32 @@ func (s *Default) initRuleListRefr(c *RuleListsConfig) (err error) {
 	})
 	if err != nil {
 		return fmt.Errorf("rule-list index: %w", err)
+	}
+
+	return nil
+}
+
+// initCategoryDomainIdxRefr initializes the category filter domain-list
+// refresher in s.  c must not be nil.
+func (s *Default) initCategoryDomainIdxRefr(c *IndexConfig) (err error) {
+	if !c.Enabled {
+		return nil
+	}
+
+	s.categoryDomainsIdxRefr, err = refreshable.New(&refreshable.Config{
+		Logger: s.baseLogger.With(
+			slogutil.KeyPrefix,
+			path.Join("category_filters", string(FilterIDCategoryDomainsIndex)),
+		),
+		URL:       c.IndexURL,
+		ID:        FilterIDCategoryDomainsIndex,
+		CachePath: filepath.Join(s.cacheDir, indexFileNameCategoryDomains),
+		Staleness: c.IndexStaleness,
+		Timeout:   c.IndexRefreshTimeout,
+		MaxSize:   c.IndexMaxSize,
+	})
+	if err != nil {
+		return fmt.Errorf("category domain-list index: %w", err)
 	}
 
 	return nil
@@ -330,6 +399,26 @@ func (s *Default) setEnabledParental(
 
 	if len(c.BlockedServices) > 0 && s.services != nil {
 		compConf.ServiceLists = s.services.RuleLists(ctx, c.BlockedServices)
+	}
+
+	s.setDomainFilters(compConf, c.Categories)
+}
+
+// setDomainFilters sets the category domain filters in compConf from c.  c must
+// not be nil.
+func (s *Default) setDomainFilters(compConf *composite.Config, c *filter.ConfigCategories) {
+	if !c.Enabled || len(c.IDs) == 0 {
+		return
+	}
+
+	s.domainFiltersMu.RLock()
+	defer s.domainFiltersMu.RUnlock()
+
+	for _, id := range c.IDs {
+		fl := s.domainFilters[id]
+		if fl != nil {
+			compConf.CategoryFilters = append(compConf.CategoryFilters, fl)
+		}
 	}
 }
 
