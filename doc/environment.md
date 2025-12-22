@@ -48,6 +48,7 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`NODE_NAME`](#NODE_NAME)
 - [`PROFILES_API_KEY`](#PROFILES_API_KEY)
 - [`PROFILES_CACHE_PATH`](#PROFILES_CACHE_PATH)
+- [`PROFILES_CACHE_TYPE`](#PROFILES_CACHE_TYPE)
 - [`PROFILES_URL`](#PROFILES_URL)
 - [`REDIS_DB`](#REDIS_DB)
 - [`REDIS_HOST`](#REDIS_HOST)
@@ -411,7 +412,7 @@ The path to the profile cache file:
     ```sh
     protoc\
         --decode\
-        profiledb.FileCache\
+        filecachepb.FileCache\
         ./internal/profiledb/internal/filecachepb/filecache.proto\
         < /path/to/profilecache.pb
     ```
@@ -421,6 +422,12 @@ The profile cache is read on start and is later updated on every [full refresh][
 **Default:** `./profilecache.pb`.
 
 [conf-backend-full_refresh_interval]: configuration.md#backend-full_refresh_interval
+
+## <a href="#PROFILES_CACHE_TYPE" id="PROFILES_CACHE_TYPE" name="PROFILES_CACHE_TYPE">`PROFILES_CACHE_TYPE`</a>
+
+Type of the profile cache. Allowed values are: `default` and `opaque`.
+
+**Default:** No default value, the variable is required, if [PROFILES_CACHE_PATH](#PROFILES_CACHE_PATH) isn't set to `none` and configuration contains profiles.
 
 ## <a href="#PROFILES_MAX_RESP_SIZE" id="PROFILES_MAX_RESP_SIZE" name="PROFILES_MAX_RESP_SIZE">`PROFILES_MAX_RESP_SIZE`</a>
 

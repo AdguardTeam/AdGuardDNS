@@ -138,7 +138,7 @@ func (x *Profile) toInternal(
 			Enabled: pbFltConf.Custom.Enabled,
 		},
 		Parental: &filter.ConfigParental{
-			Categories:    categoryFilterToInternal(pbFltConf.CategoryFilter),
+			Categories:    categoriesToInternal(pbFltConf),
 			PauseSchedule: schedule,
 			// Consider blocked-service IDs to have been prevalidated.
 			BlockedServices: agdprotobuf.UnsafelyConvertStrSlice[string, filter.BlockedServiceID](
@@ -193,22 +193,33 @@ func (x *Profile) toInternal(
 	}, nil
 }
 
-// categoryFilterToInternal converts filter config's protobuf category filter
-// structure to internal one.  If pbCatFlt is nil, returns a disabled config.
-func categoryFilterToInternal(
-	pbCatFlt *FilterConfig_CategoryFilter,
-) (c *filter.ConfigCategories) {
-	if pbCatFlt == nil {
+// categoriesToInternal converts filter config's protobuf category filter to
+// internal one.  pbFltConf must not be nil.
+func categoriesToInternal(pbFltConf *FilterConfig) (c *filter.ConfigCategories) {
+	pbCatFltr := pbFltConf.Parental.CategoryFilter
+	if pbCatFltr == nil && pbFltConf.CategoryFilter != nil {
+		// TODO(d.kolyshev):  Remove after moving deprecated profile categories
+		// in [internal/profiledb/internal.FileCacheVersion] 19.
+		pbCatFltr = pbFltConf.CategoryFilter
+	}
+
+	return pbCatFltr.toInternal()
+}
+
+// toInternal converts filter config's protobuf category filter structure to
+// internal one.  If x is nil, returns a disabled config.
+func (x *FilterConfig_CategoryFilter) toInternal() (c *filter.ConfigCategories) {
+	if x == nil {
 		return &filter.ConfigCategories{
 			Enabled: false,
 		}
 	}
 
 	// Consider the categories to have been prevalidated.
-	ids := agdprotobuf.UnsafelyConvertStrSlice[string, filter.CategoryID](pbCatFlt.GetIds())
+	ids := agdprotobuf.UnsafelyConvertStrSlice[string, filter.CategoryID](x.GetIds())
 	return &filter.ConfigCategories{
 		IDs:     ids,
-		Enabled: pbCatFlt.GetEnabled(),
+		Enabled: x.GetEnabled(),
 	}
 }
 
@@ -676,21 +687,21 @@ func filterConfigToProtobuf(c *filter.ConfigClient) (fc *FilterConfig) {
 		rules = agdprotobuf.UnsafelyConvertStrSlice[filter.RuleText, string](c.Custom.Filter.Rules())
 	}
 
+	parentalCategories := &FilterConfig_CategoryFilter{
+		Ids: agdprotobuf.UnsafelyConvertStrSlice[filter.CategoryID, string](
+			c.Parental.Categories.IDs,
+		),
+		Enabled: c.Parental.Categories.Enabled,
+	}
+
 	return &FilterConfig{
-		// TODO(a.garipov):  Move to parental.
-		CategoryFilter: &FilterConfig_CategoryFilter{
-			Enabled: c.Parental.Categories.Enabled,
-			Ids: agdprotobuf.UnsafelyConvertStrSlice[
-				filter.CategoryID,
-				string,
-			](c.Parental.Categories.IDs),
-		},
 		Custom: &FilterConfig_Custom{
 			Rules:   rules,
 			Enabled: c.Custom.Enabled,
 		},
 		Parental: &FilterConfig_Parental{
-			PauseSchedule: scheduleToProtobuf(c.Parental.PauseSchedule),
+			PauseSchedule:  scheduleToProtobuf(c.Parental.PauseSchedule),
+			CategoryFilter: parentalCategories,
 			BlockedServices: agdprotobuf.UnsafelyConvertStrSlice[filter.BlockedServiceID, string](
 				c.Parental.BlockedServices,
 			),

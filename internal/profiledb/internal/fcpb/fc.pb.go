@@ -1433,6 +1433,7 @@ func (x *FilterConfig) GetSafeBrowsing() *FilterConfig_SafeBrowsing {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in fc.proto.
 func (x *FilterConfig) GetCategoryFilter() *FilterConfig_CategoryFilter {
 	if x != nil {
 		return x.xxx_hidden_CategoryFilter
@@ -1456,6 +1457,7 @@ func (x *FilterConfig) SetSafeBrowsing(v *FilterConfig_SafeBrowsing) {
 	x.xxx_hidden_SafeBrowsing = v
 }
 
+// Deprecated: Marked as deprecated in fc.proto.
 func (x *FilterConfig) SetCategoryFilter(v *FilterConfig_CategoryFilter) {
 	x.xxx_hidden_CategoryFilter = v
 }
@@ -1488,6 +1490,7 @@ func (x *FilterConfig) HasSafeBrowsing() bool {
 	return x.xxx_hidden_SafeBrowsing != nil
 }
 
+// Deprecated: Marked as deprecated in fc.proto.
 func (x *FilterConfig) HasCategoryFilter() bool {
 	if x == nil {
 		return false
@@ -1511,6 +1514,7 @@ func (x *FilterConfig) ClearSafeBrowsing() {
 	x.xxx_hidden_SafeBrowsing = nil
 }
 
+// Deprecated: Marked as deprecated in fc.proto.
 func (x *FilterConfig) ClearCategoryFilter() {
 	x.xxx_hidden_CategoryFilter = nil
 }
@@ -1518,10 +1522,11 @@ func (x *FilterConfig) ClearCategoryFilter() {
 type FilterConfig_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Custom         *FilterConfig_Custom
-	Parental       *FilterConfig_Parental
-	RuleList       *FilterConfig_RuleList
-	SafeBrowsing   *FilterConfig_SafeBrowsing
+	Custom       *FilterConfig_Custom
+	Parental     *FilterConfig_Parental
+	RuleList     *FilterConfig_RuleList
+	SafeBrowsing *FilterConfig_SafeBrowsing
+	// Deprecated: Marked as deprecated in fc.proto.
 	CategoryFilter *FilterConfig_CategoryFilter
 }
 
@@ -2670,13 +2675,14 @@ func (b0 FilterConfig_Custom_builder) Build() *FilterConfig_Custom {
 }
 
 type FilterConfig_Parental struct {
-	state                               protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_PauseSchedule            *FilterConfig_Schedule `protobuf:"bytes,1,opt,name=pause_schedule,json=pauseSchedule,proto3"`
-	xxx_hidden_BlockedServices          []string               `protobuf:"bytes,2,rep,name=blocked_services,json=blockedServices,proto3"`
-	xxx_hidden_Enabled                  bool                   `protobuf:"varint,3,opt,name=enabled,proto3"`
-	xxx_hidden_AdultBlockingEnabled     bool                   `protobuf:"varint,4,opt,name=adult_blocking_enabled,json=adultBlockingEnabled,proto3"`
-	xxx_hidden_SafeSearchGeneralEnabled bool                   `protobuf:"varint,5,opt,name=safe_search_general_enabled,json=safeSearchGeneralEnabled,proto3"`
-	xxx_hidden_SafeSearchYoutubeEnabled bool                   `protobuf:"varint,6,opt,name=safe_search_youtube_enabled,json=safeSearchYoutubeEnabled,proto3"`
+	state                               protoimpl.MessageState       `protogen:"opaque.v1"`
+	xxx_hidden_PauseSchedule            *FilterConfig_Schedule       `protobuf:"bytes,1,opt,name=pause_schedule,json=pauseSchedule,proto3"`
+	xxx_hidden_CategoryFilter           *FilterConfig_CategoryFilter `protobuf:"bytes,7,opt,name=category_filter,json=categoryFilter,proto3"`
+	xxx_hidden_BlockedServices          []string                     `protobuf:"bytes,2,rep,name=blocked_services,json=blockedServices,proto3"`
+	xxx_hidden_Enabled                  bool                         `protobuf:"varint,3,opt,name=enabled,proto3"`
+	xxx_hidden_AdultBlockingEnabled     bool                         `protobuf:"varint,4,opt,name=adult_blocking_enabled,json=adultBlockingEnabled,proto3"`
+	xxx_hidden_SafeSearchGeneralEnabled bool                         `protobuf:"varint,5,opt,name=safe_search_general_enabled,json=safeSearchGeneralEnabled,proto3"`
+	xxx_hidden_SafeSearchYoutubeEnabled bool                         `protobuf:"varint,6,opt,name=safe_search_youtube_enabled,json=safeSearchYoutubeEnabled,proto3"`
 	unknownFields                       protoimpl.UnknownFields
 	sizeCache                           protoimpl.SizeCache
 }
@@ -2709,6 +2715,13 @@ func (x *FilterConfig_Parental) ProtoReflect() protoreflect.Message {
 func (x *FilterConfig_Parental) GetPauseSchedule() *FilterConfig_Schedule {
 	if x != nil {
 		return x.xxx_hidden_PauseSchedule
+	}
+	return nil
+}
+
+func (x *FilterConfig_Parental) GetCategoryFilter() *FilterConfig_CategoryFilter {
+	if x != nil {
+		return x.xxx_hidden_CategoryFilter
 	}
 	return nil
 }
@@ -2752,6 +2765,10 @@ func (x *FilterConfig_Parental) SetPauseSchedule(v *FilterConfig_Schedule) {
 	x.xxx_hidden_PauseSchedule = v
 }
 
+func (x *FilterConfig_Parental) SetCategoryFilter(v *FilterConfig_CategoryFilter) {
+	x.xxx_hidden_CategoryFilter = v
+}
+
 func (x *FilterConfig_Parental) SetBlockedServices(v []string) {
 	x.xxx_hidden_BlockedServices = v
 }
@@ -2779,14 +2796,26 @@ func (x *FilterConfig_Parental) HasPauseSchedule() bool {
 	return x.xxx_hidden_PauseSchedule != nil
 }
 
+func (x *FilterConfig_Parental) HasCategoryFilter() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_CategoryFilter != nil
+}
+
 func (x *FilterConfig_Parental) ClearPauseSchedule() {
 	x.xxx_hidden_PauseSchedule = nil
+}
+
+func (x *FilterConfig_Parental) ClearCategoryFilter() {
+	x.xxx_hidden_CategoryFilter = nil
 }
 
 type FilterConfig_Parental_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	PauseSchedule            *FilterConfig_Schedule
+	CategoryFilter           *FilterConfig_CategoryFilter
 	BlockedServices          []string
 	Enabled                  bool
 	AdultBlockingEnabled     bool
@@ -2799,6 +2828,7 @@ func (b0 FilterConfig_Parental_builder) Build() *FilterConfig_Parental {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_PauseSchedule = b.PauseSchedule
+	x.xxx_hidden_CategoryFilter = b.CategoryFilter
 	x.xxx_hidden_BlockedServices = b.BlockedServices
 	x.xxx_hidden_Enabled = b.Enabled
 	x.xxx_hidden_AdultBlockingEnabled = b.AdultBlockingEnabled
@@ -3396,19 +3426,19 @@ const file_fc_proto_rawDesc = "" +
 	"\fStatePending\x122\n" +
 	"\x06expire\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x06expire\x12&\n" +
 	"\x0fwell_known_path\x18\x02 \x01(\tR\rwellKnownPathB\a\n" +
-	"\x05state\"\xf2\n" +
-	"\n" +
+	"\x05state\"\xc2\v\n" +
 	"\fFilterConfig\x121\n" +
 	"\x06custom\x18\x01 \x01(\v2\x19.fcpb.FilterConfig.CustomR\x06custom\x127\n" +
 	"\bparental\x18\x02 \x01(\v2\x1b.fcpb.FilterConfig.ParentalR\bparental\x128\n" +
 	"\trule_list\x18\x03 \x01(\v2\x1b.fcpb.FilterConfig.RuleListR\bruleList\x12D\n" +
-	"\rsafe_browsing\x18\x04 \x01(\v2\x1f.fcpb.FilterConfig.SafeBrowsingR\fsafeBrowsing\x12J\n" +
-	"\x0fcategory_filter\x18\x05 \x01(\v2!.fcpb.FilterConfig.CategoryFilterR\x0ecategoryFilter\x1aD\n" +
+	"\rsafe_browsing\x18\x04 \x01(\v2\x1f.fcpb.FilterConfig.SafeBrowsingR\fsafeBrowsing\x12N\n" +
+	"\x0fcategory_filter\x18\x05 \x01(\v2!.fcpb.FilterConfig.CategoryFilterB\x02\x18\x01R\x0ecategoryFilter\x1aD\n" +
 	"\x06Custom\x12\x14\n" +
 	"\x05rules\x18\x03 \x03(\tR\x05rules\x12\x18\n" +
-	"\aenabled\x18\x04 \x01(\bR\aenabledJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03\x1a\xc7\x02\n" +
+	"\aenabled\x18\x04 \x01(\bR\aenabledJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03\x1a\x93\x03\n" +
 	"\bParental\x12B\n" +
-	"\x0epause_schedule\x18\x01 \x01(\v2\x1b.fcpb.FilterConfig.ScheduleR\rpauseSchedule\x12)\n" +
+	"\x0epause_schedule\x18\x01 \x01(\v2\x1b.fcpb.FilterConfig.ScheduleR\rpauseSchedule\x12J\n" +
+	"\x0fcategory_filter\x18\a \x01(\v2!.fcpb.FilterConfig.CategoryFilterR\x0ecategoryFilter\x12)\n" +
 	"\x10blocked_services\x18\x02 \x03(\tR\x0fblockedServices\x12\x18\n" +
 	"\aenabled\x18\x03 \x01(\bR\aenabled\x124\n" +
 	"\x16adult_blocking_enabled\x18\x04 \x01(\bR\x14adultBlockingEnabled\x12=\n" +
@@ -3539,19 +3569,20 @@ var file_fc_proto_depIdxs = []int32{
 	24, // 33: fcpb.CustomDomainConfig.StateCurrent.not_after:type_name -> google.protobuf.Timestamp
 	24, // 34: fcpb.CustomDomainConfig.StatePending.expire:type_name -> google.protobuf.Timestamp
 	19, // 35: fcpb.FilterConfig.Parental.pause_schedule:type_name -> fcpb.FilterConfig.Schedule
-	20, // 36: fcpb.FilterConfig.Schedule.week:type_name -> fcpb.FilterConfig.WeeklySchedule
-	5,  // 37: fcpb.FilterConfig.WeeklySchedule.mon:type_name -> fcpb.DayInterval
-	5,  // 38: fcpb.FilterConfig.WeeklySchedule.tue:type_name -> fcpb.DayInterval
-	5,  // 39: fcpb.FilterConfig.WeeklySchedule.wed:type_name -> fcpb.DayInterval
-	5,  // 40: fcpb.FilterConfig.WeeklySchedule.thu:type_name -> fcpb.DayInterval
-	5,  // 41: fcpb.FilterConfig.WeeklySchedule.fri:type_name -> fcpb.DayInterval
-	5,  // 42: fcpb.FilterConfig.WeeklySchedule.sat:type_name -> fcpb.DayInterval
-	5,  // 43: fcpb.FilterConfig.WeeklySchedule.sun:type_name -> fcpb.DayInterval
-	44, // [44:44] is the sub-list for method output_type
-	44, // [44:44] is the sub-list for method input_type
-	44, // [44:44] is the sub-list for extension type_name
-	44, // [44:44] is the sub-list for extension extendee
-	0,  // [0:44] is the sub-list for field type_name
+	23, // 36: fcpb.FilterConfig.Parental.category_filter:type_name -> fcpb.FilterConfig.CategoryFilter
+	20, // 37: fcpb.FilterConfig.Schedule.week:type_name -> fcpb.FilterConfig.WeeklySchedule
+	5,  // 38: fcpb.FilterConfig.WeeklySchedule.mon:type_name -> fcpb.DayInterval
+	5,  // 39: fcpb.FilterConfig.WeeklySchedule.tue:type_name -> fcpb.DayInterval
+	5,  // 40: fcpb.FilterConfig.WeeklySchedule.wed:type_name -> fcpb.DayInterval
+	5,  // 41: fcpb.FilterConfig.WeeklySchedule.thu:type_name -> fcpb.DayInterval
+	5,  // 42: fcpb.FilterConfig.WeeklySchedule.fri:type_name -> fcpb.DayInterval
+	5,  // 43: fcpb.FilterConfig.WeeklySchedule.sat:type_name -> fcpb.DayInterval
+	5,  // 44: fcpb.FilterConfig.WeeklySchedule.sun:type_name -> fcpb.DayInterval
+	45, // [45:45] is the sub-list for method output_type
+	45, // [45:45] is the sub-list for method input_type
+	45, // [45:45] is the sub-list for extension type_name
+	45, // [45:45] is the sub-list for extension extendee
+	0,  // [0:45] is the sub-list for field type_name
 }
 
 func init() { file_fc_proto_init() }

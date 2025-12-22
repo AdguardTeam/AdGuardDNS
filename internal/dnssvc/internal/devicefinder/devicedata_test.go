@@ -2,6 +2,7 @@ package devicefinder_test
 
 import (
 	"context"
+	"crypto/tls"
 	"net/url"
 	"path"
 	"slices"
@@ -104,11 +105,15 @@ func TestDefault_Find_DoHAuth(t *testing.T) {
 				ProfileDB: profDB,
 			})
 
+			tlsConnState := &tls.ConnectionState{
+				ServerName: dnssvctest.DomainForDevices,
+			}
+
 			ctx := testutil.ContextWithTimeout(t, dnssvctest.Timeout)
 			ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
-				TLSServerName: dnssvctest.DomainForDevices,
-				URL:           tc.reqURL,
-				Userinfo:      tc.reqURL.User,
+				TLS:      tlsConnState,
+				URL:      tc.reqURL,
+				Userinfo: tc.reqURL.User,
 			})
 
 			got := df.Find(ctx, reqNormal, dnssvctest.ClientAddrPort, dnssvctest.ServerAddrPort)
@@ -198,9 +203,12 @@ func TestDefault_Find_DoHAuthOnly(t *testing.T) {
 				DeviceDomains: []string{dnssvctest.DomainForDevices},
 			})
 
+			tlsConnState := &tls.ConnectionState{
+				ServerName: tc.cliSrvName,
+			}
 			srvReqInfo := &dnsserver.RequestInfo{
-				TLSServerName: tc.cliSrvName,
-				URL:           tc.reqURL,
+				TLS: tlsConnState,
+				URL: tc.reqURL,
 			}
 			if tc.reqURL != nil {
 				srvReqInfo.Userinfo = tc.reqURL.User
@@ -297,10 +305,13 @@ func TestDefault_Find_DoH(t *testing.T) {
 				ProfileDB: profDB,
 			})
 
+			tlsConnState := &tls.ConnectionState{
+				ServerName: dnssvctest.DomainForDevices,
+			}
 			ctx := testutil.ContextWithTimeout(t, dnssvctest.Timeout)
 			ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
-				TLSServerName: dnssvctest.DomainForDevices,
-				URL:           tc.reqURL,
+				TLS: tlsConnState,
+				URL: tc.reqURL,
 			})
 
 			got := df.Find(ctx, reqNormal, dnssvctest.ClientAddrPort, dnssvctest.ServerAddrPort)
@@ -388,10 +399,14 @@ func TestDefault_Find_stdEncrypted(t *testing.T) {
 					DeviceDomains: tc.deviceDomains,
 				})
 
+				tlsConnState := &tls.ConnectionState{
+					ServerName: tc.cliSrvName,
+				}
+
 				ctx := testutil.ContextWithTimeout(t, dnssvctest.Timeout)
 				ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
-					TLSServerName: tc.cliSrvName,
-					URL:           sd.reqURL,
+					TLS: tlsConnState,
+					URL: sd.reqURL,
 				})
 
 				got := df.Find(ctx, reqNormal, dnssvctest.ClientAddrPort, dnssvctest.ServerAddrPort)
@@ -559,9 +574,7 @@ func TestDefault_Find_customDomainDoT(t *testing.T) {
 			})
 
 			ctx := testutil.ContextWithTimeout(t, dnssvctest.Timeout)
-			ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
-				TLSServerName: tc.cliSrvName,
-			})
+			ctx = dnsserver.ContextWithRequestInfo(ctx, dnssvctest.NewRequestInfo(tc.cliSrvName))
 
 			got := df.Find(ctx, reqNormal, dnssvctest.ClientAddrPort, dnssvctest.ServerAddrPort)
 			assertEqualResult(t, tc.wantRes, got)

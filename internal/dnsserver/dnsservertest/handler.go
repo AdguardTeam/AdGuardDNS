@@ -27,8 +27,8 @@ func NewDefaultHandlerWithCount(recordsCount int) (h dnsserver.Handler) {
 		// Check that necessary context keys are set.
 		si := dnsserver.MustServerInfoFromContext(ctx)
 		ri := dnsserver.MustRequestInfoFromContext(ctx)
-		if si.Proto.IsStdEncrypted() && ri.TLSServerName == "" {
-			return errors.Error("client info does not contain server name")
+		if si.Proto.IsStdEncrypted() && ri.TLS == nil {
+			return errors.Error("client info does not contain tls connection info")
 		}
 
 		ans := make(SectionAnswer, 0, recordsCount)

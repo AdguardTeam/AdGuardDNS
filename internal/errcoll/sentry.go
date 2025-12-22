@@ -216,7 +216,12 @@ func tagsFromCtx(ctx context.Context) (tags sentryTags) {
 	}
 
 	if ri, ok := dnsserver.RequestInfoFromContext(ctx); ok {
-		tags["dns_client_tls_server_name"] = toASCII(ri.TLSServerName)
+		tlsSrvName := ""
+		if ri.TLS != nil {
+			tlsSrvName = ri.TLS.ServerName
+		}
+		tags["dns_client_tls_server_name"] = toASCII(tlsSrvName)
+
 		if ri.URL != nil {
 			// Provide only the path and the query to fit into Sentry's 200
 			// characters limit.

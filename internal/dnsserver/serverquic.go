@@ -364,9 +364,10 @@ func (s *ServerQUIC) serveQUICConn(ctx context.Context, conn *quic.Conn) (err er
 			return err
 		}
 
+		tlsConnState := conn.ConnectionState().TLS
 		ri := &RequestInfo{
-			StartTime:     time.Now(),
-			TLSServerName: conn.ConnectionState().TLS.ServerName,
+			TLS:       &tlsConnState,
+			StartTime: time.Now(),
 		}
 
 		reqCtx, reqCancel := s.requestContext(context.Background())

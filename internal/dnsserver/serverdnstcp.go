@@ -183,7 +183,8 @@ func (s *ServerDNS) acceptTCPMsg(
 		StartTime: time.Now(),
 	}
 	if cs, ok := conn.(tlsConnectionStater); ok {
-		ri.TLSServerName = cs.ConnectionState().ServerName
+		tlsConnState := cs.ConnectionState()
+		ri.TLS = &tlsConnState
 	}
 
 	reqCtx, reqCancel := s.requestContext(context.Background())

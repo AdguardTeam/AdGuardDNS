@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/miekg/dns"
 )
@@ -168,4 +169,14 @@ func NewServer(
 	srv.SetBindData(bindData)
 
 	return srv
+}
+
+// NewRequestInfo returns a new *dnsserver.RequestInfo for tests.
+func NewRequestInfo(tlsSrvName string) (ri *dnsserver.RequestInfo) {
+	return &dnsserver.RequestInfo{
+		TLS: &tls.ConnectionState{
+			ServerName: tlsSrvName,
+		},
+		StartTime: time.Now(),
+	}
 }

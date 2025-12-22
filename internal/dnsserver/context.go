@@ -2,6 +2,7 @@ package dnsserver
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/url"
 	"time"
@@ -78,6 +79,11 @@ func MustServerInfoFromContext(ctx context.Context) (si *ServerInfo) {
 // RequestInfo is a structure that contains basic request information.  It is
 // attached to every context.Context linked to processing a DNS request.
 type RequestInfo struct {
+	// TLS is the TLS connection state.  It is set only if the protocol of the
+	// server is either DoQ, DoT or DoH.  It must not be nil if the protocol is
+	// DoQ or DoT.
+	TLS *tls.ConnectionState
+
 	// URL is the request URL.  It is set only if the protocol of the server is
 	// DoH.
 	URL *url.URL
@@ -88,13 +94,6 @@ type RequestInfo struct {
 
 	// StartTime is the request's start time.  It's never zero value.
 	StartTime time.Time
-
-	// TLSServerName is the original, non-lowercased server name field of the
-	// client's TLS hello request.  It is set only if the protocol of the server
-	// is either DoQ, DoT or DoH.
-	//
-	// TODO(ameshkov): use r.TLS with DoH3 (see addRequestInfo).
-	TLSServerName string
 }
 
 // ContextWithRequestInfo attaches RequestInfo to the specified context.  ri

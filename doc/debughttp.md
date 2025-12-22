@@ -9,6 +9,7 @@ The AdGuard DNS debug HTTP API is served on [`LISTEN_PORT`][env-listen_port] and
 - [`GET /debug/pprof`](#pprof)
 - [`POST /debug/api/cache/clear`](#api-cache-clear)
 - [`POST /debug/api/refresh`](#api-refresh)
+- [`POST /debug/panic`](#panic)
 - [`POST /dnsdb/csv`](#dnsdb-csv)
 
 [env-listen_port]: environment.md#LISTEN_PORT
@@ -131,6 +132,10 @@ Response body example:
   }
 }
 ```
+
+## <a href="#panic" id="panic" name="panic">`POST /debug/panic`</a>
+
+A debugging endpoint that forces service panic.
 
 ## <a href="#dnsdb-csv" id="dnsdb-csv" name="dnsdb-csv">`POST /dnsdb/csv`</a>
 

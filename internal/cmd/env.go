@@ -28,6 +28,16 @@ import (
 	"github.com/getsentry/sentry-go"
 )
 
+const (
+	// profileCacheTypeDefault is a profile cache type that uses protobuf
+	// Open Struct API.
+	profileCacheTypeDefault = "default"
+
+	// profileCacheTypeOpaque is a profile cache type that uses protobuf opaque
+	// API.
+	profileCacheTypeOpaque = "opaque"
+)
+
 // environment represents the configuration that is kept in the environment.
 //
 // TODO(e.burkov, a.garipov):  Name variables more consistently.
@@ -80,6 +90,7 @@ type environment struct {
 	SessionTicketType      string `env:"SESSION_TICKET_TYPE"`
 	StandardAccessAPIKey   string `env:"STANDARD_ACCESS_API_KEY"`
 	StandardAccessType     string `env:"STANDARD_ACCESS_TYPE"`
+	ProfilesCacheType      string `env:"PROFILES_CACHE_TYPE"`
 
 	// TODO(a.garipov):  Consider renaming to "WEB_STATIC_PATH" or something
 	// similar.
@@ -481,6 +492,22 @@ func (envs *environment) validateProfilesConf(profilesEnabled bool) (err error) 
 		validate.NoGreaterThan("PROFILES_MAX_RESP_SIZE", envs.ProfilesMaxRespSize, math.MaxInt),
 		validate.Positive("PROFILES_CACHE_INTERVAL", envs.ProfilesCacheIvl),
 	)
+
+	if envs.ProfilesCachePath == "none" {
+		return errors.Join(errs...)
+	}
+
+	errs = append(errs, validate.NotEmpty("PROFILES_CACHE_TYPE", envs.ProfilesCacheType))
+
+	switch typ := envs.ProfilesCacheType; typ {
+	case
+		profileCacheTypeDefault,
+		profileCacheTypeOpaque,
+		"":
+	default:
+		err = fmt.Errorf("env PROFILES_CACHE_TYPE: %w: %q", errors.ErrBadEnumValue, typ)
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
 }

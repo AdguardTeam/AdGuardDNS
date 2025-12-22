@@ -97,6 +97,7 @@ message FilterConfig {
 
   message Parental {
     Schedule pause_schedule = 1;
+    CategoryFilter category_filter = 7;
     repeated string blocked_services = 2;
     bool enabled = 3;
     bool adult_blocking_enabled = 4;
@@ -139,7 +140,7 @@ message FilterConfig {
   Parental parental = 2;
   RuleList rule_list = 3;
   SafeBrowsing safe_browsing = 4;
-  CategoryFilter category_filter = 5;
+  CategoryFilter category_filter = 5 [deprecated=true];
 }
 
 message DayInterval {

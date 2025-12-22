@@ -58,9 +58,9 @@ func TestDefault_Find_humanID(t *testing.T) {
 			})
 
 			ctx := testutil.ContextWithTimeout(t, dnssvctest.Timeout)
-			ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
-				TLSServerName: tc.in + "." + dnssvctest.DomainForDevices,
-			})
+			ctx = dnsserver.ContextWithRequestInfo(ctx, dnssvctest.NewRequestInfo(
+				tc.in+"."+dnssvctest.DomainForDevices,
+			))
 
 			got := df.Find(ctx, reqNormal, dnssvctest.ClientAddrPort, dnssvctest.ServerAddrPort)
 			assertEqualResult(t, tc.wantRes, got)

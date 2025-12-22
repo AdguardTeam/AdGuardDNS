@@ -2,6 +2,7 @@ package dnscheck_test
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
@@ -44,6 +46,7 @@ func TestConsul_ServeHTTP(t *testing.T) {
 		"node_name":         "some-node-name",
 		"client_ip":         "1.2.3.4",
 		"server_type":       "private",
+		"tls_curve_id":      "X25519",
 	}
 
 	conf := &dnscheck.RemoteKVConfig{
@@ -59,6 +62,11 @@ func TestConsul_ServeHTTP(t *testing.T) {
 	dnsCk := dnscheck.NewRemoteKV(conf)
 
 	ctx := context.Background()
+	ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
+		TLS: &tls.ConnectionState{
+			CurveID: tls.X25519,
+		},
+	})
 
 	var resp *dns.Msg
 	resp, err := dnsCk.Check(
@@ -187,6 +195,11 @@ func TestConsul_Check(t *testing.T) {
 	dnsCk := dnscheck.NewRemoteKV(conf)
 
 	ctx := context.Background()
+	ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
+		TLS: &tls.ConnectionState{
+			CurveID: tls.X25519,
+		},
+	})
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {

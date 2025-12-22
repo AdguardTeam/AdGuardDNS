@@ -5,7 +5,7 @@ go 1.25.5
 require (
 	// NOTE:  Do not change the pseudoversion.
 	github.com/AdguardTeam/AdGuardDNS/internal/dnsserver v0.0.0-00010101000000-000000000000
-	github.com/AdguardTeam/golibs v0.35.3
+	github.com/AdguardTeam/golibs v0.35.4
 	github.com/AdguardTeam/urlfilter v0.22.1
 	github.com/ameshkov/dnscrypt/v2 v2.4.0
 	github.com/axiomhq/hyperloglog v0.2.5
@@ -22,7 +22,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.67.2
-	github.com/quic-go/quic-go v0.56.0
+	github.com/quic-go/quic-go v0.57.1
 	github.com/stretchr/testify v1.11.1
 	github.com/viktordanov/golang-lru v0.5.6
 	go.yaml.in/yaml/v4 v4.0.0-rc.3
@@ -67,7 +67,7 @@ require (
 	github.com/panjf2000/ants/v2 v2.11.3 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/procfs v0.19.2 // indirect
-	github.com/quic-go/qpack v0.5.1 // indirect
+	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/securego/gosec/v2 v2.22.10 // indirect
@@ -87,12 +87,12 @@ require (
 	golang.org/x/exp/typeparams v0.0.0-20251125195548-87e1e737ad39 // indirect
 	golang.org/x/mod v0.30.0 // indirect
 	golang.org/x/sync v0.18.0 // indirect
-	golang.org/x/telemetry v0.0.0-20251128220624-abf20d0e57ec // indirect
+	golang.org/x/telemetry v0.0.0-20251203150158-8fff8a5912fc // indirect
 	golang.org/x/term v0.37.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
 	golang.org/x/tools v0.39.0 // indirect
 	golang.org/x/vuln v1.1.4 // indirect
-	google.golang.org/genai v1.36.0 // indirect
+	google.golang.org/genai v1.37.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.6.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

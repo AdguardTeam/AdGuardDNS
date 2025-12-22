@@ -1542,6 +1542,7 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 		ErrColl:                  b.errColl,
 		ProfileMetrics:           profileMtrc,
 		Metrics:                  profDBMtrc,
+		Opaque:                   b.env.ProfilesCacheType == profileCacheTypeOpaque,
 		Storage:                  strg,
 		CacheFilePath:            b.env.ProfilesCachePath,
 		CacheFileIvl:             time.Duration(b.env.ProfilesCacheIvl),

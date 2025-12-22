@@ -359,10 +359,9 @@ func TestService_Wrap(t *testing.T) {
 			clientAddr,
 		)
 
-		ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
-			StartTime:     time.Now(),
-			TLSServerName: dnssvctest.DeviceIDSrvName,
-		})
+		ctx = dnsserver.ContextWithRequestInfo(ctx, dnssvctest.NewRequestInfo(
+			dnssvctest.DeviceIDSrvName,
+		))
 
 		err := svc.Handle(ctx, dnssvctest.ServerGroupName, dnssvctest.ServerName, rw, req)
 		require.NoError(t, err)
@@ -428,10 +427,9 @@ func TestService_Wrap(t *testing.T) {
 			clientAddr,
 		)
 
-		ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
-			StartTime:     time.Now(),
-			TLSServerName: dnssvctest.DeviceIDSrvName,
-		})
+		ctx = dnsserver.ContextWithRequestInfo(ctx, dnssvctest.NewRequestInfo(
+			dnssvctest.DeviceIDSrvName,
+		))
 
 		err := svc.Handle(ctx, dnssvctest.ServerGroupName, dnssvctest.ServerName, rw, req)
 		require.NoError(t, err)

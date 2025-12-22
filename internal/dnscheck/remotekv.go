@@ -2,6 +2,7 @@ package dnscheck
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv"
 	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv/consulkv"
@@ -113,7 +115,8 @@ func NewRemoteKV(c *RemoteKVConfig) (dc *RemoteKV) {
 // type check
 var _ Interface = (*RemoteKV)(nil)
 
-// Check implements the Interface interface for *RemoteKV.
+// Check implements the Interface interface for *RemoteKV.  ctx must contain
+// request info (retrieved by [dnsserver.MustRequestInfoFromContext]).
 func (dc *RemoteKV) Check(
 	ctx context.Context,
 	req *dns.Msg,
@@ -142,7 +145,7 @@ func (dc *RemoteKV) Check(
 		return dc.resp(ri, req)
 	}
 
-	inf := dc.newInfo(ri)
+	inf := dc.newInfo(ctx, ri)
 	b, err := json.Marshal(inf)
 	if err != nil {
 		return nil, fmt.Errorf("encoding value for key %q for remote kv: %w", randomID, err)
@@ -178,8 +181,9 @@ const (
 )
 
 // newInfo returns an information record with all available data about the
-// server and the request.  ri must not be nil.
-func (dc *RemoteKV) newInfo(ri *agd.RequestInfo) (inf *info) {
+// server and the request.  ri must not be nil.  ctx must contain request info
+// (retrieved by [dnsserver.MustRequestInfoFromContext]).
+func (dc *RemoteKV) newInfo(ctx context.Context, ri *agd.RequestInfo) (inf *info) {
 	srvInfo := ri.ServerInfo
 
 	srvType := serverTypePublic
@@ -188,15 +192,16 @@ func (dc *RemoteKV) newInfo(ri *agd.RequestInfo) (inf *info) {
 	}
 
 	inf = &info{
+		ClientIP: ri.RemoteIP,
+
 		ServerGroupName: srvInfo.GroupName,
 		ServerName:      srvInfo.Name,
 		ServerType:      srvType,
 
-		Protocol:     srvInfo.Protocol.String(),
 		NodeLocation: dc.nodeLocation,
 		NodeName:     dc.nodeName,
-
-		ClientIP: ri.RemoteIP,
+		Protocol:     srvInfo.Protocol.String(),
+		TLSCurveID:   tlsCurveID(ctx),
 	}
 
 	if p, d := ri.DeviceData(); p != nil {
@@ -205,6 +210,23 @@ func (dc *RemoteKV) newInfo(ri *agd.RequestInfo) (inf *info) {
 	}
 
 	return inf
+}
+
+// tlsCurveID returns the TLS curve ID string representation from the request
+// context.  ctx must contain request info (retrieved by
+// [dnsserver.MustRequestInfoFromContext]).
+func tlsCurveID(ctx context.Context) (curveIDStr string) {
+	srvReqInfo := dnsserver.MustRequestInfoFromContext(ctx)
+	if srvReqInfo.TLS == nil {
+		return ""
+	}
+
+	curveID := srvReqInfo.TLS.CurveID
+	if curveID != tls.CurveID(0) {
+		return curveID.String()
+	}
+
+	return ""
 }
 
 // resp returns the corresponding response.
@@ -343,7 +365,8 @@ type info struct {
 	ServerName      agd.ServerName      `json:"server_name"`
 	ServerType      serverType          `json:"server_type"`
 
-	Protocol     string `json:"protocol"`
 	NodeLocation string `json:"node_location"`
 	NodeName     string `json:"node_name"`
+	Protocol     string `json:"protocol"`
+	TLSCurveID   string `json:"tls_curve_id"`
 }

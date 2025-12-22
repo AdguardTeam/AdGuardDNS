@@ -125,16 +125,22 @@ func (f *Default) deviceDataFromEncrypted(
 	ctx context.Context,
 	srvReqInfo *dnsserver.RequestInfo,
 ) (dd deviceData, err error) {
-	var customDomain string
-	var requiredProfileIDs []agd.ProfileID
-	if cliSrvName := strings.ToLower(srvReqInfo.TLSServerName); cliSrvName != "" {
-		customDomain, requiredProfileIDs = f.customDomainDB.Match(ctx, cliSrvName)
-		if customDomain != "" {
-			f.metrics.IncrementCustomDomainRequests(ctx, customDomain)
-		}
+	cliSrvName := ""
+	if srvReqInfo.TLS != nil {
+		cliSrvName = srvReqInfo.TLS.ServerName
 	}
 
-	dd, err = f.deviceDataFromSrvReqInfo(ctx, srvReqInfo, customDomain)
+	customDomain := ""
+	var requiredProfileIDs []agd.ProfileID
+	if cliSrvName != "" {
+		customDomain, requiredProfileIDs = f.customDomainDB.Match(ctx, strings.ToLower(cliSrvName))
+	}
+
+	if customDomain != "" {
+		f.metrics.IncrementCustomDomainRequests(ctx, customDomain)
+	}
+
+	dd, err = f.deviceDataFromSrvReqInfo(ctx, srvReqInfo, customDomain, cliSrvName)
 	if err != nil {
 		return nil, fmt.Errorf("extracting device data: %w", err)
 	}
@@ -159,11 +165,12 @@ func (f *Default) deviceDataFromEncrypted(
 // Any returned errors will have the underlying type of [*deviceDataError].
 //
 // If customDomain is not empty, it must be a domain name or wildcard matching
-// srvReqInfo.TLSServerName.
+// srvReqInfo.TLS.ServerName.  srvReqInfo must not be nil.
 func (f *Default) deviceDataFromSrvReqInfo(
 	ctx context.Context,
 	srvReqInfo *dnsserver.RequestInfo,
 	customDomain string,
+	cliSrvName string,
 ) (dd deviceData, err error) {
 	if f.srv.Protocol == agd.ProtoDoH {
 		dd, err = f.deviceDataForDoH(srvReqInfo)
@@ -196,7 +203,7 @@ func (f *Default) deviceDataFromSrvReqInfo(
 
 	customDomain = strings.TrimPrefix(customDomain, "*.")
 
-	dd, err = f.deviceDataFromCliSrvName(ctx, srvReqInfo.TLSServerName, customDomain)
+	dd, err = f.deviceDataFromCliSrvName(ctx, cliSrvName, customDomain)
 	if err != nil {
 		return nil, newDeviceDataError(err, "tls server name")
 	}

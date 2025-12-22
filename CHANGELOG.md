@@ -7,6 +7,10 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 [kec]: https://keepachangelog.com/en/1.0.0/
 [sem]: https://semver.org/spec/v2.0.0.html
 
+## AGDNS-2603 / Build 1114
+
+- The new environment variable `PROFILES_CACHE_TYPE` has been added.
+
 ## AGDNS-3491 / Build 1109
 
 - The new environment variable `CATEGORY_FILTER_ENABLED` has been added.

@@ -3,6 +3,7 @@ package devicefinder_test
 import (
 	"cmp"
 	"context"
+	"crypto/tls"
 	"net/netip"
 	"net/url"
 	"os"
@@ -356,11 +357,9 @@ func BenchmarkDefault(b *testing.B) {
 			ProfileDB:     profDB,
 			DeviceDomains: []string{dnssvctest.DomainForDevices},
 		},
-		req: reqNormal,
-		srvReqInfo: &dnsserver.RequestInfo{
-			TLSServerName: dnssvctest.DeviceIDSrvName,
-		},
-		name: "dot",
+		req:        reqNormal,
+		srvReqInfo: dnssvctest.NewRequestInfo(dnssvctest.DeviceIDSrvName),
+		name:       "dot",
 	}, {
 		conf: &devicefinder.Config{
 			ProfileDB:     profDB,
@@ -368,7 +367,9 @@ func BenchmarkDefault(b *testing.B) {
 		},
 		req: reqNormal,
 		srvReqInfo: &dnsserver.RequestInfo{
-			TLSServerName: dnssvctest.DeviceIDSrvName,
+			TLS: &tls.ConnectionState{
+				ServerName: dnssvctest.DeviceIDSrvName,
+			},
 			URL: &url.URL{
 				Path: dnsserver.PathDoH,
 			},
@@ -381,7 +382,9 @@ func BenchmarkDefault(b *testing.B) {
 		},
 		req: reqNormal,
 		srvReqInfo: &dnsserver.RequestInfo{
-			TLSServerName: dnssvctest.DomainForDevices,
+			TLS: &tls.ConnectionState{
+				ServerName: dnssvctest.DomainForDevices,
+			},
 			URL: &url.URL{
 				Path: path.Join(dnsserver.PathDoH, dnssvctest.DeviceIDStr),
 			},
@@ -441,14 +444,14 @@ func BenchmarkDefault(b *testing.B) {
 
 	// Most recent results:
 	//
-	// goos: linux
-	// goarch: amd64
-	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/devicefinder
-	// cpu: AMD Ryzen 7 PRO 4750U with Radeon Graphics
-	// BenchmarkDefault/dot-16         	 2654976	       406.5 ns/op	      32 B/op	       2 allocs/op
-	// BenchmarkDefault/doh_domain-16  	 1560818	       758.5 ns/op	      80 B/op	       4 allocs/op
-	// BenchmarkDefault/doh_path-16    	 1922390	       639.2 ns/op	      96 B/op	       4 allocs/op
-	// BenchmarkDefault/dns_edns-16    	 3430594	       396.1 ns/op	      40 B/op	       3 allocs/op
-	// BenchmarkDefault/dns_laddr-16   	 6179818	       206.0 ns/op	      16 B/op	       1 allocs/op
-	// BenchmarkDefault/dns_raddr-16   	 6360699	       184.4 ns/op	      16 B/op	       1 allocs/op
+	//	goos: darwin
+	//	goarch: arm64
+	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/devicefinder
+	//	cpu: Apple M1 Pro
+	//	BenchmarkDefault/dot-8         	 6804558	       164.8 ns/op	      32 B/op	       2 allocs/op
+	//	BenchmarkDefault/doh_domain-8  	 5155173	       233.5 ns/op	      80 B/op	       4 allocs/op
+	//	BenchmarkDefault/doh_path-8    	 6002018	       197.6 ns/op	      96 B/op	       4 allocs/op
+	//	BenchmarkDefault/dns_edns-8    	12959406	        91.83 ns/op	      40 B/op	       3 allocs/op
+	//	BenchmarkDefault/dns_laddr-8   	26600607	        44.65 ns/op	      16 B/op	       1 allocs/op
+	//	BenchmarkDefault/dns_raddr-8   	28741998	        42.14 ns/op	      16 B/op	       1 allocs/op
 }

@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"maps"
 	"net/netip"
-	"path/filepath"
 	"slices"
 	"sync"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
+	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecacheopb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecachepb"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
@@ -127,7 +127,15 @@ func New(c *Config) (db *Default, err error) {
 	var cacheStorage internal.FileCacheStorage
 	if c.CacheFilePath == "none" {
 		cacheStorage = internal.EmptyFileCacheStorage{}
-	} else if ext := filepath.Ext(c.CacheFilePath); ext == ".pb" {
+	} else if c.Opaque {
+		cacheStorage = filecacheopb.New(&filecacheopb.Config{
+			Logger:                   c.Logger.With("cache_type", "opb"),
+			BaseCustomLogger:         c.BaseCustomLogger,
+			ProfileAccessConstructor: c.ProfileAccessConstructor,
+			CacheFilePath:            c.CacheFilePath,
+			ResponseSizeEstimate:     c.ResponseSizeEstimate,
+		})
+	} else {
 		cacheStorage = filecachepb.New(&filecachepb.Config{
 			Logger:                   c.Logger.With("cache_type", "pb"),
 			BaseCustomLogger:         c.BaseCustomLogger,
@@ -135,8 +143,6 @@ func New(c *Config) (db *Default, err error) {
 			CacheFilePath:            c.CacheFilePath,
 			ResponseSizeEstimate:     c.ResponseSizeEstimate,
 		})
-	} else {
-		return nil, fmt.Errorf("file %q is not protobuf", c.CacheFilePath)
 	}
 
 	db = &Default{

@@ -52,7 +52,8 @@ Example of the output:
   "node_name": "eu-1.dns.example.com",
   "server_group_name": "adguard_dns_default",
   "server_name": "default_dns",
-  "server_type": "private"
+  "server_type": "private",
+  "tls_curve_id": "X25519MLKEM768"
 }
 ```
 
@@ -72,6 +73,8 @@ The `server_type` field can have one of the following values:
     > This does not mean that the server has recognized the user's device. See the `device_id` and `profile_id` properties for that.
 
 - `"public"`: A public AdGuard DNS server is used.
+
+The `tls_curve_id` field is the key exchange mechanism used for the connection. If a legacy RSA key exchange is used, this field is empty.
 
 [conf-check-domains]: configuration.md#check-domains
 

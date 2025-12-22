@@ -5,16 +5,21 @@ import (
 	"net/http"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil/httputil"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+// ErrDebugPanic is a default error for panic handler.
+const ErrDebugPanic errors.Error = "debug panic"
 
 // Path pattern constants.
 const (
 	PathPatternDNSDBCSV        = "/dnsdb/csv"
 	PathPatternDebugAPICache   = "/debug/api/cache/clear"
 	PathPatternDebugAPIRefresh = "/debug/api/refresh"
+	PathPatternDebugPanic      = "/debug/panic"
 	PathPatternHealthCheck     = "/health-check"
 	PathPatternMetrics         = "/metrics"
 )
@@ -24,6 +29,7 @@ const (
 	routePatternDNSDBCSV        = http.MethodPost + " " + PathPatternDNSDBCSV
 	routePatternDebugAPICache   = http.MethodPost + " " + PathPatternDebugAPICache
 	routePatternDebugAPIRefresh = http.MethodPost + " " + PathPatternDebugAPIRefresh
+	routePatternDebugPanic      = http.MethodPost + " " + PathPatternDebugPanic
 	routePatternHealthCheck     = http.MethodGet + " " + PathPatternHealthCheck
 	routePatternMetrics         = http.MethodGet + " " + PathPatternMetrics
 )
@@ -47,6 +53,7 @@ func (svc *Service) route(c *Config) {
 		infoLogMw := httputil.NewLogMiddleware(l, slog.LevelInfo)
 		router.Handle(routePatternDebugAPIRefresh, infoLogMw.Wrap(svc.refrHdlr))
 		router.Handle(routePatternDebugAPICache, infoLogMw.Wrap(svc.cacheHdlr))
+		router.Handle(routePatternDebugPanic, infoLogMw.Wrap(httputil.PanicHandler(ErrDebugPanic)))
 	}
 
 	if srv := svc.servers[c.DNSDBAddr]; srv != nil {

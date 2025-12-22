@@ -65,4 +65,8 @@ type Config struct {
 	// the purposes of custom ratelimiting.  Responses over this estimate are
 	// counted as several responses.  It must be positive.
 	ResponseSizeEstimate datasize.ByteSize
+
+	// Opaque determines whether the profile cache will use the protobuf opaque
+	// API.
+	Opaque bool
 }

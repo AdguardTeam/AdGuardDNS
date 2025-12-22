@@ -106,7 +106,11 @@ func TestServerHTTPS_integration_serveRequests(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
+			var tlsConfig *tls.Config
+			if tc.tls {
+				tlsConfig = dnsservertest.CreateServerTLSConfig("example.org")
+			}
+
 			srv, err := dnsservertest.RunLocalHTTPSServer(
 				dnsservertest.NewDefaultHandler(),
 				tlsConfig,

@@ -636,11 +636,12 @@ func (*CustomDomainConfig_StateCurrent_) isCustomDomainConfig_State() {}
 func (*CustomDomainConfig_StatePending_) isCustomDomainConfig_State() {}
 
 type FilterConfig struct {
-	state          protoimpl.MessageState       `protogen:"open.v1"`
-	Custom         *FilterConfig_Custom         `protobuf:"bytes,1,opt,name=custom,proto3" json:"custom,omitempty"`
-	Parental       *FilterConfig_Parental       `protobuf:"bytes,2,opt,name=parental,proto3" json:"parental,omitempty"`
-	RuleList       *FilterConfig_RuleList       `protobuf:"bytes,3,opt,name=rule_list,json=ruleList,proto3" json:"rule_list,omitempty"`
-	SafeBrowsing   *FilterConfig_SafeBrowsing   `protobuf:"bytes,4,opt,name=safe_browsing,json=safeBrowsing,proto3" json:"safe_browsing,omitempty"`
+	state        protoimpl.MessageState     `protogen:"open.v1"`
+	Custom       *FilterConfig_Custom       `protobuf:"bytes,1,opt,name=custom,proto3" json:"custom,omitempty"`
+	Parental     *FilterConfig_Parental     `protobuf:"bytes,2,opt,name=parental,proto3" json:"parental,omitempty"`
+	RuleList     *FilterConfig_RuleList     `protobuf:"bytes,3,opt,name=rule_list,json=ruleList,proto3" json:"rule_list,omitempty"`
+	SafeBrowsing *FilterConfig_SafeBrowsing `protobuf:"bytes,4,opt,name=safe_browsing,json=safeBrowsing,proto3" json:"safe_browsing,omitempty"`
+	// Deprecated: Marked as deprecated in filecache.proto.
 	CategoryFilter *FilterConfig_CategoryFilter `protobuf:"bytes,5,opt,name=category_filter,json=categoryFilter,proto3" json:"category_filter,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -704,6 +705,7 @@ func (x *FilterConfig) GetSafeBrowsing() *FilterConfig_SafeBrowsing {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in filecache.proto.
 func (x *FilterConfig) GetCategoryFilter() *FilterConfig_CategoryFilter {
 	if x != nil {
 		return x.CategoryFilter
@@ -1458,13 +1460,14 @@ func (x *FilterConfig_Custom) GetEnabled() bool {
 }
 
 type FilterConfig_Parental struct {
-	state                    protoimpl.MessageState `protogen:"open.v1"`
-	PauseSchedule            *FilterConfig_Schedule `protobuf:"bytes,1,opt,name=pause_schedule,json=pauseSchedule,proto3" json:"pause_schedule,omitempty"`
-	BlockedServices          []string               `protobuf:"bytes,2,rep,name=blocked_services,json=blockedServices,proto3" json:"blocked_services,omitempty"`
-	Enabled                  bool                   `protobuf:"varint,3,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	AdultBlockingEnabled     bool                   `protobuf:"varint,4,opt,name=adult_blocking_enabled,json=adultBlockingEnabled,proto3" json:"adult_blocking_enabled,omitempty"`
-	SafeSearchGeneralEnabled bool                   `protobuf:"varint,5,opt,name=safe_search_general_enabled,json=safeSearchGeneralEnabled,proto3" json:"safe_search_general_enabled,omitempty"`
-	SafeSearchYoutubeEnabled bool                   `protobuf:"varint,6,opt,name=safe_search_youtube_enabled,json=safeSearchYoutubeEnabled,proto3" json:"safe_search_youtube_enabled,omitempty"`
+	state                    protoimpl.MessageState       `protogen:"open.v1"`
+	PauseSchedule            *FilterConfig_Schedule       `protobuf:"bytes,1,opt,name=pause_schedule,json=pauseSchedule,proto3" json:"pause_schedule,omitempty"`
+	CategoryFilter           *FilterConfig_CategoryFilter `protobuf:"bytes,7,opt,name=category_filter,json=categoryFilter,proto3" json:"category_filter,omitempty"`
+	BlockedServices          []string                     `protobuf:"bytes,2,rep,name=blocked_services,json=blockedServices,proto3" json:"blocked_services,omitempty"`
+	Enabled                  bool                         `protobuf:"varint,3,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	AdultBlockingEnabled     bool                         `protobuf:"varint,4,opt,name=adult_blocking_enabled,json=adultBlockingEnabled,proto3" json:"adult_blocking_enabled,omitempty"`
+	SafeSearchGeneralEnabled bool                         `protobuf:"varint,5,opt,name=safe_search_general_enabled,json=safeSearchGeneralEnabled,proto3" json:"safe_search_general_enabled,omitempty"`
+	SafeSearchYoutubeEnabled bool                         `protobuf:"varint,6,opt,name=safe_search_youtube_enabled,json=safeSearchYoutubeEnabled,proto3" json:"safe_search_youtube_enabled,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -1502,6 +1505,13 @@ func (*FilterConfig_Parental) Descriptor() ([]byte, []int) {
 func (x *FilterConfig_Parental) GetPauseSchedule() *FilterConfig_Schedule {
 	if x != nil {
 		return x.PauseSchedule
+	}
+	return nil
+}
+
+func (x *FilterConfig_Parental) GetCategoryFilter() *FilterConfig_CategoryFilter {
+	if x != nil {
+		return x.CategoryFilter
 	}
 	return nil
 }
@@ -1911,18 +1921,19 @@ const file_filecache_proto_rawDesc = "" +
 	"\fStatePending\x122\n" +
 	"\x06expire\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x06expire\x12&\n" +
 	"\x0fwell_known_path\x18\x02 \x01(\tR\rwellKnownPathB\a\n" +
-	"\x05state\"\xd4\v\n" +
+	"\x05state\"\xab\f\n" +
 	"\fFilterConfig\x128\n" +
 	"\x06custom\x18\x01 \x01(\v2 .filecachepb.FilterConfig.CustomR\x06custom\x12>\n" +
 	"\bparental\x18\x02 \x01(\v2\".filecachepb.FilterConfig.ParentalR\bparental\x12?\n" +
 	"\trule_list\x18\x03 \x01(\v2\".filecachepb.FilterConfig.RuleListR\bruleList\x12K\n" +
-	"\rsafe_browsing\x18\x04 \x01(\v2&.filecachepb.FilterConfig.SafeBrowsingR\fsafeBrowsing\x12Q\n" +
-	"\x0fcategory_filter\x18\x05 \x01(\v2(.filecachepb.FilterConfig.CategoryFilterR\x0ecategoryFilter\x1aD\n" +
+	"\rsafe_browsing\x18\x04 \x01(\v2&.filecachepb.FilterConfig.SafeBrowsingR\fsafeBrowsing\x12U\n" +
+	"\x0fcategory_filter\x18\x05 \x01(\v2(.filecachepb.FilterConfig.CategoryFilterB\x02\x18\x01R\x0ecategoryFilter\x1aD\n" +
 	"\x06Custom\x12\x14\n" +
 	"\x05rules\x18\x03 \x03(\tR\x05rules\x12\x18\n" +
-	"\aenabled\x18\x04 \x01(\bR\aenabledJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03\x1a\xce\x02\n" +
+	"\aenabled\x18\x04 \x01(\bR\aenabledJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03\x1a\xa1\x03\n" +
 	"\bParental\x12I\n" +
-	"\x0epause_schedule\x18\x01 \x01(\v2\".filecachepb.FilterConfig.ScheduleR\rpauseSchedule\x12)\n" +
+	"\x0epause_schedule\x18\x01 \x01(\v2\".filecachepb.FilterConfig.ScheduleR\rpauseSchedule\x12Q\n" +
+	"\x0fcategory_filter\x18\a \x01(\v2(.filecachepb.FilterConfig.CategoryFilterR\x0ecategoryFilter\x12)\n" +
 	"\x10blocked_services\x18\x02 \x03(\tR\x0fblockedServices\x12\x18\n" +
 	"\aenabled\x18\x03 \x01(\bR\aenabled\x124\n" +
 	"\x16adult_blocking_enabled\x18\x04 \x01(\bR\x14adultBlockingEnabled\x12=\n" +
@@ -2065,19 +2076,20 @@ var file_filecache_proto_depIdxs = []int32{
 	24, // 33: filecachepb.CustomDomainConfig.StateCurrent.not_after:type_name -> google.protobuf.Timestamp
 	24, // 34: filecachepb.CustomDomainConfig.StatePending.expire:type_name -> google.protobuf.Timestamp
 	19, // 35: filecachepb.FilterConfig.Parental.pause_schedule:type_name -> filecachepb.FilterConfig.Schedule
-	20, // 36: filecachepb.FilterConfig.Schedule.week:type_name -> filecachepb.FilterConfig.WeeklySchedule
-	5,  // 37: filecachepb.FilterConfig.WeeklySchedule.mon:type_name -> filecachepb.DayInterval
-	5,  // 38: filecachepb.FilterConfig.WeeklySchedule.tue:type_name -> filecachepb.DayInterval
-	5,  // 39: filecachepb.FilterConfig.WeeklySchedule.wed:type_name -> filecachepb.DayInterval
-	5,  // 40: filecachepb.FilterConfig.WeeklySchedule.thu:type_name -> filecachepb.DayInterval
-	5,  // 41: filecachepb.FilterConfig.WeeklySchedule.fri:type_name -> filecachepb.DayInterval
-	5,  // 42: filecachepb.FilterConfig.WeeklySchedule.sat:type_name -> filecachepb.DayInterval
-	5,  // 43: filecachepb.FilterConfig.WeeklySchedule.sun:type_name -> filecachepb.DayInterval
-	44, // [44:44] is the sub-list for method output_type
-	44, // [44:44] is the sub-list for method input_type
-	44, // [44:44] is the sub-list for extension type_name
-	44, // [44:44] is the sub-list for extension extendee
-	0,  // [0:44] is the sub-list for field type_name
+	23, // 36: filecachepb.FilterConfig.Parental.category_filter:type_name -> filecachepb.FilterConfig.CategoryFilter
+	20, // 37: filecachepb.FilterConfig.Schedule.week:type_name -> filecachepb.FilterConfig.WeeklySchedule
+	5,  // 38: filecachepb.FilterConfig.WeeklySchedule.mon:type_name -> filecachepb.DayInterval
+	5,  // 39: filecachepb.FilterConfig.WeeklySchedule.tue:type_name -> filecachepb.DayInterval
+	5,  // 40: filecachepb.FilterConfig.WeeklySchedule.wed:type_name -> filecachepb.DayInterval
+	5,  // 41: filecachepb.FilterConfig.WeeklySchedule.thu:type_name -> filecachepb.DayInterval
+	5,  // 42: filecachepb.FilterConfig.WeeklySchedule.fri:type_name -> filecachepb.DayInterval
+	5,  // 43: filecachepb.FilterConfig.WeeklySchedule.sat:type_name -> filecachepb.DayInterval
+	5,  // 44: filecachepb.FilterConfig.WeeklySchedule.sun:type_name -> filecachepb.DayInterval
+	45, // [45:45] is the sub-list for method output_type
+	45, // [45:45] is the sub-list for method input_type
+	45, // [45:45] is the sub-list for extension type_name
+	45, // [45:45] is the sub-list for extension extendee
+	0,  // [0:45] is the sub-list for field type_name
 }
 
 func init() { file_filecache_proto_init() }

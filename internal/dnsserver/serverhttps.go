@@ -563,12 +563,9 @@ func addRequestInfo(parent context.Context, r *http.Request) (ctx context.Contex
 	ctx = parent
 
 	ri := &RequestInfo{
-		StartTime: time.Now(),
+		TLS:       r.TLS,
 		URL:       netutil.CloneURL(r.URL),
-	}
-
-	if r.TLS != nil {
-		ri.TLSServerName = r.TLS.ServerName
+		StartTime: time.Now(),
 	}
 
 	if username, pass, ok := r.BasicAuth(); ok {

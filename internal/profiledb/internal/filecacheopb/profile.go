@@ -173,12 +173,19 @@ func configClientToInternal(
 }
 
 // categoryFilterToInternal converts filter config's protobuf category filter
-// structure to internal one.  If pbCatFlt is nil, returns a disabled config.
-func categoryFilterToInternal(
-	pbCatFlt *fcpb.FilterConfig_CategoryFilter,
-) (c *filter.ConfigCategories) {
+// structure to internal one.  If categories filter is not specified, returns a
+// disabled config.
+func categoryFilterToInternal(pbFltConf *fcpb.FilterConfig) (c *filter.ConfigCategories) {
+	pbCatFlt := pbFltConf.GetParental().GetCategoryFilter()
 	if pbCatFlt == nil {
-		return &filter.ConfigCategories{}
+		// TODO(d.kolyshev):  Remove after moving deprecated profile categories
+		// in [internal/profiledb/internal.FileCacheVersion] 19.
+		//
+		//lint:ignore SA1019 Use deprecated field for compatibility.
+		pbCatFlt = pbFltConf.GetCategoryFilter()
+		if pbCatFlt == nil {
+			return &filter.ConfigCategories{}
+		}
 	}
 
 	// Consider the categories to have been prevalidated.
@@ -198,7 +205,7 @@ func configParentalToInternal(
 	parental := pbFltConf.GetParental()
 
 	return &filter.ConfigParental{
-		Categories:    categoryFilterToInternal(pbFltConf.GetCategoryFilter()),
+		Categories:    categoryFilterToInternal(pbFltConf),
 		PauseSchedule: schedule,
 		// Consider blocked-service IDs to have been prevalidated.
 		BlockedServices: agdprotobuf.UnsafelyConvertStrSlice[string, filter.BlockedServiceID](
@@ -615,8 +622,17 @@ func filterConfigToProtobuf(c *filter.ConfigClient) (fc *fcpb.FilterConfig) {
 		Enabled: c.Custom.Enabled,
 	}.Build()
 
+	categoryFilter := fcpb.FilterConfig_CategoryFilter_builder{
+		Ids: agdprotobuf.UnsafelyConvertStrSlice[
+			filter.CategoryID,
+			string,
+		](c.Parental.Categories.IDs),
+		Enabled: c.Parental.Categories.Enabled,
+	}.Build()
+
 	parental := fcpb.FilterConfig_Parental_builder{
-		PauseSchedule: scheduleToProtobuf(c.Parental.PauseSchedule),
+		PauseSchedule:  scheduleToProtobuf(c.Parental.PauseSchedule),
+		CategoryFilter: categoryFilter,
 		BlockedServices: agdprotobuf.UnsafelyConvertStrSlice[filter.BlockedServiceID, string](
 			c.Parental.BlockedServices,
 		),
@@ -637,20 +653,11 @@ func filterConfigToProtobuf(c *filter.ConfigClient) (fc *fcpb.FilterConfig) {
 		NewlyRegisteredDomainsEnabled: c.SafeBrowsing.NewlyRegisteredDomainsEnabled,
 	}.Build()
 
-	categories := fcpb.FilterConfig_CategoryFilter_builder{
-		Ids: agdprotobuf.UnsafelyConvertStrSlice[
-			filter.CategoryID,
-			string,
-		](c.Parental.Categories.IDs),
-		Enabled: c.Parental.Categories.Enabled,
-	}.Build()
-
 	return fcpb.FilterConfig_builder{
-		Custom:         custom,
-		Parental:       parental,
-		RuleList:       ruleList,
-		SafeBrowsing:   safeBrowsing,
-		CategoryFilter: categories,
+		Custom:       custom,
+		Parental:     parental,
+		RuleList:     ruleList,
+		SafeBrowsing: safeBrowsing,
 	}.Build()
 }
 
