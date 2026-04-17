@@ -12,8 +12,8 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
+	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/filecacheopb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
-	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecachepb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/profiledbtest"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
@@ -348,7 +348,7 @@ func TestDefault_fileCache_success(t *testing.T) {
 	prof, dev := profiledbtest.NewProfile(t)
 
 	cacheFilePath := filepath.Join(t.TempDir(), "profiles.pb")
-	pbCache := filecachepb.New(&filecachepb.Config{
+	pbCache := filecacheopb.New(&filecacheopb.Config{
 		Logger:                   profiledbtest.Logger,
 		BaseCustomLogger:         profiledbtest.Logger,
 		ProfileAccessConstructor: profiledbtest.ProfileAccessConstructor,
@@ -357,7 +357,7 @@ func TestDefault_fileCache_success(t *testing.T) {
 	})
 
 	ctx := profiledbtest.ContextWithTimeout(t)
-	n, err := pbCache.Store(ctx, &internal.FileCache{
+	n, err := pbCache.Store(ctx, &profiledb.FileCache{
 		SyncTime: wantSyncTime,
 		Profiles: []*agd.Profile{prof},
 		Devices:  []*agd.Device{dev},
@@ -367,8 +367,8 @@ func TestDefault_fileCache_success(t *testing.T) {
 	assert.Positive(t, n)
 
 	db := newProfileDB(t, &profiledb.Config{
-		Storage:       ps,
-		CacheFilePath: cacheFilePath,
+		Storage:          ps,
+		FileCacheStorage: pbCache,
 	})
 
 	ctx = profiledbtest.ContextWithTimeout(t)
@@ -398,7 +398,7 @@ func TestDefault_fileCache_badVersion(t *testing.T) {
 	}
 
 	cacheFilePath := filepath.Join(t.TempDir(), "profiles.pb")
-	pbCache := filecachepb.New(&filecachepb.Config{
+	pbCache := filecacheopb.New(&filecacheopb.Config{
 		Logger:                   profiledbtest.Logger,
 		BaseCustomLogger:         profiledbtest.Logger,
 		ProfileAccessConstructor: profiledbtest.ProfileAccessConstructor,
@@ -407,15 +407,15 @@ func TestDefault_fileCache_badVersion(t *testing.T) {
 	})
 
 	ctx := profiledbtest.ContextWithTimeout(t)
-	n, err := pbCache.Store(ctx, &internal.FileCache{
+	n, err := pbCache.Store(ctx, &profiledb.FileCache{
 		Version: 10000,
 	})
 	require.NoError(t, err)
 	assert.Positive(t, n)
 
 	db := newProfileDB(t, &profiledb.Config{
-		Storage:       ps,
-		CacheFilePath: cacheFilePath,
+		Storage:          ps,
+		FileCacheStorage: pbCache,
 	})
 
 	ctx = profiledbtest.ContextWithTimeout(t)
@@ -448,7 +448,7 @@ func TestDefault_fileCache_refresh(t *testing.T) {
 	}
 
 	cacheFilePath := filepath.Join(t.TempDir(), "profiles.pb")
-	pbCache := filecachepb.New(&filecachepb.Config{
+	pbCache := filecacheopb.New(&filecacheopb.Config{
 		Logger:                   profiledbtest.Logger,
 		BaseCustomLogger:         profiledbtest.Logger,
 		ProfileAccessConstructor: profiledbtest.ProfileAccessConstructor,
@@ -457,7 +457,7 @@ func TestDefault_fileCache_refresh(t *testing.T) {
 	})
 
 	ctx := profiledbtest.ContextWithTimeout(t)
-	n, err := pbCache.Store(ctx, &internal.FileCache{
+	n, err := pbCache.Store(ctx, &profiledb.FileCache{
 		SyncTime: dbSyncTime,
 		Profiles: []*agd.Profile{prof},
 		Devices:  []*agd.Device{dev0},
@@ -473,10 +473,10 @@ func TestDefault_fileCache_refresh(t *testing.T) {
 		Clock: &faketime.Clock{OnNow: func() (now time.Time) {
 			return testTimeNow
 		}},
-		Storage:       ps,
-		CacheFilePath: cacheFilePath,
-		CacheFileIvl:  cacheFileIvl,
-		FullSyncIvl:   cacheFileIvl * 2,
+		Storage:          ps,
+		FileCacheStorage: pbCache,
+		CacheFileIvl:     cacheFileIvl,
+		FullSyncIvl:      cacheFileIvl * 2,
 	})
 
 	// Check file cache content after init.
@@ -534,7 +534,7 @@ func TestDefault_fileCache_refresh(t *testing.T) {
 // devices.
 func assertCacheData(
 	tb testing.TB,
-	pbCache internal.FileCacheStorage,
+	pbCache profiledb.FileCacheStorage,
 	dbSyncTime time.Time,
 	prof *agd.Profile,
 	devs ...*agd.Device,

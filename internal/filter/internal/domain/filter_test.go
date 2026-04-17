@@ -14,7 +14,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/composite"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/domain"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -135,7 +134,7 @@ func TestFilter_Refresh(t *testing.T) {
 	cachePath, srvURL := filtertest.PrepareRefreshable(t, refrCh, testDomains, http.StatusOK)
 
 	f, err := domain.NewFilter(&domain.FilterConfig{
-		Logger:           slogutil.NewDiscardLogger(),
+		Logger:           filtertest.Logger,
 		CacheManager:     agdcache.EmptyManager{},
 		URL:              srvURL,
 		DomainMetrics:    domain.EmptyMetrics{},
@@ -182,7 +181,7 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	// Create the filter.
 
 	fconf := &domain.FilterConfig{
-		Logger:           slogutil.NewDiscardLogger(),
+		Logger:           filtertest.Logger,
 		CacheManager:     agdcache.EmptyManager{},
 		URL:              srvURL,
 		DomainMetrics:    domain.EmptyMetrics{},

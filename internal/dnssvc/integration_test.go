@@ -85,7 +85,9 @@ func newTestService(
 				IDs:     []filter.ID{dnssvctest.FilterListID1},
 				Enabled: true,
 			},
-			SafeBrowsing: &filter.ConfigSafeBrowsing{},
+			SafeBrowsing: &filter.ConfigSafeBrowsing{
+				Typosquatting: &filter.ConfigTyposquatting{},
+			},
 		},
 		Access:                   access.EmptyProfile{},
 		AdultBlockingMode:        nil,
@@ -217,7 +219,9 @@ func newTestService(
 				IDs:     []filter.ID{dnssvctest.FilterListID1},
 				Enabled: true,
 			},
-			SafeBrowsing: &filter.ConfigSafeBrowsing{},
+			SafeBrowsing: &filter.ConfigSafeBrowsing{
+				Typosquatting: &filter.ConfigTyposquatting{},
+			},
 		},
 		ID: dnssvctest.FilteringGroupID,
 	}

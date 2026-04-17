@@ -18,6 +18,9 @@ import (
 	"github.com/miekg/dns"
 )
 
+// tcpLengthPrefixSize is the size of the length prefix in responses via TCP.
+const tcpLengthPrefixSize = 2
+
 // serveTCP runs the TCP serving loop.  It is intended to be used as a
 // goroutine.  l must not be nil.
 func (s *ServerDNS) serveTCP(ctx context.Context, l net.Listener, proto string) {
@@ -277,22 +280,28 @@ func (s *ServerDNS) readTCPMsg(
 		return nil, fmt.Errorf("setting deadline: %w", err)
 	}
 
-	var length uint16
-	err = binary.Read(conn, binary.BigEndian, &length)
+	bufPtr := s.tcpPool.Get()
+	defer s.tcpPool.Put(bufPtr)
+
+	buf := *bufPtr
+	_, err = io.ReadFull(conn, buf[:tcpLengthPrefixSize])
 	if err != nil {
 		return nil, fmt.Errorf("reading length: %w", err)
 	}
 
-	bufPtr := s.getTCPBuffer(int(length))
-	defer s.tcpPool.Put(bufPtr)
+	length := int(binary.BigEndian.Uint16(buf[:tcpLengthPrefixSize]))
+	if cap(buf) < length {
+		buf = slices.Grow(buf, length-len(buf))
+		*bufPtr = buf
+	}
 
-	_, err = io.ReadFull(conn, *bufPtr)
+	_, err = io.ReadFull(conn, buf[:length])
 	if err != nil {
 		return nil, fmt.Errorf("reading message: %w", err)
 	}
 
 	req := &dns.Msg{}
-	err = req.Unpack(*bufPtr)
+	err = req.Unpack(buf[:length])
 	if err != nil {
 		s.metrics.OnInvalidMsg(ctx)
 
@@ -300,20 +309,4 @@ func (s *ServerDNS) readTCPMsg(
 	}
 
 	return req, nil
-}
-
-// getTCPBuffer returns a TCP buffer to be used to read the incoming DNS query
-// with the given length.
-func (s *ServerDNS) getTCPBuffer(length int) (bufPtr *[]byte) {
-	bufPtr = s.tcpPool.Get()
-
-	buf := *bufPtr
-	if l := len(buf); l < length {
-		buf = slices.Grow(buf, length-l)
-	}
-
-	buf = buf[:length]
-	*bufPtr = buf
-
-	return bufPtr
 }

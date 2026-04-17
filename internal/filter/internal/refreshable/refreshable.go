@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -121,7 +120,7 @@ func (f *Refreshable) refreshFromFileOnly(ctx context.Context) (b []byte, err er
 	filePath := f.url.Path
 	f.logger.InfoContext(ctx, "using data from file", "path", filePath)
 
-	b, err = f.refreshFromFile(true, filePath, time.Time{})
+	b, err = DataFromFile(filePath, time.Time{}, f.staleness, true)
 	if err != nil {
 		return nil, fmt.Errorf("refreshing from file %q: %w", filePath, err)
 	}
@@ -141,7 +140,7 @@ func (f *Refreshable) useCachedOrRefreshFromURL(
 	// TODO(e.burkov):  Add [timeutil.Clock].
 	now := time.Now()
 
-	b, err = f.refreshFromFile(acceptStale, f.cachePath, now)
+	b, err = DataFromFile(f.cachePath, now, f.staleness, acceptStale)
 	if err != nil {
 		return nil, fmt.Errorf("refreshing from cache file %q: %w", f.cachePath, err)
 	}
@@ -156,47 +155,6 @@ func (f *Refreshable) useCachedOrRefreshFromURL(
 		}
 	} else {
 		f.logger.InfoContext(ctx, "using cached data from file", "path", f.cachePath)
-	}
-
-	return b, nil
-}
-
-// refreshFromFile loads data from filePath if the file's mtime shows that it's
-// still fresh relative to updTime.  If acceptStale is true, and the file
-// exists, the data is read from there regardless of its staleness.  If both b
-// and err are nil, a refresh from a URL is required.
-func (f *Refreshable) refreshFromFile(
-	acceptStale bool,
-	filePath string,
-	updTime time.Time,
-) (b []byte, err error) {
-	// #nosec G304 -- Assume that filePath is always either cacheDir + a valid,
-	// no-slash ID or a path from the index env.
-	file, err := os.Open(filePath)
-	if errors.Is(err, os.ErrNotExist) {
-		// File does not exist.  Refresh from the URL.
-		return nil, nil
-	} else if err != nil {
-		return nil, fmt.Errorf("opening refreshable file: %w", err)
-	}
-	defer func() { err = errors.WithDeferred(err, file.Close()) }()
-
-	if !acceptStale {
-		var fi fs.FileInfo
-		fi, err = file.Stat()
-		if err != nil {
-			return nil, fmt.Errorf("reading refreshable file stat: %w", err)
-		}
-
-		if mtime := fi.ModTime(); !mtime.Add(f.staleness).After(updTime) {
-			return nil, nil
-		}
-	}
-
-	// Consider cache files to be of a prevalidated size.
-	b, err = io.ReadAll(file)
-	if err != nil {
-		return nil, fmt.Errorf("reading refreshable file: %w", err)
 	}
 
 	return b, nil

@@ -5,30 +5,32 @@ import (
 	"context"
 	"net/http"
 	"net/netip"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterindex"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/composite"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/typosquatting"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/publicsuffix"
 )
-
-// testLogger is the common logger for tests.
-var testLogger = slogutil.NewDiscardLogger()
 
 // Common IP address string representations for tests.
 const (
@@ -97,7 +99,7 @@ func TestFilter_FilterRequest_customWithClientName(t *testing.T) {
 
 	f := newComposite(t, &composite.Config{
 		Custom: custom.New(&custom.Config{
-			Logger: testLogger,
+			Logger: filtertest.Logger,
 			Rules: []filter.RuleText{
 				filtertest.RuleBlockForClientName,
 			},
@@ -212,7 +214,7 @@ func TestFilter_FilterRequest_customAllow(t *testing.T) {
 	t.Parallel()
 
 	customRL := custom.New(&custom.Config{
-		Logger: testLogger,
+		Logger: filtertest.Logger,
 		Rules:  []filter.RuleText{testAllowRule},
 	})
 
@@ -285,7 +287,7 @@ func TestFilter_FilterRequest_customBlockDespiteCommonAllow(t *testing.T) {
 	allowingRL := newFromStr(t, testAllowRuleStr, filtertest.RuleListID1)
 
 	customRL := custom.New(&custom.Config{
-		Logger: testLogger,
+		Logger: filtertest.Logger,
 		Rules:  []filter.RuleText{filtertest.RuleBlock},
 	})
 
@@ -464,7 +466,7 @@ func newCustom(tb testing.TB, text string) (f *custom.Filter) {
 	tb.Helper()
 
 	return custom.New(&custom.Config{
-		Logger: testLogger,
+		Logger: filtertest.Logger,
 		Rules: []filter.RuleText{
 			filter.RuleText(text),
 		},
@@ -570,7 +572,7 @@ func TestFilter_FilterRequest_safeSearch(t *testing.T) {
 	gen, err := safesearch.New(
 		&safesearch.Config{
 			Refreshable: &refreshable.Config{
-				Logger:    testLogger,
+				Logger:    filtertest.Logger,
 				URL:       srvURL,
 				ID:        fltListID,
 				CachePath: cachePath,
@@ -657,6 +659,69 @@ func TestFilter_FilterRequest_domainFilters(t *testing.T) {
 		Rule: filter.RuleText(filtertest.CategoryIDStr),
 	}
 	assert.Equal(t, want, res)
+}
+
+func TestFilter_FilterRequest_typosquatting(t *testing.T) {
+	t.Parallel()
+
+	cloner := agdtest.NewCloner()
+	replCons, err := filter.NewReplacedResultConstructor(&filter.ReplacedResultConstructorConfig{
+		Cloner:      cloner,
+		Replacement: filtertest.HostDangerousRepl,
+	})
+	require.NoError(t, err)
+
+	s := &agdtest.FilterIndexStorage{
+		OnTyposquatting: func(_ context.Context) (idx *filterindex.Typosquatting, err error) {
+			domains := []*filterindex.TyposquattingProtectedDomain{{
+				Domain:   filtertest.HostTypoProtectedDomain,
+				Distance: 1,
+			}}
+
+			return &filterindex.Typosquatting{
+				Domains: domains,
+			}, nil
+		},
+	}
+
+	cachePath := filepath.Join(t.TempDir(), "typosquatting.json")
+
+	ts := typosquatting.New(&typosquatting.Config{
+		Cloner:                    cloner,
+		Logger:                    filtertest.Logger,
+		ReplacedResultConstructor: replCons,
+		CacheManager:              agdcache.EmptyManager{},
+		Clock:                     timeutil.SystemClock{},
+		ErrColl:                   agdtest.NewErrorCollector(),
+		Metrics:                   filter.EmptyMetrics{},
+		PublicSuffixList:          publicsuffix.List,
+		Storage:                   s,
+		CachePath:                 cachePath,
+		ResultListID:              filter.IDTyposquatting,
+		Staleness:                 filtertest.Staleness,
+		CacheCount:                filtertest.CacheCount,
+	})
+
+	ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
+	err = ts.RefreshInitial(ctx)
+	require.NoError(t, err)
+
+	f := newComposite(t, &composite.Config{
+		Typosquatting: ts,
+	})
+
+	ctx, req := newReqDataWithFQDN(t, filtertest.FQDNTypoDomain)
+	res, err := f.FilterRequest(ctx, req)
+	require.NoError(t, err)
+
+	wantReq := dnsservertest.NewReq(filtertest.FQDNDangerousRepl, dns.TypeA, dns.ClassINET)
+	want := &filter.ResultModifiedRequest{
+		Msg:  wantReq,
+		List: filter.IDTyposquatting,
+		Rule: filtertest.HostTypoProtectedDomain,
+	}
+
+	filtertest.AssertEqualResult(t, want, res)
 }
 
 func TestFilter_FilterResponse(t *testing.T) {

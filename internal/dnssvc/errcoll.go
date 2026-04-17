@@ -60,8 +60,8 @@ func (s *errCollMetricsListener) OnError(ctx context.Context, err error) {
 	s.baseListener.OnError(ctx, err)
 }
 
-// AdjustCurrentRequestsNumber implements the [dnsserver.MetricsListener] interface
-// for *errCollMetricsListener.
+// AdjustCurrentRequestsNumber implements the [dnsserver.MetricsListener]
+// interface for *errCollMetricsListener.
 func (s *errCollMetricsListener) AdjustActiveRequests(ctx context.Context, num int) {
 	s.baseListener.AdjustActiveRequests(ctx, num)
 }

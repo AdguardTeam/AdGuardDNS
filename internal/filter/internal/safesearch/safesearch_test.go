@@ -15,7 +15,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/miekg/dns"
@@ -244,7 +243,7 @@ func newTestFilter(tb testing.TB) (f *safesearch.Filter) {
 	f, err := safesearch.New(
 		&safesearch.Config{
 			Refreshable: &refreshable.Config{
-				Logger:    slogutil.NewDiscardLogger(),
+				Logger:    filtertest.Logger,
 				ID:        filter.IDGeneralSafeSearch,
 				URL:       srvURL,
 				CachePath: cachePath,

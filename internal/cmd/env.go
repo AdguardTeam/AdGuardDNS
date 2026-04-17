@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"strings"
@@ -20,7 +20,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/version"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
-	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/AdguardTeam/golibs/validate"
@@ -30,9 +29,9 @@ import (
 )
 
 const (
-	// profileCacheTypeDefault is a profile cache type that uses protobuf
-	// Open Struct API.
-	profileCacheTypeDefault = "default"
+	// profileCacheTypeDefault is used to determine whether the profile cache is
+	// disabled.
+	profileCacheTypeNone = "none"
 
 	// profileCacheTypeOpaque is a profile cache type that uses protobuf opaque
 	// API.
@@ -42,6 +41,8 @@ const (
 // environment represents the configuration that is kept in the environment.
 //
 // TODO(e.burkov, a.garipov):  Name variables more consistently.
+//
+// TODO(a.garipov):  Rename FILTER_INDEX_URL to RULE_LIST_URL etc.
 type environment struct {
 	AdultBlockingURL         *urlutil.URL `env:"ADULT_BLOCKING_URL"`
 	BackendRateLimitURL      *urlutil.URL `env:"BACKEND_RATELIMIT_URL"`
@@ -53,6 +54,7 @@ type environment struct {
 	ConsulDNSCheckSessionURL *urlutil.URL `env:"CONSUL_DNSCHECK_SESSION_URL"`
 	CustomDomainsURL         *urlutil.URL `env:"CUSTOM_DOMAINS_URL"`
 	DNSCheckRemoteKVURL      *urlutil.URL `env:"DNSCHECK_REMOTEKV_URL"`
+	FilterIndexAPIURL        *urlutil.URL `env:"FILTER_INDEX_API_URL"`
 	FilterIndexURL           *urlutil.URL `env:"FILTER_INDEX_URL,notEmpty"`
 	GeneralSafeSearchURL     *urlutil.URL `env:"GENERAL_SAFE_SEARCH_URL"`
 	LinkedIPTargetURL        *urlutil.URL `env:"LINKED_IP_TARGET_URL"`
@@ -63,6 +65,8 @@ type environment struct {
 	SessionTicketURL         *urlutil.URL `env:"SESSION_TICKET_URL"`
 	StandardAccessURL        *urlutil.URL `env:"STANDARD_ACCESS_URL"`
 	YoutubeSafeSearchURL     *urlutil.URL `env:"YOUTUBE_SAFE_SEARCH_URL"`
+
+	ListenAddr netip.Addr `env:"LISTEN_ADDR" envDefault:"127.0.0.1"`
 
 	BackendRateLimitAPIKey string `env:"BACKEND_RATELIMIT_API_KEY"`
 	BillStatAPIKey         string `env:"BILLSTAT_API_KEY"`
@@ -75,12 +79,13 @@ type environment struct {
 	DNSCheckRemoteKVAPIKey string `env:"DNSCHECK_REMOTEKV_API_KEY"`
 	// TODO(f.setrakov): Rename env.
 	FilterCacheDir         string `env:"FILTER_CACHE_PATH" envDefault:"./filters/"`
+	FilterIndexAPIKey      string `env:"FILTER_INDEX_API_KEY"`
 	GeoIPASNPath           string `env:"GEOIP_ASN_PATH" envDefault:"./asn.mmdb"`
 	GeoIPCountryPath       string `env:"GEOIP_COUNTRY_PATH" envDefault:"./country.mmdb"`
 	LogFormat              string `env:"LOG_FORMAT" envDefault:"text"`
 	NodeName               string `env:"NODE_NAME,notEmpty"`
 	ProfilesAPIKey         string `env:"PROFILES_API_KEY"`
-	ProfilesCachePath      string `env:"PROFILES_CACHE_PATH" envDefault:"./profilecache.pb"`
+	ProfilesCachePath      string `env:"PROFILES_CACHE_PATH"`
 	QueryLogPath           string `env:"QUERYLOG_PATH" envDefault:"./querylog.jsonl"`
 	RateLimitAllowlistType string `env:"RATELIMIT_ALLOWLIST_TYPE"`
 	RedisKeyPrefix         string `env:"REDIS_KEY_PREFIX" envDefault:"agdns"`
@@ -98,12 +103,13 @@ type environment struct {
 	// similar.
 	WebStaticDir string `env:"WEB_STATIC_DIR"`
 
-	ListenAddr net.IP `env:"LISTEN_ADDR" envDefault:"127.0.0.1"`
-
 	ProfilesMaxRespSize datasize.ByteSize `env:"PROFILES_MAX_RESP_SIZE" envDefault:"64MB"`
+
+	ProfilesAPIRespMaxInvalidRatio float64 `env:"PROFILES_API_RESPONSE_MAX_INVALID_RATIO" envDefault:"0"`
 
 	CustomDomainsRefreshIvl  timeutil.Duration `env:"CUSTOM_DOMAINS_REFRESH_INTERVAL"`
 	DNSCheckKVTTL            timeutil.Duration `env:"DNSCHECK_KV_TTL"`
+	FilterIndexAPIRefreshIvl timeutil.Duration `env:"FILTER_INDEX_API_REFRESH_INTERVAL"`
 	FilterRefreshIvl         timeutil.Duration `env:"FILTER_REFRESH_INTERVAL"`
 	ProfilesCacheIvl         timeutil.Duration `env:"PROFILES_CACHE_INTERVAL"`
 	SessionTicketRefreshIvl  timeutil.Duration `env:"SESSION_TICKET_REFRESH_INTERVAL"`
@@ -112,7 +118,9 @@ type environment struct {
 
 	BlockProfileRateDenominator int `env:"BLOCK_PROFILE_RATE_DENOM"`
 	// TODO(a.garipov):  Rename to DNSCHECK_CACHE_KV_COUNT?
-	DNSCheckCacheKVSize         int `env:"DNSCHECK_CACHE_KV_SIZE"`
+	DNSCheckCacheKVSize     uint64 `env:"DNSCHECK_CACHE_KV_SIZE"`
+	TyposquattingCacheCount uint64 `env:"TYPOSQUATTING_CACHE_COUNT"`
+
 	MaxThreads                  int `env:"MAX_THREADS"`
 	MutexProfileRateDenominator int `env:"MUTEX_PROFILE_RATE_DENOM"`
 
@@ -123,15 +131,16 @@ type environment struct {
 	Verbosity uint8 `env:"VERBOSE" envDefault:"0"`
 
 	AdultBlockingEnabled     strictBool `env:"ADULT_BLOCKING_ENABLED" envDefault:"1"`
+	BlockedServiceEnabled    strictBool `env:"BLOCKED_SERVICE_ENABLED" envDefault:"1"`
 	CategoryFilterEnabled    strictBool `env:"CATEGORY_FILTER_ENABLED" envDefault:"0"`
 	CrashOutputEnabled       strictBool `env:"CRASH_OUTPUT_ENABLED" envDefault:"0"`
 	CustomDomainsEnabled     strictBool `env:"CUSTOM_DOMAINS_ENABLED" envDefault:"1"`
+	GeneralSafeSearchEnabled strictBool `env:"GENERAL_SAFE_SEARCH_ENABLED" envDefault:"1"`
 	LogTimestamp             strictBool `env:"LOG_TIMESTAMP" envDefault:"1"`
 	NewRegDomainsEnabled     strictBool `env:"NEW_REG_DOMAINS_ENABLED" envDefault:"1"`
-	SafeBrowsingEnabled      strictBool `env:"SAFE_BROWSING_ENABLED" envDefault:"1"`
-	BlockedServiceEnabled    strictBool `env:"BLOCKED_SERVICE_ENABLED" envDefault:"1"`
 	QueryLogSemaphoreEnabled strictBool `env:"QUERYLOG_SEMAPHORE_ENABLED"`
-	GeneralSafeSearchEnabled strictBool `env:"GENERAL_SAFE_SEARCH_ENABLED" envDefault:"1"`
+	SafeBrowsingEnabled      strictBool `env:"SAFE_BROWSING_ENABLED" envDefault:"1"`
+	TyposquattingEnabled     strictBool `env:"TYPOSQUATTING_ENABLED" envDefault:"0"`
 	YoutubeSafeSearchEnabled strictBool `env:"YOUTUBE_SAFE_SEARCH_ENABLED" envDefault:"1"`
 	WebStaticDirEnabled      strictBool `env:"WEB_STATIC_DIR_ENABLED" envDefault:"0"`
 }
@@ -187,6 +196,7 @@ func (envs *environment) Validate() (err error) {
 	errs = envs.validateRateLimitURLs(errs)
 	errs = envs.validateSessionTickets(errs)
 	errs = envs.validateStandardAccess(errs)
+	errs = envs.validateTyposquatting(errs)
 
 	return errors.Join(errs...)
 }
@@ -475,7 +485,10 @@ func (envs *environment) validateStandardAccess(errs []error) (res []error) {
 		res = append(
 			res,
 			validate.NotEmpty("env STANDARD_ACCESS_API_KEY", envs.StandardAccessAPIKey),
-			validate.Positive("env STANDARD_ACCESS_REFRESH_INTERVAL", envs.StandardAccessRefreshIvl),
+			validate.Positive(
+				"env STANDARD_ACCESS_REFRESH_INTERVAL",
+				envs.StandardAccessRefreshIvl,
+			),
 			validate.Positive("env STANDARD_ACCESS_TIMEOUT", envs.StandardAccessTimeout),
 		)
 
@@ -493,6 +506,33 @@ func (envs *environment) validateStandardAccess(errs []error) (res []error) {
 	return res
 }
 
+// validateTyposquatting appends validation errors to orig if environment
+// variables for the typosquatting filter contain errors.
+//
+// TODO(a.garipov):  Split validations of the filter-index API variables and the
+// typosquatting ones.
+func (envs *environment) validateTyposquatting(orig []error) (errs []error) {
+	errs = orig
+
+	if !envs.TyposquattingEnabled {
+		return errs
+	}
+
+	errs = append(
+		errs,
+		validate.Positive("env TYPOSQUATTING_CACHE_COUNT", envs.TyposquattingCacheCount),
+		validate.Positive("env FILTER_INDEX_API_REFRESH_INTERVAL", envs.FilterIndexAPIRefreshIvl),
+	)
+
+	if err := validate.NotNil("env FILTER_INDEX_API_URL", envs.FilterIndexAPIURL); err != nil {
+		errs = append(errs, err)
+	} else if err = urlutil.ValidateGRPCURL(&envs.FilterIndexAPIURL.URL); err != nil {
+		errs = append(errs, fmt.Errorf("env FILTER_INDEX_API_URL: %w", err))
+	}
+
+	return errs
+}
+
 // validateProfilesConf returns an error if environment variables for profiles
 // database configuration contain errors.
 func (envs *environment) validateProfilesConf(profilesEnabled bool) (err error) {
@@ -506,23 +546,20 @@ func (envs *environment) validateProfilesConf(profilesEnabled bool) (err error) 
 	errs = append(
 		errs,
 		validate.NoGreaterThan("PROFILES_MAX_RESP_SIZE", envs.ProfilesMaxRespSize, math.MaxInt),
-	)
-
-	if envs.ProfilesCachePath == "none" {
-		return errors.Join(errs...)
-	}
-
-	errs = append(
-		errs,
-		validate.Positive("PROFILES_CACHE_INTERVAL", envs.ProfilesCacheIvl),
 		validate.NotEmpty("PROFILES_CACHE_TYPE", envs.ProfilesCacheType),
+		validate.InRange(
+			"PROFILES_API_RESPONSE_MAX_INVALID_RATIO",
+			envs.ProfilesAPIRespMaxInvalidRatio,
+			0.0,
+			1.0,
+		),
 	)
 
 	switch typ := envs.ProfilesCacheType; typ {
-	case
-		profileCacheTypeDefault,
-		profileCacheTypeOpaque,
-		"":
+	case profileCacheTypeNone:
+	case profileCacheTypeOpaque:
+		errs = append(errs, validate.Positive("PROFILES_CACHE_INTERVAL", envs.ProfilesCacheIvl))
+		errs = append(errs, validate.NotEmpty("PROFILES_CACHE_PATH", envs.ProfilesCachePath))
 	default:
 		err = fmt.Errorf("env PROFILES_CACHE_TYPE: %w: %q", errors.ErrBadEnumValue, typ)
 		errs = append(errs, err)
@@ -549,18 +586,18 @@ func (envs *environment) validateQueryLogSemaphore(orig []error) (errs []error) 
 	return errs
 }
 
-// validateCache appends validation errors to the given errs if environment
+// validateCache appends validation errors to the given errors if environment
 // variables for KV Cache contain errors.
-func (envs *environment) validateCache(errs []error) (res []error) {
-	res = errs
+func (envs *environment) validateCache(orig []error) (errs []error) {
+	errs = orig
 
-	err := validate.Positive("env DNSCHECK_CACHE_KV_SIZE", envs.DNSCheckCacheKVSize)
-	if err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		res = append(res, err)
-	}
+	errs = append(
+		errs,
+		validate.Positive("DNSCHECK_CACHE_KV_SIZE", envs.DNSCheckCacheKVSize),
+		validate.NoGreaterThan("DNSCHECK_CACHE_KV_SIZE", envs.DNSCheckCacheKVSize, math.MaxInt),
+	)
 
-	return res
+	return errs
 }
 
 // validateBackendKV appends validation errors to the given errs if environment
@@ -674,17 +711,16 @@ func (envs *environment) debugConf(
 ) (conf *debugsvc.Config) {
 	// TODO(a.garipov): Simplify the config if these are guaranteed to always be
 	// the same.
-	addr := netutil.JoinHostPort(envs.ListenAddr.String(), envs.ListenPort)
+	addr := netip.AddrPortFrom(envs.ListenAddr, envs.ListenPort)
 
 	// TODO(a.garipov): Consider other ways of making the DNSDB API fully
 	// optional.
-	var dnsDBAddr string
+	var dnsDBAddr netip.AddrPort
 	var dnsDBHdlr http.Handler
 	if h, ok := dnsDB.(http.Handler); ok {
 		dnsDBAddr = addr
 		dnsDBHdlr = h
 	} else {
-		dnsDBAddr = ""
 		dnsDBHdlr = http.HandlerFunc(http.NotFound)
 	}
 

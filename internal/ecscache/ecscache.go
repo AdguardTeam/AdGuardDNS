@@ -49,12 +49,14 @@ type MiddlewareConfig struct {
 	MinTTL time.Duration
 
 	// NoECSCount is the number of entities to hold in the cache for hosts that
-	// don't support ECS, in entries.  It must be greater than zero.
-	NoECSCount int
+	// don't support ECS, in entries.  It must be greater than zero and less
+	// than or equal to [math.MaxInt].
+	NoECSCount uint64
 
 	// ECSCount is the number of entities to hold in the cache for hosts that
-	// support ECS, in entries.  It must be greater than zero.
-	ECSCount int
+	// support ECS, in entries.  It must be greater than zero and less than or
+	// equal to [math.MaxInt].
+	ECSCount uint64
 
 	// OverrideTTL shows if the TTL overrides logic should be used.
 	OverrideTTL bool

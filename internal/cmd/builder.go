@@ -17,7 +17,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
-	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
+	"github.com/AdguardTeam/AdGuardDNS/internal/backendgrpc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/cmd/plugin"
@@ -34,12 +34,15 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterindex"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterstorage"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/ruleliststorage"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/typosquatting"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
+	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/filecacheopb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
@@ -116,7 +119,7 @@ type builder struct {
 	activeReqSema        syncutil.Semaphore
 	adultBlocking        *hashprefix.Filter
 	adultBlockingHashes  *hashprefix.Storage
-	backendGRPCMtrc      backendpb.GRPCMetrics
+	backendGRPCMtrc      backendgrpc.GRPCMetrics
 	billStat             billstat.Recorder
 	bindSet              netutil.SubnetSet
 	btdManager           *bindtodevice.Manager
@@ -131,6 +134,7 @@ type builder struct {
 	filterMtrc           filter.Metrics
 	filterStorage        *filterstorage.Default
 	filteringGroups      map[agd.FilteringGroupID]*agd.FilteringGroup
+	filterIndexStorage   filterindex.Storage
 	fwdHandler           *forward.Handler
 	geoIP                *geoip.File
 	hashMatcher          *hashprefix.Matcher
@@ -145,8 +149,10 @@ type builder struct {
 	ruleStat             rulestat.Interface
 	safeBrowsing         *hashprefix.Filter
 	safeBrowsingHashes   *hashprefix.Storage
+	safeBrowsingReplCons *filter.ReplacedResultConstructor
 	sdeConf              *dnsmsg.StructuredDNSErrorsConfig
 	tlsManager           *tlsconfig.DefaultManager
+	typosquatting        *typosquatting.Filter
 	webSvc               *websvc.Service
 	webSvcCertValidator  websvc.CertificateValidator
 
@@ -314,7 +320,8 @@ type hashPrefixFilterInitFunc func(
 
 // initHashPrefixFilters initializes the hashprefix storages and filters.
 //
-// [builder.initMsgCloner] must be called before this method.
+// The following methods must be called before this one:
+//   - [builder.initMsgCloner]
 func (b *builder) initHashPrefixFilters(ctx context.Context) (err error) {
 	// TODO(a.garipov):  Make a separate max_size config for hashprefix filters.
 	maxSize := b.conf.Filters.MaxSize
@@ -323,6 +330,23 @@ func (b *builder) initHashPrefixFilters(ctx context.Context) (err error) {
 	b.filterMtrc, err = metrics.NewFilter(b.mtrcNamespace, b.promRegisterer)
 	if err != nil {
 		return fmt.Errorf("registering filter metrics: %w", err)
+	}
+
+	// TODO(a.garipov):  Consider adding an env for all safe-browsing related
+	// functions, including dangerous domains, newly-registered domains, and
+	// typosquatting.
+	//
+	// TODO(a.garipov):  Add typosquatting.
+	if b.env.SafeBrowsingEnabled || b.env.NewRegDomainsEnabled {
+		b.safeBrowsingReplCons, err = filter.NewReplacedResultConstructor(
+			&filter.ReplacedResultConstructorConfig{
+				Cloner:      b.cloner,
+				Replacement: b.conf.SafeBrowsing.BlockHost,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("creating safe browsing reply constructor: %w", err)
+		}
 	}
 
 	// TODO(a.garipov):  Merge the three functions below together.
@@ -445,22 +469,30 @@ func (b *builder) initAdultBlocking(
 
 	prefix := path.Join(hashprefix.IDPrefix, string(id))
 
+	replCons, err := filter.NewReplacedResultConstructor(&filter.ReplacedResultConstructorConfig{
+		Cloner:      b.cloner,
+		Replacement: c.BlockHost,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating adult blocking reply constructor: %w", err)
+	}
+
 	b.adultBlocking, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
-		Logger:            b.baseLogger.With(slogutil.KeyPrefix, prefix),
-		Cloner:            b.cloner,
-		CacheManager:      b.cacheManager,
-		Hashes:            b.adultBlockingHashes,
-		URL:               &b.env.AdultBlockingURL.URL,
-		ErrColl:           b.errColl,
-		HashPrefixMetrics: hashPrefMtrc,
-		Metrics:           b.filterMtrc,
-		PublicSuffixList:  publicsuffix.List,
-		ID:                id,
-		CachePath:         filepath.Join(cacheDir, string(id)),
-		ReplacementHost:   c.BlockHost,
-		Staleness:         refrIvl,
-		RefreshTimeout:    refrTimeout,
-		CacheTTL:          time.Duration(c.CacheTTL),
+		Logger:                    b.baseLogger.With(slogutil.KeyPrefix, prefix),
+		Cloner:                    b.cloner,
+		CacheManager:              b.cacheManager,
+		Hashes:                    b.adultBlockingHashes,
+		ReplacedResultConstructor: replCons,
+		URL:                       &b.env.AdultBlockingURL.URL,
+		ErrColl:                   b.errColl,
+		HashPrefixMetrics:         hashPrefMtrc,
+		Metrics:                   b.filterMtrc,
+		PublicSuffixList:          publicsuffix.List,
+		ID:                        id,
+		CachePath:                 filepath.Join(cacheDir, string(id)),
+		Staleness:                 refrIvl,
+		RefreshTimeout:            refrTimeout,
+		CacheTTL:                  time.Duration(c.CacheTTL),
 		// TODO(a.garipov):  Make all sizes [datasize.ByteSize] and rename cache
 		// entity counts to fooCount.
 		CacheCount:   c.CacheSize,
@@ -548,24 +580,24 @@ func (b *builder) initNewRegDomains(
 	prefix := path.Join(hashprefix.IDPrefix, string(id))
 
 	b.newRegDomains, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
-		Logger:            b.baseLogger.With(slogutil.KeyPrefix, prefix),
-		Cloner:            b.cloner,
-		CacheManager:      b.cacheManager,
-		Hashes:            b.newRegDomainsHashes,
-		URL:               &b.env.NewRegDomainsURL.URL,
-		ErrColl:           b.errColl,
-		HashPrefixMetrics: hashPrefMtrc,
-		Metrics:           b.filterMtrc,
-		PublicSuffixList:  publicsuffix.List,
-		ID:                id,
-		CachePath:         filepath.Join(cacheDir, string(id)),
-		ReplacementHost:   c.BlockHost,
-		Staleness:         refrIvl,
-		RefreshTimeout:    refrTimeout,
-		CacheTTL:          time.Duration(c.CacheTTL),
-		CacheCount:        c.CacheSize,
-		MaxSize:           maxSize,
-		SubDomainNum:      defaultSubDomainNum,
+		Logger:                    b.baseLogger.With(slogutil.KeyPrefix, prefix),
+		Cloner:                    b.cloner,
+		CacheManager:              b.cacheManager,
+		Hashes:                    b.newRegDomainsHashes,
+		ReplacedResultConstructor: b.safeBrowsingReplCons,
+		URL:                       &b.env.NewRegDomainsURL.URL,
+		ErrColl:                   b.errColl,
+		HashPrefixMetrics:         hashPrefMtrc,
+		Metrics:                   b.filterMtrc,
+		PublicSuffixList:          publicsuffix.List,
+		ID:                        id,
+		CachePath:                 filepath.Join(cacheDir, string(id)),
+		Staleness:                 refrIvl,
+		RefreshTimeout:            refrTimeout,
+		CacheTTL:                  time.Duration(c.CacheTTL),
+		CacheCount:                c.CacheSize,
+		MaxSize:                   maxSize,
+		SubDomainNum:              defaultSubDomainNum,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating filter: %w", err)
@@ -630,24 +662,24 @@ func (b *builder) initSafeBrowsing(
 	prefix := path.Join(hashprefix.IDPrefix, string(id))
 
 	b.safeBrowsing, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
-		Logger:            b.baseLogger.With(slogutil.KeyPrefix, prefix),
-		Cloner:            b.cloner,
-		CacheManager:      b.cacheManager,
-		Hashes:            b.safeBrowsingHashes,
-		URL:               &b.env.SafeBrowsingURL.URL,
-		ErrColl:           b.errColl,
-		HashPrefixMetrics: hashPrefMtrc,
-		Metrics:           b.filterMtrc,
-		PublicSuffixList:  publicsuffix.List,
-		ID:                id,
-		CachePath:         filepath.Join(cacheDir, string(id)),
-		ReplacementHost:   c.BlockHost,
-		Staleness:         refrIvl,
-		RefreshTimeout:    refrTimeout,
-		CacheTTL:          time.Duration(c.CacheTTL),
-		CacheCount:        c.CacheSize,
-		MaxSize:           maxSize,
-		SubDomainNum:      defaultSubDomainNum,
+		Logger:                    b.baseLogger.With(slogutil.KeyPrefix, prefix),
+		Cloner:                    b.cloner,
+		CacheManager:              b.cacheManager,
+		Hashes:                    b.safeBrowsingHashes,
+		ReplacedResultConstructor: b.safeBrowsingReplCons,
+		URL:                       &b.env.SafeBrowsingURL.URL,
+		ErrColl:                   b.errColl,
+		HashPrefixMetrics:         hashPrefMtrc,
+		Metrics:                   b.filterMtrc,
+		PublicSuffixList:          publicsuffix.List,
+		ID:                        id,
+		CachePath:                 filepath.Join(cacheDir, string(id)),
+		Staleness:                 refrIvl,
+		RefreshTimeout:            refrTimeout,
+		CacheTTL:                  time.Duration(c.CacheTTL),
+		CacheCount:                c.CacheSize,
+		MaxSize:                   maxSize,
+		SubDomainNum:              defaultSubDomainNum,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating filter: %w", err)
@@ -702,7 +734,7 @@ func (b *builder) initStandardAccess(ctx context.Context) (err error) {
 		return fmt.Errorf("initializing standard access metrics: %w", err)
 	}
 
-	strg, err := backendpb.NewStandardAccess(&backendpb.StandardAccessConfig{
+	strg, err := backendgrpc.NewStandardAccess(&backendgrpc.StandardAccessConfig{
 		Endpoint:    &b.env.StandardAccessURL.URL,
 		GRPCMetrics: b.backendGRPCMtrc,
 		Metrics:     mtrc,
@@ -754,8 +786,10 @@ func (b *builder) initStandardAccess(ctx context.Context) (err error) {
 
 // initRuleListStorage initializes and refreshes the rule lists storage.  It
 // also adds the refresher with ID [ruleliststorage.StoragePrefix] to the debug
-// refreshers.  [builder.initHashPrefixFilters] must be called before this
-// method.
+// refreshers.
+//
+// The following methods must be called before this one:
+//   - [builder.initHashPrefixFilters]
 func (b *builder) initRuleListStorage(ctx context.Context) (err error) {
 	c := b.conf.Filters
 	refrIvl := time.Duration(b.env.FilterRefreshIvl)
@@ -812,11 +846,112 @@ func (b *builder) initRuleListStorage(ctx context.Context) (err error) {
 	return nil
 }
 
+// initFilterIndexStorage initializes the filter-index storage.
+//
+// The following methods must be called before this one:
+//   - [builder.initGRPCMetrics]
+func (b *builder) initFilterIndexStorage(ctx context.Context) (err error) {
+	// TODO(a.garipov):  Add rule-list filters and any future filters depending
+	// on the index.
+	if !b.env.TyposquattingEnabled {
+		return nil
+	}
+
+	mtrc, err := metrics.NewBackendFilterIndexStorage(b.mtrcNamespace, b.promRegisterer)
+	if err != nil {
+		return fmt.Errorf("registering filter-index metrics: %w", err)
+	}
+
+	s, err := backendgrpc.NewFilterIndexStorage(&backendgrpc.FilterIndexStorageConfig{
+		Logger:           b.baseLogger.With(slogutil.KeyPrefix, "filter_index_storage"),
+		Endpoint:         &b.env.FilterIndexAPIURL.URL,
+		Clock:            timeutil.SystemClock{},
+		GRPCMetrics:      b.backendGRPCMtrc,
+		Metrics:          mtrc,
+		PublicSuffixList: publicsuffix.List,
+		APIKey:           b.env.FilterIndexAPIKey,
+	})
+	if err != nil {
+		return fmt.Errorf("creating filter index storage: %w", err)
+	}
+
+	b.filterIndexStorage = s
+
+	b.logger.DebugContext(ctx, "initialized filter index storage")
+
+	return nil
+}
+
+// initTyposquattingFilter initializes and refreshes the typosquatting filter.
+// It also adds the refresher with ID [typosquatting.IDPrefix] to the debug
+// refreshers.
+//
+// The following methods must be called before this one:
+//   - [builder.initHashPrefixFilters]
+//   - [builder.initFilterIndexStorage]
+func (b *builder) initTyposquattingFilter(ctx context.Context) (err error) {
+	if !b.env.TyposquattingEnabled {
+		return nil
+	}
+
+	cachePath := filepath.Join(b.env.FilterCacheDir, filter.SubDirNameIndex, "typosquatting.json")
+	refrIvl := time.Duration(b.env.FilterIndexAPIRefreshIvl)
+
+	f := typosquatting.New(&typosquatting.Config{
+		Cloner:                    b.cloner,
+		Logger:                    b.baseLogger.With(slogutil.KeyPrefix, typosquatting.IDPrefix),
+		ReplacedResultConstructor: b.safeBrowsingReplCons,
+		CacheManager:              b.cacheManager,
+		Clock:                     timeutil.SystemClock{},
+		ErrColl:                   b.errColl,
+		Metrics:                   b.filterMtrc,
+		PublicSuffixList:          publicsuffix.List,
+		Storage:                   b.filterIndexStorage,
+		CachePath:                 cachePath,
+		ResultListID:              filter.IDTyposquatting,
+		// TODO(a.garipov):  Consider adding a separate parameter here.
+		Staleness:  refrIvl,
+		CacheCount: b.env.TyposquattingCacheCount,
+	})
+
+	err = f.RefreshInitial(ctx)
+	if err != nil {
+		return fmt.Errorf("refreshing typosquatting filter: %w", err)
+	}
+
+	b.typosquatting = f
+
+	refr := service.NewRefreshWorker(&service.RefreshWorkerConfig{
+		// TODO(a.garipov):  Consider a separate timeout.
+		ContextConstructor: contextutil.NewTimeoutConstructor(
+			time.Duration(b.conf.Backend.Timeout),
+		),
+		ErrorHandler:      newSlogErrorHandler(b.baseLogger, typosquatting.IDPrefix),
+		Refresher:         b.typosquatting,
+		Schedule:          timeutil.NewConstSchedule(refrIvl),
+		RefreshOnShutdown: false,
+	})
+	err = refr.Start(context.WithoutCancel(ctx))
+	if err != nil {
+		return fmt.Errorf("starting typosquatting update: %w", err)
+	}
+
+	b.sigHdlr.AddService(refr)
+
+	b.debugRefrs[typosquatting.IDPrefix] = b.typosquatting
+
+	b.logger.DebugContext(ctx, "initialized typosquatting filter")
+
+	return nil
+}
+
 // initFilterStorage initializes and refreshes the filter storage.  It also adds
 // the refresher with ID [filter.StoragePrefix] to the debug refreshers.
 //
-// [builder.initHashPrefixFilters] and [builder.initRuleListStorage] must be
-// called before this method.
+// The following methods must be called before this one:
+//   - [builder.initHashPrefixFilters]
+//   - [builder.initRuleListStorage]
+//   - [builder.initTyposquattingFilter]
 func (b *builder) initFilterStorage(ctx context.Context) (err error) {
 	c := b.conf.Filters
 	refrIvl := time.Duration(c.RefreshIvl)
@@ -889,6 +1024,10 @@ func (b *builder) initFilterStorage(ctx context.Context) (err error) {
 			filter.IDYoutubeSafeSearch,
 			bool(b.env.YoutubeSafeSearchEnabled),
 		),
+		Typosquatting: &filterstorage.TyposquattingConfig{
+			Filter:  b.typosquatting,
+			Enabled: bool(b.env.TyposquattingEnabled),
+		},
 		CacheManager:             b.cacheManager,
 		Clock:                    timeutil.SystemClock{},
 		DomainMetrics:            domainMtrc,
@@ -959,7 +1098,8 @@ func (b *builder) newSafeSearchConfig(
 
 // initFilteringGroups initializes the filtering groups.
 //
-// [builder.initRuleListStorage] must be called before this method.
+// The following methods must be called before this one:
+//   - [builder.initRuleListStorage]
 func (b *builder) initFilteringGroups(ctx context.Context) (err error) {
 	b.filteringGroups, err = b.conf.FilteringGroups.toInternal(ctx, b.ruleListStorage)
 	if err != nil {
@@ -1089,7 +1229,8 @@ var (
 
 // initMsgConstructor initializes the common DNS message constructor.
 //
-// [builder.initMsgCloner] must be called before this method.
+// The following methods must be called before this one:
+//   - [builder.initMsgCloner]
 func (b *builder) initMsgConstructor(ctx context.Context) (err error) {
 	fltConf := b.conf.Filters
 	b.sdeConf = &dnsmsg.StructuredDNSErrorsConfig{
@@ -1120,7 +1261,8 @@ func (b *builder) initMsgConstructor(ctx context.Context) (err error) {
 // initTLSManager initializes the TLS manager and the TLS-related metrics.  It
 // also adds the refresher with ID [debugIDTLSConfig] to the debug refreshers.
 //
-// [builder.initGRPCMetrics] must be called before this method.
+// The following methods must be called before this one:
+//   - [builder.initGRPCMetrics]
 func (b *builder) initTLSManager(ctx context.Context) (err error) {
 	mtrc, err := metrics.NewTLSConfigManager(b.mtrcNamespace, b.promRegisterer)
 	if err != nil {
@@ -1175,14 +1317,14 @@ func (b *builder) newTicketDB(ctx context.Context) (db tlsconfig.TicketDB, err e
 	case sessionTicketRemote:
 		b.logger.InfoContext(ctx, "using remote session tickets storage")
 
-		var mtrc backendpb.TicketStorageMetrics
+		var mtrc backendgrpc.TicketStorageMetrics
 		mtrc, err = metrics.NewBackendTicketStorage(b.mtrcNamespace, b.promRegisterer)
 		if err != nil {
 			return nil, fmt.Errorf("registering session ticket storage metrics: %w", err)
 		}
 
-		var strg *backendpb.TicketStorage
-		strg, err = backendpb.NewSessionTicketStorage(&backendpb.TicketStorageConfig{
+		var strg *backendgrpc.TicketStorage
+		strg, err = backendgrpc.NewSessionTicketStorage(&backendgrpc.TicketStorageConfig{
 			Logger:      b.baseLogger.With(slogutil.KeyPrefix, "ticket storage"),
 			Endpoint:    &b.env.SessionTicketURL.URL,
 			GRPCMetrics: b.backendGRPCMtrc,
@@ -1232,7 +1374,7 @@ func (b *builder) initCustomDomainDB(ctx context.Context) (err error) {
 		return fmt.Errorf("registering custom domain storage metrics: %w", err)
 	}
 
-	strg, err := backendpb.NewCustomDomainStorage(&backendpb.CustomDomainStorageConfig{
+	strg, err := backendgrpc.NewCustomDomainStorage(&backendgrpc.CustomDomainStorageConfig{
 		Endpoint:    &b.env.CustomDomainsURL.URL,
 		Logger:      b.baseLogger.With(slogutil.KeyPrefix, "custom_domain_storage"),
 		Clock:       timeutil.SystemClock{},
@@ -1329,7 +1471,8 @@ func (b *builder) initServerGroups(ctx context.Context) (err error) {
 // initTicketRotator initializes the TLS session ticket rotator.  It also adds
 // the refresher with ID [debugIDTicketRotator] to the debug refreshers.
 //
-// [builder.initServerGroups] must be called before this method.
+// The following methods must be called before this one:
+//   - [builder.initServerGroups]
 func (b *builder) initTicketRotator(ctx context.Context) (err error) {
 	tickRot := service.RefresherFunc(b.tlsManager.RotateTickets)
 
@@ -1430,6 +1573,7 @@ func (b *builder) initGRPCMetrics(ctx context.Context) (err error) {
 		return nil
 	case
 		b.profilesEnabled,
+		bool(b.env.TyposquattingEnabled),
 		b.env.SessionTicketType == sessionTicketRemote,
 		b.env.StandardAccessType == standardAccessBackend,
 		b.env.DNSCheckKVType == kvModeBackend,
@@ -1452,7 +1596,9 @@ func (b *builder) initGRPCMetrics(ctx context.Context) (err error) {
 
 // initBillStat initializes the billing-statistics recorder if necessary.  It
 // also adds the refresher with ID [debugIDBillStat] to the debug refreshers.
-// [builder.initGRPCMetrics] must be called before this method.
+//
+// The following methods must be called before this one:
+//   - [builder.initGRPCMetrics]
 func (b *builder) initBillStat(ctx context.Context) (err error) {
 	if !b.profilesEnabled {
 		b.billStat = billstat.EmptyRecorder{}
@@ -1512,7 +1658,7 @@ func (b *builder) newBillStatUploader() (s billstat.Uploader, err error) {
 		return nil, fmt.Errorf("billstat api url: %w", err)
 	}
 
-	return backendpb.NewBillStat(&backendpb.BillStatConfig{
+	return backendgrpc.NewBillStat(&backendgrpc.BillStatConfig{
 		Logger:      b.baseLogger.With(slogutil.KeyPrefix, "billstat_uploader"),
 		ErrColl:     b.errColl,
 		GRPCMetrics: b.backendGRPCMtrc,
@@ -1558,7 +1704,7 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 
 	respSzEst := b.conf.RateLimit.ResponseSizeEstimate
 	customLogger := b.baseLogger.With(slogutil.KeyPrefix, "filters/"+string(filter.IDCustom))
-	strg, err := backendpb.NewProfileStorage(&backendpb.ProfileStorageConfig{
+	strg, err := backendgrpc.NewProfileStorage(&backendgrpc.ProfileStorageConfig{
 		Logger:                   b.baseLogger.With(slogutil.KeyPrefix, "profilestorage"),
 		BaseCustomLogger:         customLogger,
 		Endpoint:                 apiURL,
@@ -1570,6 +1716,7 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 		APIKey:                   b.env.ProfilesAPIKey,
 		ResponseSizeEstimate:     respSzEst,
 		MaxProfilesSize:          b.env.ProfilesMaxRespSize,
+		MaxInvalidRatio:          b.env.ProfilesAPIRespMaxInvalidRatio,
 	})
 	if err != nil {
 		return fmt.Errorf("creating profile storage: %w", err)
@@ -1582,22 +1729,20 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 
 	c := b.conf.Backend
 	timeout := time.Duration(c.Timeout)
+	logger := b.baseLogger.With(slogutil.KeyPrefix, "profiledb")
+
 	profDB, err := profiledb.New(&profiledb.Config{
-		Logger:                   b.baseLogger.With(slogutil.KeyPrefix, "profiledb"),
-		BaseCustomLogger:         customLogger,
-		ProfileAccessConstructor: profAccessCons,
-		Clock:                    timeutil.SystemClock{},
-		CustomDomainDB:           b.profDBCustomDomainDB,
-		ErrColl:                  b.errColl,
-		ProfileMetrics:           profileMtrc,
-		Metrics:                  profDBMtrc,
-		Opaque:                   b.env.ProfilesCacheType == profileCacheTypeOpaque,
-		Storage:                  strg,
-		CacheFilePath:            b.env.ProfilesCachePath,
-		CacheFileIvl:             time.Duration(b.env.ProfilesCacheIvl),
-		FullSyncIvl:              time.Duration(c.FullRefreshIvl),
-		FullSyncRetryIvl:         time.Duration(c.FullRefreshRetryIvl),
-		ResponseSizeEstimate:     respSzEst,
+		Logger:           b.baseLogger,
+		Clock:            timeutil.SystemClock{},
+		CustomDomainDB:   b.profDBCustomDomainDB,
+		ErrColl:          b.errColl,
+		ProfileMetrics:   profileMtrc,
+		Metrics:          profDBMtrc,
+		FileCacheStorage: b.newCacheStorage(profAccessCons, customLogger, logger),
+		Storage:          strg,
+		CacheFileIvl:     time.Duration(b.env.ProfilesCacheIvl),
+		FullSyncIvl:      time.Duration(c.FullRefreshIvl),
+		FullSyncRetryIvl: time.Duration(c.FullRefreshRetryIvl),
 	})
 	if err != nil {
 		return fmt.Errorf("creating default profile database: %w", err)
@@ -1643,10 +1788,38 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 	return nil
 }
 
+// newCacheStorage returns properly initialized filecache storage.  All
+// arguments must not be nil.
+func (b *builder) newCacheStorage(
+	profAccessCons *access.ProfileConstructor,
+	customLogger *slog.Logger,
+	l *slog.Logger,
+) (cacheStorage profiledb.FileCacheStorage) {
+	switch b.env.ProfilesCacheType {
+	case profileCacheTypeNone:
+		return profiledb.EmptyFileCacheStorage{}
+	case profileCacheTypeOpaque:
+		return filecacheopb.New(&filecacheopb.Config{
+			Logger:                   l.With("cache_type", "opb"),
+			BaseCustomLogger:         customLogger,
+			ProfileAccessConstructor: profAccessCons,
+			CacheFilePath:            b.env.ProfilesCachePath,
+			ResponseSizeEstimate:     b.conf.RateLimit.ResponseSizeEstimate,
+		})
+	default:
+		panic(fmt.Errorf(
+			"env PROFILES_CACHE_TYPE: %w: %q",
+			errors.ErrBadEnumValue,
+			b.env.ProfilesCacheType,
+		))
+	}
+}
+
 // refreshCustomDomainDB performs the initial refresh of the custom-domain
 // database.
 //
-// [builder.initProfileDB] must be called before this method.
+// The following methods must be called before this one:
+//   - [builder.initProfileDB]
 func (b *builder) refreshCustomDomainDB(ctx context.Context) (err error) {
 	if !bool(b.env.CustomDomainsEnabled) || !b.profilesEnabled {
 		return nil
@@ -1680,8 +1853,9 @@ func (b *builder) refreshCustomDomainDB(ctx context.Context) (err error) {
 
 // initDNSCheck initializes the DNS checker.
 //
-// [builder.initGRPCMetrics] and [builder.initMsgConstructor] must be called
-// before this method.
+// The following methods must be called before this one:
+//   - [builder.initGRPCMetrics]
+//   - [builder.initMsgConstructor]
 func (b *builder) initDNSCheck(ctx context.Context) (err error) {
 	b.dnsCheck = b.plugins.DNSCheck()
 	if b.dnsCheck != nil {
@@ -1772,7 +1946,8 @@ func (b *builder) initRuleStat(ctx context.Context) (err error) {
 // handler.  It also adds the refresher with ID [debugIDAllowlist] to the debug
 // refreshers.
 //
-// [builder.initGRPCMetrics] must be called before this method.
+// The following methods must be called before this one:
+//   - [builder.initGRPCMetrics]
 func (b *builder) initRateLimiter(ctx context.Context) (err error) {
 	c := b.conf.RateLimit
 	allowSubnets := netutil.UnembedPrefixes(c.Allowlist.List)
@@ -1786,7 +1961,7 @@ func (b *builder) initRateLimiter(ctx context.Context) (err error) {
 
 	var updater service.Refresher
 	if typ == rlAllowlistTypeBackend {
-		updater, err = backendpb.NewRateLimiter(&backendpb.RateLimiterConfig{
+		updater, err = backendgrpc.NewRateLimiter(&backendgrpc.RateLimiterConfig{
 			Logger:      b.baseLogger.With(slogutil.KeyPrefix, "backend_ratelimiter"),
 			Metrics:     mtrc,
 			GRPCMetrics: b.backendGRPCMtrc,
@@ -2063,7 +2238,8 @@ func (b *builder) initDNS(ctx context.Context) (err error) {
 // performConnCheck performs the connectivity check in accordance to the
 // configuration given so far.
 //
-// [builder.initServerGroups] must be called before this method.
+// The following methods must be called before this one:
+//   - [builder.initServerGroups]
 func (b *builder) performConnCheck(ctx context.Context) (err error) {
 	err = connectivityCheck(b.serverGroups, b.conf.ConnectivityCheck)
 	if err != nil {
@@ -2078,7 +2254,8 @@ func (b *builder) performConnCheck(ctx context.Context) (err error) {
 
 // initHealthCheck initializes and registers the healthcheck worker.
 //
-// [builder.initDNS] must be called before this method.
+// The following methods must be called before this one:
+//   - [builder.initDNS]
 func (b *builder) initHealthCheck(ctx context.Context) (err error) {
 	upd := newUpstreamHealthcheck(b.baseLogger, b.fwdHandler, b.conf.Upstream, b.errColl)
 	err = upd.Start(context.WithoutCancel(ctx))
@@ -2123,7 +2300,8 @@ func (b *builder) initPluginServices(ctx context.Context) (err error) {
 // The DNS service is considered critical, so it panics instead of returning an
 // error.
 //
-// [builder.initDNS] must be called before this method.
+// The following methods must be called before this one:
+//   - [builder.initDNS]
 func (b *builder) mustStartDNS(ctx context.Context) {
 	// The DNS service is considered critical, so its Start method panics
 	// instead of returning an error.

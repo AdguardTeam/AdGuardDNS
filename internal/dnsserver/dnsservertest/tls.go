@@ -13,9 +13,9 @@ import (
 	"time"
 )
 
-// CreateServerTLSConfig creates a test server configuration
-// returns a *tls.Config that can be used for both a server and a client.
-func CreateServerTLSConfig(tlsServerName string) (tlsConfig *tls.Config) {
+// NewTLSConfig returns a test TLS configuration that can be used for
+// both a server and a client.
+func NewTLSConfig(tlsServerName string) (tlsConfig *tls.Config) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		panic(fmt.Sprintf("cannot generate RSA key: %v", err))

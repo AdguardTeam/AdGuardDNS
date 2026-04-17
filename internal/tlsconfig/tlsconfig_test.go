@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/stretchr/testify/require"
 )
@@ -48,24 +49,21 @@ func writeCertAndKey(
 ) {
 	tb.Helper()
 
-	certFile, err := os.OpenFile(certPath, os.O_WRONLY|os.O_CREATE, 0o600)
+	certFile, err := os.OpenFile(certPath, os.O_WRONLY|os.O_CREATE, agd.PermFileDefault)
 	require.NoError(tb, err)
 
-	defer func() {
-		err = certFile.Close()
-		require.NoError(tb, err)
-	}()
+	// NOTE:  Use defer instead of [testutil.CleanupAndRequireSuccess], because
+	// the file must be closed in the helper.
+	defer func() { require.NoError(tb, certFile.Close()) }()
 
 	err = pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	require.NoError(tb, err)
 
-	keyFile, err := os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE, 0o600)
+	keyFile, err := os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE, agd.PermFileDefault)
 	require.NoError(tb, err)
 
-	defer func() {
-		err = keyFile.Close()
-		require.NoError(tb, err)
-	}()
+	// See NOTE above.
+	defer func() { require.NoError(tb, keyFile.Close()) }()
 
 	err = pem.Encode(keyFile, &pem.Block{
 		Type:  "RSA PRIVATE KEY",

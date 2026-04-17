@@ -304,8 +304,8 @@ func (f *Default) wrapCustomDomain(
 	}
 }
 
-// pathElements splits and validates urlPath.  If err is nil, elems has either one
-// or two elements.
+// pathElements splits and validates urlPath.  If err is nil, elems has either
+// one or two elements.
 func pathElements(urlPath string) (elems []string, err error) {
 	defer func() { err = errors.Annotate(err, "bad path %q: %w", urlPath) }()
 

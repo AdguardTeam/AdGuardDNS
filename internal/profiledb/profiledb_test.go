@@ -36,11 +36,6 @@ func newProfileDB(tb testing.TB, c *profiledb.Config) (db *profiledb.Default) {
 	c = cmp.Or(c, &profiledb.Config{})
 
 	c.Logger = cmp.Or(c.Logger, profiledbtest.Logger)
-	c.BaseCustomLogger = cmp.Or(c.BaseCustomLogger, profiledbtest.Logger)
-	c.ProfileAccessConstructor = cmp.Or(
-		c.ProfileAccessConstructor,
-		profiledbtest.ProfileAccessConstructor,
-	)
 
 	c.Clock = cmp.Or[timeutil.Clock](c.Clock, timeutil.SystemClock{})
 	c.CustomDomainDB = cmp.Or[profiledb.CustomDomainDB](
@@ -51,13 +46,14 @@ func newProfileDB(tb testing.TB, c *profiledb.Config) (db *profiledb.Default) {
 	c.Metrics = cmp.Or[profiledb.Metrics](c.Metrics, profiledb.EmptyMetrics{})
 	c.Storage = cmp.Or[profiledb.Storage](c.Storage, agdtest.NewProfileStorage())
 
-	c.CacheFilePath = cmp.Or(c.CacheFilePath, "none")
+	c.FileCacheStorage = cmp.Or[profiledb.FileCacheStorage](
+		c.FileCacheStorage,
+		profiledb.EmptyFileCacheStorage{},
+	)
 	c.CacheFileIvl = cmp.Or(c.CacheFileIvl, 1*time.Minute)
 
 	c.FullSyncIvl = cmp.Or(c.FullSyncIvl, 1*time.Minute)
 	c.FullSyncRetryIvl = cmp.Or(c.FullSyncRetryIvl, 1*time.Minute)
-
-	c.ResponseSizeEstimate = cmp.Or(c.ResponseSizeEstimate, profiledbtest.RespSzEst)
 
 	db, err := profiledb.New(c)
 	require.NoError(tb, err)
@@ -96,8 +92,7 @@ func newDefaultProfileDB(tb testing.TB, devices <-chan []*agd.Device) (db *profi
 	}
 
 	db = newProfileDB(tb, &profiledb.Config{
-		Storage:       ps,
-		CacheFilePath: "none",
+		Storage: ps,
 	})
 
 	ctx := profiledbtest.ContextWithTimeout(tb)

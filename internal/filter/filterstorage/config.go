@@ -11,6 +11,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/domain"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/ruleliststorage"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/typosquatting"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 )
@@ -49,9 +50,11 @@ type Config struct {
 	// filter storage.  It must not be nil.
 	SafeSearchYouTube *SafeSearchConfig
 
-	// StandardAccess is the standard access configuration for a default filter
-	// storage.  It must not be nil.
-	StandardAccess *StandardAccessConfig
+	// Typosquatting is the configuration for the typosquatting filter.  It must
+	// not be nil.
+	//
+	// TODO(a.garipov):  Add to tests.
+	Typosquatting *TyposquattingConfig
 
 	// CacheManager is the global cache manager.  It must not be nil.
 	CacheManager agdcache.Manager
@@ -109,9 +112,10 @@ type BlockedServicesConfig struct {
 	IndexStaleness time.Duration
 
 	// ResultCacheCount is the count of items to keep in the LRU result cache of
-	// the blocked-service filters.  It must be greater than zero.  It is
-	// ignored if [ConfigBlockedServices.Enabled] is false.
-	ResultCacheCount int
+	// the blocked-service filters.  It must be greater than zero and less than
+	// or equal to [math.MaxInt].  It is ignored if
+	// [ConfigBlockedServices.Enabled] is false.
+	ResultCacheCount uint64
 
 	// ResultCacheEnabled enables caching of results of the blocked-service
 	// filters.  It is ignored if [ConfigBlockedServices.Enabled] is false.
@@ -125,8 +129,9 @@ type BlockedServicesConfig struct {
 // filter storage.
 type CustomConfig struct {
 	// CacheCount is the count of items to keep in the LRU cache of custom
-	// filters.  It must be greater than zero.
-	CacheCount int
+	// filters.  It must be greater than zero and less than or equal to
+	// [math.MaxInt].
+	CacheCount uint64
 }
 
 // HashPrefixConfig is the hashprefix-filter configuration for a default filter
@@ -176,8 +181,9 @@ type IndexConfig struct {
 	Staleness time.Duration
 
 	// ResultCacheCount is the count of items to keep in the LRU result cache of
-	// a single filter.  It must be greater than zero.
-	ResultCacheCount int
+	// a single filter.  It must be greater than zero and less than or equal to
+	// [math.MaxInt].
+	ResultCacheCount uint64
 
 	// ResultCacheEnabled enables caching of results of the filters.
 	ResultCacheEnabled bool
@@ -218,10 +224,21 @@ type SafeSearchConfig struct {
 	Staleness time.Duration
 
 	// ResultCacheCount is the count of items to keep in the LRU result cache of
-	// a safe-search filter.  It must be positive.  It is ignored if
-	// [ConfigSafeSearch.Enabled] is false.
-	ResultCacheCount int
+	// a safe-search filter.  It must be positive and less than or equal to
+	// [math.MaxInt].  It is ignored if [ConfigSafeSearch.Enabled] is false.
+	ResultCacheCount uint64
 
 	// Enabled shows whether this safe-search filter is enabled.
+	Enabled bool
+}
+
+// TyposquattingConfig is the configuration structure for the typosquatting
+// filter.
+type TyposquattingConfig struct {
+	// Filter is a typosquatting filter based on Damerau–Levenshtein distance.
+	// If [TyposquattingConfig.Enabled] is true, it must not be nil.
+	Filter *typosquatting.Filter
+
+	// Enabled shows whether the typosquatting filter is enabled.
 	Enabled bool
 }

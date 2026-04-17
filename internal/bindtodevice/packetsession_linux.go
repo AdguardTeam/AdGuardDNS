@@ -10,7 +10,8 @@ import (
 
 // packetSession is a [netext.PacketSession] that contains additional
 // information about the packet read from a UDP connection that has the
-// SO_BINDTODEVICE option set.
+// SO_BINDTODEVICE option set.  It is basically an extended version of
+// [netext.packetSession].
 type packetSession struct {
 	laddr    *net.UDPAddr
 	raddr    *net.UDPAddr

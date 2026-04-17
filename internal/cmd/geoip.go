@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"math"
+
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/AdguardTeam/golibs/validate"
@@ -8,15 +10,17 @@ import (
 
 // geoIPConfig is the GeoIP database configuration.
 type geoIPConfig struct {
-	// HostCacheSize is the size of the hostname lookup cache, in entries.
+	// HostCacheSize is the size of the hostname lookup cache, in entries.  It
+	// must be positive and less than or equal to [math.MaxInt].
 	//
 	// TODO(a.garipov):  Rename to "host_cache_count"?
-	HostCacheSize int `yaml:"host_cache_size"`
+	HostCacheSize uint64 `yaml:"host_cache_size"`
 
-	// IPCacheSize is the size of the IP lookup cache, in entries.
+	// IPCacheSize is the size of the IP lookup cache, in entries.  It must be
+	// positive and less than or equal to [math.MaxInt].
 	//
 	// TODO(a.garipov):  Rename to "ip_cache_count"?
-	IPCacheSize int `yaml:"ip_cache_size"`
+	IPCacheSize uint64 `yaml:"ip_cache_size"`
 
 	// RefreshIvl defines how often AdGuard DNS reopens the GeoIP database
 	// files.
@@ -36,7 +40,9 @@ func (c *geoIPConfig) Validate() (err error) {
 		// NOTE:  While a [geoip.File] can work with an empty host cache, that
 		// feature is only used for tests.
 		validate.Positive("host_cache_size", c.HostCacheSize),
+		validate.NoGreaterThan("host_cache_size", c.HostCacheSize, math.MaxInt),
 		validate.Positive("ip_cache_size", c.IPCacheSize),
+		validate.NoGreaterThan("ip_cache_size", c.IPCacheSize, math.MaxInt),
 		validate.Positive("refresh_interval", c.RefreshIvl),
 	)
 }

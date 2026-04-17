@@ -59,7 +59,8 @@ func ReadFromSession(c net.PacketConn, b []byte) (n int, s PacketSession, err er
 
 // WriteToSession is a convenience wrapper for types that may or may not
 // implement [SessionPacketConn].  If c implements it, WriteToSession uses
-// c.WriteToSession.  Otherwise, it uses c.WriteTo using s.RemoteAddr.
+// c.WriteToSession.  Otherwise, it uses c.WriteTo using s.RemoteAddr.  s must
+// not be nil.
 func WriteToSession(c net.PacketConn, b []byte, s PacketSession) (n int, err error) {
 	if spc, ok := c.(SessionPacketConn); ok {
 		return spc.WriteToSession(b, s)

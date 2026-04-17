@@ -5,23 +5,15 @@ import (
 	"net/netip"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterstorage"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// testTimeout is the common timeout for tests and contexts.
-const testTimeout = 1 * time.Second
-
-// testLogger is the common logger for tests.
-var testLogger = slogutil.NewDiscardLogger()
 
 // testStandardAccessStorage is the mock implementation of the
 // [filterstorage.StandardAccessStorage] interface for tests.
@@ -129,10 +121,10 @@ func TestStandardAccess(t *testing.T) {
 		cacheDir := t.TempDir()
 		filtertest.CreateFilterCacheDirs(t, cacheDir)
 
-		newCtx := testutil.ContextWithTimeout(t, testTimeout)
+		newCtx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 		sa, newErr := filterstorage.NewStandardAccess(newCtx, &filterstorage.StandardAccessConfig{
-			Logger:     testLogger,
-			BaseLogger: testLogger,
+			Logger:     filtertest.Logger,
+			BaseLogger: filtertest.Logger,
 			Getter:     tc.storage,
 			Setter:     setter,
 			CacheDir:   cacheDir,
@@ -144,7 +136,7 @@ func TestStandardAccess(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx := testutil.ContextWithTimeout(t, testTimeout)
+			ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 			err := sa.Refresh(ctx)
 			require.ErrorIs(t, err, tc.wantRefrErr)
 		})
@@ -200,10 +192,10 @@ func TestStandardAccess_cache(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx := testutil.ContextWithTimeout(t, testTimeout)
+			ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 			_, err := filterstorage.NewStandardAccess(ctx, &filterstorage.StandardAccessConfig{
-				Logger:     testLogger,
-				BaseLogger: testLogger,
+				Logger:     filtertest.Logger,
+				BaseLogger: filtertest.Logger,
 				Getter:     filterstorage.EmptyStandardAccessStorage{},
 				Setter:     tc.setter,
 				CacheDir:   filepath.Join("./testdata", t.Name()),

@@ -8,6 +8,7 @@ import (
 	"net/netip"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 )
 
@@ -111,3 +112,16 @@ const (
 	// safe search filters.
 	SubDirNameSafeSearch = "safesearch"
 )
+
+// IsFilterable returns true if the question type is filterable.  If the type is
+// an IP address request, fam is the address family for the IP; otherwise fam is
+// [netutil.AddrFamilyNone].
+func IsFilterable(qt dnsmsg.RRType) (fam netutil.AddrFamily, ok bool) {
+	if qt == dns.TypeHTTPS {
+		return netutil.AddrFamilyNone, true
+	}
+
+	fam = netutil.AddrFamilyFromRRType(qt)
+
+	return fam, fam != netutil.AddrFamilyNone
+}

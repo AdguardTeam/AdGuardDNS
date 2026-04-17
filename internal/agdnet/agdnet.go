@@ -4,6 +4,7 @@
 package agdnet
 
 import (
+	"fmt"
 	"net/http/cookiejar"
 	"strings"
 
@@ -21,18 +22,18 @@ const (
 	androidMetricDoHFQDNSuffix = "-dnsohttps" + androidMetricFQDNSuffix
 )
 
-// androidMetricDoTReplacementFQDN and androidMetricDoHReplacementFQDN are
-// hosts used to rewrite queries to domains ending with [androidMetricFQDNSuffix].
-// We do this in order to cache all these queries as a single record and
-// save some resources on this.
+// androidMetricDoTReplacementFQDN and androidMetricDoHReplacementFQDN are hosts
+// used to rewrite queries to domains ending with [androidMetricFQDNSuffix].
+// This is done in order to cache all these queries as a single record and save
+// some resources on this.
 const (
 	androidMetricDoTReplacementFQDN = "00000000-dnsotls" + androidMetricFQDNSuffix
 	androidMetricDoHReplacementFQDN = "000000-dnsohttps" + androidMetricFQDNSuffix
 )
 
-// AndroidMetricDomainReplacement returns an empty string if fqdn is not ending with
-// androidMetricFQDNSuffix.  Otherwise it returns an appropriate replacement
-// domain name.
+// AndroidMetricDomainReplacement returns an empty string if fqdn is not ending
+// with androidMetricFQDNSuffix.  Otherwise it returns an appropriate
+// replacement domain name.
 func AndroidMetricDomainReplacement(fqdn string) (repl string) {
 	fqdn = strings.ToLower(fqdn)
 
@@ -102,4 +103,28 @@ func AppendSubdomains(
 	}
 
 	return sub
+}
+
+// EffectiveTLDPlusOne returns the effective top level domain plus one more
+// label. For example, the eTLD+1 for "foo.bar.golang.org" is "golang.org".
+//
+// TODO(e.burkov):  Move to golibs.
+func EffectiveTLDPlusOne(list cookiejar.PublicSuffixList, domain string) (d string, err error) {
+	if strings.HasPrefix(domain, ".") ||
+		strings.HasSuffix(domain, ".") ||
+		strings.Contains(domain, "..") {
+		return "", fmt.Errorf("publicsuffix: empty label in domain %q", domain)
+	}
+
+	ps := list.PublicSuffix(domain)
+	if len(domain) <= len(ps) {
+		return "", fmt.Errorf("publicsuffix: cannot derive eTLD+1 for domain %q", domain)
+	}
+
+	i := len(domain) - len(ps) - 1
+	if domain[i] != '.' {
+		return "", fmt.Errorf("publicsuffix: invalid public suffix %q for domain %q", ps, domain)
+	}
+
+	return domain[1+strings.LastIndex(domain[:i], "."):], nil
 }

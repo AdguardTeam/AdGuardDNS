@@ -3334,10 +3334,11 @@ func (b0 FilterConfig_RuleList_builder) Build() *FilterConfig_RuleList {
 }
 
 type FilterConfig_SafeBrowsing struct {
-	state                                    protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Enabled                       bool                   `protobuf:"varint,1,opt,name=enabled,proto3"`
-	xxx_hidden_DangerousDomainsEnabled       bool                   `protobuf:"varint,2,opt,name=dangerous_domains_enabled,json=dangerousDomainsEnabled,proto3"`
-	xxx_hidden_NewlyRegisteredDomainsEnabled bool                   `protobuf:"varint,3,opt,name=newly_registered_domains_enabled,json=newlyRegisteredDomainsEnabled,proto3"`
+	state                                    protoimpl.MessageState                         `protogen:"opaque.v1"`
+	xxx_hidden_Typosquatting                 *FilterConfig_SafeBrowsing_TyposquattingFilter `protobuf:"bytes,4,opt,name=typosquatting,proto3"`
+	xxx_hidden_Enabled                       bool                                           `protobuf:"varint,1,opt,name=enabled,proto3"`
+	xxx_hidden_DangerousDomainsEnabled       bool                                           `protobuf:"varint,2,opt,name=dangerous_domains_enabled,json=dangerousDomainsEnabled,proto3"`
+	xxx_hidden_NewlyRegisteredDomainsEnabled bool                                           `protobuf:"varint,3,opt,name=newly_registered_domains_enabled,json=newlyRegisteredDomainsEnabled,proto3"`
 	unknownFields                            protoimpl.UnknownFields
 	sizeCache                                protoimpl.SizeCache
 }
@@ -3367,6 +3368,13 @@ func (x *FilterConfig_SafeBrowsing) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
+func (x *FilterConfig_SafeBrowsing) GetTyposquatting() *FilterConfig_SafeBrowsing_TyposquattingFilter {
+	if x != nil {
+		return x.xxx_hidden_Typosquatting
+	}
+	return nil
+}
+
 func (x *FilterConfig_SafeBrowsing) GetEnabled() bool {
 	if x != nil {
 		return x.xxx_hidden_Enabled
@@ -3388,6 +3396,10 @@ func (x *FilterConfig_SafeBrowsing) GetNewlyRegisteredDomainsEnabled() bool {
 	return false
 }
 
+func (x *FilterConfig_SafeBrowsing) SetTyposquatting(v *FilterConfig_SafeBrowsing_TyposquattingFilter) {
+	x.xxx_hidden_Typosquatting = v
+}
+
 func (x *FilterConfig_SafeBrowsing) SetEnabled(v bool) {
 	x.xxx_hidden_Enabled = v
 }
@@ -3400,9 +3412,21 @@ func (x *FilterConfig_SafeBrowsing) SetNewlyRegisteredDomainsEnabled(v bool) {
 	x.xxx_hidden_NewlyRegisteredDomainsEnabled = v
 }
 
+func (x *FilterConfig_SafeBrowsing) HasTyposquatting() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Typosquatting != nil
+}
+
+func (x *FilterConfig_SafeBrowsing) ClearTyposquatting() {
+	x.xxx_hidden_Typosquatting = nil
+}
+
 type FilterConfig_SafeBrowsing_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
+	Typosquatting                 *FilterConfig_SafeBrowsing_TyposquattingFilter
 	Enabled                       bool
 	DangerousDomainsEnabled       bool
 	NewlyRegisteredDomainsEnabled bool
@@ -3412,6 +3436,7 @@ func (b0 FilterConfig_SafeBrowsing_builder) Build() *FilterConfig_SafeBrowsing {
 	m0 := &FilterConfig_SafeBrowsing{}
 	b, x := &b0, m0
 	_, _ = b, x
+	x.xxx_hidden_Typosquatting = b.Typosquatting
 	x.xxx_hidden_Enabled = b.Enabled
 	x.xxx_hidden_DangerousDomainsEnabled = b.DangerousDomainsEnabled
 	x.xxx_hidden_NewlyRegisteredDomainsEnabled = b.NewlyRegisteredDomainsEnabled
@@ -3489,6 +3514,63 @@ func (b0 FilterConfig_CategoryFilter_builder) Build() *FilterConfig_CategoryFilt
 	return m0
 }
 
+type FilterConfig_SafeBrowsing_TyposquattingFilter struct {
+	state              protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Enabled bool                   `protobuf:"varint,1,opt,name=enabled,proto3"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *FilterConfig_SafeBrowsing_TyposquattingFilter) Reset() {
+	*x = FilterConfig_SafeBrowsing_TyposquattingFilter{}
+	mi := &file_fc_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FilterConfig_SafeBrowsing_TyposquattingFilter) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FilterConfig_SafeBrowsing_TyposquattingFilter) ProtoMessage() {}
+
+func (x *FilterConfig_SafeBrowsing_TyposquattingFilter) ProtoReflect() protoreflect.Message {
+	mi := &file_fc_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *FilterConfig_SafeBrowsing_TyposquattingFilter) GetEnabled() bool {
+	if x != nil {
+		return x.xxx_hidden_Enabled
+	}
+	return false
+}
+
+func (x *FilterConfig_SafeBrowsing_TyposquattingFilter) SetEnabled(v bool) {
+	x.xxx_hidden_Enabled = v
+}
+
+type FilterConfig_SafeBrowsing_TyposquattingFilter_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Enabled bool
+}
+
+func (b0 FilterConfig_SafeBrowsing_TyposquattingFilter_builder) Build() *FilterConfig_SafeBrowsing_TyposquattingFilter {
+	m0 := &FilterConfig_SafeBrowsing_TyposquattingFilter{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Enabled = b.Enabled
+	return m0
+}
+
 var File_fc_proto protoreflect.FileDescriptor
 
 const file_fc_proto_rawDesc = "" +
@@ -3553,7 +3635,7 @@ const file_fc_proto_rawDesc = "" +
 	"\fStatePending\x122\n" +
 	"\x06expire\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x06expire\x12&\n" +
 	"\x0fwell_known_path\x18\x02 \x01(\tR\rwellKnownPathB\a\n" +
-	"\x05state\"\xcd\f\n" +
+	"\x05state\"\xd9\r\n" +
 	"\fFilterConfig\x121\n" +
 	"\x06custom\x18\x01 \x01(\v2\x19.fcpb.FilterConfig.CustomR\x06custom\x127\n" +
 	"\bparental\x18\x02 \x01(\v2\x1b.fcpb.FilterConfig.ParentalR\bparental\x128\n" +
@@ -3588,11 +3670,14 @@ const file_fc_proto_rawDesc = "" +
 	"\aenabled\x18\x02 \x01(\bR\aenabled\x1a6\n" +
 	"\bRuleList\x12\x10\n" +
 	"\x03ids\x18\x01 \x03(\tR\x03ids\x12\x18\n" +
-	"\aenabled\x18\x02 \x01(\bR\aenabled\x1a\xad\x01\n" +
-	"\fSafeBrowsing\x12\x18\n" +
+	"\aenabled\x18\x02 \x01(\bR\aenabled\x1a\xb9\x02\n" +
+	"\fSafeBrowsing\x12Y\n" +
+	"\rtyposquatting\x18\x04 \x01(\v23.fcpb.FilterConfig.SafeBrowsing.TyposquattingFilterR\rtyposquatting\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12:\n" +
 	"\x19dangerous_domains_enabled\x18\x02 \x01(\bR\x17dangerousDomainsEnabled\x12G\n" +
-	" newly_registered_domains_enabled\x18\x03 \x01(\bR\x1dnewlyRegisteredDomainsEnabled\x1a<\n" +
+	" newly_registered_domains_enabled\x18\x03 \x01(\bR\x1dnewlyRegisteredDomainsEnabled\x1a/\n" +
+	"\x13TyposquattingFilter\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\x1a<\n" +
 	"\x0eCategoryFilter\x12\x10\n" +
 	"\x03ids\x18\x01 \x03(\tR\x03ids\x12\x18\n" +
 	"\aenabled\x18\x02 \x01(\bR\aenabled\"5\n" +
@@ -3634,38 +3719,39 @@ const file_fc_proto_rawDesc = "" +
 	"\x03rps\x18\x02 \x01(\rR\x03rps\x12\x18\n" +
 	"\aenabled\x18\x03 \x01(\bR\aenabledb\x06proto3"
 
-var file_fc_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_fc_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_fc_proto_goTypes = []any{
-	(*FileCache)(nil),                       // 0: fcpb.FileCache
-	(*Profile)(nil),                         // 1: fcpb.Profile
-	(*AccountCustomDomains)(nil),            // 2: fcpb.AccountCustomDomains
-	(*CustomDomainConfig)(nil),              // 3: fcpb.CustomDomainConfig
-	(*FilterConfig)(nil),                    // 4: fcpb.FilterConfig
-	(*DayInterval)(nil),                     // 5: fcpb.DayInterval
-	(*BlockingModeCustomIP)(nil),            // 6: fcpb.BlockingModeCustomIP
-	(*BlockingModeNXDOMAIN)(nil),            // 7: fcpb.BlockingModeNXDOMAIN
-	(*BlockingModeNullIP)(nil),              // 8: fcpb.BlockingModeNullIP
-	(*BlockingModeREFUSED)(nil),             // 9: fcpb.BlockingModeREFUSED
-	(*Device)(nil),                          // 10: fcpb.Device
-	(*Access)(nil),                          // 11: fcpb.Access
-	(*CidrRange)(nil),                       // 12: fcpb.CidrRange
-	(*AuthenticationSettings)(nil),          // 13: fcpb.AuthenticationSettings
-	(*Ratelimiter)(nil),                     // 14: fcpb.Ratelimiter
-	(*CustomDomainConfig_StateCurrent)(nil), // 15: fcpb.CustomDomainConfig.StateCurrent
-	(*CustomDomainConfig_StatePending)(nil), // 16: fcpb.CustomDomainConfig.StatePending
-	(*FilterConfig_Custom)(nil),             // 17: fcpb.FilterConfig.Custom
-	(*FilterConfig_Parental)(nil),           // 18: fcpb.FilterConfig.Parental
-	(*FilterConfig_Schedule)(nil),           // 19: fcpb.FilterConfig.Schedule
-	(*FilterConfig_WeeklySchedule)(nil),     // 20: fcpb.FilterConfig.WeeklySchedule
-	(*FilterConfig_CustomRuleList)(nil),     // 21: fcpb.FilterConfig.CustomRuleList
-	(*FilterConfig_RuleList)(nil),           // 22: fcpb.FilterConfig.RuleList
-	(*FilterConfig_SafeBrowsing)(nil),       // 23: fcpb.FilterConfig.SafeBrowsing
-	(*FilterConfig_CategoryFilter)(nil),     // 24: fcpb.FilterConfig.CategoryFilter
-	(*timestamppb.Timestamp)(nil),           // 25: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),             // 26: google.protobuf.Duration
+	(*FileCache)(nil),                                     // 0: fcpb.FileCache
+	(*Profile)(nil),                                       // 1: fcpb.Profile
+	(*AccountCustomDomains)(nil),                          // 2: fcpb.AccountCustomDomains
+	(*CustomDomainConfig)(nil),                            // 3: fcpb.CustomDomainConfig
+	(*FilterConfig)(nil),                                  // 4: fcpb.FilterConfig
+	(*DayInterval)(nil),                                   // 5: fcpb.DayInterval
+	(*BlockingModeCustomIP)(nil),                          // 6: fcpb.BlockingModeCustomIP
+	(*BlockingModeNXDOMAIN)(nil),                          // 7: fcpb.BlockingModeNXDOMAIN
+	(*BlockingModeNullIP)(nil),                            // 8: fcpb.BlockingModeNullIP
+	(*BlockingModeREFUSED)(nil),                           // 9: fcpb.BlockingModeREFUSED
+	(*Device)(nil),                                        // 10: fcpb.Device
+	(*Access)(nil),                                        // 11: fcpb.Access
+	(*CidrRange)(nil),                                     // 12: fcpb.CidrRange
+	(*AuthenticationSettings)(nil),                        // 13: fcpb.AuthenticationSettings
+	(*Ratelimiter)(nil),                                   // 14: fcpb.Ratelimiter
+	(*CustomDomainConfig_StateCurrent)(nil),               // 15: fcpb.CustomDomainConfig.StateCurrent
+	(*CustomDomainConfig_StatePending)(nil),               // 16: fcpb.CustomDomainConfig.StatePending
+	(*FilterConfig_Custom)(nil),                           // 17: fcpb.FilterConfig.Custom
+	(*FilterConfig_Parental)(nil),                         // 18: fcpb.FilterConfig.Parental
+	(*FilterConfig_Schedule)(nil),                         // 19: fcpb.FilterConfig.Schedule
+	(*FilterConfig_WeeklySchedule)(nil),                   // 20: fcpb.FilterConfig.WeeklySchedule
+	(*FilterConfig_CustomRuleList)(nil),                   // 21: fcpb.FilterConfig.CustomRuleList
+	(*FilterConfig_RuleList)(nil),                         // 22: fcpb.FilterConfig.RuleList
+	(*FilterConfig_SafeBrowsing)(nil),                     // 23: fcpb.FilterConfig.SafeBrowsing
+	(*FilterConfig_CategoryFilter)(nil),                   // 24: fcpb.FilterConfig.CategoryFilter
+	(*FilterConfig_SafeBrowsing_TyposquattingFilter)(nil), // 25: fcpb.FilterConfig.SafeBrowsing.TyposquattingFilter
+	(*timestamppb.Timestamp)(nil),                         // 26: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),                           // 27: google.protobuf.Duration
 }
 var file_fc_proto_depIdxs = []int32{
-	25, // 0: fcpb.FileCache.sync_time:type_name -> google.protobuf.Timestamp
+	26, // 0: fcpb.FileCache.sync_time:type_name -> google.protobuf.Timestamp
 	1,  // 1: fcpb.FileCache.profiles:type_name -> fcpb.Profile
 	10, // 2: fcpb.FileCache.devices:type_name -> fcpb.Device
 	2,  // 3: fcpb.Profile.custom_domains:type_name -> fcpb.AccountCustomDomains
@@ -3676,7 +3762,7 @@ var file_fc_proto_depIdxs = []int32{
 	8,  // 8: fcpb.Profile.blocking_mode_null_ip:type_name -> fcpb.BlockingModeNullIP
 	9,  // 9: fcpb.Profile.blocking_mode_refused:type_name -> fcpb.BlockingModeREFUSED
 	14, // 10: fcpb.Profile.ratelimiter:type_name -> fcpb.Ratelimiter
-	26, // 11: fcpb.Profile.filtered_response_ttl:type_name -> google.protobuf.Duration
+	27, // 11: fcpb.Profile.filtered_response_ttl:type_name -> google.protobuf.Duration
 	6,  // 12: fcpb.Profile.adult_blocking_mode_custom_ip:type_name -> fcpb.BlockingModeCustomIP
 	7,  // 13: fcpb.Profile.adult_blocking_mode_nxdomain:type_name -> fcpb.BlockingModeNXDOMAIN
 	8,  // 14: fcpb.Profile.adult_blocking_mode_null_ip:type_name -> fcpb.BlockingModeNullIP
@@ -3698,9 +3784,9 @@ var file_fc_proto_depIdxs = []int32{
 	12, // 30: fcpb.Access.allowlist_cidr:type_name -> fcpb.CidrRange
 	12, // 31: fcpb.Access.blocklist_cidr:type_name -> fcpb.CidrRange
 	12, // 32: fcpb.Ratelimiter.client_cidr:type_name -> fcpb.CidrRange
-	25, // 33: fcpb.CustomDomainConfig.StateCurrent.not_before:type_name -> google.protobuf.Timestamp
-	25, // 34: fcpb.CustomDomainConfig.StateCurrent.not_after:type_name -> google.protobuf.Timestamp
-	25, // 35: fcpb.CustomDomainConfig.StatePending.expire:type_name -> google.protobuf.Timestamp
+	26, // 33: fcpb.CustomDomainConfig.StateCurrent.not_before:type_name -> google.protobuf.Timestamp
+	26, // 34: fcpb.CustomDomainConfig.StateCurrent.not_after:type_name -> google.protobuf.Timestamp
+	26, // 35: fcpb.CustomDomainConfig.StatePending.expire:type_name -> google.protobuf.Timestamp
 	19, // 36: fcpb.FilterConfig.Parental.pause_schedule:type_name -> fcpb.FilterConfig.Schedule
 	24, // 37: fcpb.FilterConfig.Parental.category_filter:type_name -> fcpb.FilterConfig.CategoryFilter
 	20, // 38: fcpb.FilterConfig.Schedule.week:type_name -> fcpb.FilterConfig.WeeklySchedule
@@ -3711,11 +3797,12 @@ var file_fc_proto_depIdxs = []int32{
 	5,  // 43: fcpb.FilterConfig.WeeklySchedule.fri:type_name -> fcpb.DayInterval
 	5,  // 44: fcpb.FilterConfig.WeeklySchedule.sat:type_name -> fcpb.DayInterval
 	5,  // 45: fcpb.FilterConfig.WeeklySchedule.sun:type_name -> fcpb.DayInterval
-	46, // [46:46] is the sub-list for method output_type
-	46, // [46:46] is the sub-list for method input_type
-	46, // [46:46] is the sub-list for extension type_name
-	46, // [46:46] is the sub-list for extension extendee
-	0,  // [0:46] is the sub-list for field type_name
+	25, // 46: fcpb.FilterConfig.SafeBrowsing.typosquatting:type_name -> fcpb.FilterConfig.SafeBrowsing.TyposquattingFilter
+	47, // [47:47] is the sub-list for method output_type
+	47, // [47:47] is the sub-list for method input_type
+	47, // [47:47] is the sub-list for extension type_name
+	47, // [47:47] is the sub-list for extension extendee
+	0,  // [0:47] is the sub-list for field type_name
 }
 
 func init() { file_fc_proto_init() }
@@ -3750,7 +3837,7 @@ func file_fc_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_fc_proto_rawDesc), len(file_fc_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   25,
+			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

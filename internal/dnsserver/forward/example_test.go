@@ -11,23 +11,25 @@ import (
 )
 
 func ExampleNewHandler() {
+	handler := forward.NewHandler(&forward.HandlerConfig{
+		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
+			Network: forward.NetworkAny,
+			Address: netip.MustParseAddrPort("8.8.8.8:53"),
+			Timeout: testTimeout,
+		}},
+		FallbackAddresses: []*forward.UpstreamPlainConfig{{
+			Network: forward.NetworkAny,
+			Address: netip.MustParseAddrPort("1.1.1.1:53"),
+			Timeout: testTimeout,
+		}},
+	})
+
 	conf := &dnsserver.ConfigDNS{
 		Base: &dnsserver.ConfigBase{
 			BaseLogger: slogutil.NewDiscardLogger(),
-			Handler: forward.NewHandler(&forward.HandlerConfig{
-				UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
-					Network: forward.NetworkAny,
-					Address: netip.MustParseAddrPort("8.8.8.8:53"),
-					Timeout: testTimeout,
-				}},
-				FallbackAddresses: []*forward.UpstreamPlainConfig{{
-					Network: forward.NetworkAny,
-					Address: netip.MustParseAddrPort("1.1.1.1:53"),
-					Timeout: testTimeout,
-				}},
-			}),
-			Name: "srv",
-			Addr: "127.0.0.1:0",
+			Handler:    handler,
+			Name:       "srv",
+			Addr:       "127.0.0.1:0",
 		},
 	}
 

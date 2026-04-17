@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/testutil"
@@ -147,7 +148,7 @@ func TestRemoteTicketDB_Paths_initialError(t *testing.T) {
 	for i, name := range want {
 		tick := tlsconfig.SessionTicket{}
 		binary.BigEndian.PutUint32(tick[:], uint32(i))
-		err := os.WriteFile(filepath.Join(tempDir, string(name)), tick[:], 0o600)
+		err := os.WriteFile(filepath.Join(tempDir, string(name)), tick[:], agd.PermFileDefault)
 		require.NoError(t, err)
 
 		index.Tickets[name] = &tlsconfig.IndexedTicket{
@@ -159,7 +160,7 @@ func TestRemoteTicketDB_Paths_initialError(t *testing.T) {
 	err := json.NewEncoder(indexData).Encode(index)
 	require.NoError(t, err)
 
-	err = os.WriteFile(filepath.Join(tempDir, testIndexName), indexData.Bytes(), 0o600)
+	err = os.WriteFile(filepath.Join(tempDir, testIndexName), indexData.Bytes(), agd.PermFileDefault)
 	require.NoError(t, err)
 
 	assertIndexConsistency(t, tempDir, testIndexName, want)

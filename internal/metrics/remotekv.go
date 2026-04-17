@@ -85,19 +85,19 @@ func (m *RedisKV) Update(_ context.Context, s redis.PoolStats, err error) {
 // RemoteKVOp is the type alias for string that contains remote key-value
 // storage operation name.
 //
-// See [backendpb.RemoteKVMetrics.ObserveOperation].
+// See [backendgrpc.RemoteKVMetrics.ObserveOperation].
 type RemoteKVOp = string
 
 // Remote key-value storage operation names for [RemoteKVOp].
 //
-// NOTE:  Keep in sync with [backendpb.RemoteKVOp].
+// NOTE:  Keep in sync with [backendgrpc.RemoteKVOp].
 const (
 	RemoteKVOpGet RemoteKVOp = "get"
 	RemoteKVOpSet RemoteKVOp = "set"
 )
 
 // BackendRemoteKV is the Prometheus-based implementation of the
-// [backendpb.Metrics] interface.
+// [backendgrpc.Metrics] interface.
 type BackendRemoteKV struct {
 	// getDuration is a histogram with the duration of a receive of a single
 	// value during a call to backend remote key-value storage.
@@ -174,7 +174,7 @@ func NewBackendRemoteKV(
 	return m, nil
 }
 
-// ObserveOperation implements the [backendpb.RemoteKVMetrics] interface for
+// ObserveOperation implements the [backendgrpc.RemoteKVMetrics] interface for
 // *BackendRemoteKV.
 func (m *BackendRemoteKV) ObserveOperation(_ context.Context, op string, dur time.Duration) {
 	switch op {
@@ -187,7 +187,7 @@ func (m *BackendRemoteKV) ObserveOperation(_ context.Context, op string, dur tim
 	}
 }
 
-// IncrementLookups implements the [backendpb.RemoteKVMetrics] interface for
+// IncrementLookups implements the [backendgrpc.RemoteKVMetrics] interface for
 // *BackendRemoteKV.
 func (m *BackendRemoteKV) IncrementLookups(_ context.Context, hit bool) {
 	IncrementCond(hit, m.hits, m.misses)

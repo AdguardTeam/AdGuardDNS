@@ -60,6 +60,7 @@ func TestDefault_Refresh(t *testing.T) {
 	c.BlockedServices = newConfigBlockedServices(svcIdxURL)
 	c.SafeSearchGeneral = newConfigSafeSearch(safeSearchGenURL, filter.IDGeneralSafeSearch)
 	c.SafeSearchYouTube = newConfigSafeSearch(safeSearchYTURL, filter.IDYoutubeSafeSearch)
+	c.Typosquatting = &filterstorage.TyposquattingConfig{}
 
 	s, err := filterstorage.New(c)
 	require.NoError(t, err)
@@ -142,7 +143,9 @@ func TestDefault_Refresh_usePrevious(t *testing.T) {
 			IDs:     []filter.ID{filtertest.RuleListID1},
 			Enabled: true,
 		},
-		SafeBrowsing: &filter.ConfigSafeBrowsing{},
+		SafeBrowsing: &filter.ConfigSafeBrowsing{
+			Typosquatting: &filter.ConfigTyposquatting{},
+		},
 	}
 
 	f := s.ForConfig(ctx, fltConf)

@@ -25,13 +25,13 @@ protoc_gen_go_grpc_path="$("$go" tool -n protoc-gen-go-grpc)"
 protoc_gen_go_path="$("$go" tool -n protoc-gen-go)"
 readonly protoc_gen_go_grpc_path protoc_gen_go_path
 
-backendpb() (
-	cd ./internal/backendpb/
+dnspb() (
+	cd ./internal/backendgrpc/dnspb/
 	protoc \
-		--go-grpc_opt='Mdns.proto=./backendpb' \
+		--go-grpc_opt='Mdns.proto=./dnspb' \
 		--go-grpc_opt='paths=source_relative' \
 		--go-grpc_out='.' \
-		--go_opt=Mdns.proto=./backendpb \
+		--go_opt=Mdns.proto=./dnspb \
 		--go_opt=paths='source_relative' \
 		--go_out='.' \
 		--plugin="protoc-gen-go-grpc=${protoc_gen_go_grpc_path}" \
@@ -60,18 +60,6 @@ fcpb() (
 		;
 )
 
-filecachepb() (
-	cd ./internal/profiledb/internal/filecachepb/
-
-	protoc \
-		--go_opt='Mfilecache.proto=github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecachepb' \
-		--go_opt='paths=source_relative' \
-		--go_out='.' \
-		--plugin="protoc-gen-go=${protoc_gen_go_path}" \
-		./filecache.proto \
-		;
-)
-
 geoip_asntops() (
 	cd ./internal/geoip/
 	"$go" run ./asntops_generate.go
@@ -83,17 +71,16 @@ geoip_country() (
 )
 
 if [ -z "${ONLY:-}" ]; then
-	backendpb
+	dnspb
 	ecscache
 	fcpb
-	filecachepb
 	geoip_asntops
 	geoip_country
 else
 	padded=" ${ONLY} "
 
-	if [ "${padded##* backendpb *}" = '' ]; then
-		backendpb
+	if [ "${padded##* dnspb *}" = '' ]; then
+		dnspb
 	fi
 
 	if [ "${padded##* ecscache *}" = '' ]; then
@@ -102,10 +89,6 @@ else
 
 	if [ "${padded##* fcpb *}" = '' ]; then
 		fcpb
-	fi
-
-	if [ "${padded##* filecachepb *}" = '' ]; then
-		filecachepb
 	fi
 
 	if [ "${padded##* geoip_asntops *}" = '' ]; then

@@ -228,14 +228,15 @@ type CacheConfig struct {
 	MinTTL time.Duration
 
 	// ECSCount is the size of the DNS cache for domain names that support
-	// ECS, in entries.  It must be greater than zero if [CacheConfig.CacheType]
-	// is [CacheTypeECS].
-	ECSCount int
+	// ECS, in entries.  It must be greater than zero and less than or equal to
+	// [math.MaxInt] if [CacheConfig.CacheType] is [CacheTypeECS].
+	ECSCount uint64
 
 	// NoECSCount is the size of the DNS cache for domain names that don't
-	// support ECS, in entries.  It must be greater than zero if
-	// [CacheConfig.CacheType] is [CacheTypeSimple] or [CacheTypeECS].
-	NoECSCount int
+	// support ECS, in entries.  It must be greater than zero and less than or
+	// equal to [math.MaxInt]. if [CacheConfig.CacheType] is [CacheTypeSimple]
+	// or [CacheTypeECS].
+	NoECSCount uint64
 
 	// Type is the cache type.  It must be valid.
 	Type CacheType

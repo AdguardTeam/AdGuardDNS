@@ -33,7 +33,7 @@ func writeSessionKey(tb testing.TB, sessKeyPath string) {
 	_, err := rand.Read(sessKey[:])
 	require.NoError(tb, err)
 
-	keyFile, err := os.OpenFile(sessKeyPath, os.O_WRONLY|os.O_CREATE, 0o600)
+	keyFile, err := os.OpenFile(sessKeyPath, os.O_WRONLY|os.O_CREATE, agd.PermFileDefault)
 	require.NoError(tb, err)
 
 	defer func() {

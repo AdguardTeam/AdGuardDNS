@@ -10,14 +10,14 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
+	"github.com/AdguardTeam/AdGuardDNS/internal/backendgrpc/dnspb"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"google.golang.org/grpc/metadata"
 )
 
-// mockDNSServiceServer is the mock [backendpb.CustomDomainServiceServer].
+// mockDNSServiceServer is the mock [dnspb.CustomDomainServiceServer].
 type mockCustomDomainServiceServer struct {
-	backendpb.UnimplementedCustomDomainServiceServer
+	dnspb.UnimplementedCustomDomainServiceServer
 	logger *slog.Logger
 }
 
@@ -30,15 +30,14 @@ func newCustomDomainServiceServer(logger *slog.Logger) (srv *mockCustomDomainSer
 }
 
 // type check
-var _ backendpb.CustomDomainServiceServer = (*mockCustomDomainServiceServer)(nil)
+var _ dnspb.CustomDomainServiceServer = (*mockCustomDomainServiceServer)(nil)
 
-// GetCustomDomainCertificate implements the
-// [backendpb.CustomDomainServiceServer] interface
-// for *mockCustomDomainServiceServer.
+// GetCustomDomainCertificate implements the [dnspb.CustomDomainServiceServer]
+// interface for *mockCustomDomainServiceServer.
 func (s *mockCustomDomainServiceServer) GetCustomDomainCertificate(
 	ctx context.Context,
-	req *backendpb.CustomDomainCertificateRequest,
-) (resp *backendpb.CustomDomainCertificateResponse, err error) {
+	req *dnspb.CustomDomainCertificateRequest,
+) (resp *dnspb.CustomDomainCertificateResponse, err error) {
 	md, _ := metadata.FromIncomingContext(ctx)
 	s.logger.InfoContext(
 		ctx,
@@ -52,7 +51,7 @@ func (s *mockCustomDomainServiceServer) GetCustomDomainCertificate(
 		return nil, err
 	}
 
-	resp = &backendpb.CustomDomainCertificateResponse{
+	resp = &dnspb.CustomDomainCertificateResponse{
 		Certificate: cert,
 		PrivateKey:  x509.MarshalPKCS1PrivateKey(key),
 	}

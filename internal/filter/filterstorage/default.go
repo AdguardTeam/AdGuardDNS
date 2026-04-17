@@ -20,6 +20,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/serviceblock"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/ruleliststorage"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/typosquatting"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/timeutil"
@@ -43,6 +44,8 @@ type Default struct {
 	safeSearchGeneral *safesearch.Filter
 	safeSearchYouTube *safesearch.Filter
 
+	typosquatting *typosquatting.Filter
+
 	// domainFiltersMu protects domainFilters.
 	domainFiltersMu *sync.RWMutex
 	domainFilters   domainFilters
@@ -63,8 +66,8 @@ type Default struct {
 
 	categoryDomainsMaxSize datasize.ByteSize
 
-	categoryDomainsResCacheCount int
-	serviceResCacheCount         int
+	categoryDomainsResCacheCount uint64
+	serviceResCacheCount         uint64
 
 	domainFilterSubDomainNum uint
 
@@ -89,6 +92,9 @@ func New(c *Config) (s *Default, err error) {
 		adult:           c.HashPrefix.Adult,
 		dangerous:       c.HashPrefix.Dangerous,
 		newlyRegistered: c.HashPrefix.NewlyRegistered,
+
+		// Initialized in [Default.init].
+		typosquatting: nil,
 
 		// Initialized in [Default.initSafeSearch].
 		safeSearchGeneral: nil,
@@ -152,6 +158,10 @@ func (s *Default) init(c *Config) (err error) {
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		errs = append(errs, err)
+	}
+
+	if c.Typosquatting.Enabled {
+		s.typosquatting = c.Typosquatting.Filter
 	}
 
 	return errors.Join(errs...)
@@ -412,6 +422,10 @@ func (s *Default) setSafeBrowsing(compConf *composite.Config, c *filter.ConfigSa
 
 	if c.NewlyRegisteredDomainsEnabled && s.newlyRegistered != nil {
 		compConf.NewRegisteredDomains = s.newlyRegistered
+	}
+
+	if c.Typosquatting != nil && c.Typosquatting.Enabled && s.typosquatting != nil {
+		compConf.Typosquatting = s.typosquatting
 	}
 }
 

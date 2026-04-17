@@ -435,7 +435,8 @@ type serverBindInterface struct {
 // type check
 var _ validate.Interface = (*serverBindInterface)(nil)
 
-// Validate implements the [validate.Interface] interface for *serverBindInterface.
+// Validate implements the [validate.Interface] interface for
+// *serverBindInterface.
 func (c *serverBindInterface) Validate() (err error) {
 	if c == nil {
 		return errors.ErrNoValue

@@ -26,19 +26,27 @@ const (
 	// poolMaxCapacity is the default pool.Pool capacity we use in
 	// UpstreamPlain.
 	poolMaxCapacity = 1024
+
 	// poolIdleTimeout is the default value pool.Pool.IdleTimeout. We're not
 	// making it configurable just yet, 30 seconds looks like a reasonable
 	// value for DNS.
 	poolIdleTimeout = time.Second * 30
+
 	// minDNSMessageSize is a minimum theoretical size of a DNS message.
 	minDNSMessageSize = 12 + 5
+
 	// udpBufSize is the size of buffers we use for UDP messages. We use
 	// 4096 since it's highly unlikely that a UDP message can be larger.
 	//
 	// TODO(ameshkov): consider making it configurable in the future.
 	udpBufSize = 4096
+
 	// tcpBufSize is the size of buffers we use for TCP messages.
 	tcpBufSize = dns.MaxMsgSize
+
+	// tcpLengthPrefixSize is the size of the length prefix in responses via
+	// TCP.
+	tcpLengthPrefixSize = 2
 )
 
 // UpstreamPlain is a simple plain DNS client.
@@ -175,7 +183,8 @@ func (u *UpstreamPlain) String() (str string) {
 	return fmt.Sprintf("%s://%s", u.network, u.addr)
 }
 
-// exchangeNet sends a DNS query using the specified network (either TCP or UDP).
+// exchangeNet sends a DNS query using the specified network (either
+// [NetworkTCP] or [NetworkUDP]).
 func (u *UpstreamPlain) exchangeNet(
 	ctx context.Context,
 	req *dns.Msg,
@@ -321,18 +330,23 @@ func (u *UpstreamPlain) readValidMsg(
 	return resp, nil
 }
 
-// readMsg reads the response from the specified connection and parses it.
-func (u *UpstreamPlain) readMsg(network Network, conn net.Conn, buf []byte) (*dns.Msg, error) {
-	var err error
+// readMsg reads the response from the specified connection and parses it.  conn
+// must not be nil.  If network is [NetworkTCP] then buf must be at least
+// [tcpBufSize] long or [udpBufSize] if network is [NetworkUDP].
+func (u *UpstreamPlain) readMsg(
+	network Network,
+	conn net.Conn,
+	buf []byte,
+) (res *dns.Msg, err error) {
 	var n int
 
 	if network == NetworkTCP {
-		var length uint16
-		err = binary.Read(conn, binary.BigEndian, &length)
+		_, err = io.ReadFull(conn, buf[:tcpLengthPrefixSize])
 		if err != nil {
 			return nil, fmt.Errorf("reading binary data: %w", err)
 		}
 
+		length := binary.BigEndian.Uint16(buf[:tcpLengthPrefixSize])
 		n, err = io.ReadFull(conn, buf[:length])
 		if err != nil {
 			return nil, fmt.Errorf("reading full: %w", err)
@@ -348,13 +362,13 @@ func (u *UpstreamPlain) readMsg(network Network, conn net.Conn, buf []byte) (*dn
 		return nil, fmt.Errorf("invalid msg: %w", dns.ErrShortRead)
 	}
 
-	ret := &dns.Msg{}
-	err = ret.Unpack(buf)
+	res = &dns.Msg{}
+	err = res.Unpack(buf[:n])
 	if err != nil {
 		return nil, fmt.Errorf("unpacking msg: %w", err)
 	}
 
-	return ret, nil
+	return res, nil
 }
 
 // packReq packs the DNS query to the specified buffer.
@@ -365,16 +379,16 @@ func (u *UpstreamPlain) packReq(network Network, buf []byte, req *dns.Msg) (n in
 	}
 
 	if network == NetworkTCP {
-		if reqLen > len(buf)-2 {
+		if reqLen > len(buf)-tcpLengthPrefixSize {
 			return 0, dns.ErrBuf
 		}
 
 		// #nosec G115 -- reqLen has already been checked against
 		// dns.MaxMsgSize, which equals math.MaxUint16.
 		binary.BigEndian.PutUint16(buf, uint16(reqLen))
-		_, err = req.PackBuffer(buf[2:])
+		_, err = req.PackBuffer(buf[tcpLengthPrefixSize:])
 
-		return reqLen + 2, err
+		return reqLen + tcpLengthPrefixSize, err
 	}
 
 	if reqLen > len(buf) {
@@ -411,8 +425,8 @@ func (u *UpstreamPlain) putBuffer(network Network, bufPtr *[]byte) {
 	}
 }
 
-// makeConnsPoolFactory makes a pool.Factory method for the specified address and
-// network.
+// makeConnsPoolFactory makes a pool.Factory method for the specified address
+// and network.
 func makeConnsPoolFactory(u *UpstreamPlain, network Network) (f pool.Factory) {
 	var dialNetwork string
 	switch network {

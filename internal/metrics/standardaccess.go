@@ -12,12 +12,12 @@ import (
 
 // BackendStandardAccess is a metrics collector for standard access updates.
 type BackendStandardAccess struct {
-	// updateDuration is the histogram with the duration of the last TLS session
-	// tickets update.
+	// updateDuration is the histogram with the duration of the last
+	// standard-access update.
 	updateDuration prometheus.Histogram
 
 	// errorsTotal is the counter with the total number of errors occurred
-	// during TLS session ticket updates.
+	// during standard-access updates.
 	errorsTotal prometheus.Counter
 }
 
@@ -71,8 +71,8 @@ func NewBackendStandardAccess(
 	return m, nil
 }
 
-// ObserveUpdate implements the [backendpb.StandardAccessMetrics] interface for
-// *BackendStandardAccess.
+// ObserveUpdate implements the [backendgrpc.StandardAccessMetrics] interface
+// for *BackendStandardAccess.
 func (m *BackendStandardAccess) ObserveUpdate(_ context.Context, d time.Duration, err error) {
 	m.updateDuration.Observe(d.Seconds())
 	if err != nil {

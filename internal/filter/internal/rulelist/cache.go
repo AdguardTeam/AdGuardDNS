@@ -18,9 +18,10 @@ type (
 )
 
 // NewResultCache returns a new initialized cache with the given element count.
-// If useCache is true, count must be positive.  If useCache is false, it
-// returns a cache implementation that does nothing.
-func NewResultCache(count int, useCache bool) (cache ResultCache) {
+// If useCache is true, count must be positive and less than or equal to
+// [math.MaxInt].  If useCache is false, it returns a cache implementation that
+// does nothing.
+func NewResultCache(count uint64, useCache bool) (cache ResultCache) {
 	if !useCache {
 		return EmptyResultCache{}
 	}
@@ -32,11 +33,12 @@ func NewResultCache(count int, useCache bool) (cache ResultCache) {
 }
 
 // NewManagedResultCache is like [NewResultCache] but it also adds a newly
-// created cache to the cache manager by id.  count must be positive.
+// created cache to the cache manager by id.  count must be positive and less
+// than or equal to [math.MaxInt], m must not be nil.
 func NewManagedResultCache(
 	m agdcache.Manager,
 	id string,
-	count int,
+	count uint64,
 	useCache bool,
 ) (cache ResultCache) {
 	cache = NewResultCache(count, useCache)

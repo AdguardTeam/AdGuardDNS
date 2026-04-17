@@ -26,10 +26,10 @@ func NewAccountID(i int32) (id AccountID, err error) {
 	return AccountID(i), nil
 }
 
-// NewAccountIDFromString converts a simple string into an AccountID and makes sure that
-// it's valid.  This should be preferred to a simple type conversion.
+// NewAccountIDFromString converts a simple string into an AccountID and makes
+// sure that it's valid.  This should be preferred to a simple type conversion.
 //
-// TODO(f.setrakov): Remove after migrating to int account id.
+// TODO(f.setrakov): Remove after migrating to int account ID.
 func NewAccountIDFromString(s string) (id AccountID, err error) {
 	var id64 int64
 	id64, err = strconv.ParseInt(s, 10, 32)

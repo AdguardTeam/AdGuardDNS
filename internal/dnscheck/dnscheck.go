@@ -18,16 +18,16 @@ import (
 // concurrent use.
 type Interface interface {
 	// Check saves the information about a client's request and returns the
-	// appropriate response.  If req is not the right type of request or not
-	// a request for the appropriate check domain, both resp and err are nil.
+	// appropriate response.  If req is not the right type of request or not a
+	// request for the appropriate check domain, both resp and err are nil.
 	//
 	// All arguments must be non-nil.  req must contain one question, which
 	// should be either an A or an AAAA one.
 	Check(ctx context.Context, req *dns.Msg, ri *agd.RequestInfo) (resp *dns.Msg, err error)
 }
 
-// randomIDFromDomain returns a random ID from name using one of the suf as
-// the domain name suffix.  If matched is false, this is not a DNS check request.
+// randomIDFromDomain returns a random ID from name using one of the suf as the
+// domain name suffix.  If matched is false, this is not a DNS check request.
 func randomIDFromDomain(name string, suf []string) (id string, matched bool, err error) {
 	for _, s := range suf {
 		if name == s {
@@ -56,8 +56,8 @@ func extractRandomID(name, suf string) (id string, matched bool) {
 
 	hyphenIdx := len(name) - len(suf) - 1
 	if name[hyphenIdx] != '-' {
-		// A weird request that only looks like a DNS check one but without
-		// a hyphen.  Assume that this is not a real DNS check request.
+		// A weird request that only looks like a DNS check one but without a
+		// hyphen.  Assume that this is not a real DNS check request.
 		return "", false
 	}
 

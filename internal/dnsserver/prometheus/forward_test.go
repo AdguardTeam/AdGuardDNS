@@ -18,7 +18,7 @@ import (
 // normal unit test, we create a forward handler, emulate a query and then
 // check if prom metrics were incremented.
 func TestForwardMetricsListener_integration_request(t *testing.T) {
-	srv, addr := dnsservertest.RunDNSServer(t, dnsservertest.NewDefaultHandler())
+	srv, addr := dnsservertest.RunDNSServer(t, nil)
 	reg := prometheus.NewRegistry()
 	mtrcListener, err := dnssrvprom.NewForwardMetricsListener(testNamespace, reg, 0)
 	require.NoError(t, err)

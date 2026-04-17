@@ -15,6 +15,7 @@
 *.out
 *.test
 /bin/
+/config.yaml
 /filters/
 /github-mirror/
 /test-reports/
@@ -23,7 +24,6 @@
 AdGuardDNS
 agdns
 asn.mmdb
-config.yaml
 country.mmdb
 profilecache.json
 querylog.jsonl

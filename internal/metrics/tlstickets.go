@@ -113,8 +113,8 @@ func NewBackendTicketStorage(
 	return m, nil
 }
 
-// SetTicketStatus implements the [backendpb.TicketStorageMetrics] interface for
-// *BackendTicketStorage.
+// SetTicketStatus implements the [backendgrpc.TicketStorageMetrics] interface
+// for *BackendTicketStorage.
 func (m *BackendTicketStorage) SetTicketStatus(
 	_ context.Context,
 	name string,
@@ -131,13 +131,13 @@ func (m *BackendTicketStorage) SetTicketStatus(
 	m.updatedTime.WithLabelValues(name).Set(float64(updTime.Unix()))
 }
 
-// SetTicketsState implements the [backendpb.TicketStorageMetrics] interface for
-// *BackendTicketStorage.
+// SetTicketsState implements the [backendgrpc.TicketStorageMetrics] interface
+// for *BackendTicketStorage.
 func (m *BackendTicketStorage) SetTicketsState(_ context.Context, num float64) {
 	m.ticketsState.Set(num)
 }
 
-// ObserveUpdate implements the [backendpb.TicketStorageMetrics] interface for
+// ObserveUpdate implements the [backendgrpc.TicketStorageMetrics] interface for
 // *BackendTicketStorage.
 func (m *BackendTicketStorage) ObserveUpdate(_ context.Context, d time.Duration, err error) {
 	m.updateDuration.Observe(d.Seconds())

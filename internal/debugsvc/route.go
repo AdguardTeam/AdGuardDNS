@@ -4,7 +4,6 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil/httputil"
@@ -36,79 +35,81 @@ const (
 	routePatternMetrics         = http.MethodGet + " " + PathPatternMetrics
 )
 
+// hdlrGrpKey is a handler group argument name for the logger.
+const hdlrGrpKey = "hdlr_grp"
+
 // route further initializes the svc.servers field by adding handlers and
 // loggers to each server.
-//
-// TODO(a.garipov):  Consider splitting.
-func (svc *Service) route(c *Config) {
-	const hdlrGrpKey = "hdlr_grp"
-
-	reqIDMw := httputil.NewRequestIDMiddleware()
-	if srv := svc.servers[c.APIAddr]; srv != nil {
-		router := srv.http.Handler.(httputil.Router)
-		l := svc.logger.With(hdlrGrpKey, handlerGroupAPI)
-
-		router.Handle(
-			routePatternHealthCheck,
-			httputil.Wrap(
-				httputil.HealthCheckHandler,
-				reqIDMw,
-				httputil.NewLogMiddleware(l, slogutil.LevelTrace),
-			),
-		)
-
-		infoLogMw := httputil.NewLogMiddleware(l, slog.LevelInfo)
-		router.Handle(routePatternDebugAPIRefresh, httputil.Wrap(svc.refrHdlr, reqIDMw, infoLogMw))
-		router.Handle(routePatternDebugAPICache, httputil.Wrap(svc.cacheHdlr, reqIDMw, infoLogMw))
-		router.Handle(routePatternDebugAPIGeoIP, httputil.Wrap(svc.geoIPHdlr, reqIDMw, infoLogMw))
-
-		panicHdlr := httputil.PanicHandler(ErrDebugPanic)
-		router.Handle(routePatternDebugPanic, httputil.Wrap(panicHdlr, reqIDMw, infoLogMw))
+func (svc *Service) route(mux *http.ServeMux, gr HandlerGroup) {
+	switch gr {
+	case HandlerGroupAPI:
+		svc.routeAPIGroup(mux)
+	case HandlerGroupDNSDB:
+		svc.routeDNSPBGroup(mux)
+	case HandlerGroupPrometheus:
+		svc.routePrometheusGroup(mux)
+	case HandlerGroupPprof:
+		svc.routePprofGroup(mux)
+	default:
+		return
 	}
+}
 
-	if srv := svc.servers[c.DNSDBAddr]; srv != nil {
-		router := srv.http.Handler.(httputil.Router)
-		l := svc.logger.With(hdlrGrpKey, handlerGroupDNSDB)
+// routeAPIGroup routes API group related handlers.  mux must not be nil.
+func (svc *Service) routeAPIGroup(mux *http.ServeMux) {
+	l := svc.logger.With(hdlrGrpKey, HandlerGroupAPI)
 
-		router.Handle(
-			routePatternDNSDBCSV,
-			httputil.Wrap(
-				svc.dnsDB,
-				reqIDMw,
-				httputil.NewLogMiddleware(l, slog.LevelInfo),
-			),
-		)
-	}
+	mux.Handle(
+		routePatternHealthCheck,
+		httputil.Wrap(
+			httputil.HealthCheckHandler,
+			httputil.NewLogMiddleware(l, slogutil.LevelTrace),
+		),
+	)
 
-	if srv := svc.servers[c.PprofAddr]; srv != nil {
-		router := srv.http.Handler.(httputil.Router)
-		l := svc.logger.With(hdlrGrpKey, handlerGroupPprof)
-		mw := httputil.NewLogMiddleware(l, slog.LevelDebug)
+	infoLogMw := httputil.NewLogMiddleware(l, slog.LevelInfo)
+	mux.Handle(routePatternDebugAPIRefresh, httputil.Wrap(svc.refrHdlr, infoLogMw))
+	mux.Handle(routePatternDebugAPICache, httputil.Wrap(svc.cacheHdlr, infoLogMw))
+	mux.Handle(routePatternDebugAPIGeoIP, httputil.Wrap(svc.geoIPHdlr, infoLogMw))
 
-		routeWithMw := httputil.RouterFunc(func(pattern string, h http.Handler) {
-			router.Handle(pattern, httputil.Wrap(h, reqIDMw, mw))
-		})
+	panicHdlr := httputil.PanicHandler(ErrDebugPanic)
+	mux.Handle(routePatternDebugPanic, httputil.Wrap(panicHdlr, infoLogMw))
+}
 
-		httputil.RoutePprof(routeWithMw)
-	}
+// routeDNSPBGroup route DNSPB group related handlers.  mux must not be nil.
+func (svc *Service) routeDNSPBGroup(mux *http.ServeMux) {
+	l := svc.logger.With(hdlrGrpKey, HandlerGroupDNSDB)
 
-	if srv := svc.servers[c.PrometheusAddr]; srv != nil {
-		router := srv.http.Handler.(httputil.Router)
-		l := svc.logger.With(hdlrGrpKey, handlerGroupPrometheus)
+	mux.Handle(
+		routePatternDNSDBCSV,
+		httputil.Wrap(
+			svc.dnsDB,
+			httputil.NewLogMiddleware(l, slog.LevelInfo),
+		),
+	)
+}
 
-		router.Handle(
-			routePatternMetrics,
-			httputil.Wrap(
-				promhttp.Handler(),
-				reqIDMw,
-				httputil.NewLogMiddleware(l, slogutil.LevelTrace)),
-		)
-	}
+// routePprofGroup routes Pprof group related handlers.  mux must not be nil.
+func (svc *Service) routePprofGroup(mux *http.ServeMux) {
+	l := svc.logger.With(hdlrGrpKey, HandlerGroupPprof)
+	mw := httputil.NewLogMiddleware(l, slog.LevelDebug)
 
-	srvHdrMw := httputil.ServerHeaderMiddleware(agdhttp.UserAgent())
-	for _, srv := range svc.servers {
-		l := svc.logger.With("name", srv.name)
-		srv.http.ErrorLog = slog.NewLogLogger(l.Handler(), slog.LevelDebug)
-		srv.http.Handler = httputil.Wrap(srv.http.Handler, srvHdrMw, reqIDMw)
-	}
+	routeWithMw := httputil.RouterFunc(func(pattern string, h http.Handler) {
+		mux.Handle(pattern, httputil.Wrap(h, mw))
+	})
+
+	httputil.RoutePprof(routeWithMw)
+}
+
+// routePrometheusGroup routes Prometheus related handlers.
+// mux must not be nil.
+func (svc *Service) routePrometheusGroup(mux *http.ServeMux) {
+	l := svc.logger.With(hdlrGrpKey, HandlerGroupPrometheus)
+
+	mux.Handle(
+		routePatternMetrics,
+		httputil.Wrap(
+			promhttp.Handler(),
+			httputil.NewLogMiddleware(l, slogutil.LevelTrace)),
+	)
 }

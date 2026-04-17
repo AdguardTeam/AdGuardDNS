@@ -16,7 +16,8 @@ type (
 
 // Re-exports related to custom domains.
 type (
-	// CustomDomainDB contains information about custom domains and matches domains.
+	// CustomDomainDB contains information about custom domains and matches
+	// domains.
 	CustomDomainDB = devicefinder.CustomDomainDB
 
 	// EmptyCustomDomainDB is an [CustomDomainDB] that does nothing.

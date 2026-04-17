@@ -70,7 +70,9 @@ func TestNewHandlers(t *testing.T) {
 				IDs:     []filter.ID{dnssvctest.FilterListID1},
 				Enabled: true,
 			},
-			SafeBrowsing: &filter.ConfigSafeBrowsing{},
+			SafeBrowsing: &filter.ConfigSafeBrowsing{
+				Typosquatting: &filter.ConfigTyposquatting{},
+			},
 		},
 		ID: dnssvctest.FilteringGroupID,
 	}

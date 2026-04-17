@@ -133,6 +133,7 @@ func newDefault(tb testing.TB) (s *filterstorage.Default) {
 	}
 	c.SafeSearchGeneral = newConfigSafeSearch(safeSearchGenURL, filter.IDGeneralSafeSearch)
 	c.SafeSearchYouTube = newConfigSafeSearch(safeSearchYTURL, filter.IDYoutubeSafeSearch)
+	c.Typosquatting = &filterstorage.TyposquattingConfig{}
 
 	s, err := filterstorage.New(c)
 	require.NoError(tb, err)
@@ -169,8 +170,8 @@ func newDisabledConfig(
 	filtertest.CreateFilterCacheDirs(tb, cacheDir)
 
 	return &filterstorage.Config{
-		BaseLogger: testLogger,
-		Logger:     testLogger,
+		BaseLogger: filtertest.Logger,
+		Logger:     filtertest.Logger,
 		BlockedServices: &filterstorage.BlockedServicesConfig{
 			Enabled: false,
 		},
@@ -185,6 +186,9 @@ func newDisabledConfig(
 		},
 		SafeSearchYouTube: &filterstorage.SafeSearchConfig{
 			ID:      filter.IDYoutubeSafeSearch,
+			Enabled: false,
+		},
+		Typosquatting: &filterstorage.TyposquattingConfig{
 			Enabled: false,
 		},
 		CacheManager:             agdcache.EmptyManager{},
@@ -210,12 +214,12 @@ func newRuleListStorage(
 	filtertest.CreateFilterCacheDirs(tb, cacheDir)
 
 	s, err := ruleliststorage.New(&ruleliststorage.Config{
-		BaseLogger:   testLogger,
+		BaseLogger:   filtertest.Logger,
 		CacheManager: agdcache.EmptyManager{},
 		Clock:        timeutil.SystemClock{},
 		ErrColl:      agdtest.NewErrorCollector(),
 		IndexConfig:  idxConf,
-		Logger:       testLogger,
+		Logger:       filtertest.Logger,
 		Metrics:      filter.EmptyMetrics{},
 		CacheDir:     cacheDir,
 	})

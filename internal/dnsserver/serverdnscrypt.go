@@ -41,9 +41,6 @@ type ServerDNSCrypt struct {
 	providerName string
 }
 
-// type check
-var _ Server = (*ServerDNSCrypt)(nil)
-
 // NewServerDNSCrypt creates a new instance of ServerDNSCrypt.  c must not be
 // nil and must be valid.
 func NewServerDNSCrypt(c *ConfigDNSCrypt) (s *ServerDNSCrypt) {
@@ -56,7 +53,10 @@ func NewServerDNSCrypt(c *ConfigDNSCrypt) (s *ServerDNSCrypt) {
 	}
 }
 
-// Start implements the dnsserver.Server interface for *ServerDNSCrypt.
+// type check
+var _ Server = (*ServerDNSCrypt)(nil)
+
+// Start implements the [Server] interface for *ServerDNSCrypt.
 func (s *ServerDNSCrypt) Start(ctx context.Context) (err error) {
 	defer func() { err = errors.Annotate(err, "starting dnscrypt server: %w") }()
 
@@ -101,7 +101,7 @@ func (s *ServerDNSCrypt) Start(ctx context.Context) (err error) {
 	return nil
 }
 
-// Shutdown implements the dnsserver.Server interface for *ServerDNSCrypt.
+// Shutdown implements the [Server] interface for *ServerDNSCrypt.
 func (s *ServerDNSCrypt) Shutdown(ctx context.Context) (err error) {
 	defer func() { err = errors.Annotate(err, "shutting down dnscrypt server: %w") }()
 

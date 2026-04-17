@@ -1,6 +1,7 @@
 package ruleliststorage
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 )
@@ -48,6 +50,9 @@ func (s *Default) RefreshInitial(ctx context.Context) (err error) {
 // refresh refreshes the rule lists.  If acceptStale is true, the cache files
 // are used regardless of their staleness.
 func (s *Default) refresh(ctx context.Context, acceptStale bool) (err error) {
+	var prevIDs []string
+	prevIDs = s.appendIDStrs(prevIDs)
+
 	newRuleLists, err := s.loadRuleLists(ctx, acceptStale)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
@@ -56,7 +61,54 @@ func (s *Default) refresh(ctx context.Context, acceptStale bool) (err error) {
 
 	s.resetRuleLists(newRuleLists)
 
+	newIDs := make([]string, 0, len(prevIDs))
+	newIDs = s.appendIDStrs(newIDs)
+
+	prevIDSet := container.NewSortedSliceSet(prevIDs...)
+	newIDSet := container.NewSortedSliceSet(newIDs...)
+
+	deletedIDs := difference(prevIDSet, newIDSet)
+	if deletedIDs.Len() > 0 {
+		s.logger.InfoContext(ctx, "deleting removed filters form metrics", "ids", deletedIDs)
+	}
+
+	s.metrics.Delete(ctx, deletedIDs.Values())
+
 	return nil
+}
+
+// appendIDStrs appends the IDs of all filters in the storage as strings to orig
+// and returns it.
+func (s *Default) appendIDStrs(orig []string) (res []string) {
+	s.ruleListsMu.RLock()
+	defer s.ruleListsMu.RUnlock()
+
+	res = orig
+	for id := range s.ruleLists {
+		res = append(res, string(id))
+	}
+
+	return res
+}
+
+// difference returns a set which contains all values in a that are not in b.
+// It changes a in-place.
+//
+// TODO(a.garipov):  Consider moving to golibs.
+func difference[
+	T cmp.Ordered,
+](a, b *container.SortedSliceSet[T]) (diff *container.SortedSliceSet[T]) {
+	// TODO(a.garipov):  Improve container.SortedSliceSet to not panic on
+	// delete.
+	if a == nil {
+		return nil
+	}
+
+	for v := range b.Range {
+		a.Delete(v)
+	}
+
+	return a
 }
 
 // loadRuleLists loads the rule-lists from the storage.  If acceptStale is true,
@@ -166,7 +218,7 @@ func (s *Default) resultRuleList(ctx context.Context, res refrResult) (rl *ruleL
 	if res.err != nil {
 		err := fmt.Errorf("initializing rule list %q: %w", fltID, res.err)
 		errcoll.Collect(ctx, s.errColl, s.logger, "rule list error", err)
-		s.metrics.SetFilterStatus(ctx, string(fltID), s.clock.Now(), 0, err)
+		s.metrics.SetStatus(ctx, string(fltID), s.clock.Now(), 0, err)
 
 		return s.prevRuleList(fltID)
 	}
@@ -244,7 +296,7 @@ func (s *Default) refreshRuleList(
 		return
 	}
 
-	s.metrics.SetFilterStatus(ctx, string(id), s.clock.Now(), rl.RulesCount(), nil)
+	s.metrics.SetStatus(ctx, string(id), s.clock.Now(), rl.RulesCount(), nil)
 
 	res.refr = rl
 	res.updTime = fl.updTime
@@ -254,7 +306,10 @@ func (s *Default) refreshRuleList(
 
 // newRuleListRefreshable returns a new rule list for the given index data.  fl
 // must not be nil.
-func (s *Default) newRuleListRefreshable(id filter.ID, fl *indexData) (f *rulelist.Refreshable, err error) {
+func (s *Default) newRuleListRefreshable(
+	id filter.ID,
+	fl *indexData,
+) (f *rulelist.Refreshable, err error) {
 	fltIDStr := string(id)
 
 	cacheID := path.Join(cachePrefixRuleList, fltIDStr)

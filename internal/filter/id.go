@@ -80,6 +80,10 @@ const (
 	// filtered by the safe browsing filter.
 	IDSafeBrowsing ID = "safe_browsing"
 
+	// IDTyposquatting is the special shared filter ID used when a request was
+	// filtered by the typosquatting filter.
+	IDTyposquatting ID = "typosquatting"
+
 	// IDYoutubeSafeSearch is the special shared filter ID used when a request
 	// was modified by the YouTube safe search filter.
 	IDYoutubeSafeSearch ID = "youtube_safe_search"

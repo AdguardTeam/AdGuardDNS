@@ -1,12 +1,12 @@
 // main implements a single mock GRPC server for backend services defined by
-// BILLSTAT_URL, PROFILES_URL, and REMOTE_KV_URL environment variables.
+// BILLSTAT_URL, PROFILES_URL, REMOTE_KV_URL, and other environment variables.
 package main
 
 import (
 	"net"
 	"os"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
+	"github.com/AdguardTeam/AdGuardDNS/internal/backendgrpc/dnspb"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/osutil"
 	"google.golang.org/grpc"
@@ -26,19 +26,19 @@ func main() {
 
 	grpcSrv := grpc.NewServer()
 	dnsSrv := newMockDNSServiceServer(l.With(slogutil.KeyPrefix, "dns"))
-	backendpb.RegisterDNSServiceServer(grpcSrv, dnsSrv)
+	dnspb.RegisterDNSServiceServer(grpcSrv, dnsSrv)
 
 	kvSrv := newMockRemoteKVServiceServer(l.With(slogutil.KeyPrefix, "remote_kv"))
-	backendpb.RegisterRemoteKVServiceServer(grpcSrv, kvSrv)
+	dnspb.RegisterRemoteKVServiceServer(grpcSrv, kvSrv)
 
 	rateLimitSrv := newMockRateLimitServiceServer(l.With(slogutil.KeyPrefix, "rate_limiter"))
-	backendpb.RegisterRateLimitServiceServer(grpcSrv, rateLimitSrv)
+	dnspb.RegisterRateLimitServiceServer(grpcSrv, rateLimitSrv)
 
 	sessTickSrv := newMockSessionTicketServiceServer(l.With(slogutil.KeyPrefix, "session_ticket"))
-	backendpb.RegisterSessionTicketServiceServer(grpcSrv, sessTickSrv)
+	dnspb.RegisterSessionTicketServiceServer(grpcSrv, sessTickSrv)
 
 	customDomainSrv := newCustomDomainServiceServer(l.With(slogutil.KeyPrefix, "custom_domain"))
-	backendpb.RegisterCustomDomainServiceServer(grpcSrv, customDomainSrv)
+	dnspb.RegisterCustomDomainServiceServer(grpcSrv, customDomainSrv)
 
 	l.Info("starting serving", "laddr", listenAddr)
 	err = grpcSrv.Serve(lsnr)

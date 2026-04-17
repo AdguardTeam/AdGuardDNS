@@ -14,7 +14,7 @@ import (
 // Server represents a DNS server.
 //
 // TODO(a.garipov):  Minimize the number of methods; consider embedding
-// service.Service from golibs.
+// [service.Interface] from golibs.
 type Server interface {
 	// Name returns the server name.
 	//

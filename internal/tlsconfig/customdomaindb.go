@@ -102,7 +102,7 @@ type CustomDomainDBConfig struct {
 // NewCustomDomainDB returns a properly initialized *CustomDomainDB.  c must not
 // be nil and must be valid.
 func NewCustomDomainDB(c *CustomDomainDBConfig) (db *CustomDomainDB, err error) {
-	err = os.MkdirAll(c.CacheDirPath, 0o700)
+	err = os.MkdirAll(c.CacheDirPath, agd.PermDirDefault)
 	if err != nil {
 		return nil, fmt.Errorf("creating cache directory: %w", err)
 	}
@@ -490,14 +490,14 @@ func (db *CustomDomainDB) saveCertData(
 		return fmt.Errorf("parsing pair: %w", err)
 	}
 
-	err = renameio.WriteFile(certPath, certsPEM, 0o600)
+	err = renameio.WriteFile(certPath, certsPEM, agd.PermFileDefault)
 	if err != nil {
 		return fmt.Errorf("writing cert to fs: %w", err)
 	}
 
 	l.DebugContext(ctx, "saved cert file", "path", certPath)
 
-	err = renameio.WriteFile(keyPath, keyPEM, 0o600)
+	err = renameio.WriteFile(keyPath, keyPEM, agd.PermFileDefault)
 	if err != nil {
 		return fmt.Errorf("writing key to fs: %w", err)
 	}

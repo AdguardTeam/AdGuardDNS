@@ -135,6 +135,11 @@ message FilterConfig {
   }
 
   message SafeBrowsing {
+    message TyposquattingFilter {
+      bool enabled = 1;
+    }
+
+    TyposquattingFilter typosquatting = 4;
     bool enabled = 1;
     bool dangerous_domains_enabled = 2;
     bool newly_registered_domains_enabled = 3;

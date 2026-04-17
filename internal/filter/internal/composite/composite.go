@@ -61,6 +61,10 @@ type Config struct {
 	// any.
 	NewRegisteredDomains RequestFilter
 
+	// Typosquatting is a typosquatting filter based on Damerau–Levenshtein
+	// distance, if any.
+	Typosquatting RequestFilter
+
 	// GeneralSafeSearch is the general safe-search filter to apply, if any.
 	GeneralSafeSearch RequestFilterUF
 
@@ -109,6 +113,8 @@ func New(c *Config) (f *Filter) {
 	for _, df := range c.CategoryFilters {
 		f.reqFilters = appendIfNotNil(f.reqFilters, df)
 	}
+
+	f.reqFilters = appendIfNotNil(f.reqFilters, c.Typosquatting)
 
 	return f
 }
@@ -161,6 +167,7 @@ var _ filter.Interface = (*Filter)(nil)
 //  8. YouTube safe-search filter.
 //  9. Newly-registered domains filter.
 //  10. Category filters.
+//  11. Typosquatting filter.
 //
 // If f is empty, it returns nil with no error.
 func (f *Filter) FilterRequest(

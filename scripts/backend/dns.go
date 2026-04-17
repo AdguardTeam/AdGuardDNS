@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
+	"github.com/AdguardTeam/AdGuardDNS/internal/backendgrpc/dnspb"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
@@ -20,9 +20,9 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// mockDNSServiceServer is the mock [backendpb.DNSServiceServer].
+// mockDNSServiceServer is the mock [dnspb.DNSServiceServer].
 type mockDNSServiceServer struct {
-	backendpb.UnimplementedDNSServiceServer
+	dnspb.UnimplementedDNSServiceServer
 	logger *slog.Logger
 }
 
@@ -35,16 +35,16 @@ func newMockDNSServiceServer(logger *slog.Logger) (srv *mockDNSServiceServer) {
 }
 
 // type check
-var _ backendpb.DNSServiceServer = (*mockDNSServiceServer)(nil)
+var _ dnspb.DNSServiceServer = (*mockDNSServiceServer)(nil)
 
-// CreateDeviceByHumanId implements the [backendpb.DNSServiceServer] interface
+// CreateDeviceByHumanId implements the [dnspb.DNSServiceServer] interface
 // for *mockDNSServiceServer.
 //
 //lint:ignore ST1003 The name is necessary for the interface.
 func (s *mockDNSServiceServer) CreateDeviceByHumanId(
 	ctx context.Context,
-	req *backendpb.CreateDeviceRequest,
-) (resp *backendpb.CreateDeviceResponse, err error) {
+	req *dnspb.CreateDeviceRequest,
+) (resp *dnspb.CreateDeviceResponse, err error) {
 	md, _ := metadata.FromIncomingContext(ctx)
 	s.logger.InfoContext(
 		ctx,
@@ -55,16 +55,16 @@ func (s *mockDNSServiceServer) CreateDeviceByHumanId(
 
 	p := s.newDNSProfile(true)
 
-	return &backendpb.CreateDeviceResponse{
+	return &dnspb.CreateDeviceResponse{
 		Device: p.Devices[1],
 	}, nil
 }
 
-// GetDNSProfiles implements the [backendpb.DNSServiceServer] interface for
+// GetDNSProfiles implements the [dnspb.DNSServiceServer] interface for
 // *mockDNSServiceServer
 func (s *mockDNSServiceServer) GetDNSProfiles(
-	req *backendpb.DNSProfilesRequest,
-	srv grpc.ServerStreamingServer[backendpb.DNSProfile],
+	req *dnspb.DNSProfilesRequest,
+	srv grpc.ServerStreamingServer[dnspb.DNSProfile],
 ) (err error) {
 	ctx := srv.Context()
 	md, _ := metadata.FromIncomingContext(ctx)
@@ -94,17 +94,17 @@ func (s *mockDNSServiceServer) GetDNSProfiles(
 	return nil
 }
 
-// SaveDevicesBillingStat implements the [backendpb.DNSServiceServer] interface
-// for *mockDNSServiceServer
+// SaveDevicesBillingStat implements the [dnspb.DNSServiceServer] interface for
+// *mockDNSServiceServer
 func (s *mockDNSServiceServer) SaveDevicesBillingStat(
-	srv grpc.ClientStreamingServer[backendpb.DeviceBillingStat, emptypb.Empty],
+	srv grpc.ClientStreamingServer[dnspb.DeviceBillingStat, emptypb.Empty],
 ) (err error) {
 	ctx := srv.Context()
 	md, _ := metadata.FromIncomingContext(ctx)
 	s.logger.InfoContext(ctx, "saving devices", "auth", md.Get(httphdr.Authorization))
 
 	for {
-		var bs *backendpb.DeviceBillingStat
+		var bs *dnspb.DeviceBillingStat
 		bs, err = srv.Recv()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -118,11 +118,10 @@ func (s *mockDNSServiceServer) SaveDevicesBillingStat(
 	}
 }
 
-// newDNSProfile returns a mock instance of [*backendpb.DNSProfile].  If
-// isFullSync is true, it returns a full profile; otherwise, it returns device
-// changes.
-func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *backendpb.DNSProfile) {
-	dayRange := &backendpb.DayRange{
+// newDNSProfile returns a mock instance of [*dnspb.DNSProfile].  If isFullSync
+// is true, it returns a full profile; otherwise, it returns device changes.
+func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *dnspb.DNSProfile) {
+	dayRange := &dnspb.DayRange{
 		Start: durationpb.New(0),
 		End:   durationpb.New(59 * time.Minute),
 	}
@@ -132,7 +131,7 @@ func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *backendpb.DNS
 		devIDTest = "didtest1"
 	)
 
-	devTest := &backendpb.DeviceSettings{
+	devTest := &dnspb.DeviceSettings{
 		Id:               devIDTest,
 		Name:             time.Now().Format("Test Name 2006-01-02T15:04:05"),
 		FilteringEnabled: true,
@@ -141,11 +140,11 @@ func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *backendpb.DNS
 	}
 
 	var (
-		devices       []*backendpb.DeviceSettings
-		deviceChanges []*backendpb.DeviceSettingsChange
+		devices       []*dnspb.DeviceSettings
+		deviceChanges []*dnspb.DeviceSettingsChange
 	)
 	if isFullSync {
-		devices = []*backendpb.DeviceSettings{
+		devices = []*dnspb.DeviceSettings{
 			devTest,
 			{
 				Id:           devIDAuto,
@@ -154,18 +153,18 @@ func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *backendpb.DNS
 			},
 		}
 	} else {
-		deviceChanges = []*backendpb.DeviceSettingsChange{{
-			Change: &backendpb.DeviceSettingsChange_Upserted_{
-				Upserted: &backendpb.DeviceSettingsChange_Upserted{Device: devTest},
+		deviceChanges = []*dnspb.DeviceSettingsChange{{
+			Change: &dnspb.DeviceSettingsChange_Upserted_{
+				Upserted: &dnspb.DeviceSettingsChange_Upserted{Device: devTest},
 			},
 		}, {
-			Change: &backendpb.DeviceSettingsChange_Deleted_{
-				Deleted: &backendpb.DeviceSettingsChange_Deleted{DeviceId: devIDAuto},
+			Change: &dnspb.DeviceSettingsChange_Deleted_{
+				Deleted: &dnspb.DeviceSettingsChange_Deleted{DeviceId: devIDAuto},
 			},
 		}}
 	}
 
-	week := &backendpb.WeeklyRange{
+	week := &dnspb.WeeklyRange{
 		Sun: nil,
 		Mon: dayRange,
 		Tue: dayRange,
@@ -175,13 +174,13 @@ func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *backendpb.DNS
 		Sat: nil,
 	}
 
-	customDomainCurrent := &backendpb.CustomDomain{
+	customDomainCurrent := &dnspb.CustomDomain{
 		Domains: []string{
 			"current-1.domain.example",
 			"current-2.domain.example",
 		},
-		State: &backendpb.CustomDomain_Current_{
-			Current: &backendpb.CustomDomain_Current{
+		State: &dnspb.CustomDomain_Current_{
+			Current: &dnspb.CustomDomain_Current{
 				CertName:  "abcdefgh",
 				NotBefore: timestamppb.New(time.Now().Add(-24 * time.Hour)),
 				NotAfter:  timestamppb.New(time.Now().Add(24 * time.Hour)),
@@ -190,56 +189,59 @@ func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *backendpb.DNS
 		},
 	}
 
-	customDomainPending := &backendpb.CustomDomain{
+	customDomainPending := &dnspb.CustomDomain{
 		Domains: []string{
 			"pending-1.domain.example",
 			"pending-2.domain.example",
 		},
-		State: &backendpb.CustomDomain_Pending_{
-			Pending: &backendpb.CustomDomain_Pending{
+		State: &dnspb.CustomDomain_Pending_{
+			Pending: &dnspb.CustomDomain_Pending{
 				WellKnownPath: "/.well-known/abc/def",
 				Expire:        timestamppb.New(time.Now().Add(24 * time.Hour)),
 			},
 		},
 	}
 
-	customDomain := &backendpb.CustomDomainSettings{
-		Domains: []*backendpb.CustomDomain{
+	customDomain := &dnspb.CustomDomainSettings{
+		Domains: []*dnspb.CustomDomain{
 			customDomainCurrent,
 			customDomainPending,
 		},
 		Enabled: true,
 	}
 
-	return &backendpb.DNSProfile{
+	return &dnspb.DNSProfile{
 		DnsId:              "mock1234",
 		FilteringEnabled:   true,
 		QueryLogEnabled:    true,
 		Deleted:            false,
 		AutoDevicesEnabled: true,
 		IpLogEnabled:       true,
-		SafeBrowsing: &backendpb.SafeBrowsingSettings{
+		SafeBrowsing: &dnspb.SafeBrowsingSettings{
+			Typosquatting: &dnspb.TyposquattingFilterSettings{
+				Enabled: true,
+			},
 			Enabled:               true,
 			BlockDangerousDomains: true,
 			BlockNrd:              false,
 		},
-		Parental: &backendpb.ParentalSettings{
+		Parental: &dnspb.ParentalSettings{
 			Enabled:           false,
 			BlockAdult:        false,
 			GeneralSafeSearch: false,
 			YoutubeSafeSearch: false,
 			BlockedServices:   []string{"youtube"},
-			Schedule: &backendpb.ScheduleSettings{
+			Schedule: &dnspb.ScheduleSettings{
 				Tmz:         "GMT",
 				WeeklyRange: week,
 			},
 		},
-		Access: &backendpb.AccessSettings{
-			AllowlistCidr: []*backendpb.CidrRange{{
+		Access: &dnspb.AccessSettings{
+			AllowlistCidr: []*dnspb.CidrRange{{
 				Address: netip.MustParseAddr("1.1.1.0").AsSlice(),
 				Prefix:  24,
 			}},
-			BlocklistCidr: []*backendpb.CidrRange{{
+			BlocklistCidr: []*dnspb.CidrRange{{
 				Address: netip.MustParseAddr("2.2.2.0").AsSlice(),
 				Prefix:  24,
 			}},
@@ -248,11 +250,11 @@ func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *backendpb.DNS
 			BlocklistDomainRules: []string{"block.test"},
 			Enabled:              true,
 		},
-		CustomRuleLists: &backendpb.CustomRuleListsSettings{
+		CustomRuleLists: &dnspb.CustomRuleListsSettings{
 			Ids:     []string{"1"},
 			Enabled: true,
 		},
-		RuleLists: &backendpb.RuleListsSettings{
+		RuleLists: &dnspb.RuleListsSettings{
 			Ids:     []string{"2"},
 			Enabled: true,
 		},
@@ -262,23 +264,23 @@ func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *backendpb.DNS
 		BlockChromePrefetch: true,
 		BlockFirefoxCanary:  true,
 		BlockPrivateRelay:   true,
-		AdultBlockingMode: &backendpb.DNSProfile_AdultBlockingModeCustomIp{
-			AdultBlockingModeCustomIp: &backendpb.BlockingModeCustomIP{
+		AdultBlockingMode: &dnspb.DNSProfile_AdultBlockingModeCustomIp{
+			AdultBlockingModeCustomIp: &dnspb.BlockingModeCustomIP{
 				Ipv4: []byte{1, 1, 1, 1},
 			},
 		},
-		BlockingMode: &backendpb.DNSProfile_BlockingModeCustomIp{
-			BlockingModeCustomIp: &backendpb.BlockingModeCustomIP{
+		BlockingMode: &dnspb.DNSProfile_BlockingModeCustomIp{
+			BlockingModeCustomIp: &dnspb.BlockingModeCustomIP{
 				Ipv4: []byte{1, 2, 3, 4},
 			},
 		},
-		SafeBrowsingBlockingMode: &backendpb.DNSProfile_SafeBrowsingBlockingModeCustomIp{
-			SafeBrowsingBlockingModeCustomIp: &backendpb.BlockingModeCustomIP{
+		SafeBrowsingBlockingMode: &dnspb.DNSProfile_SafeBrowsingBlockingModeCustomIp{
+			SafeBrowsingBlockingModeCustomIp: &dnspb.BlockingModeCustomIP{
 				Ipv4: []byte{2, 2, 2, 2},
 			},
 		},
-		RateLimit: &backendpb.RateLimitSettings{
-			ClientCidr: []*backendpb.CidrRange{{
+		RateLimit: &dnspb.RateLimitSettings{
+			ClientCidr: []*dnspb.CidrRange{{
 				Address: netip.MustParseAddr("3.3.3.0").AsSlice(),
 				Prefix:  24,
 			}},
@@ -286,7 +288,7 @@ func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *backendpb.DNS
 			Enabled: true,
 		},
 		CustomDomain: customDomain,
-		CategoryFilter: &backendpb.CategoryFilterSettings{
+		CategoryFilter: &dnspb.CategoryFilterSettings{
 			Ids:     []string{"games"},
 			Enabled: true,
 		},

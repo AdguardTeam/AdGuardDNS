@@ -147,6 +147,10 @@ type fltGrpSafeBrowsing struct {
 // group.  c must be valid.
 func (c *fltGrpSafeBrowsing) toInternal() (fltConf *filter.ConfigSafeBrowsing) {
 	return &filter.ConfigSafeBrowsing{
+		Typosquatting: &filter.ConfigTyposquatting{
+			// TODO(d.kolyshev):  Add corresponding field in YAML.
+			Enabled: false,
+		},
 		Enabled:                       c.Enabled,
 		DangerousDomainsEnabled:       c.BlockDangerousDomains,
 		NewlyRegisteredDomainsEnabled: c.BlockNewlyRegisteredDomains,

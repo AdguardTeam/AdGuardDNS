@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/netip"
 
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/oschwald/maxminddb-golang"
 )
@@ -195,6 +196,30 @@ func applyCountrySubnetHacks(subnets countrySubnets, fam netutil.AddrFamily) {
 	}
 }
 
+// The subnet replacements for the locations within the MaxMind's database,
+// based on empirical observations.
+//
+// TODO(a.garipov): Add more if we find them.
+var (
+	subnetReplacementsIPv4 = container.KeyValues[locationKey, netip.Prefix]{{
+		// We've got complaints from Moscow Megafon users that they cannot use
+		// the YouTube app on Android and iOS when we use a different subnet.
+		// It appears that the IPs for domain "youtubei.googleapis.com" are
+		// indeed not available in their network unless this network is used in
+		// the ECS option.
+		Key:   newLocationKey(25159, CountryNone, ""),
+		Value: netip.MustParsePrefix("178.176.72.0/24"),
+	}, {
+		// Some users experience wrong location detection by dnscheck.tools,
+		// Google, etc. when using our VPN services with the default ECS for
+		// this location.  Using a different subnet should fix the issue.
+		Key:   newLocationKey(212238, CountryNone, ""),
+		Value: netip.MustParsePrefix("185.183.107.0/24"),
+	}}
+
+	subnetReplacementsIPv6 = container.KeyValues[locationKey, netip.Prefix]{}
+)
+
 // applyLocationSubnetHacks modifies the data in subnets based on the previous
 // experience and user reports.  It also make sure that all items in subnets
 // have the desired length for their protocol.  subnets must not be nil.  fam
@@ -203,18 +228,15 @@ func applyLocationSubnetHacks(subnets locationSubnets, fam netutil.AddrFamily) {
 	var desiredLength int
 	switch fam {
 	case netutil.AddrFamilyIPv4:
-		// TODO(a.garipov): Add more if we find them.
-
-		// We've got complaints from Moscow Megafon users that they cannot use
-		// the YouTube app on Android and iOS when we use a different subnet.
-		// It appears that the IPs for domain "youtubei.googleapis.com" are
-		// indeed not available in their network unless this network is used in
-		// the ECS option.
-		subnets[newLocationKey(25159, CountryNone, "")] = netip.MustParsePrefix("178.176.72.0/24")
+		for _, repl := range subnetReplacementsIPv4 {
+			subnets[repl.Key] = repl.Value
+		}
 
 		desiredLength = desiredIPv4SubnetLength
 	case netutil.AddrFamilyIPv6:
-		// TODO(a.garipov): Add more if we find them.
+		for _, repl := range subnetReplacementsIPv6 {
+			subnets[repl.Key] = repl.Value
+		}
 
 		desiredLength = desiredIPv6SubnetLength
 	default:

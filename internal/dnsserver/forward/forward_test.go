@@ -19,7 +19,11 @@ import (
 const testTimeout = 1 * time.Second
 
 func TestHandler_ServeDNS(t *testing.T) {
-	srv, addr := dnsservertest.RunDNSServer(t, dnsservertest.NewDefaultHandler())
+	srv, addr := dnsservertest.RunDNSServer(t, &dnsserver.ConfigDNS{
+		Base: &dnsserver.ConfigBase{
+			Handler: dnsservertest.NewDefaultHandler(),
+		},
+	})
 
 	// No-fallbacks handler.
 	handler := forward.NewHandler(&forward.HandlerConfig{
@@ -42,7 +46,11 @@ func TestHandler_ServeDNS(t *testing.T) {
 }
 
 func TestHandler_ServeDNS_fallbackNetError(t *testing.T) {
-	srv, _ := dnsservertest.RunDNSServer(t, dnsservertest.NewDefaultHandler())
+	srv, _ := dnsservertest.RunDNSServer(t, &dnsserver.ConfigDNS{
+		Base: &dnsserver.ConfigBase{
+			Handler: dnsservertest.NewDefaultHandler(),
+		},
+	})
 	handler := forward.NewHandler(&forward.HandlerConfig{
 		Logger: slogutil.NewDiscardLogger(),
 		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{

@@ -259,7 +259,8 @@ type ratelimitTCPConfig struct {
 // type check
 var _ validate.Interface = (*ratelimitTCPConfig)(nil)
 
-// Validate implements the [validate.Interface] interface for *ratelimitTCPConfig.
+// Validate implements the [validate.Interface] interface for
+// *ratelimitTCPConfig.
 func (c *ratelimitTCPConfig) Validate() (err error) {
 	if c == nil {
 		return errors.ErrNoValue
@@ -281,7 +282,8 @@ type ratelimitQUICConfig struct {
 // type check
 var _ validate.Interface = (*ratelimitQUICConfig)(nil)
 
-// Validate implements the [validate.Interface] interface for *ratelimitQUICConfig.
+// Validate implements the [validate.Interface] interface for
+// *ratelimitQUICConfig.
 func (c *ratelimitQUICConfig) Validate() (err error) {
 	if c == nil {
 		return errors.ErrNoValue

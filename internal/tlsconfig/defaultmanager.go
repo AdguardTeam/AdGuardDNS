@@ -359,7 +359,7 @@ func tlsKeyLogWriter(keyLogPath string) (kl io.Writer, err error) {
 	path := filepath.Clean(keyLogPath)
 
 	// TODO(a.garipov): Consider closing the file when we add SIGHUP support.
-	kl, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	kl, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, agd.PermFileDefault)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err

@@ -11,7 +11,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/ruleliststorage"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/stretchr/testify/require"
@@ -19,9 +18,6 @@ import (
 
 // testFilterData is the content for filter in the test index.
 const testFilterData = filtertest.RuleBlockStr + "\n"
-
-// testLogger is the common logger for tests.
-var testLogger = slogutil.NewDiscardLogger()
 
 // newDefault is a helper for creating the rule list storage for tests.  c may
 // be nil, and all zero-value fields in c are replaced with defaults for tests.
@@ -32,12 +28,12 @@ func newDefault(tb testing.TB, c *ruleliststorage.Config) (s *ruleliststorage.De
 	c.CacheDir = cmp.Or(c.CacheDir, tb.TempDir())
 	filtertest.CreateFilterCacheDirs(tb, c.CacheDir)
 
-	c.BaseLogger = cmp.Or(c.BaseLogger, testLogger)
+	c.BaseLogger = cmp.Or(c.BaseLogger, filtertest.Logger)
 	c.CacheManager = cmp.Or[agdcache.Manager](c.CacheManager, agdcache.EmptyManager{})
 	c.Clock = cmp.Or[timeutil.Clock](c.Clock, timeutil.SystemClock{})
 	c.ErrColl = cmp.Or[errcoll.Interface](c.ErrColl, agdtest.NewErrorCollector())
 	c.IndexConfig = cmp.Or(c.IndexConfig, newIndexConfig(&url.URL{}))
-	c.Logger = cmp.Or(c.Logger, testLogger)
+	c.Logger = cmp.Or(c.Logger, filtertest.Logger)
 	c.Metrics = cmp.Or[filter.Metrics](c.Metrics, filter.EmptyMetrics{})
 
 	s, err := ruleliststorage.New(c)

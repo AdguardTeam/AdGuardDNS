@@ -10,7 +10,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/serviceblock"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,7 +26,7 @@ func TestFilter(t *testing.T) {
 
 	f, err := serviceblock.New(&serviceblock.Config{
 		Refreshable: &refreshable.Config{
-			Logger:    slogutil.NewDiscardLogger(),
+			Logger:    filtertest.Logger,
 			URL:       srvURL,
 			ID:        filter.IDBlockedService,
 			CachePath: cachePath,

@@ -24,7 +24,7 @@ AdGuard DNS uses information from external HTTP APIs for filtering and other pie
 
 ## <a href="#backend-billstat" id="backend-billstat" name="backend-billstat">Backend billing statistics</a>
 
-This is the service to which the [`BILLSTAT_URL`][env-billstat_url] environment variable points. Supports gRPC(s) URLs. The service must correspond to `./internal/backendpb/dns.proto`.
+This is the service to which the [`BILLSTAT_URL`][env-billstat_url] environment variable points. Supports gRPC(s) URLs. The service must correspond to `./internal/backendgrpc/dnspb/dns.proto`.
 
 This service is disabled when all server groups have property [`profiles_enabled`][conf-srvgrp-prof] set to `false`.
 
@@ -33,7 +33,7 @@ This service is disabled when all server groups have property [`profiles_enabled
 
 ## <a href="#backend-dnscheck" id="backend-dnscheck" name="backend-dnscheck">Backend DNSCheck service</a>
 
-This is the service to which the [`DNSCHECK_REMOTEKV_URL`][env-dnscheck_remotekv_url] environment variable points. Supports gRPC(s) URLs. The service must correspond to `./internal/backendpb/dns.proto`.
+This is the service to which the [`DNSCHECK_REMOTEKV_URL`][env-dnscheck_remotekv_url] environment variable points. Supports gRPC(s) URLs. The service must correspond to `./internal/backendgrpc/dnspb/dns.proto`.
 
 This service is only enabled when the [`DNSCHECK_KV_TYPE`][env-dnscheck_kv_type] environment variable is set to `backend`.
 
@@ -42,7 +42,7 @@ This service is only enabled when the [`DNSCHECK_KV_TYPE`][env-dnscheck_kv_type]
 
 ## <a href="#backend-profiles" id="backend-profiles" name="backend-profiles">Backend profiles service</a>
 
-This is the service to which the [`PROFILES_URL`][env-profiles_url] environment variable points. Supports gRPC(s) URLs. The service must correspond to `./internal/backendpb/dns.proto`.
+This is the service to which the [`PROFILES_URL`][env-profiles_url] environment variable points. Supports gRPC(s) URLs. The service must correspond to `./internal/backendgrpc/dnspb/dns.proto`.
 
 This service is disabled when all server groups have property [`profiles_enabled`][conf-srvgrp-prof] set to `false`.
 
@@ -50,7 +50,7 @@ This service is disabled when all server groups have property [`profiles_enabled
 
 ## <a href="#backend-ratelimit" id="backend-ratelimit" name="backend-ratelimit">Backend ratelimit_service</a>
 
-This is the service to which the [`BACKEND_RATELIMIT_URL`][env-backend_ratelimit_url] environment variable points. Supports gRPC(s) URLs. The service must correspond to `./internal/backendpb/dns.proto`.
+This is the service to which the [`BACKEND_RATELIMIT_URL`][env-backend_ratelimit_url] environment variable points. Supports gRPC(s) URLs. The service must correspond to `./internal/backendgrpc/dnspb/dns.proto`.
 
 This service is only enabled when the `ratelimit` object has the [`type`][conf-ratelimit-type] property set to `backend`.
 

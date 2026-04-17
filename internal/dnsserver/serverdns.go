@@ -62,11 +62,12 @@ type ConfigDNS struct {
 	MaxPipelineCount uint
 
 	// UDPSize is the size of the buffers used to read incoming UDP messages.
-	// If not set it defaults to [dns.MinMsgSize], 512 B.
+	// If not set it defaults to [dns.MinMsgSize].
 	UDPSize int
 
 	// TCPSize is the initial size of the buffers used to read incoming TCP
-	// messages.  If not set it defaults to [dns.MinMsgSize], 512 B.
+	// messages.  If not set it defaults to [dns.MinMsgSize].  It must be
+	// greater than or equal to [dns.MinMsgSize].
 	TCPSize int
 
 	// MaxUDPRespSize is the maximum size of DNS response over UDP protocol.
@@ -110,9 +111,6 @@ type ServerDNS struct {
 
 	maxPipelineEnabled bool
 }
-
-// type check
-var _ Server = (*ServerDNS)(nil)
 
 // NewServerDNS creates a new ServerDNS instance.  c must not be nil and must be
 // valid.
@@ -175,7 +173,10 @@ func newServerDNS(proto Protocol, c *ConfigDNS) (s *ServerDNS) {
 	return s
 }
 
-// Start implements the dnsserver.Server interface for *ServerDNS.
+// type check
+var _ Server = (*ServerDNS)(nil)
+
+// Start implements the [Server] interface for *ServerDNS.
 func (s *ServerDNS) Start(ctx context.Context) (err error) {
 	defer func() { err = errors.Annotate(err, "starting dns server: %w") }()
 
@@ -229,7 +230,7 @@ func (s *ServerDNS) Start(ctx context.Context) (err error) {
 	return nil
 }
 
-// Shutdown implements the dnsserver.Server interface for *ServerDNS.
+// Shutdown implements the [Server] interface for *ServerDNS.
 func (s *ServerDNS) Shutdown(ctx context.Context) (err error) {
 	defer func() { err = errors.Annotate(err, "shutting down dns server: %w") }()
 

@@ -136,8 +136,20 @@ type ConfigRuleList struct {
 	Enabled bool
 }
 
+// ConfigTyposquatting is the configuration for typosquatting filtering.
+type ConfigTyposquatting struct {
+	// Enabled shows whether the typosquatting filtering is enabled.
+	Enabled bool
+}
+
 // ConfigSafeBrowsing is the configuration for safe-browsing filtering.
 type ConfigSafeBrowsing struct {
+	// Typosquatting is the configuration for typosquatting filtering.  It must
+	// not be nil.
+	//
+	// TODO(d.kolyshev): Use.
+	Typosquatting *ConfigTyposquatting
+
 	// Enabled shows whether the safe-browsing hashprefix-based filtering should
 	// is enabled.
 	Enabled bool

@@ -15,7 +15,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/composite"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -228,24 +227,31 @@ func TestFilter_Refresh(t *testing.T) {
 	strg, err := hashprefix.NewStorage(nil)
 	require.NoError(t, err)
 
+	cloner := agdtest.NewCloner()
+	replCons, err := filter.NewReplacedResultConstructor(&filter.ReplacedResultConstructorConfig{
+		Cloner:      cloner,
+		Replacement: filtertest.HostAdultContentRepl,
+	})
+	require.NoError(t, err)
+
 	f, err := hashprefix.NewFilter(&hashprefix.FilterConfig{
-		Logger:            slogutil.NewDiscardLogger(),
-		Cloner:            agdtest.NewCloner(),
-		CacheManager:      agdcache.EmptyManager{},
-		Hashes:            strg,
-		URL:               srvURL,
-		ErrColl:           agdtest.NewErrorCollector(),
-		HashPrefixMetrics: hashprefix.EmptyMetrics{},
-		Metrics:           filter.EmptyMetrics{},
-		PublicSuffixList:  publicsuffix.List,
-		ID:                filter.IDAdultBlocking,
-		CachePath:         cachePath,
-		ReplacementHost:   filtertest.HostAdultContentRepl,
-		Staleness:         filtertest.Staleness,
-		CacheTTL:          filtertest.CacheTTL,
-		CacheCount:        filtertest.CacheCount,
-		MaxSize:           filtertest.FilterMaxSize,
-		SubDomainNum:      filtertest.SubDomainNum,
+		Logger:                    filtertest.Logger,
+		Cloner:                    cloner,
+		CacheManager:              agdcache.EmptyManager{},
+		Hashes:                    strg,
+		ReplacedResultConstructor: replCons,
+		URL:                       srvURL,
+		ErrColl:                   agdtest.NewErrorCollector(),
+		HashPrefixMetrics:         hashprefix.EmptyMetrics{},
+		Metrics:                   filter.EmptyMetrics{},
+		PublicSuffixList:          publicsuffix.List,
+		ID:                        filter.IDAdultBlocking,
+		CachePath:                 cachePath,
+		Staleness:                 filtertest.Staleness,
+		CacheTTL:                  filtertest.CacheTTL,
+		CacheCount:                filtertest.CacheCount,
+		MaxSize:                   filtertest.FilterMaxSize,
+		SubDomainNum:              filtertest.SubDomainNum,
 	})
 	require.NoError(t, err)
 
@@ -282,25 +288,30 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	require.NoError(t, err)
 
 	cloner := agdtest.NewCloner()
+	replCons, err := filter.NewReplacedResultConstructor(&filter.ReplacedResultConstructorConfig{
+		Cloner:      cloner,
+		Replacement: filtertest.HostAdultContentRepl,
+	})
+	require.NoError(t, err)
 
 	fconf := &hashprefix.FilterConfig{
-		Logger:            slogutil.NewDiscardLogger(),
-		Cloner:            cloner,
-		CacheManager:      agdcache.EmptyManager{},
-		Hashes:            strg,
-		URL:               srvURL,
-		ErrColl:           agdtest.NewErrorCollector(),
-		HashPrefixMetrics: hashprefix.EmptyMetrics{},
-		Metrics:           filter.EmptyMetrics{},
-		PublicSuffixList:  publicsuffix.List,
-		ID:                filter.IDAdultBlocking,
-		CachePath:         cachePath,
-		ReplacementHost:   filtertest.HostAdultContentRepl,
-		Staleness:         filtertest.Staleness,
-		CacheTTL:          filtertest.CacheTTL,
-		CacheCount:        filtertest.CacheCount,
-		MaxSize:           filtertest.FilterMaxSize,
-		SubDomainNum:      filtertest.SubDomainNum,
+		Logger:                    filtertest.Logger,
+		Cloner:                    cloner,
+		CacheManager:              agdcache.EmptyManager{},
+		Hashes:                    strg,
+		ReplacedResultConstructor: replCons,
+		URL:                       srvURL,
+		ErrColl:                   agdtest.NewErrorCollector(),
+		HashPrefixMetrics:         hashprefix.EmptyMetrics{},
+		Metrics:                   filter.EmptyMetrics{},
+		PublicSuffixList:          publicsuffix.List,
+		ID:                        filter.IDAdultBlocking,
+		CachePath:                 cachePath,
+		Staleness:                 filtertest.Staleness,
+		CacheTTL:                  filtertest.CacheTTL,
+		CacheCount:                filtertest.CacheCount,
+		MaxSize:                   filtertest.FilterMaxSize,
+		SubDomainNum:              filtertest.SubDomainNum,
 	}
 	f, err := hashprefix.NewFilter(fconf)
 	require.NoError(t, err)
@@ -396,12 +407,7 @@ func newModReqResult(
 ) (r *filter.ResultModifiedRequest) {
 	tb.Helper()
 
-	req = dnsmsg.Clone(req)
-	req.Question[0].Name = filtertest.FQDNAdultContentRepl
+	const fqdn = filtertest.FQDNAdultContentRepl
 
-	return &filter.ResultModifiedRequest{
-		Msg:  req,
-		List: filter.IDAdultBlocking,
-		Rule: rule,
-	}
+	return filtertest.NewModifiedRequestResult(tb, req, fqdn, rule, filter.IDAdultBlocking)
 }

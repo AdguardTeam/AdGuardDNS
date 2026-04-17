@@ -9,12 +9,12 @@ import (
 
 // GRPCError is a type alias for string that contains gGRPC error type.
 //
-// See [backendpb.GRPCMetrics.IncrementErrorCount].
+// See [backendgrpc.GRPCMetrics.IncrementErrorCount].
 type GRPCError = string
 
 // gRPC errors of [GRPCError] type.
 //
-// NOTE:  Keep in sync with [backendpb.GRPCError].
+// NOTE:  Keep in sync with [backendgrpc.GRPCError].
 const (
 	GRPCErrAuthentication GRPCError = "auth"
 	GRPCErrBadRequest     GRPCError = "bad_req"
@@ -26,7 +26,7 @@ const (
 )
 
 // BackendGRPC is the Prometheus-based implementation of the
-// [backendpb.GRPCMetrics] interface.
+// [backendgrpc.GRPCMetrics] interface.
 type BackendGRPC struct {
 	errorsTotalAuthentication prometheus.Counter
 	errorsTotalBadRequest     prometheus.Counter
@@ -68,7 +68,7 @@ func NewBackendGRPC(namespace string, reg prometheus.Registerer) (m *BackendGRPC
 	return m, nil
 }
 
-// IncrementErrorCount implements the [backendpb.GRPCMetrics] interface for
+// IncrementErrorCount implements the [backendgrpc.GRPCMetrics] interface for
 // BackendGRPC.
 func (m *BackendGRPC) IncrementErrorCount(_ context.Context, errType GRPCError) {
 	var ctr prometheus.Counter

@@ -172,31 +172,31 @@ func TestMiddleware_Wrap(t *testing.T) {
 	}}
 
 	for _, tc := range testCases {
+		numReq := 0
+		handler := dnsserver.HandlerFunc(
+			func(ctx context.Context, rw dnsserver.ResponseWriter, req *dns.Msg) error {
+				numReq++
+
+				return rw.WriteMsg(ctx, req, tc.resp)
+			},
+		)
+
+		var minTTL time.Duration
+		if tc.minTTL != nil {
+			minTTL = *tc.minTTL
+		}
+
+		withCache := dnsserver.WithMiddlewares(
+			handler,
+			cache.NewMiddleware(&cache.MiddlewareConfig{
+				Logger:      testLogger,
+				Count:       100,
+				MinTTL:      minTTL,
+				OverrideTTL: tc.minTTL != nil,
+			}),
+		)
+
 		t.Run(tc.name, func(t *testing.T) {
-			numReq := 0
-			handler := dnsserver.HandlerFunc(
-				func(ctx context.Context, rw dnsserver.ResponseWriter, req *dns.Msg) error {
-					numReq++
-
-					return rw.WriteMsg(ctx, req, tc.resp)
-				},
-			)
-
-			var minTTL time.Duration
-			if tc.minTTL != nil {
-				minTTL = *tc.minTTL
-			}
-
-			withCache := dnsserver.WithMiddlewares(
-				handler,
-				cache.NewMiddleware(&cache.MiddlewareConfig{
-					Logger:      testLogger,
-					Count:       100,
-					MinTTL:      minTTL,
-					OverrideTTL: tc.minTTL != nil,
-				}),
-			)
-
 			var err error
 			var nrw *dnsserver.NonWriterResponseWriter
 			for range N {

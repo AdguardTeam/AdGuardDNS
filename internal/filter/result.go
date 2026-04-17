@@ -1,6 +1,9 @@
 package filter
 
 import (
+	"fmt"
+
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/miekg/dns"
 )
@@ -143,5 +146,42 @@ func (m *ResultModifiedRequest) Clone(c *dnsmsg.Cloner) (clone *ResultModifiedRe
 		Msg:  msg,
 		List: m.List,
 		Rule: m.Rule,
+	}
+}
+
+// CloneModifiedResult returns a clone of the result based on its type.  r must
+// be nil, [*filter.ResultModifiedRequest], or [*filter.ResultModifiedResponse].
+func CloneModifiedResult(r Result, req *dns.Msg, cloner *dnsmsg.Cloner) (clone Result) {
+	switch r := r.(type) {
+	case nil:
+		return nil
+	case *ResultModifiedRequest:
+		return r.Clone(cloner)
+	case *ResultModifiedResponse:
+		return r.CloneForReq(cloner, req)
+	default:
+		panic(fmt.Errorf("filter: unexpected type for result: %T(%[1]v)", r))
+	}
+}
+
+// SetModifiedResultInCache sets r in cache.  It clones the result to make sure
+// that modifications to the result message down the pipeline don't interfere
+// with the cached value.  c and cloner must not be nil.  r must be either
+// [*filter.ResultModifiedRequest] or [*filter.ResultModifiedResponse].
+//
+// See AGDNS-359.
+func SetModifiedResultInCache[K any](
+	c agdcache.Interface[K, Result],
+	key K,
+	r Result,
+	cloner *dnsmsg.Cloner,
+) {
+	switch r := r.(type) {
+	case *ResultModifiedRequest:
+		c.Set(key, r.Clone(cloner))
+	case *ResultModifiedResponse:
+		c.Set(key, r.Clone(cloner))
+	default:
+		panic(fmt.Errorf("filter: unexpected type for result: %T(%[1]v)", r))
 	}
 }

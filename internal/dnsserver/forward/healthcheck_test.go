@@ -44,8 +44,16 @@ func TestHandler_Refresh_healthcheck(t *testing.T) {
 		return rw.WriteMsg(ctx, req, nrw.Resp())
 	})
 
-	upstream, _ := dnsservertest.RunDNSServer(t, handlerFunc)
-	fallback, _ := dnsservertest.RunDNSServer(t, defaultHandler)
+	upstream, _ := dnsservertest.RunDNSServer(t, &dnsserver.ConfigDNS{
+		Base: &dnsserver.ConfigBase{
+			Handler: handlerFunc,
+		},
+	})
+	fallback, _ := dnsservertest.RunDNSServer(t, &dnsserver.ConfigDNS{
+		Base: &dnsserver.ConfigBase{
+			Handler: defaultHandler,
+		},
+	})
 	handler := forward.NewHandler(&forward.HandlerConfig{
 		Logger: slogutil.NewDiscardLogger(),
 		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
@@ -171,7 +179,9 @@ func TestHandler_Refresh_healthcheckNetworkOverride(t *testing.T) {
 			}
 
 			// Start the server inside the subtest as it adds a cleanup.
-			upstreamSrv, _ := dnsservertest.RunDNSServer(t, dnsserver.HandlerFunc(hf))
+			upstreamSrv, _ := dnsservertest.RunDNSServer(t, &dnsserver.ConfigDNS{
+				Base: &dnsserver.ConfigBase{Handler: dnsserver.HandlerFunc(hf)},
+			})
 			upstreamAddrs := []*forward.UpstreamPlainConfig{{
 				Network: tc.upsNet,
 				Address: netutil.NetAddrToAddrPort(upstreamSrv.LocalUDPAddr()),

@@ -621,7 +621,11 @@ func TestCustomDomainDB_Refresh(t *testing.T) {
 
 		return nil
 	}
-	mgrWithAdd.onBind = func(ctx context.Context, n agd.CertificateName, p netip.Prefix) (err error) {
+	mgrWithAdd.onBind = func(
+		ctx context.Context,
+		n agd.CertificateName,
+		p netip.Prefix,
+	) (err error) {
 		assert.Equal(t, testCustomCertName, n)
 		assert.Contains(t, testBindPrefixes, p)
 

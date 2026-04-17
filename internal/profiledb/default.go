@@ -13,8 +13,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
-	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecacheopb"
-	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/filecachepb"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/osutil"
@@ -44,7 +42,7 @@ type Default struct {
 	refreshMu *sync.Mutex
 
 	// cache is the filesystem-cache storage used by this profile database.
-	cache internal.FileCacheStorage
+	cache FileCacheStorage
 
 	// clock is used to get current time during refreshes.
 	clock timeutil.Clock
@@ -125,32 +123,11 @@ type humanIDKey struct {
 // db is not nil if the error is from getting the file cache.  c must not be nil
 // and must be valid.
 func New(c *Config) (db *Default, err error) {
-	var cacheStorage internal.FileCacheStorage
-	if c.CacheFilePath == "none" {
-		cacheStorage = internal.EmptyFileCacheStorage{}
-	} else if c.Opaque {
-		cacheStorage = filecacheopb.New(&filecacheopb.Config{
-			Logger:                   c.Logger.With("cache_type", "opb"),
-			BaseCustomLogger:         c.BaseCustomLogger,
-			ProfileAccessConstructor: c.ProfileAccessConstructor,
-			CacheFilePath:            c.CacheFilePath,
-			ResponseSizeEstimate:     c.ResponseSizeEstimate,
-		})
-	} else {
-		cacheStorage = filecachepb.New(&filecachepb.Config{
-			Logger:                   c.Logger.With("cache_type", "pb"),
-			BaseCustomLogger:         c.BaseCustomLogger,
-			ProfileAccessConstructor: c.ProfileAccessConstructor,
-			CacheFilePath:            c.CacheFilePath,
-			ResponseSizeEstimate:     c.ResponseSizeEstimate,
-		})
-	}
-
 	db = &Default{
 		logger:                c.Logger,
 		mapsMu:                &sync.RWMutex{},
 		refreshMu:             &sync.Mutex{},
-		cache:                 cacheStorage,
+		cache:                 c.FileCacheStorage,
 		clock:                 c.Clock,
 		customDomainDB:        c.CustomDomainDB,
 		errColl:               c.ErrColl,
@@ -431,7 +408,7 @@ func (db *Default) storeCache(ctx context.Context) (err error) {
 
 	start := db.clock.Now()
 
-	n, err := db.cache.Store(ctx, &internal.FileCache{
+	n, err := db.cache.Store(ctx, &FileCache{
 		SyncTime: db.syncTime,
 		Profiles: slices.Collect(maps.Values(db.profiles)),
 		Devices:  slices.Collect(maps.Values(db.devices)),

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
@@ -22,12 +23,13 @@ type cacheConfig struct {
 	Type string `yaml:"type"`
 
 	// Size is the size of the DNS cache for domain names that don't support
-	// ECS, in entries.
-	Size int `yaml:"size"`
+	// ECS, in entries.  It must be less than or equal to [math.MaxInt].  In
+	// case it is zero, the cache is disabled.
+	Size uint64 `yaml:"size"`
 
 	// ECSSize is the size of the DNS cache for domain names that support ECS,
-	// in entries.
-	ECSSize int `yaml:"ecs_size"`
+	// in entries.  It must be positive and less than or equal to [math.MaxInt].
+	ECSSize uint64 `yaml:"ecs_size"`
 }
 
 // ttlOverride represents TTL override configuration.
@@ -90,7 +92,7 @@ func (c *cacheConfig) Validate() (err error) {
 	}
 
 	errs := []error{
-		validate.NotNegative("size", c.Size),
+		validate.NoGreaterThan("size", c.Size, math.MaxInt),
 	}
 
 	errs = validate.Append(errs, "ttl_override", c.TTLOverride)
@@ -99,7 +101,7 @@ func (c *cacheConfig) Validate() (err error) {
 	case cacheTypeSimple:
 		// Go on.
 	case cacheTypeECS:
-		if err = validate.NotNegative("ecs_size", c.ECSSize); err != nil {
+		if err = validate.InRange("ecs_size", c.ECSSize, 1, math.MaxInt); err != nil {
 			// Don't wrap the error, because it's informative enough as is.
 			errs = append(errs, err)
 		}

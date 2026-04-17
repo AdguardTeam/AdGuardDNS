@@ -148,7 +148,7 @@ func NewServerQUIC(c *ConfigQUIC) (s *ServerQUIC) {
 // type check
 var _ Server = (*ServerQUIC)(nil)
 
-// Start implements the dnsserver.Server interface for *ServerQUIC.
+// Start implements the [Server] interface for *ServerQUIC.
 func (s *ServerQUIC) Start(ctx context.Context) (err error) {
 	defer func() { err = errors.Annotate(err, "starting doq server: %w") }()
 
@@ -184,7 +184,7 @@ func (s *ServerQUIC) Start(ctx context.Context) (err error) {
 	return nil
 }
 
-// Shutdown implements the dnsserver.Server interface for *ServerQUIC.
+// Shutdown implements the [Server] interface for *ServerQUIC.
 func (s *ServerQUIC) Shutdown(ctx context.Context) (err error) {
 	defer func() { err = errors.Annotate(err, "shutting down doq server: %w") }()
 

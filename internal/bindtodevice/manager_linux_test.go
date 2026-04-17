@@ -210,7 +210,9 @@ func TestManager(t *testing.T) {
 
 	ifaceName := iface.Name
 
-	m := newTestManager(t, nil)
+	m := newTestManager(t, &bindtodevice.ManagerConfig{
+		InterfaceStorage: bindtodevice.DefaultInterfaceStorage{},
+	})
 
 	// TODO(a.garipov): Add support for zero port.
 	err := m.Add(testID1, ifaceName, testPort1, nil)

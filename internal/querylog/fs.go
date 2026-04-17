@@ -148,7 +148,7 @@ func (l *FileSystem) Write(ctx context.Context, e *Entry) (err error) {
 		RemoteIP:   remoteIP,
 	}
 
-	f, err := os.OpenFile(l.path, agd.DefaultWOFlags, agd.DefaultPerm)
+	f, err := os.OpenFile(l.path, agd.DefaultWOFlags, agd.PermFileDefault)
 	if err != nil {
 		return fmt.Errorf("opening query log file: %w", err)
 	}

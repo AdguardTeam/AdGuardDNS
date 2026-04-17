@@ -166,6 +166,10 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 		Rules:  []filter.RuleText{"|blocked-by-custom.example^"},
 	}
 
+	typosquattingConf := &filter.ConfigTyposquatting{
+		Enabled: true,
+	}
+
 	dev := NewDevice(tb, DeviceID, "dev1")
 
 	return &agd.Profile{
@@ -185,6 +189,7 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 				Enabled: true,
 			},
 			SafeBrowsing: &filter.ConfigSafeBrowsing{
+				Typosquatting:                 typosquattingConf,
 				Enabled:                       true,
 				DangerousDomainsEnabled:       true,
 				NewlyRegisteredDomainsEnabled: false,

@@ -9,6 +9,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/c2h5oh/datasize"
 )
 
@@ -51,13 +52,15 @@ var (
 const (
 	Host                      = "host.example"
 	HostAdultContent          = "adult-content.example"
-	HostAdultContentSub       = "a.b.c." + HostAdultContent
 	HostAdultContentRepl      = "adult-content-repl.example"
+	HostAdultContentSub       = "a.b.c." + HostAdultContent
 	HostBlocked               = "blocked.example"
 	HostBlockedForClientIP    = "blocked-for-client-ip.example"
 	HostBlockedForClientName  = "blocked-for-client-name.example"
 	HostBlockedService1       = "service-1.example"
 	HostCNAME                 = "new-cname.example"
+	HostCategory              = "blocked.category.example"
+	HostCategorySub           = "a.b.c." + HostCategory
 	HostDangerous             = "dangerous-domain.example"
 	HostDangerousRepl         = "dangerous-domain-repl.example"
 	HostNewlyRegistered       = "newly-registered.example"
@@ -68,25 +71,27 @@ const (
 	HostSafeSearchGeneralRepl = "safe.search.example"
 	HostSafeSearchYouTube     = "video.example"
 	HostSafeSearchYouTubeRepl = "safe.video.example"
-	HostCategory              = "blocked.category.example"
-	HostCategorySub           = "a.b.c." + HostCategory
+	HostTypoDomain            = "typo-protectd.example"
+	HostTypoProtectedDomain   = "typo-protected.example"
 
 	FQDN                      = Host + "."
 	FQDNAdultContent          = HostAdultContent + "."
 	FQDNAdultContentRepl      = HostAdultContentRepl + "."
 	FQDNBlocked               = HostBlocked + "."
 	FQDNBlockedForClientName  = HostBlockedForClientName + "."
+	FQDNCategory              = HostCategory + "."
 	FQDNCname                 = HostCNAME + "."
 	FQDNDangerous             = HostDangerous + "."
 	FQDNDangerousRepl         = HostDangerousRepl + "."
 	FQDNNewlyRegistered       = HostNewlyRegistered + "."
 	FQDNNewlyRegisteredRepl   = HostNewlyRegisteredRepl + "."
-	FQDNSafeSearchGeneralRepl = HostSafeSearchGeneralRepl + "."
 	FQDNSafeSearchGeneralIPv4 = HostSafeSearchGeneralIPv4 + "."
 	FQDNSafeSearchGeneralIPv6 = HostSafeSearchGeneralIPv6 + "."
+	FQDNSafeSearchGeneralRepl = HostSafeSearchGeneralRepl + "."
 	FQDNSafeSearchYouTube     = HostSafeSearchYouTube + "."
 	FQDNSafeSearchYouTubeRepl = HostSafeSearchYouTubeRepl + "."
-	FQDNCategory              = HostCategory + "."
+	FQDNTypoDomain            = HostTypoDomain + "."
+	FQDNTypoProtectedDomain   = HostTypoProtectedDomain + "."
 )
 
 // Common blocked-service IDs for tests.
@@ -182,3 +187,6 @@ const Staleness = 1 * time.Hour
 
 // Timeout is the common timeout for filtering tests.
 const Timeout = 1 * time.Second
+
+// Logger is the common logger for tests.
+var Logger = slogutil.NewDiscardLogger()

@@ -6,16 +6,16 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
+	"github.com/AdguardTeam/AdGuardDNS/internal/backendgrpc/dnspb"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"google.golang.org/grpc/metadata"
 )
 
 // mockSessionTicketServiceServer is the mock
-// [backendpb.SessionTicketServiceServer].
+// [dnspb.SessionTicketServiceServer].
 type mockSessionTicketServiceServer struct {
-	backendpb.UnimplementedSessionTicketServiceServer
+	dnspb.UnimplementedSessionTicketServiceServer
 	log *slog.Logger
 }
 
@@ -28,14 +28,14 @@ func newMockSessionTicketServiceServer(log *slog.Logger) (srv *mockSessionTicket
 }
 
 // type check
-var _ backendpb.SessionTicketServiceServer = (*mockSessionTicketServiceServer)(nil)
+var _ dnspb.SessionTicketServiceServer = (*mockSessionTicketServiceServer)(nil)
 
-// Get implements the [backendpb.SessionTicketServiceServer] interface for
+// Get implements the [dnspb.SessionTicketServiceServer] interface for
 // *mockSessionTicketServiceServer.
 func (s *mockSessionTicketServiceServer) GetSessionTickets(
 	ctx context.Context,
-	req *backendpb.SessionTicketRequest,
-) (resp *backendpb.SessionTicketResponse, err error) {
+	req *dnspb.SessionTicketRequest,
+) (resp *dnspb.SessionTicketResponse, err error) {
 	md, _ := metadata.FromIncomingContext(ctx)
 	s.log.InfoContext(
 		ctx,
@@ -53,18 +53,18 @@ func (s *mockSessionTicketServiceServer) GetSessionTickets(
 		ticketLen = 80
 	)
 
-	tickets := make([]*backendpb.SessionTicket, 0, ticketCount)
+	tickets := make([]*dnspb.SessionTicket, 0, ticketCount)
 	for i := range ticketCount {
 		var ticket [ticketLen]byte
 		_ = errors.Must(rand.Read(ticket[:]))
 
-		tickets = append(tickets, &backendpb.SessionTicket{
+		tickets = append(tickets, &dnspb.SessionTicket{
 			Name: fmt.Sprintf("ticket_%d", i),
 			Data: ticket[:],
 		})
 	}
 
-	resp = &backendpb.SessionTicketResponse{
+	resp = &dnspb.SessionTicketResponse{
 		Tickets: tickets,
 	}
 

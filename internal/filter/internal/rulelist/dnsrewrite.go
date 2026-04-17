@@ -180,7 +180,8 @@ func newAnswerSRV(req *filter.Request, v rules.RRValue, rr rules.RRType) (ans dn
 	return req.Messages.NewAnswerSRV(req.DNS, srv), nil
 }
 
-// newAnsFromSVCB returns a new resource record created from DNSSVCB rules value.
+// newAnsFromSVCB returns a new resource record created from DNSSVCB rules
+// value.
 func newAnsFromSVCB(req *filter.Request, v rules.RRValue, rr rules.RRType) (ans dns.RR, err error) {
 	svcb, ok := v.(*rules.DNSSVCB)
 	if !ok {

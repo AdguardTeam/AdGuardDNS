@@ -7,6 +7,30 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 [kec]: https://keepachangelog.com/en/1.0.0/
 [sem]: https://semver.org/spec/v2.0.0.html
 
+## AGDNS-3798 / Build 1180
+
+- New environment variables have been added:
+
+    - `FILTER_INDEX_API_KEY`; recommended value: same as `PROFILES_API_KEY`.
+    - `FILTER_INDEX_API_REFRESH_INTERVAL`; recommended value: same as `safe_browsing.refresh_interval`.
+    - `FILTER_INDEX_API_URL`; recommended value: same as `PROFILES_URL`.
+    - `TYPOSQUATTING_CACHE_COUNT`; recommended value: same as `safe_browsing.cache_size`.
+    - `TYPOSQUATTING_ENABLED`; recommended value: `1`.
+
+## AGDNS-3845 / Build 1175
+
+- The new environment variable `PROFILES_API_RESPONSE_MAX_INVALID_RATIO` has been added. It sets the maximum allowed ratio of invalid profiles in a response from the profiles API. The value must be in `[0, 1]` range, the default value is `0`.
+
+## AGDNS-3723 / Build 1158
+
+- The environment variable `PROFILES_CACHE_TYPE` now supports the `"none"` value to disable profile caching.
+
+- The value `"default"` of the environment variable `PROFILES_CACHE_TYPE` has been removed.
+
+- The environment variable `PROFILES_CACHE_PATH` no longer has a default value, so it is now required.
+
+- Setting `PROFILES_CACHE_PATH` to `"none"` no longer disables the profile cache. Use `PROFILES_CACHE_TYPE="none"` instead.
+
 ## AGDNS-3587 / Build 1144
 
 - The querylog now has two new fields, `"ac"`, which is a 32-bit integer, representing the account ID and `"st"` which indicates whether this log entry should be streamed.

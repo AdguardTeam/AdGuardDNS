@@ -22,6 +22,7 @@ import (
 	"github.com/miekg/dns"
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
 )
@@ -108,19 +109,15 @@ func TestServerHTTPS_integration_serveRequests(t *testing.T) {
 
 			var tlsConfig *tls.Config
 			if tc.tls {
-				tlsConfig = dnsservertest.CreateServerTLSConfig("example.org")
+				tlsConfig = dnsservertest.NewTLSConfig("example.org")
 			}
 
-			srv, err := dnsservertest.RunLocalHTTPSServer(
+			srv := dnsservertest.RunLocalHTTPSServer(
+				t,
 				dnsservertest.NewDefaultHandler(),
 				tlsConfig,
 				nil,
 			)
-			require.NoError(t, err)
-
-			testutil.CleanupAndRequireSuccess(t, func() (err error) {
-				return srv.Shutdown(context.Background())
-			})
 
 			// Create a test message.
 			req := dnsservertest.NewReq("example.org.", dns.TypeA, dns.ClassINET)
@@ -151,16 +148,7 @@ func TestServerHTTPS_integration_nonDNSHandler(t *testing.T) {
 		errCh <- err
 	})
 
-	srv, err := dnsservertest.RunLocalHTTPSServer(
-		dnsservertest.NewDefaultHandler(),
-		nil,
-		testHandler,
-	)
-	require.NoError(t, err)
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(context.Background())
-	})
+	srv := dnsservertest.RunLocalHTTPSServer(t, dnsservertest.NewDefaultHandler(), nil, testHandler)
 
 	resp, err := http.Get(fmt.Sprintf("http://%s/test", srv.LocalTCPAddr()))
 	require.NoError(t, err)
@@ -173,6 +161,78 @@ func TestServerHTTPS_integration_nonDNSHandler(t *testing.T) {
 }
 
 func TestDNSMsgToJSONMsg(t *testing.T) {
+	t.Parallel()
+
+	a := &dns.A{
+		Hdr: dns.RR_Header{
+			Name:   dnsservertest.FQDN,
+			Rrtype: dns.TypeA,
+			Class:  dns.ClassINET,
+			Ttl:    200,
+		},
+		A: net.ParseIP("127.0.0.1"),
+	}
+	aaaa := &dns.AAAA{
+		Hdr: dns.RR_Header{
+			Name:   dnsservertest.FQDN,
+			Rrtype: dns.TypeAAAA,
+			Class:  dns.ClassINET,
+			Ttl:    200,
+		},
+		AAAA: net.ParseIP("2000::"),
+	}
+	txt := &dns.TXT{
+		Hdr: dns.RR_Header{
+			Name:   dnsservertest.FQDN,
+			Rrtype: dns.TypeTXT,
+			Class:  dns.ClassINET,
+			Ttl:    100,
+		},
+		Txt: []string{
+			"value1",
+			"value2",
+		},
+	}
+	cname := &dns.CNAME{
+		Hdr: dns.RR_Header{
+			Name:   dnsservertest.FQDN,
+			Rrtype: dns.TypeCNAME,
+			Class:  dns.ClassINET,
+			Ttl:    100,
+		},
+		Target: dnsservertest.SubdomainName,
+	}
+	svcb := &dns.SVCB{
+		Hdr: dns.RR_Header{
+			Name:   dnsservertest.FQDN,
+			Rrtype: dns.TypeHTTPS,
+			Class:  dns.ClassINET,
+			Ttl:    100,
+		},
+		Target: dnsservertest.SubdomainName,
+		Value: []dns.SVCBKeyValue{&dns.SVCBAlpn{
+			Alpn: []string{
+				http2.NextProtoTLS,
+				http3.NextProtoH3,
+			},
+		}, &dns.SVCBECHConfig{
+			ECH: []byte{1, 2},
+		}, &dns.SVCBIPv4Hint{
+			Hint: []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("127.0.0.2")},
+		}, &dns.SVCBIPv6Hint{
+			Hint: []net.IP{net.ParseIP("2000::"), net.ParseIP("2001::")},
+		}},
+	}
+	extraAAAA := &dns.AAAA{
+		Hdr: dns.RR_Header{
+			Name:   dnsservertest.FQDN,
+			Rrtype: dns.TypeAAAA,
+			Class:  dns.ClassCHAOS,
+			Ttl:    200,
+		},
+		AAAA: net.ParseIP("2000::"),
+	}
+
 	m := &dns.Msg{
 		MsgHdr: dns.MsgHdr{
 			Id:                 dns.Id(),
@@ -184,162 +244,73 @@ func TestDNSMsgToJSONMsg(t *testing.T) {
 			CheckingDisabled:   true,
 			Rcode:              dns.RcodeSuccess,
 		},
-		Question: []dns.Question{
-			{
-				Name:   "example.org",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
-			},
-		},
-		Answer: []dns.RR{
-			&dns.A{
-				Hdr: dns.RR_Header{
-					Name:   "example.org",
-					Rrtype: dns.TypeA,
-					Class:  dns.ClassINET,
-					Ttl:    200,
-				},
-				A: net.ParseIP("127.0.0.1"),
-			},
-			&dns.AAAA{
-				Hdr: dns.RR_Header{
-					Name:   "example.org",
-					Rrtype: dns.TypeAAAA,
-					Class:  dns.ClassINET,
-					Ttl:    200,
-				},
-				AAAA: net.ParseIP("2000::"),
-			},
-			&dns.TXT{
-				Hdr: dns.RR_Header{
-					Name:   "example.org",
-					Rrtype: dns.TypeTXT,
-					Class:  dns.ClassINET,
-					Ttl:    100,
-				},
-				Txt: []string{
-					"value1",
-					"value2",
-				},
-			},
-			&dns.CNAME{
-				Hdr: dns.RR_Header{
-					Name:   "example.org",
-					Rrtype: dns.TypeCNAME,
-					Class:  dns.ClassINET,
-					Ttl:    100,
-				},
-				Target: "example.com",
-			},
-			&dns.SVCB{
-				Hdr: dns.RR_Header{
-					Name:   "example.org",
-					Rrtype: dns.TypeHTTPS,
-					Class:  dns.ClassINET,
-					Ttl:    100,
-				},
-				Target: "example.com",
-				Value: []dns.SVCBKeyValue{
-					&dns.SVCBAlpn{
-						Alpn: []string{http2.NextProtoTLS, http3.NextProtoH3},
-					},
-					&dns.SVCBECHConfig{
-						ECH: []byte{1, 2},
-					},
-					&dns.SVCBIPv4Hint{
-						Hint: []net.IP{
-							net.ParseIP("127.0.0.1"),
-							net.ParseIP("127.0.0.2"),
-						},
-					},
-					&dns.SVCBIPv6Hint{
-						Hint: []net.IP{
-							net.ParseIP("2000::"),
-							net.ParseIP("2001::"),
-						},
-					},
-				},
-			},
-		},
-		Extra: []dns.RR{
-			&dns.AAAA{
-				Hdr: dns.RR_Header{
-					Name:   "example.org",
-					Rrtype: dns.TypeAAAA,
-					Class:  dns.ClassCHAOS,
-					Ttl:    200,
-				},
-				AAAA: net.ParseIP("2000::"),
-			},
-		},
+		Question: []dns.Question{{
+			Name:   dnsservertest.FQDN,
+			Qtype:  dns.TypeA,
+			Qclass: dns.ClassINET,
+		}},
+		Answer: []dns.RR{a, aaaa, txt, cname, svcb},
+		Extra:  []dns.RR{extraAAAA},
 	}
 
 	jsonMsg := dnsserver.DNSMsgToJSONMsg(m)
 	require.NotNil(t, jsonMsg)
-	require.Equal(t, dns.RcodeSuccess, jsonMsg.Status)
-	require.True(t, jsonMsg.RecursionDesired)
-	require.True(t, jsonMsg.AuthenticatedData)
-	require.True(t, jsonMsg.RecursionAvailable)
-	require.True(t, jsonMsg.AuthenticatedData)
-	require.True(t, jsonMsg.CheckingDisabled)
-	require.False(t, jsonMsg.Truncated)
-	require.Equal(t, []dnsserver.JSONQuestion{{
-		Name: "example.org",
+
+	assert.Equal(t, dns.RcodeSuccess, jsonMsg.Status)
+	assert.True(t, jsonMsg.RecursionDesired)
+	assert.True(t, jsonMsg.AuthenticatedData)
+	assert.True(t, jsonMsg.RecursionAvailable)
+	assert.True(t, jsonMsg.AuthenticatedData)
+	assert.True(t, jsonMsg.CheckingDisabled)
+	assert.False(t, jsonMsg.Truncated)
+	assert.Equal(t, []dnsserver.JSONQuestion{{
+		Name: dnsservertest.FQDN,
 		Type: dns.TypeA,
 	}}, jsonMsg.Question)
-	require.Equal(t, []dnsserver.JSONAnswer{{
-		Name:  "example.org",
-		Type:  dns.TypeA,
-		Class: dns.ClassINET,
-		TTL:   200,
-		Data:  "127.0.0.1",
+	assert.Equal(t, []dnsserver.JSONAnswer{{
+		Name:  a.Hdr.Name,
+		Type:  a.Hdr.Rrtype,
+		Class: a.Hdr.Class,
+		TTL:   a.Hdr.Ttl,
+		Data:  a.A.String(),
 	}, {
-		Name:  "example.org",
-		Type:  dns.TypeAAAA,
-		Class: dns.ClassINET,
-		TTL:   200,
-		Data:  "2000::",
+		Name:  aaaa.Hdr.Name,
+		Type:  aaaa.Hdr.Rrtype,
+		Class: aaaa.Hdr.Class,
+		TTL:   aaaa.Hdr.Ttl,
+		Data:  aaaa.AAAA.String(),
 	}, {
-		Name:  "example.org",
-		Type:  dns.TypeTXT,
-		Class: dns.ClassINET,
-		TTL:   100,
+		Name:  txt.Hdr.Name,
+		Type:  txt.Hdr.Rrtype,
+		Class: txt.Hdr.Class,
+		TTL:   txt.Hdr.Ttl,
 		Data:  `"value1" "value2"`,
 	}, {
-		Name:  "example.org",
-		Type:  dns.TypeCNAME,
-		Class: dns.ClassINET,
-		TTL:   100,
-		Data:  "example.com",
+		Name:  cname.Hdr.Name,
+		Type:  cname.Hdr.Rrtype,
+		Class: cname.Hdr.Class,
+		TTL:   cname.Hdr.Ttl,
+		Data:  cname.Target,
 	}, {
-		Name:  "example.org",
-		Type:  dns.TypeHTTPS,
-		Class: dns.ClassINET,
-		TTL:   100,
-		Data: `0 example.com alpn="h2,h3" ech="AQI=" ipv4hint="127.0.0.1,127.0.0.2" ` +
-			`ipv6hint="2000::,2001::"`,
+		Name:  svcb.Hdr.Name,
+		Type:  svcb.Hdr.Rrtype,
+		Class: svcb.Hdr.Class,
+		TTL:   svcb.Hdr.Ttl,
+		Data: `0 ` + dnsservertest.SubdomainName + ` alpn="h2,h3" ech="AQI=" ` +
+			`ipv4hint="127.0.0.1,127.0.0.2" ipv6hint="2000::,2001::"`,
 	}}, jsonMsg.Answer)
-	require.Equal(t, []dnsserver.JSONAnswer{{
-		Name:  "example.org",
-		Type:  dns.TypeAAAA,
-		Class: dns.ClassCHAOS,
-		TTL:   200,
-		Data:  "2000::",
+	assert.Equal(t, []dnsserver.JSONAnswer{{
+		Name:  extraAAAA.Hdr.Name,
+		Type:  extraAAAA.Hdr.Rrtype,
+		Class: extraAAAA.Hdr.Class,
+		TTL:   extraAAAA.Hdr.Ttl,
+		Data:  extraAAAA.AAAA.String(),
 	}}, jsonMsg.Extra)
 }
 
 func TestServerHTTPS_integration_ENDS0Padding(t *testing.T) {
-	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
-	srv, err := dnsservertest.RunLocalHTTPSServer(
-		dnsservertest.NewDefaultHandler(),
-		tlsConfig,
-		nil,
-	)
-	require.NoError(t, err)
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(context.Background())
-	})
+	tlsConfig := dnsservertest.NewTLSConfig("example.org")
+	srv := dnsservertest.RunLocalHTTPSServer(t, dnsservertest.NewDefaultHandler(), tlsConfig, nil)
 
 	req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
 	req.Extra = []dns.RR{dnsservertest.NewEDNS0Padding(req.Len(), dns.DefaultMsgSize)}
@@ -354,17 +325,8 @@ func TestServerHTTPS_integration_ENDS0Padding(t *testing.T) {
 }
 
 func TestServerHTTPS_0RTT(t *testing.T) {
-	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
-	srv, err := dnsservertest.RunLocalHTTPSServer(
-		dnsservertest.NewDefaultHandler(),
-		tlsConfig,
-		nil,
-	)
-	require.NoError(t, err)
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(context.Background())
-	})
+	tlsConfig := dnsservertest.NewTLSConfig("example.org")
+	srv := dnsservertest.RunLocalHTTPSServer(t, dnsservertest.NewDefaultHandler(), tlsConfig, nil)
 
 	quicTracer := dnsservertest.Tracer{}
 

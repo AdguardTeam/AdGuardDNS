@@ -352,7 +352,9 @@ func newContext(
 			},
 			Enabled: true,
 		},
-		SafeBrowsing: &filter.ConfigSafeBrowsing{},
+		SafeBrowsing: &filter.ConfigSafeBrowsing{
+			Typosquatting: &filter.ConfigTyposquatting{},
+		},
 	}
 
 	ctx = agd.ContextWithRequestInfo(ctx, &agd.RequestInfo{

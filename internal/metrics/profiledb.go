@@ -308,13 +308,14 @@ func (m *ProfileDB) SetFileCacheSize(_ context.Context, size datasize.ByteSize) 
 	m.fileCacheSize.Set(float64(size))
 }
 
-// ObserveFileCacheStoreDuration records the duration of storing file cache to disk.
+// ObserveFileCacheStoreDuration records the duration of storing file cache to
+// disk.
 func (m *ProfileDB) ObserveFileCacheStoreDuration(_ context.Context, d time.Duration) {
 	m.fileCacheStoreDuration.Observe(d.Seconds())
 }
 
 // BackendProfileDB is the Prometheus-based implementation of the
-// [backendpb.ProfileDBMetrics] interface.
+// [backendgrpc.ProfileDBMetrics] interface.
 type BackendProfileDB struct {
 	// devicesInvalidTotal is a gauge with the number of invalid user devices
 	// loaded from the backend.
@@ -392,13 +393,13 @@ func NewBackendProfileDB(
 	return m, nil
 }
 
-// IncrementInvalidDevicesCount implements the [backendpb.ProfileDBMetrics]
+// IncrementInvalidDevicesCount implements the [backendgrpc.ProfileDBMetrics]
 // interface for BackendProfileDB.
-func (m *BackendProfileDB) IncrementInvalidDevicesCount(_ context.Context) {
-	m.devicesInvalidTotal.Inc()
+func (m *BackendProfileDB) IncrementInvalidDevicesCount(_ context.Context, n uint) {
+	m.devicesInvalidTotal.Add(float64(n))
 }
 
-// UpdateStats implements the [backendpb.ProfileDBMetrics] interface for
+// UpdateStats implements the [backendgrpc.ProfileDBMetrics] interface for
 // BackendProfileDB.
 func (m *BackendProfileDB) UpdateStats(_ context.Context, avgRecv, avgDec time.Duration) {
 	m.grpcAvgProfileRecvDuration.Observe(avgRecv.Seconds())

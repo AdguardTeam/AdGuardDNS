@@ -5,15 +5,15 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
+	"github.com/AdguardTeam/AdGuardDNS/internal/backendgrpc/dnspb"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/patrickmn/go-cache"
 	"google.golang.org/grpc/metadata"
 )
 
-// mockRemoteKVServiceServer is the mock [backendpb.RemoteKVServiceServer].
+// mockRemoteKVServiceServer is the mock [dnspb.RemoteKVServiceServer].
 type mockRemoteKVServiceServer struct {
-	backendpb.UnimplementedRemoteKVServiceServer
+	dnspb.UnimplementedRemoteKVServiceServer
 	log  *slog.Logger
 	strg *cache.Cache
 }
@@ -33,14 +33,14 @@ func newMockRemoteKVServiceServer(log *slog.Logger) (srv *mockRemoteKVServiceSer
 }
 
 // type check
-var _ backendpb.RemoteKVServiceServer = (*mockRemoteKVServiceServer)(nil)
+var _ dnspb.RemoteKVServiceServer = (*mockRemoteKVServiceServer)(nil)
 
-// Get implements the [backendpb.RemoteKVServiceServer] interface for
+// Get implements the [dnspb.RemoteKVServiceServer] interface for
 // *mockRemoteKVServiceServer.
 func (s *mockRemoteKVServiceServer) Get(
 	ctx context.Context,
-	req *backendpb.RemoteKVGetRequest,
-) (resp *backendpb.RemoteKVGetResponse, err error) {
+	req *dnspb.RemoteKVGetRequest,
+) (resp *dnspb.RemoteKVGetResponse, err error) {
 	md, _ := metadata.FromIncomingContext(ctx)
 	s.log.InfoContext(
 		ctx,
@@ -49,13 +49,13 @@ func (s *mockRemoteKVServiceServer) Get(
 		"req", req,
 	)
 
-	resp = &backendpb.RemoteKVGetResponse{
-		Value: &backendpb.RemoteKVGetResponse_Empty{},
+	resp = &dnspb.RemoteKVGetResponse{
+		Value: &dnspb.RemoteKVGetResponse_Empty{},
 	}
 
 	val, ok := s.strg.Get(req.Key)
 	if ok {
-		resp.Value = &backendpb.RemoteKVGetResponse_Data{
+		resp.Value = &dnspb.RemoteKVGetResponse_Data{
 			Data: val.([]byte),
 		}
 	}
@@ -63,12 +63,12 @@ func (s *mockRemoteKVServiceServer) Get(
 	return resp, nil
 }
 
-// Set implements the [backendpb.RemoteKVServiceServer] interface for
+// Set implements the [dnspb.RemoteKVServiceServer] interface for
 // *mockRemoteKVServiceServer.
 func (s *mockRemoteKVServiceServer) Set(
 	ctx context.Context,
-	req *backendpb.RemoteKVSetRequest,
-) (resp *backendpb.RemoteKVSetResponse, err error) {
+	req *dnspb.RemoteKVSetRequest,
+) (resp *dnspb.RemoteKVSetResponse, err error) {
 	md, _ := metadata.FromIncomingContext(ctx)
 	s.log.InfoContext(
 		ctx,
@@ -79,5 +79,5 @@ func (s *mockRemoteKVServiceServer) Set(
 
 	s.strg.Set(req.Key, req.Data, req.Ttl.AsDuration())
 
-	return &backendpb.RemoteKVSetResponse{}, err
+	return &dnspb.RemoteKVSetResponse{}, err
 }

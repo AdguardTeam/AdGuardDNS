@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdslog"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/miekg/dns"
@@ -119,7 +120,7 @@ func (h *Handler) healthcheckUpstream(
 
 	// TODO(a.garipov):  Augment our JSON log handler to use fmt.Stringer
 	// automatically?
-	upsLogger := h.logger.With("addr", ups.String())
+	upsLogger := h.logger.With("addr", agdslog.NewStringerValuer(ups))
 	if time.Since(lastFailed) < h.hcBackoff {
 		// Make sure that this main upstream is not in the backoff mode.
 		upsLogger.DebugContext(ctx, "healthcheck: upstream in backoff")

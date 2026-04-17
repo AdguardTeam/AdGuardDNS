@@ -97,14 +97,14 @@ func (f *Filter) RuleLists(
 func (f *Filter) Refresh(
 	ctx context.Context,
 	cacheManager agdcache.Manager,
-	cacheCount int,
+	cacheCount uint64,
 	useCache bool,
 	acceptStale bool,
 ) (err error) {
 	var count uint64
 	defer func() {
 		// TODO(a.garipov):  Consider using [agdtime.Clock].
-		f.metrics.SetFilterStatus(ctx, string(filter.IDBlockedService), time.Now(), count, err)
+		f.metrics.SetStatus(ctx, string(filter.IDBlockedService), time.Now(), count, err)
 	}()
 
 	resp, err := f.loadIndex(ctx, acceptStale)

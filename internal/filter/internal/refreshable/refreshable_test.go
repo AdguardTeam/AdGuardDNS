@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
@@ -116,7 +116,7 @@ func TestRefreshable_Refresh(t *testing.T) {
 			cachePath := prepareCachePath(t, realCachePath, tc.useCacheFile)
 
 			c := &refreshable.Config{
-				Logger:    slogutil.NewDiscardLogger(),
+				Logger:    filtertest.Logger,
 				URL:       srvURL,
 				ID:        refrID,
 				CachePath: cachePath,
@@ -156,7 +156,7 @@ func prepareCachePath(t *testing.T, realCachePath string, useCacheFile bool) (ca
 		return filepath.Join(t.TempDir(), "does_not_exist")
 	}
 
-	err := os.WriteFile(realCachePath, testTextFileData, 0o600)
+	err := os.WriteFile(realCachePath, testTextFileData, agd.PermFileDefault)
 	require.NoError(t, err)
 
 	return realCachePath
@@ -174,7 +174,7 @@ func TestRefreshable_Refresh_properStaleness(t *testing.T) {
 	)
 
 	c := &refreshable.Config{
-		Logger:    slogutil.NewDiscardLogger(),
+		Logger:    filtertest.Logger,
 		URL:       addr,
 		ID:        refrID,
 		CachePath: cachePath,
@@ -230,7 +230,7 @@ func TestRefreshable_Refresh_fileURL(t *testing.T) {
 	require.NoError(t, fltFile.Close())
 
 	c := &refreshable.Config{
-		Logger: slogutil.NewDiscardLogger(),
+		Logger: filtertest.Logger,
 		URL: &url.URL{
 			Scheme: urlutil.SchemeFile,
 			Path:   fltFile.Name(),

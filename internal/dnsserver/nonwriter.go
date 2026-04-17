@@ -15,10 +15,8 @@ type NonWriterResponseWriter struct {
 	resp       *dns.Msg
 }
 
-// type check
-var _ ResponseWriter = (*NonWriterResponseWriter)(nil)
-
-// NewNonWriterResponseWriter creates a new instance of the NonWriterResponseWriter.
+// NewNonWriterResponseWriter returns a new properly initialized
+// *NonWriterResponseWriter.
 func NewNonWriterResponseWriter(localAddr, remoteAddr net.Addr) (nrw *NonWriterResponseWriter) {
 	return &NonWriterResponseWriter{
 		localAddr:  localAddr,
@@ -26,17 +24,23 @@ func NewNonWriterResponseWriter(localAddr, remoteAddr net.Addr) (nrw *NonWriterR
 	}
 }
 
-// LocalAddr implements the ResponseWriter interface for *NonWriterResponseWriter.
+// type check
+var _ ResponseWriter = (*NonWriterResponseWriter)(nil)
+
+// LocalAddr implements the [ResponseWriter] interface for
+// *NonWriterResponseWriter.
 func (r *NonWriterResponseWriter) LocalAddr() (addr net.Addr) {
 	return r.localAddr
 }
 
-// RemoteAddr implements the ResponseWriter interface for *NonWriterResponseWriter.
+// RemoteAddr implements the [ResponseWriter] interface for
+// *NonWriterResponseWriter.
 func (r *NonWriterResponseWriter) RemoteAddr() (addr net.Addr) {
 	return r.remoteAddr
 }
 
-// WriteMsg implements the ResponseWriter interface for *NonWriterResponseWriter.
+// WriteMsg implements the [ResponseWriter] interface for
+// *NonWriterResponseWriter.
 func (r *NonWriterResponseWriter) WriteMsg(_ context.Context, _, resp *dns.Msg) (err error) {
 	r.resp = resp
 

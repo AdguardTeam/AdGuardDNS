@@ -26,7 +26,7 @@ func (r *indexResp) toInternal(
 	logger *slog.Logger,
 	errColl errcoll.Interface,
 	cacheManager agdcache.Manager,
-	cacheCount int,
+	cacheCount uint64,
 	useCache bool,
 ) (services serviceRuleLists, err error) {
 	l := len(r.BlockedServices)
@@ -78,7 +78,7 @@ func (svc *indexRespService) toInternal(
 	logger *slog.Logger,
 	errColl errcoll.Interface,
 	cacheManager agdcache.Manager,
-	cacheCount int,
+	cacheCount uint64,
 	useCache bool,
 ) (svcID filter.BlockedServiceID, rl *rulelist.Immutable, err error) {
 	svcID, err = filter.NewBlockedServiceID(svc.ID)

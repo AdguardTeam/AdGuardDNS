@@ -10,7 +10,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
-	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
+	"github.com/AdguardTeam/AdGuardDNS/internal/backendgrpc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
@@ -56,7 +56,7 @@ func (c *checkConfig) toInternal(
 	errColl errcoll.Interface,
 	namespace string,
 	reg prometheus.Registerer,
-	grpcMtrc backendpb.GRPCMetrics,
+	grpcMtrc backendgrpc.GRPCMetrics,
 ) (conf *dnscheck.RemoteKVConfig, err error) {
 	mtrc, err := metrics.NewDNSCheck(namespace, reg)
 	if err != nil {
@@ -102,7 +102,7 @@ func newRemoteKV(
 	envs *environment,
 	namespace string,
 	reg prometheus.Registerer,
-	grpcMtrc backendpb.GRPCMetrics,
+	grpcMtrc backendgrpc.GRPCMetrics,
 	baseLogger *slog.Logger,
 ) (kv remotekv.Interface, err error) {
 	switch envs.DNSCheckKVType {
@@ -151,7 +151,7 @@ func newBackendRemoteKV(
 	envs *environment,
 	namespace string,
 	reg prometheus.Registerer,
-	grpcMtrc backendpb.GRPCMetrics,
+	grpcMtrc backendgrpc.GRPCMetrics,
 	ttl timeutil.Duration,
 ) (remotekv.Interface, error) {
 	backendKVMtrc, err := metrics.NewBackendRemoteKV(namespace, reg)
@@ -159,8 +159,8 @@ func newBackendRemoteKV(
 		return nil, fmt.Errorf("registering backend kv metrics: %w", err)
 	}
 
-	var kv *backendpb.RemoteKV
-	kv, err = backendpb.NewRemoteKV(&backendpb.RemoteKVConfig{
+	var kv *backendgrpc.RemoteKV
+	kv, err = backendgrpc.NewRemoteKV(&backendgrpc.RemoteKVConfig{
 		GRPCMetrics: grpcMtrc,
 		Metrics:     backendKVMtrc,
 		Endpoint:    &envs.DNSCheckRemoteKVURL.URL,

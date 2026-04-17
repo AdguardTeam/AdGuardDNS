@@ -3,7 +3,7 @@
 package plugin
 
 import (
-	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
+	"github.com/AdguardTeam/AdGuardDNS/internal/backendgrpc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
@@ -17,7 +17,7 @@ type Config struct {
 	DNSCheck dnscheck.Interface
 
 	// GRPCMtrc is a custom implementation of the gRPC metrics.
-	GRPCMtrc backendpb.GRPCMetrics
+	GRPCMtrc backendgrpc.GRPCMetrics
 
 	// MainMwMtrc is a custom implementation of the filtering-middleware
 	// metrics.
@@ -43,7 +43,7 @@ type Config struct {
 // values.
 type Registry struct {
 	dnscheck   dnscheck.Interface
-	grpcMtrc   backendpb.GRPCMetrics
+	grpcMtrc   backendgrpc.GRPCMetrics
 	mainMwMtrc dnssvc.MainMiddlewareMetrics
 	postInitMw dnsserver.Middleware
 	ruleStat   rulestat.Interface
@@ -75,7 +75,7 @@ func (r *Registry) DNSCheck() (dnsCk dnscheck.Interface) {
 }
 
 // GRPCMetrics returns a custom implementation of the gRPC metrics, if any.
-func (r *Registry) GRPCMetrics() (grpcMtrc backendpb.GRPCMetrics) {
+func (r *Registry) GRPCMetrics() (grpcMtrc backendgrpc.GRPCMetrics) {
 	if r == nil {
 		return nil
 	}

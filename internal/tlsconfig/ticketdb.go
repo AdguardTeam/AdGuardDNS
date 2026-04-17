@@ -12,6 +12,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/AdguardTeam/golibs/validate"
@@ -107,9 +108,9 @@ type RemoteTicketDB struct {
 }
 
 // NewRemoteTicketDB returns a new [TicketDB] that retrieves information from
-// the remote storage.
+// the remote storage.  c must be valid.
 func NewRemoteTicketDB(c *RemoteTicketDBConfig) (db *RemoteTicketDB, err error) {
-	err = os.MkdirAll(c.CacheDirPath, 0o700)
+	err = os.MkdirAll(c.CacheDirPath, agd.PermDirDefault)
 	if err != nil {
 		return nil, fmt.Errorf("creating cache directory %q: %w", c.CacheDirPath, err)
 	}
@@ -203,7 +204,7 @@ func (db *RemoteTicketDB) writeTicketFile(
 	// #nosec G304 -- Trust the file paths that are given to us in the
 	// configuration.
 	path := filepath.Join(db.cacheDir, nameStr)
-	err = renameio.WriteFile(path, ticket[:], 0o600)
+	err = renameio.WriteFile(path, ticket[:], agd.PermFileDefault)
 	if err != nil {
 		return nil, fmt.Errorf("writing ticket file %q: %w", name, err)
 	}
@@ -286,7 +287,7 @@ func (db *RemoteTicketDB) updateIndex(tickets IndexedTickets) (err error) {
 		return fmt.Errorf("encoding index file: %w", err)
 	}
 
-	err = renameio.WriteFile(db.indexFilePath, buf.Bytes(), 0o600)
+	err = renameio.WriteFile(db.indexFilePath, buf.Bytes(), agd.PermFileDefault)
 	if err != nil {
 		return fmt.Errorf("writing index file: %w", err)
 	}

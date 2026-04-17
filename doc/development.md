@@ -11,7 +11,7 @@
 
 Development is supported on Linux and macOS (aka Darwin) systems.
 
-1. Install Go 1.25 or later.
+1. Install Go 1.26 or later.
 
 2. Call `make init` to set up the Git pre-commit hook.
 
@@ -37,26 +37,26 @@ This is not an extensive list. See `../Makefile`.
 
 - `make go-gen`: Regenerate the automatically generated Go files that need to be periodically updated. Those generated files are:
 
-    - `../internal/backendpb/dns.pb.go`
-    - `../internal/backendpb/dns_grpc.pb.go`
+    - `../internal/backendgrpc/dnspb/dns.pb.go`
+    - `../internal/backendgrpc/dnspb/dns_grpc.pb.go`
     - `../internal/ecscache/ecsblocklist_generate.go`
     - `../internal/geoip/asntops_generate.go`
     - `../internal/geoip/country_generate.go`
-    - `../internal/profiledb/internal/filecachepb/filecache.pb.go`
+    - `../internal/profiledb/internal/fcpb/fc.pb.go`
 
     You'll need to [install `protoc`][protoc] for the last one.
 
     Use the `ONLY` environment variable to generate selected parts. This generates only the backend and file-cache protobuf files:
 
     ```sh
-    make ONLY='backendpb filecachepb' go-gen
+    make ONLY='dnspb fcpb' go-gen
     ```
 
     Available values:
 
-    - `backendpb`
+    - `dnspb`
     - `ecscache`
-    - `filecachepb`
+    - `fcpb`
     - `geoip_asntops`
     - `geoip_country`
 
@@ -200,6 +200,7 @@ env \
     FILTER_INDEX_URL='https://adguardteam.github.io/HostlistsRegistry/assets/filters.json' \
     FILTER_CACHE_PATH='./test/cache' \
     NEW_REG_DOMAINS_URL='https://raw.githubusercontent.com/ameshkov/stuff/master/DNS/nrd.txt' \
+    NODE_NAME='node_name' \
     PROFILES_CACHE_PATH='./test/profilecache.pb' \
     PROFILES_URL='grpc://localhost:6062' \
     SAFE_BROWSING_URL='https://raw.githubusercontent.com/ameshkov/stuff/master/DNS/safe_browsing.txt' \
@@ -214,7 +215,7 @@ env \
     SENTRY_DSN='https://1:1@localhost/1' \
     VERBOSE='1' \
     YOUTUBE_SAFE_SEARCH_URL='https://adguardteam.github.io/HostlistsRegistry/assets/youtube_safe_search.txt' \
-    ./AdGuardDNS
+    ./agdns
 ```
 
 [env-ADULT_BLOCKING_URL]:      environment.md#ADULT_BLOCKING_URL

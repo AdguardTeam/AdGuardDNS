@@ -5,15 +5,15 @@ import (
 	"log/slog"
 	"net/netip"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/backendpb"
+	"github.com/AdguardTeam/AdGuardDNS/internal/backendgrpc/dnspb"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/netutil"
 	"google.golang.org/grpc/metadata"
 )
 
-// mockRateLimitServiceServer is the mock [backendpb.RateLimiteServiceServer].
+// mockRateLimitServiceServer is the mock [dnspb.RateLimiteServiceServer].
 type mockRateLimitServiceServer struct {
-	backendpb.UnimplementedRateLimitServiceServer
+	dnspb.UnimplementedRateLimitServiceServer
 	log *slog.Logger
 }
 
@@ -26,14 +26,14 @@ func newMockRateLimitServiceServer(log *slog.Logger) (srv *mockRateLimitServiceS
 }
 
 // type check
-var _ backendpb.RateLimitServiceServer = (*mockRateLimitServiceServer)(nil)
+var _ dnspb.RateLimitServiceServer = (*mockRateLimitServiceServer)(nil)
 
-// Get implements the [backendpb.RateLimitServiceServer] interface for
+// Get implements the [dnspb.RateLimitServiceServer] interface for
 // *mockRateLimitServiceServer.
 func (s *mockRateLimitServiceServer) GetRateLimitSettings(
 	ctx context.Context,
-	req *backendpb.RateLimitSettingsRequest,
-) (resp *backendpb.RateLimitSettingsResponse, err error) {
+	req *dnspb.RateLimitSettingsRequest,
+) (resp *dnspb.RateLimitSettingsResponse, err error) {
 	md, _ := metadata.FromIncomingContext(ctx)
 
 	s.log.InfoContext(
@@ -43,22 +43,22 @@ func (s *mockRateLimitServiceServer) GetRateLimitSettings(
 		"req", req,
 	)
 
-	return &backendpb.RateLimitSettingsResponse{
-		AllowedSubnets: []*backendpb.CidrRange{{
+	return &dnspb.RateLimitSettingsResponse{
+		AllowedSubnets: []*dnspb.CidrRange{{
 			Address: netutil.IPv4Localhost().AsSlice(),
 			Prefix:  8,
 		}},
 	}, nil
 }
 
-// GetGlobalAccessSettings implements the [backendpb.RateLimitServiceServer]
+// GetGlobalAccessSettings implements the [dnspb.RateLimitServiceServer]
 // interface for *mockRateLimitServiceServer.
 //
 // TODO(a.garipov):  Implement this method.
 func (s *mockRateLimitServiceServer) GetGlobalAccessSettings(
 	ctx context.Context,
-	req *backendpb.GlobalAccessSettingsRequest,
-) (_ *backendpb.GlobalAccessSettingsResponse, _ error) {
+	req *dnspb.GlobalAccessSettingsRequest,
+) (_ *dnspb.GlobalAccessSettingsResponse, _ error) {
 	md, _ := metadata.FromIncomingContext(ctx)
 
 	s.log.InfoContext(
@@ -68,13 +68,13 @@ func (s *mockRateLimitServiceServer) GetGlobalAccessSettings(
 		"req", req,
 	)
 
-	return &backendpb.GlobalAccessSettingsResponse{
-		Standard: &backendpb.AccessSettings{
-			AllowlistCidr: []*backendpb.CidrRange{{
+	return &dnspb.GlobalAccessSettingsResponse{
+		Standard: &dnspb.AccessSettings{
+			AllowlistCidr: []*dnspb.CidrRange{{
 				Address: netip.MustParseAddr("10.10.10.0").AsSlice(),
 				Prefix:  24,
 			}},
-			BlocklistCidr: []*backendpb.CidrRange{{
+			BlocklistCidr: []*dnspb.CidrRange{{
 				Address: netip.MustParseAddr("20.20.20.0").AsSlice(),
 				Prefix:  24,
 			}},

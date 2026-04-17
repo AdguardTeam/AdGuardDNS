@@ -14,7 +14,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/ruleliststorage"
 	"github.com/AdguardTeam/golibs/container"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/golibs/timeutil"
@@ -72,12 +71,12 @@ func TestNew(t *testing.T) {
 	}}
 
 	rlStorage, sErr := ruleliststorage.New(&ruleliststorage.Config{
-		BaseLogger:   testLogger,
+		BaseLogger:   filtertest.Logger,
 		CacheManager: agdcache.EmptyManager{},
 		Clock:        timeutil.SystemClock{},
 		ErrColl:      agdtest.NewErrorCollector(),
 		IndexConfig:  newRuleListIndexConfig(indexURL),
-		Logger:       testLogger,
+		Logger:       filtertest.Logger,
 		Metrics:      filter.EmptyMetrics{},
 		CacheDir:     t.TempDir(),
 	})
@@ -124,7 +123,7 @@ func TestDefault_ForConfig_client(t *testing.T) {
 
 		conf.CustomFilter.Enabled = true
 		conf.CustomFilter.Filter = custom.New(&custom.Config{
-			Logger: slogutil.NewDiscardLogger(),
+			Logger: filtertest.Logger,
 			Rules:  []filter.RuleText{filtertest.RuleBlock},
 		})
 
@@ -301,6 +300,7 @@ func newFltConfigRuleList(enabled bool) (c *filter.ConfigRuleList) {
 // with the features properly enabled or disabled.
 func newFltConfigSafeBrowsing(hpDanger, hpNew bool) (c *filter.ConfigSafeBrowsing) {
 	return &filter.ConfigSafeBrowsing{
+		Typosquatting:                 &filter.ConfigTyposquatting{},
 		Enabled:                       hpDanger || hpNew,
 		DangerousDomainsEnabled:       hpDanger,
 		NewlyRegisteredDomainsEnabled: hpNew,

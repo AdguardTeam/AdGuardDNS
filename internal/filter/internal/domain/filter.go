@@ -16,17 +16,14 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/service"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/c2h5oh/datasize"
-	"github.com/miekg/dns"
 )
 
 // FilterConfig is the domain filter configuration structure.
@@ -75,7 +72,7 @@ type FilterConfig struct {
 	RefreshTimeout time.Duration
 
 	// CacheCount is the count of the elements in the filter's result cache.
-	CacheCount int
+	CacheCount uint64
 
 	// MaxSize is the maximum size of the downloadable rule-list.
 	MaxSize datasize.ByteSize
@@ -168,7 +165,7 @@ func (f *Filter) FilterRequest(
 		return item, nil
 	}
 
-	if !isFilterable(qt) {
+	if _, ok = filter.IsFilterable(qt); !ok {
 		return nil, nil
 	}
 
@@ -203,13 +200,6 @@ func (f *Filter) FilterRequest(
 	f.domainMtrc.UpdateCacheSize(ctx, f.catID, f.resCache.Len())
 
 	return r, nil
-}
-
-// isFilterable returns true if the question type is filterable.
-func isFilterable(qt dnsmsg.RRType) (ok bool) {
-	fam := netutil.AddrFamilyFromRRType(qt)
-
-	return qt == dns.TypeHTTPS || fam != netutil.AddrFamilyNone
 }
 
 // type check
@@ -249,7 +239,7 @@ func (f *Filter) refresh(ctx context.Context, acceptStale bool) (err error) {
 	defer func() {
 		// TODO(a.garipov):  Consider using [agdtime.Clock].
 		// TODO(a.garipov):  Consider using a prefix or a label for categories.
-		f.metrics.SetFilterStatus(ctx, string(f.catID), time.Now(), count, err)
+		f.metrics.SetStatus(ctx, string(f.catID), time.Now(), count, err)
 	}()
 
 	b, err := f.refr.Refresh(ctx, acceptStale)

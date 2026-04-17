@@ -341,9 +341,11 @@ func resultBlockingMode(ri *agd.RequestInfo, res filter.Result) (m dnsmsg.Blocki
 
 	fltID, _ := res.MatchedRule()
 	switch fltID {
-	case filter.IDAdultBlocking:
+	case filter.IDAdultBlocking, filter.IDBlockedService, filter.IDCategory:
 		return cmp.Or(profile.AdultBlockingMode, profile.BlockingMode)
-	case filter.IDSafeBrowsing:
+	case
+		filter.IDSafeBrowsing,
+		filter.IDTyposquatting:
 		return cmp.Or(profile.SafeBrowsingBlockingMode, profile.BlockingMode)
 	}
 
@@ -363,9 +365,14 @@ func filterBlockingMode(ri *agd.RequestInfo, res filter.Result) (m dnsmsg.Blocki
 
 	fltID, _ := res.MatchedRule()
 	switch fltID {
-	case filter.IDAdultBlocking:
+	case
+		filter.IDAdultBlocking,
+		filter.IDBlockedService,
+		filter.IDCategory:
 		return profile.AdultBlockingMode
-	case filter.IDSafeBrowsing:
+	case
+		filter.IDSafeBrowsing,
+		filter.IDTyposquatting:
 		return profile.SafeBrowsingBlockingMode
 	}
 

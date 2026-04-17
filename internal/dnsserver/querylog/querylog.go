@@ -42,7 +42,7 @@ func (l *LogMiddleware) Wrap(h dnsserver.Handler) (wrapped dnsserver.Handler) {
 		err := h.ServeDNS(ctx, recW, req)
 
 		// Log format:
-		// [{name} {proto}://{addr}] {id} {type} {name} {size} {rcode} {rsize} {duration}
+		//	[{name} {proto}://{addr}] {id} {type} {name} {size} {rcode} {rsize} {duration}
 		sb := strings.Builder{}
 
 		serverInfo := dnsserver.MustServerInfoFromContext(ctx)

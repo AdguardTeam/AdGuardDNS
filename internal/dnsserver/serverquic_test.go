@@ -22,16 +22,8 @@ import (
 )
 
 func TestServerQUIC_integration_query(t *testing.T) {
-	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
-	srv, addr, err := dnsservertest.RunLocalQUICServer(
-		dnsservertest.NewDefaultHandler(),
-		tlsConfig,
-	)
-	require.NoError(t, err)
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
-	})
+	tlsConfig := dnsservertest.NewTLSConfig("example.org")
+	addr := dnsservertest.RunLocalQUICServer(t, dnsservertest.NewDefaultHandler(), tlsConfig)
 
 	// Open a QUIC connection.
 	conn, err := quic.DialAddr(context.Background(), addr.String(), tlsConfig, nil)
@@ -71,16 +63,8 @@ func TestServerQUIC_integration_query(t *testing.T) {
 }
 
 func TestServerQUIC_integration_ENDS0Padding(t *testing.T) {
-	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
-	srv, addr, err := dnsservertest.RunLocalQUICServer(
-		dnsservertest.NewDefaultHandler(),
-		tlsConfig,
-	)
-	require.NoError(t, err)
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
-	})
+	tlsConfig := dnsservertest.NewTLSConfig("example.org")
+	addr := dnsservertest.RunLocalQUICServer(t, dnsservertest.NewDefaultHandler(), tlsConfig)
 
 	// Open a QUIC connection.
 	conn, err := quic.DialAddr(context.Background(), addr.String(), tlsConfig, nil)
@@ -105,17 +89,9 @@ func TestServerQUIC_integration_ENDS0Padding(t *testing.T) {
 }
 
 func TestServerQUIC_integration_0RTT(t *testing.T) {
-	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
+	tlsConfig := dnsservertest.NewTLSConfig("example.org")
 	tlsConfig.NextProtos = dnsserver.NextProtoDoQ
-	srv, addr, err := dnsservertest.RunLocalQUICServer(
-		dnsservertest.NewDefaultHandler(),
-		tlsConfig,
-	)
-	require.NoError(t, err)
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
-	})
+	addr := dnsservertest.RunLocalQUICServer(t, dnsservertest.NewDefaultHandler(), tlsConfig)
 
 	quicTracer := dnsservertest.Tracer{}
 
@@ -171,16 +147,8 @@ func testQUICExchange(
 }
 
 func TestServerQUIC_integration_largeQuery(t *testing.T) {
-	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
-	srv, addr, err := dnsservertest.RunLocalQUICServer(
-		dnsservertest.NewDefaultHandler(),
-		tlsConfig,
-	)
-	require.NoError(t, err)
-
-	testutil.CleanupAndRequireSuccess(t, func() (err error) {
-		return srv.Shutdown(testutil.ContextWithTimeout(t, testTimeout))
-	})
+	tlsConfig := dnsservertest.NewTLSConfig("example.org")
+	addr := dnsservertest.RunLocalQUICServer(t, dnsservertest.NewDefaultHandler(), tlsConfig)
 
 	// Open a QUIC connection.
 	conn, err := quic.DialAddr(context.Background(), addr.String(), tlsConfig, nil)

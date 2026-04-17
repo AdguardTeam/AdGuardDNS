@@ -88,8 +88,10 @@ cache:
     # zero.
     type: 'simple'
     # The total number of items in the cache for hostnames with no ECS support.
+    # It must be less than or equal to max integer value.
     size: 10000
-    # The total number of items in the cache for hostnames with ECS support.
+    # The total number of items in the cache for hostnames with ECS support.  It
+    # must be less than or equal to max integer value.
     ecs_size: 10000
     ttl_override:
         enabled: true
@@ -166,9 +168,11 @@ query_log:
 
 # Common GeoIP database configuration.
 geoip:
-    # The size of the host lookup cache.
+    # The size of the host lookup cache.  It must be positive less than or equal
+    # to max integer value.
     host_cache_size: 100000
-    # The size of the IP lookup cache.
+    # The size of the IP lookup cache.  It must be positive less than or equal
+    # to max integer value.
     ip_cache_size: 100000
     # Interval between the GeoIP database refreshes.
     refresh_interval: 1h
@@ -292,9 +296,11 @@ filters:
     # The TTL to set for responses to requests for filtered domains.
     response_ttl: 5m
     # The size of the LRU cache of compiled filtering engines for profiles with
-    # custom filtering rules.
+    # custom filtering rules.  It must be positive less than or equal to max
+    # integer value.
     custom_filter_cache_size: 1024
-    # The size of the LRU cache of safe-search filtering results.
+    # The size of the LRU cache of safe-search filtering results.  It must be
+    # positive and less than or equal to max integer value.
     safe_search_cache_size: 1024
     # How often to update blocked services, safe search, and category filters.
     refresh_interval: 1h
@@ -315,7 +321,8 @@ filters:
     rule_list_cache:
         # If true, use filtering rule list result cache.
         enabled: true
-        # The size of the LRU cache of rule-list filtering results.
+        # The size of the LRU cache of rule-list filtering results.  It must be
+        # positive and less than or equal to max integer value.
         size: 10000
     # Enable the Extended DNS Errors feature.
     ede_enabled: true

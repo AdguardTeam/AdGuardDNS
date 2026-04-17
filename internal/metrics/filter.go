@@ -84,8 +84,8 @@ func NewFilter(namespace string, reg prometheus.Registerer) (m *Filter, err erro
 	return m, nil
 }
 
-// SetFilterStatus implements the [filter.Metrics] interface for *Filter.
-func (m *Filter) SetFilterStatus(
+// SetStatus implements the [filter.Metrics] interface for *Filter.
+func (m *Filter) SetStatus(
 	_ context.Context,
 	id string,
 	updTime time.Time,
@@ -101,4 +101,13 @@ func (m *Filter) SetFilterStatus(
 	m.rulesTotal.WithLabelValues(id).Set(float64(ruleCount))
 	m.updateStatus.WithLabelValues(id).Set(1)
 	m.updatedTime.WithLabelValues(id).Set(float64(updTime.UnixNano()) / float64(time.Second))
+}
+
+// Delete implements the [filter.Metrics] interface for *Filter.
+func (m *Filter) Delete(_ context.Context, ids []string) {
+	for _, id := range ids {
+		m.rulesTotal.DeleteLabelValues(id)
+		m.updateStatus.DeleteLabelValues(id)
+		m.updatedTime.DeleteLabelValues(id)
+	}
 }

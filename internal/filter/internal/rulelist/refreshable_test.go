@@ -7,7 +7,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/miekg/dns"
@@ -92,7 +91,7 @@ func TestRefreshable_Refresh(t *testing.T) {
 	)
 	rl, err := rulelist.NewRefreshable(
 		&refreshable.Config{
-			Logger:    slogutil.NewDiscardLogger(),
+			Logger:    filtertest.Logger,
 			URL:       srvURL,
 			ID:        filtertest.RuleListID1,
 			CachePath: cachePath,

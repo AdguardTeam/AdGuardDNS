@@ -29,7 +29,7 @@ func CreateFilterCacheDirs(tb testing.TB, cachePath string) {
 		filter.SubDirNameRuleList,
 		filter.SubDirNameSafeSearch,
 	} {
-		err := os.MkdirAll(filepath.Join(cachePath, dir), agd.DefaultDirPerm)
+		err := os.MkdirAll(filepath.Join(cachePath, dir), agd.PermDirDefault)
 		require.NoError(tb, err)
 	}
 }

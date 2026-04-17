@@ -15,7 +15,8 @@ type Metrics interface {
 	UpdateCacheSize(ctx context.Context, cacheLen int)
 }
 
-// EmptyMetrics is the implementation of the [Metrics] interface that does nothing.
+// EmptyMetrics is the implementation of the [Metrics] interface that does
+// nothing.
 type EmptyMetrics struct{}
 
 // type check

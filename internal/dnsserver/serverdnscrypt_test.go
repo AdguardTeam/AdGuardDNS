@@ -26,23 +26,21 @@ func TestServerDNSCrypt_integration_query(t *testing.T) {
 		network:              dnsserver.NetworkUDP,
 		expectedRecordsCount: 1,
 		expectedRCode:        dns.RcodeSuccess,
-		req: &dns.Msg{
-			MsgHdr: dns.MsgHdr{Id: dns.Id(), RecursionDesired: true},
-			Question: []dns.Question{
-				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
-			},
-		},
+		req: dnsservertest.NewReq(
+			dnsservertest.DomainName,
+			dns.TypeA,
+			dns.ClassINET,
+		),
 	}, {
 		name:                 "tcp_valid_msg",
 		network:              dnsserver.NetworkTCP,
 		expectedRecordsCount: 1,
 		expectedRCode:        dns.RcodeSuccess,
-		req: &dns.Msg{
-			MsgHdr: dns.MsgHdr{Id: dns.Id(), RecursionDesired: true},
-			Question: []dns.Question{
-				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
-			},
-		},
+		req: dnsservertest.NewReq(
+			dnsservertest.DomainName,
+			dns.TypeA,
+			dns.ClassINET,
+		),
 	}, {
 		// Checks that large responses are getting truncated when
 		// sent over UDP
@@ -54,12 +52,11 @@ func TestServerDNSCrypt_integration_query(t *testing.T) {
 		expectedRecordsCount: 0,
 		expectedRCode:        dns.RcodeSuccess,
 		expectedTruncated:    true,
-		req: &dns.Msg{
-			MsgHdr: dns.MsgHdr{Id: dns.Id(), RecursionDesired: true},
-			Question: []dns.Question{
-				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
-			},
-		},
+		req: dnsservertest.NewReq(
+			dnsservertest.DomainName,
+			dns.TypeA,
+			dns.ClassINET,
+		),
 	}, {
 		// Checks that if UDP size is large enough there would be no
 		// truncated responses
@@ -70,19 +67,12 @@ func TestServerDNSCrypt_integration_query(t *testing.T) {
 		expectedRecordsCount: 64,
 		expectedRCode:        dns.RcodeSuccess,
 		expectedTruncated:    false,
-		req: &dns.Msg{
-			MsgHdr: dns.MsgHdr{Id: dns.Id(), RecursionDesired: true},
-			Question: []dns.Question{
-				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
-			},
-			Extra: []dns.RR{
-				&dns.OPT{Hdr: dns.RR_Header{
-					Name:   ".",
-					Rrtype: dns.TypeOPT,
-					Class:  2000, // Set large enough UDPSize here
-				}},
-			},
-		},
+		req: dnsservertest.NewReq(
+			dnsservertest.DomainName,
+			dns.TypeA,
+			dns.ClassINET,
+			dnsservertest.SectionExtra{dnsservertest.NewOPT(false, 2000)},
+		),
 	}}
 
 	for _, tc := range testCases {

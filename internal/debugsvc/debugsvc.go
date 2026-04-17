@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/container"
-	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/netutil/httputil"
 	"github.com/AdguardTeam/golibs/osutil"
 	"github.com/AdguardTeam/golibs/service"
 )
@@ -35,7 +37,7 @@ type Service struct {
 // server is a single HTTP server within the AdGuard DNS HTTP service that can
 // host multiple handler groups.
 type server struct {
-	http *http.Server
+	srv  *httputil.Server
 	name string
 }
 
@@ -50,21 +52,21 @@ type Config struct {
 	Logger         *slog.Logger
 	Manager        *agdcache.DefaultManager
 	Refreshers     Refreshers
-	DNSDBAddr      string
-	APIAddr        string
-	PprofAddr      string
-	PrometheusAddr string
+	DNSDBAddr      netip.AddrPort
+	APIAddr        netip.AddrPort
+	PprofAddr      netip.AddrPort
+	PrometheusAddr netip.AddrPort
 }
 
-// handlerGroup is a semantic alias for names of handler groups.
-type handlerGroup = string
+// HandlerGroup is a semantic alias for names of handler groups.
+type HandlerGroup = string
 
 // Valid handler groups.
 const (
-	handlerGroupAPI        handlerGroup = "api"
-	handlerGroupDNSDB      handlerGroup = "dnsdb"
-	handlerGroupPprof      handlerGroup = "pprof"
-	handlerGroupPrometheus handlerGroup = "prometheus"
+	HandlerGroupAPI        HandlerGroup = "api"
+	HandlerGroupDNSDB      HandlerGroup = "dnsdb"
+	HandlerGroupPprof      HandlerGroup = "pprof"
+	HandlerGroupPrometheus HandlerGroup = "prometheus"
 )
 
 // New returns a new properly initialized *Service.
@@ -84,51 +86,85 @@ func New(c *Config) (svc *Service) {
 		dnsDB:   c.DNSDBHandler,
 	}
 
-	svc.initServers(c)
-	svc.route(c)
+	groups := container.KeyValues[netip.AddrPort, HandlerGroup]{{
+		Key:   c.APIAddr,
+		Value: HandlerGroupAPI,
+	}, {
+		Key:   c.DNSDBAddr,
+		Value: HandlerGroupDNSDB,
+	}, {
+		Key:   c.PprofAddr,
+		Value: HandlerGroupPprof,
+	}, {
+		Key:   c.PrometheusAddr,
+		Value: HandlerGroupPrometheus,
+	}}
+
+	svc.setupGroups(groups)
 
 	return svc
 }
 
-// initServers initializes the svc.servers field by adding the required amount
-// of servers for the addresses given in the config.
-func (svc *Service) initServers(c *Config) {
-	groups := container.KeyValues[string, handlerGroup]{{
-		Key:   c.APIAddr,
-		Value: handlerGroupAPI,
-	}, {
-		Key:   c.DNSDBAddr,
-		Value: handlerGroupDNSDB,
-	}, {
-		Key:   c.PprofAddr,
-		Value: handlerGroupPprof,
-	}, {
-		Key:   c.PrometheusAddr,
-		Value: handlerGroupPrometheus,
-	}}
+// setupGroups setups handler groups and initializes servers for handler
+// groups.  groups must not be nil.
+func (svc *Service) setupGroups(groups container.KeyValues[netip.AddrPort, HandlerGroup]) {
+	addrToHandlers := make(map[netip.AddrPort][]HandlerGroup)
 
 	for _, group := range groups {
 		addr := group.Key
-		if addr == "" {
+
+		if addr == (netip.AddrPort{}) {
 			continue
 		}
 
-		grpName := group.Value
-		srv := svc.servers[addr]
+		_, ok := addrToHandlers[addr]
+		if !ok {
+			addrToHandlers[addr] = []HandlerGroup(nil)
+		}
+
+		addrToHandlers[addr] = append(addrToHandlers[addr], group.Value)
+	}
+
+	for addr, handlers := range addrToHandlers {
+		svc.initServer(addr, handlers)
+	}
+}
+
+// initServer inits a new server.  It setups mux, middleware and handlers for
+// the server.
+func (svc *Service) initServer(addr netip.AddrPort, handlerGroup []HandlerGroup) {
+	addrStr := addr.String()
+	mux := http.NewServeMux()
+
+	for _, groupName := range handlerGroup {
+		svc.route(mux, groupName)
+
+		srv := svc.servers[addrStr]
 		if srv != nil {
-			srv.name += ";" + grpName
+			srv.name += ";" + groupName
 
 			continue
 		}
 
-		svc.servers[addr] = &server{
-			// #nosec G112 -- Do not set the timeouts, since debug/pprof and
-			// similar debug APIs may be busy for a long time.
-			http: &http.Server{
-				Addr:    addr,
-				Handler: http.NewServeMux(),
+		srvHdrMw := httputil.ServerHeaderMiddleware(agdhttp.UserAgent())
+		reqIDMw := httputil.NewRequestIDMiddleware()
+		handler := httputil.Wrap(mux, srvHdrMw, reqIDMw)
+		l := svc.logger.With("name", groupName)
+
+		// #nosec G112 -- Do not set the timeouts, since debug/pprof and
+		// similar debug APIs may be busy for a long time.
+		httpSrv := httputil.NewServer(&httputil.ServerConfig{
+			BaseLogger:     l,
+			InitialAddress: addr,
+			Server: &http.Server{
+				Addr:    addrStr,
+				Handler: handler,
 			},
-			name: grpName,
+		})
+
+		svc.servers[addrStr] = &server{
+			srv:  httpSrv,
+			name: groupName,
 		}
 	}
 }
@@ -154,30 +190,32 @@ func (svc *Service) Start(ctx context.Context) (err error) {
 // runServer runs one server and panics if there is an unexpected error.  It is
 // intended to be used as a goroutine.
 func runServer(ctx context.Context, l *slog.Logger, s *server) {
-	defer slogutil.RecoverAndExit(ctx, l, osutil.ExitCodeFailure)
+	l.InfoContext(ctx, "listening", "name", s.name)
 
-	l.InfoContext(ctx, "listening", "name", s.name, "addr", s.http.Addr)
+	srv := s.srv
+	go func() {
+		defer slogutil.RecoverAndExit(ctx, l, osutil.ExitCodeFailure)
 
-	srv := s.http
-	err := srv.ListenAndServe()
-	if !errors.Is(err, http.ErrServerClosed) {
-		panic(fmt.Errorf("server %s: failed listen on %s: %s", s.name, srv.Addr, err))
-	}
+		err := srv.Start(ctx)
+		if err != nil {
+			panic(fmt.Errorf("server %s: failed listen on %s: %w", s.name, srv.LocalAddr(), err))
+		}
+	}()
 }
 
 // Shutdown implements the [service.Interface] interface for *Service.  It stops
 // serving all endpoints.
 func (svc *Service) Shutdown(ctx context.Context) (err error) {
 	srvNum := 0
-	for _, srv := range svc.servers {
-		err = srv.http.Shutdown(ctx)
+	for _, s := range svc.servers {
+		err = s.srv.Shutdown(ctx)
 		if err != nil {
-			return fmt.Errorf("server %s shutdown: %w", srv.name, err)
+			return fmt.Errorf("server %s shutdown: %w", s.name, err)
 		}
 
 		srvNum++
 
-		svc.logger.InfoContext(ctx, "server is shutdown", "name", srv.name)
+		svc.logger.InfoContext(ctx, "server is shutdown", "name", s.name)
 	}
 
 	svc.logger.InfoContext(ctx, "all servers shutdown", "num", srvNum)

@@ -9,8 +9,10 @@ import (
 	"os"
 	"sync"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdslog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/contextutil"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/osutil"
 	"github.com/AdguardTeam/golibs/syncutil"
@@ -236,7 +238,7 @@ func (s *ServerBase) serveDNSMsg(
 	s.metrics.AdjustActiveRequests(ctx, 1)
 	defer s.metrics.AdjustActiveRequests(ctx, -1)
 
-	attrsPtr := s.newAttrsSlicePtr(req, rw.RemoteAddr().String())
+	attrsPtr := s.newAttrsSlicePtr(req, rw.RemoteAddr())
 	defer s.attrPool.Put(attrsPtr)
 
 	logHdlr := s.baseLogger.Handler().WithAttrs(*attrsPtr)
@@ -274,8 +276,8 @@ func (s *ServerBase) serveDNSMsg(
 
 // newAttrsSlicePtr returns a pointer to a slice with the attributes from the
 // DNS request set.  Callers should defer returning the slice back to the pool.
-// req must not be nil.
-func (s *ServerBase) newAttrsSlicePtr(req *dns.Msg, raddr string) (attrsPtr *[]slog.Attr) {
+// req and raddr must not be nil.
+func (s *ServerBase) newAttrsSlicePtr(req *dns.Msg, raddr fmt.Stringer) (attrsPtr *[]slog.Attr) {
 	attrsPtr = s.attrPool.Get()
 
 	attrs := *attrsPtr
@@ -286,7 +288,7 @@ func (s *ServerBase) newAttrsSlicePtr(req *dns.Msg, raddr string) (attrsPtr *[]s
 	qName, qType := questionData(req)
 	attrs[0] = slog.String("qname", qName)
 	attrs[1] = slog.String("qtype", qType)
-	attrs[2] = slog.String("raddr", raddr)
+	attrs[2] = slog.Any("raddr", agdslog.NewStringerValuer(raddr))
 	attrs[3] = slog.Uint64("req_id", uint64(req.Id))
 
 	return attrsPtr
@@ -337,6 +339,9 @@ func (s *ServerBase) serveDNS(
 	var resp *dns.Msg
 
 	// Check if we can accept this message.
+	//
+	// TODO(e.burkov):  Consider triggering an invalid message metric in all
+	// cases.
 	switch action, reason := s.acceptMsg(req); action {
 	case dns.MsgReject:
 		l.DebugContext(ctx, "rejected", "reason", reason)
@@ -377,8 +382,8 @@ func (s *ServerBase) serveDNS(
 }
 
 // respondWithError logs the error, generates an error response, and writes it.
-// msg is the logging message.  rw should not have been written to.  All
-// arguments must not be empty.
+// msg is the logging message.  rw should not have been written to before
+// calling this method.  All arguments must not be empty.
 func (s *ServerBase) respondWithError(
 	ctx context.Context,
 	l *slog.Logger,
@@ -389,7 +394,13 @@ func (s *ServerBase) respondWithError(
 ) {
 	l.DebugContext(ctx, msg, slogutil.KeyError, reportedError)
 
-	resp := genErrorResponse(req, dns.RcodeServerFailure)
+	rcode := dns.RcodeServerFailure
+	if _, ok := errors.AsType[*dns.Error](reportedError); ok {
+		rcode = dns.RcodeFormatError
+	}
+
+	resp := genErrorResponse(req, rcode)
+
 	if isNonCriticalNetError(reportedError) {
 		addEDE(req, resp, dns.ExtendedErrorCodeNetworkError, "")
 	}
@@ -426,8 +437,8 @@ func addEDE(req, resp *dns.Msg, code uint16, text string) {
 	})
 }
 
-// acceptMsg checks if we should process the incoming DNS query.  msg must not be
-// nil.
+// acceptMsg checks if we should process the incoming DNS query.  msg must not
+// be nil.
 func (s *ServerBase) acceptMsg(msg *dns.Msg) (action dns.MsgAcceptAction, reason string) {
 	if msg.Response {
 		return dns.MsgIgnore, "message is a response"

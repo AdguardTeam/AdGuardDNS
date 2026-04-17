@@ -8,7 +8,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/golibs/container"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -25,7 +24,7 @@ func TestFilter(t *testing.T) {
 	}
 
 	f := custom.New(&custom.Config{
-		Logger: slogutil.NewDiscardLogger(),
+		Logger: filtertest.Logger,
 		Rules:  rules,
 	})
 	require.NotNil(t, f)

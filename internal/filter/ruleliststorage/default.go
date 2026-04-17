@@ -83,8 +83,9 @@ type IndexConfig struct {
 	Staleness time.Duration
 
 	// ResultCacheCount is the count of items to keep in the LRU result cache of
-	// a single filter.  It must be greater than zero.
-	ResultCacheCount int
+	// a single filter.  It must be greater than zero and less than or equal to
+	// [math.MaxInt].
+	ResultCacheCount uint64
 
 	// ResultCacheEnabled enables caching of results of the filters.
 	ResultCacheEnabled bool
@@ -114,6 +115,9 @@ type Default struct {
 	refr         *refreshable.Refreshable
 
 	// ruleListsMu protects ruleLists.
+	//
+	// TODO(a.garipov):  Improve serialization of actions or document the
+	// supported flows better.
 	ruleListsMu *sync.RWMutex
 
 	ruleLists ruleLists
@@ -125,7 +129,7 @@ type Default struct {
 
 	maxSize datasize.ByteSize
 
-	resCacheCount int
+	resCacheCount uint64
 	cacheEnabled  bool
 }
 

@@ -183,11 +183,13 @@ func newUpstreamHealthcheck(
 	refrLogger := logger.With(slogutil.KeyPrefix, prefix)
 
 	return service.NewRefreshWorker(&service.RefreshWorkerConfig{
-		ContextConstructor: contextutil.NewTimeoutConstructor(time.Duration(conf.Healthcheck.Timeout)),
-		ErrorHandler:       errcoll.NewRefreshErrorHandler(refrLogger, errColl),
-		Refresher:          handler,
-		Schedule:           timeutil.NewConstSchedule(time.Duration(conf.Healthcheck.Interval)),
-		RefreshOnShutdown:  false,
+		ContextConstructor: contextutil.NewTimeoutConstructor(
+			time.Duration(conf.Healthcheck.Timeout),
+		),
+		ErrorHandler:      errcoll.NewRefreshErrorHandler(refrLogger, errColl),
+		Refresher:         handler,
+		Schedule:          timeutil.NewConstSchedule(time.Duration(conf.Healthcheck.Interval)),
+		RefreshOnShutdown: false,
 	})
 }
 

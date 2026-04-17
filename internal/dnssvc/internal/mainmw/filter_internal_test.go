@@ -77,6 +77,22 @@ func TestMiddleware_setFilteredResponse(t *testing.T) {
 		wantTTL: fltRespTTL,
 	}, {
 		reqRes: &filter.ResultBlocked{
+			List: filter.IDBlockedService,
+		},
+		respRes: nil,
+		wantIP:  blockIPAdult,
+		name:    "blocked_req_service",
+		wantTTL: fltRespTTL,
+	}, {
+		reqRes: &filter.ResultBlocked{
+			List: filter.IDCategory,
+		},
+		respRes: nil,
+		wantIP:  blockIPAdult,
+		name:    "blocked_req_category",
+		wantTTL: fltRespTTL,
+	}, {
+		reqRes: &filter.ResultBlocked{
 			List: filter.IDSafeBrowsing,
 		},
 		respRes: nil,
@@ -88,6 +104,24 @@ func TestMiddleware_setFilteredResponse(t *testing.T) {
 		respRes: nil,
 		wantIP:  rewrIP,
 		name:    "modified_req",
+		wantTTL: fltRespTTL,
+	}, {
+		reqRes: &filter.ResultModifiedRequest{
+			Msg:  rewrResp,
+			List: filter.IDBlockedService,
+		},
+		respRes: nil,
+		wantIP:  blockIPAdult,
+		name:    "modified_req_service",
+		wantTTL: fltRespTTL,
+	}, {
+		reqRes: &filter.ResultModifiedResponse{
+			Msg:  rewrResp,
+			List: filter.IDCategory,
+		},
+		respRes: nil,
+		wantIP:  blockIPAdult,
+		name:    "modified_resp_category",
 		wantTTL: fltRespTTL,
 	}, {
 		reqRes:  nil,
@@ -108,6 +142,22 @@ func TestMiddleware_setFilteredResponse(t *testing.T) {
 		},
 		wantIP:  blockIPAdult,
 		name:    "blocked_resp_adult",
+		wantTTL: fltRespTTL,
+	}, {
+		reqRes: nil,
+		respRes: &filter.ResultBlocked{
+			List: filter.IDBlockedService,
+		},
+		wantIP:  blockIPAdult,
+		name:    "blocked_resp_service",
+		wantTTL: fltRespTTL,
+	}, {
+		reqRes: nil,
+		respRes: &filter.ResultBlocked{
+			List: filter.IDCategory,
+		},
+		wantIP:  blockIPAdult,
+		name:    "blocked_resp_category",
 		wantTTL: fltRespTTL,
 	}, {
 		reqRes: nil,

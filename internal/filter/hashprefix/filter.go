@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http/cookiejar"
-	"net/netip"
 	"net/url"
 	"path"
 	"time"
@@ -17,11 +16,9 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
-	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/service"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/c2h5oh/datasize"
-	"github.com/miekg/dns"
 )
 
 // FilterConfig is the hash-prefix filter configuration structure.
@@ -37,6 +34,10 @@ type FilterConfig struct {
 
 	// Hashes are the hostname hashes for this filter.
 	Hashes *Storage
+
+	// ReplacedResultConstructor is used to create filtering results.  It must
+	// not be nil.
+	ReplacedResultConstructor *filter.ReplacedResultConstructor
 
 	// URL is the URL used to update the filter.
 	URL *url.URL
@@ -61,12 +62,6 @@ type FilterConfig struct {
 	// hostnames, one per line.
 	CachePath string
 
-	// ReplacementHost is the replacement host for this filter.  Queries matched
-	// by the filter receive a response with the IP addresses of this host.  If
-	// ReplacementHost contains a valid IP, that IP is used.  Otherwise, it
-	// should be a valid domain name.
-	ReplacementHost string
-
 	// Staleness is the time after which a file is considered stale.
 	Staleness time.Duration
 
@@ -80,7 +75,7 @@ type FilterConfig struct {
 	RefreshTimeout time.Duration
 
 	// CacheCount is the count of the elements in the filter's result cache.
-	CacheCount int
+	CacheCount uint64
 
 	// MaxSize is the maximum size of the downloadable rule-list.
 	MaxSize datasize.ByteSize
@@ -97,6 +92,7 @@ type Filter struct {
 	cloner           *dnsmsg.Cloner
 	hashes           *Storage
 	refr             *refreshable.Refreshable
+	replCons         *filter.ReplacedResultConstructor
 	subDomainsPool   *syncutil.Pool[[]string]
 	errColl          errcoll.Interface
 	hashprefixMtrc   Metrics
@@ -104,8 +100,6 @@ type Filter struct {
 	metrics          filter.Metrics
 	resCache         agdcache.Interface[rulelist.CacheKey, filter.Result]
 	id               filter.ID
-	repIP            netip.Addr
-	repFQDN          string
 	subDomainNum     int
 }
 
@@ -128,9 +122,10 @@ func NewFilter(c *FilterConfig) (f *Filter, err error) {
 	c.CacheManager.Add(path.Join(IDPrefix, string(id)), resCache)
 
 	f = &Filter{
-		logger: c.Logger,
-		cloner: c.Cloner,
-		hashes: c.Hashes,
+		logger:   c.Logger,
+		cloner:   c.Cloner,
+		hashes:   c.Hashes,
+		replCons: c.ReplacedResultConstructor,
 		// #nosec G115 -- Assume that c.SubDomainNum is always less then or
 		// equal to 63.
 		//
@@ -144,19 +139,6 @@ func NewFilter(c *FilterConfig) (f *Filter, err error) {
 		id:               id,
 		// #nosec G115 -- The value is a constant less than int accommodates.
 		subDomainNum: int(c.SubDomainNum),
-	}
-
-	repHost := c.ReplacementHost
-	ip, err := netip.ParseAddr(repHost)
-	if err != nil {
-		err = netutil.ValidateDomainName(repHost)
-		if err != nil {
-			return nil, fmt.Errorf("replacement host: %w", err)
-		}
-
-		f.repFQDN = dns.Fqdn(repHost)
-	} else {
-		f.repIP = ip
 	}
 
 	f.refr, err = refreshable.New(&refreshable.Config{
@@ -187,10 +169,10 @@ func (f *Filter) FilterRequest(
 	item, ok := f.resCache.Get(cacheKey)
 	f.hashprefixMtrc.IncrementLookups(ctx, ok)
 	if ok {
-		return f.clonedResult(req.DNS, item), nil
+		return filter.CloneModifiedResult(item, req.DNS, f.cloner), nil
 	}
 
-	fam, ok := isFilterable(qt)
+	fam, ok := filter.IsFilterable(qt)
 	if !ok {
 		return nil, nil
 	}
@@ -214,124 +196,17 @@ func (f *Filter) FilterRequest(
 		return nil, nil
 	}
 
-	r, err = f.filteredResult(req, matched, fam)
+	r, err = f.replCons.New(req, f.id, filter.RuleText(matched), fam)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
 	}
 
-	f.setInCache(cacheKey, r)
+	filter.SetModifiedResultInCache(f.resCache, cacheKey, r, f.cloner)
 
 	f.hashprefixMtrc.UpdateCacheSize(ctx, f.resCache.Len())
 
 	return r, nil
-}
-
-// isFilterable returns true if the question type is filterable.  If the type is
-// filterable with a blocked page, fam is the address family for the IP
-// addresses of the blocked page; otherwise fam is [netutil.AddrFamilyNone].
-func isFilterable(qt dnsmsg.RRType) (fam netutil.AddrFamily, ok bool) {
-	if qt == dns.TypeHTTPS {
-		return netutil.AddrFamilyNone, true
-	}
-
-	fam = netutil.AddrFamilyFromRRType(qt)
-
-	return fam, fam != netutil.AddrFamilyNone
-}
-
-// clonedResult returns a clone of the result based on its type.  r must be nil,
-// [*filter.ResultModifiedRequest], or [*filter.ResultModifiedResponse].
-func (f *Filter) clonedResult(req *dns.Msg, r filter.Result) (clone filter.Result) {
-	switch r := r.(type) {
-	case nil:
-		return nil
-	case *filter.ResultModifiedRequest:
-		return r.Clone(f.cloner)
-	case *filter.ResultModifiedResponse:
-		return r.CloneForReq(f.cloner, req)
-	default:
-		panic(fmt.Errorf("hashprefix: unexpected type for result: %T(%[1]v)", r))
-	}
-}
-
-// filteredResult returns a filtered request or response.  req must not be nil.
-func (f *Filter) filteredResult(
-	req *filter.Request,
-	matched string,
-	fam netutil.AddrFamily,
-) (r filter.Result, err error) {
-	if f.repFQDN != "" {
-		// Assume that the repFQDN is a valid domain name then.
-		modReq := f.cloner.Clone(req.DNS)
-		modReq.Question[0].Name = dns.Fqdn(f.repFQDN)
-
-		return &filter.ResultModifiedRequest{
-			Msg:  modReq,
-			List: f.id,
-			Rule: filter.RuleText(matched),
-		}, nil
-	}
-
-	resp, err := f.respForFamily(req, fam)
-	if err != nil {
-		return nil, fmt.Errorf("filter %s: creating modified result: %w", f.id, err)
-	}
-
-	return &filter.ResultModifiedResponse{
-		Msg:  resp,
-		List: f.id,
-		Rule: filter.RuleText(matched),
-	}, nil
-}
-
-// respForFamily returns a filtered response in accordance with the protocol
-// family and question type.
-func (f *Filter) respForFamily(
-	req *filter.Request,
-	fam netutil.AddrFamily,
-) (resp *dns.Msg, err error) {
-	if fam == netutil.AddrFamilyNone {
-		// This is an HTTPS query.  For them, just return NODATA or other
-		// blocked response.  See AGDNS-1551.
-		//
-		// TODO(ameshkov): Consider putting the resolved IP addresses into hints
-		// to show the blocked page here as well?
-		return req.Messages.NewBlockedResp(req.DNS, nil)
-	}
-
-	ip := f.repIP
-
-	switch {
-	case ip.Is4() && fam == netutil.AddrFamilyIPv4:
-		return req.Messages.NewBlockedRespIP(req.DNS, ip)
-	case ip.Is6() && fam == netutil.AddrFamilyIPv6:
-		return req.Messages.NewBlockedRespIP(req.DNS, ip)
-	default:
-		// TODO(e.burkov):  Use [dnsmsg.Constructor.NewBlockedRespRCode] when it
-		// adds SOA records.
-		resp = req.Messages.NewRespRCode(req.DNS, dns.RcodeSuccess)
-		req.Messages.AddEDE(req.DNS, resp, dns.ExtendedErrorCodeFiltered)
-
-		return resp, nil
-	}
-}
-
-// setInCache sets r in cache.  It clones the result to make sure that
-// modifications to the result message down the pipeline don't interfere with
-// the cached value.  r must be either [*filter.ResultModifiedRequest] or
-// [*filter.ResultModifiedResponse].
-//
-// See AGDNS-359.
-func (f *Filter) setInCache(k rulelist.CacheKey, r filter.Result) {
-	switch r := r.(type) {
-	case *filter.ResultModifiedRequest:
-		f.resCache.Set(k, r.Clone(f.cloner))
-	case *filter.ResultModifiedResponse:
-		f.resCache.Set(k, r.Clone(f.cloner))
-	default:
-		panic(fmt.Errorf("hashprefix: unexpected type for result: %T(%[1]v)", r))
-	}
 }
 
 // type check
@@ -371,7 +246,7 @@ func (f *Filter) refresh(ctx context.Context, acceptStale bool) (err error) {
 	var count uint64
 	defer func() {
 		// TODO(a.garipov):  Consider using [agdtime.Clock].
-		f.metrics.SetFilterStatus(ctx, string(f.id), time.Now(), count, err)
+		f.metrics.SetStatus(ctx, string(f.id), time.Now(), count, err)
 	}()
 
 	b, err := f.refr.Refresh(ctx, acceptStale)

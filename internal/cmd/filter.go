@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path"
 
@@ -26,12 +27,12 @@ type filtersConfig struct {
 	// engines for profiles with custom filtering rules.
 	//
 	// TODO(a.garipov):  Rename to "custom_filter_cache_count"?
-	CustomFilterCacheSize int `yaml:"custom_filter_cache_size"`
+	CustomFilterCacheSize uint64 `yaml:"custom_filter_cache_size"`
 
 	// SafeSearchCacheSize is the size of the LRU cache of safe-search results.
 	//
 	// TODO(a.garipov):  Rename to "safe_search_cache_count"?
-	SafeSearchCacheSize int `yaml:"safe_search_cache_size"`
+	SafeSearchCacheSize uint64 `yaml:"safe_search_cache_size"`
 
 	// ResponseTTL is the TTL to set for DNS responses to requests for filtered
 	// domains.
@@ -80,7 +81,9 @@ func (c *filtersConfig) Validate() (err error) {
 
 	errs := []error{
 		validate.Positive("custom_filter_cache_size", c.CustomFilterCacheSize),
+		validate.NoGreaterThan("custom_filter_cache_size", c.CustomFilterCacheSize, math.MaxInt),
 		validate.Positive("safe_search_cache_size", c.SafeSearchCacheSize),
+		validate.NoGreaterThan("safe_search_cache_size", c.SafeSearchCacheSize, math.MaxInt),
 		validate.Positive("response_ttl", c.ResponseTTL),
 		validate.Positive("refresh_interval", c.RefreshIvl),
 		validate.Positive("refresh_timeout", c.RefreshTimeout),
@@ -103,7 +106,7 @@ type fltRuleListCache struct {
 	// Size defines the size of the LRU cache of rule-list filtering results.
 	//
 	// TODO(a.garipov):  Rename to "count"?
-	Size int `yaml:"size"`
+	Size uint64 `yaml:"size"`
 
 	// Enabled shows if the rule-list cache is enabled.  If it is false, the
 	// rest of the settings are ignored.
@@ -119,7 +122,12 @@ func (c *fltRuleListCache) Validate() (err error) {
 		return errors.ErrNoValue
 	}
 
-	return validate.Positive("size", c.Size)
+	errs := []error{
+		validate.Positive("size", c.Size),
+		validate.NoGreaterThan("size", c.Size, math.MaxInt),
+	}
+
+	return errors.Join(errs...)
 }
 
 // сreateFilterCacheDirs creates all the necessary subdirectories within the
@@ -132,7 +140,7 @@ func сreateFilterCacheDirs(cachePath string) (err error) {
 		filter.SubDirNameRuleList,
 		filter.SubDirNameSafeSearch,
 	} {
-		err = os.MkdirAll(path.Join(cachePath, dir), agd.DefaultDirPerm)
+		err = os.MkdirAll(path.Join(cachePath, dir), agd.PermDirDefault)
 		if err != nil {
 			return fmt.Errorf("creating dir %s: %v", dir, err)
 		}

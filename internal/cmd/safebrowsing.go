@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"math"
+
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/AdguardTeam/golibs/validate"
@@ -15,8 +17,11 @@ type safeBrowsingConfig struct {
 	// addresses.
 	BlockHost string `yaml:"block_host"`
 
-	// CacheSize is the size of the response cache, in entries.
-	CacheSize int `yaml:"cache_size"`
+	// CacheSize is the size of the response cache, in entries.  It must be
+	// positive and less than or equal to [math.MaxInt].
+	//
+	// TODO(a.garipov):  Rename to "_count"?
+	CacheSize uint64 `yaml:"cache_size"`
 
 	// CacheTTL is the TTL of the response cache.
 	CacheTTL timeutil.Duration `yaml:"cache_ttl"`
@@ -41,6 +46,7 @@ func (c *safeBrowsingConfig) Validate() (err error) {
 	return errors.Join(
 		validate.NotEmpty("block_host", c.BlockHost),
 		validate.Positive("cache_size", c.CacheSize),
+		validate.NoGreaterThan("cache_size", c.CacheSize, math.MaxInt),
 		validate.Positive("cache_ttl", c.CacheTTL),
 		validate.Positive("refresh_interval", c.RefreshIvl),
 		validate.Positive("refresh_timeout", c.RefreshTimeout),

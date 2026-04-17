@@ -120,9 +120,6 @@ type ServerHTTPS struct {
 	quicLimitsEnabled bool
 }
 
-// type check
-var _ Server = (*ServerHTTPS)(nil)
-
 // NewServerHTTPS creates a new ServerHTTPS instance.  c must not be nil and
 // must be valid.
 func NewServerHTTPS(c *ConfigHTTPS) (s *ServerHTTPS) {
@@ -142,7 +139,10 @@ func NewServerHTTPS(c *ConfigHTTPS) (s *ServerHTTPS) {
 	}
 }
 
-// Start implements the dnsserver.Server interface for *ServerHTTPS.
+// type check
+var _ Server = (*ServerHTTPS)(nil)
+
+// Start implements the [Server] interface for *ServerHTTPS.
 func (s *ServerHTTPS) Start(ctx context.Context) (err error) {
 	defer func() { err = errors.Annotate(err, "starting doh server: %w") }()
 
@@ -186,7 +186,7 @@ func (s *ServerHTTPS) Start(ctx context.Context) (err error) {
 	return nil
 }
 
-// Shutdown implements the dnsserver.Server interface for *ServerHTTPS.
+// Shutdown implements the [Server] interface for *ServerHTTPS.
 func (s *ServerHTTPS) Shutdown(ctx context.Context) (err error) {
 	defer func() { err = errors.Annotate(err, "shutting down doh server: %w") }()
 
@@ -353,7 +353,12 @@ func (s *ServerHTTPS) serveHTTPS(ctx context.Context, hs *http.Server, l net.Lis
 
 	err := hs.Serve(l)
 	if err != nil {
-		s.baseLogger.WarnContext(ctx, "serving http failed", "scheme", scheme, slogutil.KeyError, err)
+		s.baseLogger.WarnContext(
+			ctx,
+			"serving http failed",
+			"scheme", scheme,
+			slogutil.KeyError, err,
+		)
 	}
 }
 

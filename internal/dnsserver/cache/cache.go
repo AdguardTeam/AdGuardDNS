@@ -44,8 +44,8 @@ type MiddlewareConfig struct {
 	MetricsListener MetricsListener
 
 	// Count is the number of entities to hold in the cache.  It must be
-	// positive.
-	Count int
+	// positive and less than or equal to [math.MaxInt].
+	Count uint64
 
 	// MinTTL is the minimum supported TTL for cache items.
 	MinTTL time.Duration
@@ -59,7 +59,7 @@ func NewMiddleware(c *MiddlewareConfig) (m *Middleware) {
 	return &Middleware{
 		logger:      cmp.Or(c.Logger, slog.Default()),
 		metrics:     cmp.Or[MetricsListener](c.MetricsListener, EmptyMetricsListener{}),
-		cache:       gcache.New(c.Count).LRU().Build(),
+		cache:       gcache.New(int(c.Count)).LRU().Build(),
 		cacheMinTTL: c.MinTTL,
 		overrideTTL: c.OverrideTTL,
 	}

@@ -203,11 +203,11 @@ The `cache` object has the following properties:
 
     **Example:** `simple`.
 
-- <a href="#cache-size" id="cache-size" name="cache-size">`size`</a>: The total number of items in the cache for hostnames with no ECS support. Must be greater than or equal to zero. If zero, cache is disabled.
+- <a href="#cache-size" id="cache-size" name="cache-size">`size`</a>: The total number of items in the cache for hostnames with no ECS support. Must be greater than or equal to zero and less than or equal to max integer value. If zero, cache is disabled.
 
     **Example:** `10000`.
 
-- <a href="#cache-ecs_size" id="cache-ecs_size" name="cache-ecs_size">`ecs_size`</a>: The total number of items in the cache for hostnames with ECS support.
+- <a href="#cache-ecs_size" id="cache-ecs_size" name="cache-ecs_size">`ecs_size`</a>: The total number of items in the cache for hostnames with ECS support. It must be less than or equal to max integer value.
 
     **Example:** `10000`.
 
@@ -371,11 +371,11 @@ The `query_log` object has the following properties:
 
 The `geoip` object has the following properties:
 
-- <a href="#geoip-host_cache_size" id="geoip-host_cache_size" name="geoip-host_cache_size">`host_cache_size`</a>: The size of the host lookup cache, in entries.
+- <a href="#geoip-host_cache_size" id="geoip-host_cache_size" name="geoip-host_cache_size">`host_cache_size`</a>: The size of the host lookup cache, in entries. It must be positive less than or equal to max integer value.
 
     **Example:** `100000`.
 
-- <a href="#geoip-ip_cache_size" id="geoip-ip_cache_size" name="geoip-ip_cache_size">`ip_cache_size`</a>: The size of the IP lookup cache, in entries.
+- <a href="#geoip-ip_cache_size" id="geoip-ip_cache_size" name="geoip-ip_cache_size">`ip_cache_size`</a>: The size of the IP lookup cache, in entries. It must be positive less than or equal to max integer value.
 
     **Example:** `100000`.
 
@@ -534,7 +534,7 @@ The `safe_browsing` object has the following properties:
 
     **Example:** `standard-block.dns.adguard.com`.
 
-- <a href="#safe_browsing-cache_size" id="safe_browsing-cache_size" name="safe_browsing-cache_size">`cache_size`</a>: The size of the response cache, in entries.
+- <a href="#safe_browsing-cache_size" id="safe_browsing-cache_size" name="safe_browsing-cache_size">`cache_size`</a>: The size of the response cache, in entries. It must be positive and less than or equal to max integer value.
 
     **WARNING: CURRENTLY IGNORED!**  See AGDNS-398.
 
@@ -570,12 +570,11 @@ The `filters` object has the following properties:
 
     **Example:** `10s`.
 
-- <a href="#filters-custom_filter_cache_size" id="filters-custom_filter_cache_size" name="filters-custom_filter_cache_size">`custom_filter_cache_size`</a>: The size of the LRU cache of compiled filtering rule engines for profiles with custom filtering rules, in entries. Zero means no caching, which slows
-    down queries.
+- <a href="#filters-custom_filter_cache_size" id="filters-custom_filter_cache_size" name="filters-custom_filter_cache_size">`custom_filter_cache_size`</a>: The size of the LRU cache of compiled filtering rule engines for profiles with custom filtering rules, in entries. Zero means no caching, which slows down queries. It must be less than or equal to max integer value.
 
     **Example:** `1024`.
 
-- <a href="#filters-safe_search_cache_size" id="filters-safe_search_cache_size" name="filters-safe_search_cache_size">`safe_search_cache_size`</a>: The size of the LRU cache of the safe-search filtering results. This value applies to both general and YouTube safe-search.
+- <a href="#filters-safe_search_cache_size" id="filters-safe_search_cache_size" name="filters-safe_search_cache_size">`safe_search_cache_size`</a>: The size of the LRU cache of the safe-search filtering results. This value applies to both general and YouTube safe-search. It must be less than or equal to max integer value.
 
     **Example:** `1024`.
 
@@ -605,7 +604,7 @@ The `filters` object has the following properties:
 
         **Example:** `true`.
 
-    - <a href="#filters-rule_list_cache-size" id="filters-rule_list_cache-size" name="filters-rule_list_cache-size">`rule_list_cache-size`</a>: The size of the LRU cache of the rule-list filtering results.
+    - <a href="#filters-rule_list_cache-size" id="filters-rule_list_cache-size" name="filters-rule_list_cache-size">`rule_list_cache-size`</a>: The size of the LRU cache of the rule-list filtering results.  It must be positive and less than or equal to max integer value.
 
         **Example:** `10000`.
 

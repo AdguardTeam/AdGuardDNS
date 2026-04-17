@@ -1,16 +1,13 @@
 package filtertest
 
 import (
-	"context"
 	"net/http"
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
-	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/publicsuffix"
@@ -65,24 +62,31 @@ func NewHashprefixFilterWithRepl(
 	strg, err := hashprefix.NewStorage(nil)
 	require.NoError(tb, err)
 
+	cloner := agdtest.NewCloner()
+	replCons, err := filter.NewReplacedResultConstructor(&filter.ReplacedResultConstructorConfig{
+		Cloner:      cloner,
+		Replacement: replHost,
+	})
+	require.NoError(tb, err)
+
 	f, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
-		Logger:            slogutil.NewDiscardLogger(),
-		Cloner:            agdtest.NewCloner(),
-		CacheManager:      agdcache.EmptyManager{},
-		Hashes:            strg,
-		URL:               srvURL,
-		ErrColl:           agdtest.NewErrorCollector(),
-		HashPrefixMetrics: hashprefix.EmptyMetrics{},
-		Metrics:           filter.EmptyMetrics{},
-		PublicSuffixList:  publicsuffix.List,
-		ID:                id,
-		CachePath:         cachePath,
-		ReplacementHost:   replHost,
-		Staleness:         Staleness,
-		CacheTTL:          CacheTTL,
-		CacheCount:        CacheCount,
-		MaxSize:           FilterMaxSize,
-		SubDomainNum:      SubDomainNum,
+		Logger:                    Logger,
+		Cloner:                    cloner,
+		CacheManager:              agdcache.EmptyManager{},
+		Hashes:                    strg,
+		ReplacedResultConstructor: replCons,
+		URL:                       srvURL,
+		ErrColl:                   agdtest.NewErrorCollector(),
+		HashPrefixMetrics:         hashprefix.EmptyMetrics{},
+		Metrics:                   filter.EmptyMetrics{},
+		PublicSuffixList:          publicsuffix.List,
+		ID:                        id,
+		CachePath:                 cachePath,
+		Staleness:                 Staleness,
+		CacheTTL:                  CacheTTL,
+		CacheCount:                CacheCount,
+		MaxSize:                   FilterMaxSize,
+		SubDomainNum:              SubDomainNum,
 	})
 	require.NoError(tb, err)
 
@@ -91,13 +95,3 @@ func NewHashprefixFilterWithRepl(
 
 	return f
 }
-
-// errColl is a panicking error collector for filter tests.  It should be
-// replaced with [agdtest.NewErrorCollector] when the import cycle is resolved.
-type errColl struct{}
-
-// type check
-var _ errcoll.Interface = errColl{}
-
-// Collect implements the [errcoll.Interface] for errColl.
-func (errColl) Collect(ctx context.Context, err error) { panic(err) }

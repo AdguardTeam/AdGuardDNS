@@ -33,6 +33,9 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`DNSCHECK_REMOTEKV_API_KEY`](#DNSCHECK_REMOTEKV_API_KEY)
 - [`DNSCHECK_REMOTEKV_URL`](#DNSCHECK_REMOTEKV_URL)
 - [`FILTER_CACHE_PATH`](#FILTER_CACHE_PATH)
+- [`FILTER_INDEX_API_KEY`](#FILTER_INDEX_API_KEY)
+- [`FILTER_INDEX_API_REFRESH_INTERVAL`](#FILTER_INDEX_API_REFRESH_INTERVAL)
+- [`FILTER_INDEX_API_URL`](#FILTER_INDEX_API_URL)
 - [`FILTER_INDEX_URL`](#FILTER_INDEX_URL)
 - [`FILTER_REFRESH_INTERVAL`](#FILTER_REFRESH_INTERVAL)
 - [`GENERAL_SAFE_ENABLED`](#GENERAL_SAFE_SEARCH_ENABLED)
@@ -50,23 +53,24 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`NEW_REG_DOMAINS_URL`](#NEW_REG_DOMAINS_URL)
 - [`NODE_NAME`](#NODE_NAME)
 - [`PROFILES_API_KEY`](#PROFILES_API_KEY)
+- [`PROFILES_API_RESPONSE_MAX_INVALID_RATIO`](#PROFILES_API_RESPONSE_MAX_INVALID_RATIO)
 - [`PROFILES_CACHE_PATH`](#PROFILES_CACHE_PATH)
 - [`PROFILES_CACHE_TYPE`](#PROFILES_CACHE_TYPE)
 - [`PROFILES_URL`](#PROFILES_URL)
+- [`QUERYLOG_PATH`](#QUERYLOG_PATH)
+- [`QUERYLOG_SEMAPHORE_ENABLED`](#QUERYLOG_SEMAPHORE_ENABLED)
+- [`QUERYLOG_SEMAPHORE_LIMIT`](#QUERYLOG_SEMAPHORE_LIMIT)
+- [`RATELIMIT_ALLOWLIST_TYPE`](#RATELIMIT_ALLOWLIST_TYPE)
 - [`REDIS_DB`](#REDIS_DB)
 - [`REDIS_HOST`](#REDIS_HOST)
+- [`REDIS_IDLE_TIMEOUT`](#REDIS_IDLE_TIMEOUT)
 - [`REDIS_KEY_PREFIX`](#REDIS_KEY_PREFIX)
 - [`REDIS_MAX_ACTIVE`](#REDIS_MAX_ACTIVE)
 - [`REDIS_MAX_CONN_LIFETIME`](#REDIS_MAX_CONN_LIFETIME)
 - [`REDIS_MAX_IDLE`](#REDIS_MAX_IDLE)
 - [`REDIS_NETWORK`](#REDIS_NETWORK)
-- [`REDIS_IDLE_TIMEOUT`](#REDIS_IDLE_TIMEOUT)
 - [`REDIS_PORT`](#REDIS_PORT)
 - [`REDIS_WAIT`](#REDIS_WAIT)
-- [`QUERYLOG_PATH`](#QUERYLOG_PATH)
-- [`QUERYLOG_SEMAPHORE_ENABLED`](#QUERYLOG_SEMAPHORE_ENABLED)
-- [`QUERYLOG_SEMAPHORE_LIMIT`](#QUERYLOG_SEMAPHORE_LIMIT)
-- [`RATELIMIT_ALLOWLIST_TYPE`](#RATELIMIT_ALLOWLIST_TYPE)
 - [`RULESTAT_URL`](#RULESTAT_URL)
 - [`SAFE_BROWSING_ENABLED`](#SAFE_BROWSING_ENABLED)
 - [`SAFE_BROWSING_URL`](#SAFE_BROWSING_URL)
@@ -83,6 +87,8 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`STANDARD_ACCESS_TYPE`](#STANDARD_ACCESS_TYPE)
 - [`STANDARD_ACCESS_URL`](#STANDARD_ACCESS_URL)
 - [`SSL_KEY_LOG_FILE`](#SSL_KEY_LOG_FILE)
+- [`TYPOSQUATTING_CACHE_COUNT`](#TYPOSQUATTING_CACHE_COUNT)
+- [`TYPOSQUATTING_ENABLED`](#TYPOSQUATTING_ENABLED)
 - [`VERBOSE`](#VERBOSE)
 - [`WEB_STATIC_DIR_ENABLED`](#WEB_STATIC_DIR_ENABLED)
 - [`WEB_STATIC_DIR`](#WEB_STATIC_DIR)
@@ -252,7 +258,7 @@ The URL of the gRPC(S) API for the custom-domain data.
 
 ## <a href="#DNSCHECK_CACHE_KV_SIZE" id="DNSCHECK_CACHE_KV_SIZE" name="DNSCHECK_CACHE_KV_SIZE">`DNSCHECK_CACHE_KV_SIZE`</a>
 
-The maximum number of the local cache key-value database entries for the DNS server checking.
+The maximum number of the local cache key-value database entries for the DNS server checking. It must be positive and less than or equal to max integer value.
 
 **Default:** No default value, a positive value is required if `DNSCHECK_KV_TYPE` is set to `cache`.
 
@@ -291,6 +297,24 @@ The base backend URL used as a key-value database for the DNS server checking. S
 The path to the directory used to store the cached version of all filters and filter indexes.
 
 **Default:** `./filters/`.
+
+## <a href="#FILTER_INDEX_API_KEY" id="FILTER_INDEX_API_KEY" name="FILTER_INDEX_API_KEY">`FILTER_INDEX_API_KEY`</a>
+
+The API key to use when authenticating requests to the filter-index API. The API key should be valid as defined by [RFC 6750].
+
+**Default:** **Unset.**
+
+## <a href="#FILTER_INDEX_API_REFRESH_INTERVAL" id="FILTER_INDEX_API_REFRESH_INTERVAL" name="FILTER_INDEX_API_REFRESH_INTERVAL">`FILTER_INDEX_API_REFRESH_INTERVAL`</a>
+
+The interval between updates of the GRPC filter index, as a human-readable duration.
+
+**Default:** No default value, the variable is **required** if [`TYPOSQUATTING_ENABLED`] is set to `1`.
+
+## <a href="#FILTER_INDEX_API_URL" id="FILTER_INDEX_API_URL" name="FILTER_INDEX_API_URL">`FILTER_INDEX_API_URL`</a>
+
+The backend URL for the filter-index API. Supports gRPC(S) (`grpc://` and `grpcs://`) URLs.
+
+**Default:** No default value, the variable is **required** if [`TYPOSQUATTING_ENABLED`] is set to `1`.
 
 ## <a href="#FILTER_INDEX_URL" id="FILTER_INDEX_URL" name="FILTER_INDEX_URL">`FILTER_INDEX_URL`</a>
 
@@ -416,6 +440,12 @@ The API key to use when authenticating queries to the profiles API, if any. The 
 
 **Default:** **Unset.**
 
+## <a href="#PROFILES_API_RESPONSE_MAX_INVALID_RATIO" id="PROFILES_API_RESPONSE_MAX_INVALID_RATIO" name="PROFILES_API_RESPONSE_MAX_INVALID_RATIO">`PROFILES_API_RESPONSE_MAX_INVALID_RATIO`</a>
+
+The maximum allowed ratio of invalid profiles in a response from the profiles API.  Must be a floating-point number in the range `[0, 1]`, where `0` means no invalid profiles are allowed and `1` means all profiles may be invalid.
+
+**Default:** `0`.
+
 ## <a href="#PROFILES_CACHE_INTERVAL" id="PROFILES_CACHE_INTERVAL" name="PROFILES_CACHE_INTERVAL">`PROFILES_CACHE_INTERVAL`</a>
 
 The interval between profiles cache file updates, as a human-readable duration. Setting this variable to a value less than [refresh interval][conf-backend-refresh_interval] makes no sense, as the configured variable is checked only on the refresh intervals.
@@ -426,33 +456,27 @@ The interval between profiles cache file updates, as a human-readable duration. 
 
 ## <a href="#PROFILES_CACHE_PATH" id="PROFILES_CACHE_PATH" name="PROFILES_CACHE_PATH">`PROFILES_CACHE_PATH`</a>
 
-The path to the profile cache file:
+The path to the profile cache file with the extension `.pb` for caching profiles in protobuf format. Use the following command to inspect the cache, assuming that the version is correct:
 
-- `none` means that the profile caching is disabled.
-
-- A file with the extension `.pb` means that the profiles are cached in the protobuf format.
-
-    Use the following command to inspect the cache, assuming that the version is correct:
-
-    ```sh
-    protoc\
-        --decode\
-        filecachepb.FileCache\
-        ./internal/profiledb/internal/filecachepb/filecache.proto\
-        < /path/to/profilecache.pb
-    ```
+```sh
+protoc\
+    --decode\
+    fcpb.FileCache\
+    ./internal/profiledb/internal/fcpb/fc.proto\
+    < ./profilecache.pb
+```
 
 The profile cache is read on start and is later updated on every [full refresh][conf-backend-full_refresh_interval].
 
-**Default:** `./profilecache.pb`.
+**Default:** No default value, if [PROFILES_CACHE_TYPE](#PROFILES_CACHE_TYPE) is not `none`, it is required.
 
 [conf-backend-full_refresh_interval]: configuration.md#backend-full_refresh_interval
 
 ## <a href="#PROFILES_CACHE_TYPE" id="PROFILES_CACHE_TYPE" name="PROFILES_CACHE_TYPE">`PROFILES_CACHE_TYPE`</a>
 
-Type of the profile cache. Allowed values are: `default` and `opaque`.
+Type of the profile cache. Allowed values are: `none` and `opaque`.
 
-**Default:** No default value, the variable is required, if [PROFILES_CACHE_PATH](#PROFILES_CACHE_PATH) isn't set to `none` and configuration contains profiles.
+**Default:** No default value, the variable is required.
 
 ## <a href="#PROFILES_MAX_RESP_SIZE" id="PROFILES_MAX_RESP_SIZE" name="PROFILES_MAX_RESP_SIZE">`PROFILES_MAX_RESP_SIZE`</a>
 
@@ -673,6 +697,20 @@ The base backend URL used as a standard access settings storage, when [`STANDARD
 If set, TLS key logs are written to this file to allow other programs (i.e. Wireshark) to decrypt packets. **Must only be used for debug purposes**.
 
 **Default:** **Unset.**
+
+## <a href="#TYPOSQUATTING_CACHE_COUNT" id="TYPOSQUATTING_CACHE_COUNT" name="TYPOSQUATTING_CACHE_COUNT">`TYPOSQUATTING_CACHE_COUNT`</a>
+
+The maximum number of entries in the cache of the typosquatting-filter results. It must be positive and less than or equal to max integer value.
+
+**Default:** No default value, a positive value is required if `TYPOSQUATTING_ENABLED` is set to `1`.
+
+**Example:** `100000`
+
+## <a href="#TYPOSQUATTING_ENABLED" id="TYPOSQUATTING_ENABLED" name="TYPOSQUATTING_ENABLED">`TYPOSQUATTING_ENABLED`</a>
+
+When set to `1`, enable the typosquatting filter. When set to `0`, disable it.
+
+**Default:** `0`.
 
 ## <a href="#VERBOSE" id="VERBOSE" name="VERBOSE">`VERBOSE`</a>
 

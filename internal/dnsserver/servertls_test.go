@@ -16,8 +16,7 @@ import (
 )
 
 func TestServerTLS_integration_queryTLS(t *testing.T) {
-	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
-	addr := dnsservertest.RunTLSServer(t, dnsservertest.NewDefaultHandler(), tlsConfig)
+	addr, tlsConfig := dnsservertest.RunTLSServer(t, nil)
 
 	// Create a test message.
 	req := new(dns.Msg)
@@ -93,9 +92,7 @@ func TestServerTLS_integration_msgIgnore(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
-			h := dnsservertest.NewDefaultHandler()
-			addr := dnsservertest.RunTLSServer(t, h, tlsConfig)
+			addr, tlsConfig := dnsservertest.RunTLSServer(t, nil)
 
 			conn, err := tls.Dial("tcp", addr.String(), tlsConfig)
 			require.Nil(t, err)
@@ -122,8 +119,15 @@ func TestServerTLS_integration_noTruncateQuery(t *testing.T) {
 	// into a UDP response, but it should fit a TCP response just okay.
 	handler := dnsservertest.NewDefaultHandlerWithCount(64)
 
-	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
-	addr := dnsservertest.RunTLSServer(t, handler, tlsConfig)
+	tlsConfig := dnsservertest.NewTLSConfig("example.org")
+	addr, _ := dnsservertest.RunTLSServer(t, &dnsserver.ConfigTLS{
+		TLSConfig: tlsConfig,
+		DNS: &dnsserver.ConfigDNS{
+			Base: &dnsserver.ConfigBase{
+				Handler: handler,
+			},
+		},
+	})
 
 	// Create a test message
 	req := new(dns.Msg)
@@ -154,8 +158,7 @@ func TestServerTLS_integration_queriesPipelining(t *testing.T) {
 	// Just like a TCP server case, we should support queries pipelining
 	// i.e. we should be able to process incoming queries in parallel and
 	// write responses out of order.
-	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
-	addr := dnsservertest.RunTLSServer(t, dnsservertest.NewDefaultHandler(), tlsConfig)
+	addr, tlsConfig := dnsservertest.RunTLSServer(t, nil)
 
 	// First - establish a connection
 	conn, err := tls.Dial("tcp", addr.String(), tlsConfig)
@@ -220,8 +223,7 @@ func TestServerTLS_integration_queriesPipelining(t *testing.T) {
 }
 
 func TestServerTLS_integration_ENDS0Padding(t *testing.T) {
-	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
-	addr := dnsservertest.RunTLSServer(t, dnsservertest.NewDefaultHandler(), tlsConfig)
+	addr, tlsConfig := dnsservertest.RunTLSServer(t, nil)
 
 	req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
 	req.Extra = []dns.RR{dnsservertest.NewEDNS0Padding(req.Len(), dns.DefaultMsgSize)}

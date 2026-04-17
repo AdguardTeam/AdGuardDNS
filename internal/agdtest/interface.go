@@ -16,6 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterindex"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
@@ -279,6 +280,24 @@ func (s *FilterStorage) ForConfig(ctx context.Context, c filter.Config) (f filte
 // HasListID implements the [filter.Storage] interface for *FilterStorage.
 func (s *FilterStorage) HasListID(id filter.ID) (ok bool) {
 	return s.OnHasListID(id)
+}
+
+// Package filterindex
+
+// type check
+var _ filterindex.Storage = (*FilterIndexStorage)(nil)
+
+// FilterIndexStorage is a [filterindex.Storage] for tests.
+type FilterIndexStorage struct {
+	OnTyposquatting func(ctx context.Context) (idx *filterindex.Typosquatting, err error)
+}
+
+// Typosquatting implements the [filterindex.Storage] interface for
+// *FilterIndexStorage.
+func (s *FilterIndexStorage) Typosquatting(
+	ctx context.Context,
+) (idx *filterindex.Typosquatting, err error) {
+	return s.OnTyposquatting(ctx)
 }
 
 // Package geoip

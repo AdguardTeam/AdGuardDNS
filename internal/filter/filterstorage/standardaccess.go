@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
@@ -184,20 +185,20 @@ type jsonStandardAccessSettings struct {
 }
 
 // standardAccessConfigToJSON converts the standard access settings to the JSON
-// representation.
-func standardAccessConfigToJSON(conf *access.StandardBlockerConfig) (s *jsonStandardAccessSettings) {
+// representation.  c must not be nil.
+func standardAccessConfigToJSON(c *access.StandardBlockerConfig) (s *jsonStandardAccessSettings) {
 	s = &jsonStandardAccessSettings{
-		AllowedNets:          make([]netutil.Prefix, 0, len(conf.AllowedNets)),
-		BlockedNets:          make([]netutil.Prefix, 0, len(conf.BlockedNets)),
-		AllowedASN:           conf.AllowedASN,
-		BlockedASN:           conf.BlockedASN,
-		BlocklistDomainRules: conf.BlocklistDomainRules,
+		AllowedNets:          make([]netutil.Prefix, 0, len(c.AllowedNets)),
+		BlockedNets:          make([]netutil.Prefix, 0, len(c.BlockedNets)),
+		AllowedASN:           c.AllowedASN,
+		BlockedASN:           c.BlockedASN,
+		BlocklistDomainRules: c.BlocklistDomainRules,
 		SchemaVersion:        StandardAccessVersion,
 	}
-	for _, p := range conf.AllowedNets {
+	for _, p := range c.AllowedNets {
 		s.AllowedNets = append(s.AllowedNets, netutil.Prefix{Prefix: p})
 	}
-	for _, p := range conf.BlockedNets {
+	for _, p := range c.BlockedNets {
 		s.BlockedNets = append(s.BlockedNets, netutil.Prefix{Prefix: p})
 	}
 
@@ -256,5 +257,5 @@ func (s *StandardAccess) writeCache() (err error) {
 		return fmt.Errorf("encoding cache: %w", err)
 	}
 
-	return renameio.WriteFile(s.cachePath, b.Bytes(), 0o600)
+	return renameio.WriteFile(s.cachePath, b.Bytes(), agd.PermFileDefault)
 }

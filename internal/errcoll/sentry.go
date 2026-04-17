@@ -192,7 +192,8 @@ func isReportableWriteTCP(err error) (ok bool) {
 		!strings.Contains(errStr, "local error: tls: record overflow")
 }
 
-// isReportableWriteUDP returns true if err is a UDP error that should be reported.
+// isReportableWriteUDP returns true if err is a UDP error that should be
+// reported.
 func isReportableWriteUDP(err error) (ok bool) {
 	switch {
 	case

@@ -22,7 +22,7 @@ BRANCH = $${BRANCH:-$$(git rev-parse --abbrev-ref HEAD)}
 GOAMD64 = v1
 GOPROXY = https://proxy.golang.org|direct
 GOTELEMETRY = off
-GOTOOLCHAIN = go1.25.7
+GOTOOLCHAIN = go1.26.2
 RACE = 0
 REVISION = $${REVISION:-$$(git rev-parse --short HEAD)}
 VERSION = 0
@@ -95,5 +95,5 @@ sh-lint:  ; $(ENV_MISC) "$(SHELL)" ./scripts/make/sh-lint.sh
 
 # Targets related to AdGuard DNS start here.
 
-.PHONY: sync-github
-sync-github: ; $(ENV) "$(SHELL)" ./scripts/make/github-sync.sh
+.PHONY: github-sync
+github-sync: ; $(ENV) "$(SHELL)" ./scripts/make/github-sync.sh

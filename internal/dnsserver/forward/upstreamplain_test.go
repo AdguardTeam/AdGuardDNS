@@ -15,6 +15,8 @@ import (
 )
 
 func TestUpstreamPlain_Exchange(t *testing.T) {
+	_, addr := dnsservertest.RunDNSServer(t, nil)
+
 	testCases := []struct {
 		name    string
 		network forward.Network
@@ -35,7 +37,6 @@ func TestUpstreamPlain_Exchange(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, addr := dnsservertest.RunDNSServer(t, dnsservertest.NewDefaultHandler())
 			ups := forward.NewUpstreamPlain(&forward.UpstreamPlainConfig{
 				Network: tc.network,
 				Address: netip.MustParseAddrPort(addr),
@@ -81,7 +82,11 @@ func TestUpstreamPlain_Exchange_truncated(t *testing.T) {
 		return rw.WriteMsg(ctx, req, res)
 	})
 
-	_, addrStr := dnsservertest.RunDNSServer(t, handlerFunc)
+	_, addrStr := dnsservertest.RunDNSServer(t, &dnsserver.ConfigDNS{
+		Base: &dnsserver.ConfigBase{
+			Handler: handlerFunc,
+		},
+	})
 
 	// Create a test message.
 	req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
@@ -150,7 +155,11 @@ func TestUpstreamPlain_Exchange_fallbackFail(t *testing.T) {
 		return rw.WriteMsg(ctx, req, resp)
 	})
 
-	_, addr := dnsservertest.RunDNSServer(t, h)
+	_, addr := dnsservertest.RunDNSServer(t, &dnsserver.ConfigDNS{
+		Base: &dnsserver.ConfigBase{
+			Handler: h,
+		},
+	})
 	u := forward.NewUpstreamPlain(&forward.UpstreamPlainConfig{
 		Network: forward.NetworkUDP,
 		Address: netip.MustParseAddrPort(addr),
@@ -256,8 +265,14 @@ func TestUpstreamPlain_Exchange_fallbackSuccess(t *testing.T) {
 			return rw.WriteMsg(ctx, req, goodResp)
 		})
 
+		c := &dnsserver.ConfigDNS{
+			Base: &dnsserver.ConfigBase{
+				Handler: dnsserver.HandlerFunc(h),
+			},
+		}
+
 		t.Run(tc.name, func(t *testing.T) {
-			_, addr := dnsservertest.RunDNSServer(t, dnsserver.HandlerFunc(h))
+			_, addr := dnsservertest.RunDNSServer(t, c)
 
 			u := forward.NewUpstreamPlain(&forward.UpstreamPlainConfig{
 				Network: network,

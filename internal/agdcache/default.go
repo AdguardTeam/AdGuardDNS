@@ -15,10 +15,8 @@ type Config struct {
 	Clock timeutil.Clock
 
 	// Count is the maximum number of elements to keep in the cache.  It must be
-	// positive.
-	//
-	// TODO(a.garipov):  Make uint64.
-	Count int
+	// positive and less than or equal to [math.MaxInt].
+	Count uint64
 }
 
 // entry is an entry of the cache with expiration.
@@ -43,7 +41,7 @@ type Default[K comparable, T any] struct {
 
 // New returns a new initialized *Default cache and error, if any.
 func New[K comparable, T any](conf *Config) (c *Default[K, T], err error) {
-	lru, err := simplelru.NewLRU[K, entry[T]](conf.Count, nil)
+	lru, err := simplelru.NewLRU[K, entry[T]](int(conf.Count), nil)
 	if err != nil {
 		return nil, fmt.Errorf("agdcache: creating lru: %w", err)
 	}

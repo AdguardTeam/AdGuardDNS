@@ -76,7 +76,7 @@ func BenchmarkServeDNS(b *testing.B) {
 	}}
 
 	for _, bc := range benchCases {
-		_, addr := dnsservertest.RunDNSServer(b, dnsservertest.NewDefaultHandler())
+		_, addr := dnsservertest.RunDNSServer(b, nil)
 
 		// Open connection (using one to avoid client-side allocations).
 		conn, err := net.Dial(string(bc.network), addr)
@@ -107,8 +107,7 @@ func BenchmarkServeDNS(b *testing.B) {
 }
 
 func BenchmarkServeTLS(b *testing.B) {
-	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
-	addr := dnsservertest.RunTLSServer(b, dnsservertest.NewDefaultHandler(), tlsConfig)
+	addr, tlsConfig := dnsservertest.RunTLSServer(b, nil)
 
 	m := (&dns.Msg{}).SetQuestion("example.org.", dns.TypeA)
 
@@ -150,11 +149,11 @@ func BenchmarkServeDoH(b *testing.B) {
 		https        bool
 		http3Enabled bool
 	}{{
-		tlsConfig:    dnsservertest.CreateServerTLSConfig("example.org"),
+		tlsConfig:    dnsservertest.NewTLSConfig("example.org"),
 		name:         "doh2",
 		http3Enabled: false,
 	}, {
-		tlsConfig:    dnsservertest.CreateServerTLSConfig("example.org"),
+		tlsConfig:    dnsservertest.NewTLSConfig("example.org"),
 		name:         "doh3",
 		http3Enabled: true,
 	}, {
@@ -165,16 +164,12 @@ func BenchmarkServeDoH(b *testing.B) {
 
 	for _, tc := range testCases {
 		b.Run(tc.name, func(b *testing.B) {
-			srv, err := dnsservertest.RunLocalHTTPSServer(
+			srv := dnsservertest.RunLocalHTTPSServer(
+				b,
 				dnsservertest.NewDefaultHandler(),
 				tc.tlsConfig,
 				nil,
 			)
-			require.NoError(b, err)
-
-			testutil.CleanupAndRequireSuccess(b, func() (err error) {
-				return srv.Shutdown(testutil.ContextWithTimeout(b, testTimeout))
-			})
 
 			m := (&dns.Msg{}).SetQuestion("example.org.", dns.TypeA)
 			data, err := m.Pack()
@@ -216,12 +211,12 @@ func BenchmarkServeDoH(b *testing.B) {
 	// Most recent results:
 	//
 	// goos: darwin
-	// goarch: amd64
+	// goarch: arm64
 	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsserver
-	// cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
-	// BenchmarkServeDoH/doh2-12         	    8448	    144691 ns/op	   11987 B/op	     125 allocs/op
-	// BenchmarkServeDoH/doh3-12         	    6675	    179742 ns/op	   27085 B/op	     289 allocs/op
-	// BenchmarkServeDoH/plain_http-12   	    5023	    244999 ns/op	   25639 B/op	     212 allocs/op
+	// cpu: Apple M4 Pro
+	// BenchmarkServeDoH/doh2-14         	   19465	     60352 ns/op	   11664 B/op	     119 allocs/op
+	// BenchmarkServeDoH/doh3-14         	   15321	     72227 ns/op	   26461 B/op	     283 allocs/op
+	// BenchmarkServeDoH/plain_http-14   	   10000	    111122 ns/op	   25584 B/op	     214 allocs/op
 }
 
 func BenchmarkServeDNSCrypt(b *testing.B) {
@@ -289,16 +284,8 @@ func BenchmarkServeDNSCrypt(b *testing.B) {
 }
 
 func BenchmarkServeQUIC(b *testing.B) {
-	tlsConfig := dnsservertest.CreateServerTLSConfig("example.org")
-	srv, addr, err := dnsservertest.RunLocalQUICServer(
-		dnsservertest.NewDefaultHandler(),
-		tlsConfig,
-	)
-	require.NoError(b, err)
-
-	testutil.CleanupAndRequireSuccess(b, func() (err error) {
-		return srv.Shutdown(context.Background())
-	})
+	tlsConfig := dnsservertest.NewTLSConfig("example.org")
+	addr := dnsservertest.RunLocalQUICServer(b, dnsservertest.NewDefaultHandler(), tlsConfig)
 
 	req := (&dns.Msg{
 		MsgHdr: dns.MsgHdr{

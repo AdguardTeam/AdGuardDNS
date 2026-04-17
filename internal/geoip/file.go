@@ -53,11 +53,13 @@ type FileConfig struct {
 	CountryPath string
 
 	// HostCacheCount is how many lookups are cached by hostname.  Zero means no
-	// host caching is performed.
-	HostCacheCount int
+	// host caching is performed.  It must be positive and less than or equal to
+	// [math.MaxInt].
+	HostCacheCount uint64
 
-	// IPCacheCount is how many lookups are cached by IP address.
-	IPCacheCount int
+	// IPCacheCount is how many lookups are cached by IP address.  It must be
+	// positive and less than or equal to [math.MaxInt].
+	IPCacheCount uint64
 }
 
 // File is a file implementation of [geoip.Interface].  It should be initially

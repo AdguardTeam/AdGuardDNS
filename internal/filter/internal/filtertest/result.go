@@ -84,3 +84,24 @@ func NewARequest(tb testing.TB, host string) (req *filter.Request) {
 
 	return NewRequest(tb, "", host, IPv4Client, dns.TypeA)
 }
+
+// NewModifiedRequestResult is a helper for creating modified request results
+// for tests.  req must not be nil.
+func NewModifiedRequestResult(
+	tb testing.TB,
+	req *dns.Msg,
+	fqdn string,
+	rule filter.RuleText,
+	id filter.ID,
+) (r *filter.ResultModifiedRequest) {
+	tb.Helper()
+
+	req = dnsmsg.Clone(req)
+	req.Question[0].Name = fqdn
+
+	return &filter.ResultModifiedRequest{
+		Msg:  req,
+		List: id,
+		Rule: rule,
+	}
+}

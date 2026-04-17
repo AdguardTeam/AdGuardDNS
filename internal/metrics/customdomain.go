@@ -11,7 +11,7 @@ import (
 )
 
 // BackendCustomDomainStorage is the Prometheus-based implementation of the
-// [backendpb.CustomDomainStorageMetrics] interface.
+// [backendgrpc.CustomDomainStorageMetrics] interface.
 type BackendCustomDomainStorage struct {
 	// errorsTotal is a counter of the total number of errors when requesting
 	// certificate data.
@@ -87,7 +87,7 @@ func NewBackendCustomDomainStorage(
 	return m, nil
 }
 
-// ObserveRequest implements the [backendpb.CustomDomainStorageMetrics]
+// ObserveRequest implements the [backendgrpc.CustomDomainStorageMetrics]
 // interface for *BackendCustomDomainStorage.
 func (m *BackendCustomDomainStorage) ObserveRequest(
 	_ context.Context,

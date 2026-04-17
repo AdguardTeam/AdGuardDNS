@@ -229,21 +229,19 @@ func (c *chanPacketConn) SetWriteDeadline(t time.Time) (err error) {
 }
 
 // WriteTo implements the [netext.SessionPacketConn] interface for
-// *chanPacketConn.
+// *chanPacketConn.  raddr must not be nil.
 func (c *chanPacketConn) WriteTo(b []byte, raddr net.Addr) (n int, err error) {
 	return c.writeToSession(b, nil, raddr, "WriteTo")
 }
 
 // WriteToSession implements the [netext.SessionPacketConn] interface for
-// *chanPacketConn.
-func (c *chanPacketConn) WriteToSession(
-	b []byte,
-	s netext.PacketSession,
-) (n int, err error) {
+// *chanPacketConn.  s must not be nil.
+func (c *chanPacketConn) WriteToSession(b []byte, s netext.PacketSession) (n int, err error) {
 	return c.writeToSession(b, s.(*packetSession), nil, "WriteToSession")
 }
 
 // writeToSession contains the common code of [WriteTo] and [WriteToSession].
+// Either raddr or s must not be nil.
 func (c *chanPacketConn) writeToSession(
 	b []byte,
 	s *packetSession,

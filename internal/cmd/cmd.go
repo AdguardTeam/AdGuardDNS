@@ -107,6 +107,12 @@ func Main(plugins *plugin.Registry) {
 
 	errors.Check(b.initRuleListStorage(ctx))
 
+	errors.Check(b.initGRPCMetrics(ctx))
+
+	errors.Check(b.initFilterIndexStorage(ctx))
+
+	errors.Check(b.initTyposquattingFilter(ctx))
+
 	errors.Check(b.initFilterStorage(ctx))
 
 	errors.Check(b.initFilteringGroups(ctx))
@@ -120,8 +126,6 @@ func Main(plugins *plugin.Registry) {
 	errors.Check(b.initQueryLog(ctx))
 
 	errors.Check(b.initMsgConstructor(ctx))
-
-	errors.Check(b.initGRPCMetrics(ctx))
 
 	errors.Check(b.initStandardAccess(ctx))
 
