@@ -19,6 +19,7 @@ import (
 	"github.com/AdguardTeam/golibs/mathutil"
 	"github.com/AdguardTeam/golibs/mathutil/randutil"
 	"github.com/AdguardTeam/golibs/syncutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 )
 
@@ -27,6 +28,9 @@ import (
 type FileSystemConfig struct {
 	// Logger is used for debug logging.  It must not be nil.
 	Logger *slog.Logger
+
+	// Clock is used to get the current time.  It must not be nil.
+	Clock timeutil.Clock
 
 	// Metrics is used for the collection of the query log statistics.  It must
 	// not be nil.
@@ -58,6 +62,7 @@ type FileSystem struct {
 	bufferPool *syncutil.Pool[entryBuffer]
 
 	logger *slog.Logger
+	clock  timeutil.Clock
 
 	// rng is used to generate random numbers for the "rn" property in the
 	// resulting JSON.
@@ -77,6 +82,7 @@ func NewFileSystem(c *FileSystemConfig) (l *FileSystem) {
 
 	return &FileSystem{
 		logger: c.Logger,
+		clock:  c.Clock,
 		bufferPool: syncutil.NewPool(func() (v *entryBuffer) {
 			return &entryBuffer{
 				ent: &jsonlEntry{},
@@ -106,8 +112,8 @@ func (l *FileSystem) Write(ctx context.Context, e *Entry) (err error) {
 		)
 	}()
 
-	startTime := time.Now()
-	defer func() { l.metrics.ObserveWrite(ctx, time.Since(startTime)) }()
+	startTime := l.clock.Now()
+	defer func() { l.metrics.ObserveWrite(ctx, l.clock.Now().Sub(startTime)) }()
 
 	err = l.sema.Acquire(ctx)
 	if err != nil {

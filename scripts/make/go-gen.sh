@@ -1,5 +1,7 @@
 #!/bin/sh
 
+set -e -f -o 'pipefail' -u
+
 verbose="${VERBOSE:-0}"
 readonly verbose
 
@@ -12,10 +14,6 @@ else
 	set +x
 fi
 
-# Exit the script if a pipeline fails (-e), prevent accidental filename
-# expansion (-f), and consider undefined variables as errors (-u).
-set -e -f -u
-
 # Allow users to override the go command from environment.  For example, to
 # build two releases with two different Go versions and test the difference.
 go="${GO:-go}"
@@ -24,6 +22,14 @@ readonly go
 protoc_gen_go_grpc_path="$("$go" tool -n protoc-gen-go-grpc)"
 protoc_gen_go_path="$("$go" tool -n protoc-gen-go)"
 readonly protoc_gen_go_grpc_path protoc_gen_go_path
+
+agdalg() (
+	cd ./internal/agdalg/
+	"$go" run ./confusables_generate.go
+	# Force format code, because it's not possible to make an accurate template
+	# for a long list of integers with different lengths.
+	"$go" tool gofumpt -l -w --extra ./confusables.go
+)
 
 dnspb() (
 	cd ./internal/backendgrpc/dnspb/
@@ -45,7 +51,7 @@ ecscache() (
 	"$go" run ./ecsblocklist_generate.go
 	# Force format code, because it's not possible to make an accurate template
 	# for a long list of strings with different lengths.
-	"$go" tool gofumpt -l -w ./ecsblocklist.go
+	"$go" tool gofumpt -l -w --extra ./ecsblocklist.go
 )
 
 fcpb() (
@@ -71,6 +77,7 @@ geoip_country() (
 )
 
 if [ -z "${ONLY:-}" ]; then
+	agdalg
 	dnspb
 	ecscache
 	fcpb
@@ -78,6 +85,10 @@ if [ -z "${ONLY:-}" ]; then
 	geoip_country
 else
 	padded=" ${ONLY} "
+
+	if [ "${padded##* agdalg *}" = '' ]; then
+		agdalg
+	fi
 
 	if [ "${padded##* dnspb *}" = '' ]; then
 		dnspb

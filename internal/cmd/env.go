@@ -20,6 +20,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/version"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/AdguardTeam/golibs/validate"
@@ -115,10 +116,12 @@ type environment struct {
 	SessionTicketRefreshIvl  timeutil.Duration `env:"SESSION_TICKET_REFRESH_INTERVAL"`
 	StandardAccessRefreshIvl timeutil.Duration `env:"STANDARD_ACCESS_REFRESH_INTERVAL"`
 	StandardAccessTimeout    timeutil.Duration `env:"STANDARD_ACCESS_TIMEOUT"`
+	FilterCacheMaxStaleness  timeutil.Duration `env:"FILTER_CACHE_MAX_STALENESS" envDefault:"720h"`
 
 	BlockProfileRateDenominator int `env:"BLOCK_PROFILE_RATE_DENOM"`
 	// TODO(a.garipov):  Rename to DNSCHECK_CACHE_KV_COUNT?
 	DNSCheckCacheKVSize     uint64 `env:"DNSCHECK_CACHE_KV_SIZE"`
+	HomoglyphCacheCount     uint64 `env:"HOMOGLYPH_CACHE_COUNT"`
 	TyposquattingCacheCount uint64 `env:"TYPOSQUATTING_CACHE_COUNT"`
 
 	MaxThreads                  int `env:"MAX_THREADS"`
@@ -128,7 +131,8 @@ type environment struct {
 
 	ListenPort uint16 `env:"LISTEN_PORT" envDefault:"8181"`
 
-	Verbosity uint8 `env:"VERBOSE" envDefault:"0"`
+	Verbosity               uint8 `env:"VERBOSE"`
+	TyposquattingMinESLLLen uint8 `env:"TYPOSQUATTING_MIN_ESLL_LEN"`
 
 	AdultBlockingEnabled     strictBool `env:"ADULT_BLOCKING_ENABLED" envDefault:"1"`
 	BlockedServiceEnabled    strictBool `env:"BLOCKED_SERVICE_ENABLED" envDefault:"1"`
@@ -136,13 +140,14 @@ type environment struct {
 	CrashOutputEnabled       strictBool `env:"CRASH_OUTPUT_ENABLED" envDefault:"0"`
 	CustomDomainsEnabled     strictBool `env:"CUSTOM_DOMAINS_ENABLED" envDefault:"1"`
 	GeneralSafeSearchEnabled strictBool `env:"GENERAL_SAFE_SEARCH_ENABLED" envDefault:"1"`
+	HomoglyphEnabled         strictBool `env:"HOMOGLYPH_ENABLED" envDefault:"0"`
 	LogTimestamp             strictBool `env:"LOG_TIMESTAMP" envDefault:"1"`
 	NewRegDomainsEnabled     strictBool `env:"NEW_REG_DOMAINS_ENABLED" envDefault:"1"`
 	QueryLogSemaphoreEnabled strictBool `env:"QUERYLOG_SEMAPHORE_ENABLED"`
 	SafeBrowsingEnabled      strictBool `env:"SAFE_BROWSING_ENABLED" envDefault:"1"`
 	TyposquattingEnabled     strictBool `env:"TYPOSQUATTING_ENABLED" envDefault:"0"`
-	YoutubeSafeSearchEnabled strictBool `env:"YOUTUBE_SAFE_SEARCH_ENABLED" envDefault:"1"`
 	WebStaticDirEnabled      strictBool `env:"WEB_STATIC_DIR_ENABLED" envDefault:"0"`
+	YoutubeSafeSearchEnabled strictBool `env:"YOUTUBE_SAFE_SEARCH_ENABLED" envDefault:"1"`
 }
 
 // parseEnvironment reads the configuration.
@@ -197,6 +202,7 @@ func (envs *environment) Validate() (err error) {
 	errs = envs.validateSessionTickets(errs)
 	errs = envs.validateStandardAccess(errs)
 	errs = envs.validateTyposquatting(errs)
+	errs = envs.validateHomoglyph(errs)
 
 	return errors.Join(errs...)
 }
@@ -215,6 +221,10 @@ func (envs *environment) validateFilters(orig []error) (errs []error) {
 	}
 
 	errs = append(errs, validate.Positive("FILTER_REFRESH_INTERVAL", envs.FilterRefreshIvl))
+	errs = append(
+		errs,
+		validate.Positive("FILTER_CACHE_MAX_STALENESS", envs.FilterCacheMaxStaleness),
+	)
 
 	return errs
 }
@@ -506,6 +516,33 @@ func (envs *environment) validateStandardAccess(errs []error) (res []error) {
 	return res
 }
 
+// validateHomoglyph appends validation errors to orig if environment variables
+// for the homoglyph filter contain errors.
+//
+// TODO(a.garipov):  Split validations of the filter-index API variables and the
+// homoglyph ones.
+func (envs *environment) validateHomoglyph(orig []error) (errs []error) {
+	errs = orig
+
+	if !envs.HomoglyphEnabled {
+		return errs
+	}
+
+	errs = append(
+		errs,
+		validate.Positive("env HOMOGLYPH_CACHE_COUNT", envs.HomoglyphCacheCount),
+		validate.Positive("env FILTER_INDEX_API_REFRESH_INTERVAL", envs.FilterIndexAPIRefreshIvl),
+	)
+
+	if err := validate.NotNil("env FILTER_INDEX_API_URL", envs.FilterIndexAPIURL); err != nil {
+		errs = append(errs, err)
+	} else if err = urlutil.ValidateGRPCURL(&envs.FilterIndexAPIURL.URL); err != nil {
+		errs = append(errs, fmt.Errorf("env FILTER_INDEX_API_URL: %w", err))
+	}
+
+	return errs
+}
+
 // validateTyposquatting appends validation errors to orig if environment
 // variables for the typosquatting filter contain errors.
 //
@@ -522,6 +559,7 @@ func (envs *environment) validateTyposquatting(orig []error) (errs []error) {
 		errs,
 		validate.Positive("env TYPOSQUATTING_CACHE_COUNT", envs.TyposquattingCacheCount),
 		validate.Positive("env FILTER_INDEX_API_REFRESH_INTERVAL", envs.FilterIndexAPIRefreshIvl),
+		validate.NoGreaterThan("env TYPOSQUATTING_MIN_ESLL_LEN", envs.TyposquattingMinESLLLen, netutil.MaxDomainLabelLen),
 	)
 
 	if err := validate.NotNil("env FILTER_INDEX_API_URL", envs.FilterIndexAPIURL); err != nil {
@@ -679,13 +717,17 @@ func (envs *environment) validateRateLimitURLs(errs []error) (withURLs []error) 
 }
 
 // buildErrColl builds and returns an error collector from environment.
-// baseLogger must not be nil.
+// baseLogger and clock must not be nil.
 func (envs *environment) buildErrColl(
 	baseLogger *slog.Logger,
+	clock timeutil.Clock,
 ) (errColl errcoll.Interface, err error) {
 	dsn := envs.SentryDSN
 	if dsn == "stderr" {
-		return errcoll.NewWriterErrorCollector(os.Stderr), nil
+		return errcoll.NewWriterErrorCollector(&errcoll.WriterErrorCollectorConfig{
+			Clock:  clock,
+			Writer: os.Stderr,
+		}), nil
 	}
 
 	cli, err := sentry.NewClient(sentry.ClientOptions{
@@ -703,11 +745,12 @@ func (envs *environment) buildErrColl(
 }
 
 // debugConf returns a debug HTTP service configuration from environment.
-// logger and geoIP must not be nil.
+// logger, geoIP, and clock must not be nil.
 func (envs *environment) debugConf(
 	dnsDB dnsdb.Interface,
 	logger *slog.Logger,
 	geoIP geoip.Interface,
+	clock timeutil.Clock,
 ) (conf *debugsvc.Config) {
 	// TODO(a.garipov): Simplify the config if these are guaranteed to always be
 	// the same.
@@ -727,6 +770,7 @@ func (envs *environment) debugConf(
 	conf = &debugsvc.Config{
 		DNSDBHandler:   dnsDBHdlr,
 		GeoIP:          geoIP,
+		Clock:          clock,
 		Logger:         logger.With(slogutil.KeyPrefix, "debugsvc"),
 		DNSDBAddr:      dnsDBAddr,
 		APIAddr:        addr,

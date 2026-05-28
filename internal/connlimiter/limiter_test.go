@@ -12,6 +12,7 @@ import (
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/golibs/testutil/fakenet"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,6 +31,7 @@ func TestLimiter(t *testing.T) {
 	l := connlimiter.New(&connlimiter.Config{
 		Metrics: connlimiter.EmptyMetrics{},
 		Logger:  slogutil.NewDiscardLogger(),
+		Clock:   timeutil.SystemClock{},
 		Stop:    1,
 		Resume:  1,
 	})

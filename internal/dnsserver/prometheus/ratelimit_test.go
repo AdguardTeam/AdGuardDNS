@@ -27,6 +27,7 @@ func TestRateLimiterMetricsListener_integration_cache(t *testing.T) {
 
 	rl := ratelimit.NewBackoff(&ratelimit.BackoffConfig{
 		Allowlist:            ratelimit.NewDynamicAllowlist([]netip.Prefix{}, []netip.Prefix{}),
+		Clock:                testClock,
 		Period:               time.Minute,
 		Duration:             time.Minute,
 		Count:                count,

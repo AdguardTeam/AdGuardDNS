@@ -11,10 +11,14 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/syncutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// testClock is a common clock for tests.
+var testClock = timeutil.SystemClock{}
 
 func TestFileSystem_Write(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), t.Name())
@@ -22,6 +26,7 @@ func TestFileSystem_Write(t *testing.T) {
 
 	l := querylog.NewFileSystem(&querylog.FileSystemConfig{
 		Logger:    slogutil.NewDiscardLogger(),
+		Clock:     testClock,
 		Metrics:   querylog.EmptyMetrics{},
 		Semaphore: syncutil.EmptySemaphore{},
 		Path:      f.Name(),
@@ -115,6 +120,7 @@ func BenchmarkFileSystem_Write_file(b *testing.B) {
 
 	l := querylog.NewFileSystem(&querylog.FileSystemConfig{
 		Logger:    slogutil.NewDiscardLogger(),
+		Clock:     testClock,
 		Metrics:   querylog.EmptyMetrics{},
 		Semaphore: syncutil.EmptySemaphore{},
 		Path:      f.Name(),

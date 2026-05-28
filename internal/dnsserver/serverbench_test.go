@@ -149,11 +149,11 @@ func BenchmarkServeDoH(b *testing.B) {
 		https        bool
 		http3Enabled bool
 	}{{
-		tlsConfig:    dnsservertest.NewTLSConfig("example.org"),
+		tlsConfig:    dnsservertest.NewTLSConfig("example.org", time.Now()),
 		name:         "doh2",
 		http3Enabled: false,
 	}, {
-		tlsConfig:    dnsservertest.NewTLSConfig("example.org"),
+		tlsConfig:    dnsservertest.NewTLSConfig("example.org", time.Now()),
 		name:         "doh3",
 		http3Enabled: true,
 	}, {
@@ -284,7 +284,7 @@ func BenchmarkServeDNSCrypt(b *testing.B) {
 }
 
 func BenchmarkServeQUIC(b *testing.B) {
-	tlsConfig := dnsservertest.NewTLSConfig("example.org")
+	tlsConfig := dnsservertest.NewTLSConfig("example.org", time.Now())
 	addr := dnsservertest.RunLocalQUICServer(b, dnsservertest.NewDefaultHandler(), tlsConfig)
 
 	req := (&dns.Msg{

@@ -76,6 +76,10 @@ type FilterIndexStorageMetrics interface {
 	// ObserveTyposquatting sets the duration of the typosquatting-filter index
 	// update operation.
 	ObserveTyposquatting(ctx context.Context, dur time.Duration, err error)
+
+	// ObserveHomoglyph sets the duration of the homoglyph-filter index update
+	// operation.
+	ObserveHomoglyph(ctx context.Context, dur time.Duration, err error)
 }
 
 // EmptyFilterIndexStorageMetrics is the implementation of the
@@ -88,6 +92,15 @@ var _ FilterIndexStorageMetrics = EmptyFilterIndexStorageMetrics{}
 // ObserveTyposquatting implements the [FilterIndexStorageMetrics] interface for
 // EmptyFilterIndexMetrics.
 func (EmptyFilterIndexStorageMetrics) ObserveTyposquatting(
+	_ context.Context,
+	_ time.Duration,
+	_ error,
+) {
+}
+
+// ObserveHomoglyph implements the [FilterIndexStorageMetrics] interface for
+// EmptyFilterIndexMetrics.
+func (EmptyFilterIndexStorageMetrics) ObserveHomoglyph(
 	_ context.Context,
 	_ time.Duration,
 	_ error,

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -16,6 +17,9 @@ type Filter struct {
 	// rulesTotal is the gauge vector with the number of rules loaded by each
 	// filter.
 	rulesTotal *prometheus.GaugeVec
+
+	// sizeBytes is the gauge vector with the size of the filter data in bytes.
+	sizeBytes *prometheus.GaugeVec
 
 	// updateStatus is the gauge vector with status of the last filter update.
 	// "0" means error, "1" means success.
@@ -31,6 +35,7 @@ type Filter struct {
 func NewFilter(namespace string, reg prometheus.Registerer) (m *Filter, err error) {
 	const (
 		rulesTotal   = "rules_total"
+		sizeBytes    = "size_bytes"
 		updateStatus = "update_status"
 		updatedTime  = "updated_time"
 	)
@@ -41,6 +46,13 @@ func NewFilter(namespace string, reg prometheus.Registerer) (m *Filter, err erro
 			Subsystem: subsystemFilter,
 			Namespace: namespace,
 			Help:      "The number of rules loaded by filters.",
+		}, []string{"filter"}),
+
+		sizeBytes: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name:      sizeBytes,
+			Subsystem: subsystemFilter,
+			Namespace: namespace,
+			Help:      "The size of the filter data in bytes.",
 		}, []string{"filter"}),
 
 		updateStatus: prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -63,6 +75,9 @@ func NewFilter(namespace string, reg prometheus.Registerer) (m *Filter, err erro
 		Key:   rulesTotal,
 		Value: m.rulesTotal,
 	}, {
+		Key:   sizeBytes,
+		Value: m.sizeBytes,
+	}, {
 		Key:   updateStatus,
 		Value: m.updateStatus,
 	}, {
@@ -84,29 +99,32 @@ func NewFilter(namespace string, reg prometheus.Registerer) (m *Filter, err erro
 	return m, nil
 }
 
+// type check
+var _ filter.Metrics = (*Filter)(nil)
+
 // SetStatus implements the [filter.Metrics] interface for *Filter.
-func (m *Filter) SetStatus(
-	_ context.Context,
-	id string,
-	updTime time.Time,
-	ruleCount uint64,
-	err error,
-) {
-	if err != nil {
+func (m *Filter) SetStatus(_ context.Context, update *filter.StatusUpdate) {
+	id := update.ID
+
+	if update.Error != nil {
 		m.updateStatus.WithLabelValues(id).Set(0)
 
 		return
 	}
 
-	m.rulesTotal.WithLabelValues(id).Set(float64(ruleCount))
+	m.rulesTotal.WithLabelValues(id).Set(float64(update.RuleCount))
+	m.sizeBytes.WithLabelValues(id).Set(float64(update.SizeBytes))
 	m.updateStatus.WithLabelValues(id).Set(1)
-	m.updatedTime.WithLabelValues(id).Set(float64(updTime.UnixNano()) / float64(time.Second))
+	m.updatedTime.WithLabelValues(id).Set(
+		float64(update.UpdateTime.UnixNano()) / float64(time.Second),
+	)
 }
 
 // Delete implements the [filter.Metrics] interface for *Filter.
 func (m *Filter) Delete(_ context.Context, ids []string) {
 	for _, id := range ids {
 		m.rulesTotal.DeleteLabelValues(id)
+		m.sizeBytes.DeleteLabelValues(id)
 		m.updateStatus.DeleteLabelValues(id)
 		m.updatedTime.DeleteLabelValues(id)
 	}

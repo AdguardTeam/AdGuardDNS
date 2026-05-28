@@ -38,11 +38,16 @@ import (
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/mathutil/randutil"
 	"github.com/AdguardTeam/golibs/service"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 )
 
 // HandlerConfig is the configuration structure for [NewHandler].
 type HandlerConfig struct {
+	// Clock is used to get the current time.  If not set,
+	// [timeutil.SystemClock] is used.
+	Clock timeutil.Clock
+
 	// Logger is used for logging the operation of the forwarding handler.  If
 	// Logger is nil, [slog.Default] is used.
 	Logger *slog.Logger
@@ -110,6 +115,9 @@ type Handler struct {
 	// logger is used for logging the operation of the forwarding handler.
 	logger *slog.Logger
 
+	// clock is used to get the current time.
+	clock timeutil.Clock
+
 	// metrics is a listener for the handler events.
 	metrics MetricsListener
 
@@ -160,23 +168,24 @@ type upstreamStatus struct {
 // happen, but we prefer to return an error instead of panicking.
 const ErrNoResponse errors.Error = "no response"
 
-// NewHandler initializes a new instance of Handler.  It also performs a health
+// NewHandler initializes a new instance of *Handler.  It also performs a health
 // check afterwards if c.HealthcheckInitDuration is not zero.  Note, that this
-// handler only support plain DNS upstreams.  c must not be nil.
-func NewHandler(conf *HandlerConfig) (h *Handler) {
-	src := conf.RandSource
+// handler only support plain DNS upstreams.  c must be valid.
+func NewHandler(c *HandlerConfig) (h *Handler) {
+	src := c.RandSource
 	if src == nil {
 		// Do not initialize through [cmp.Or], as the default value could panic.
 		src = rand.NewChaCha8(randutil.MustNewSeed())
 	}
 
-	hcConf := conf.Healthcheck
+	hcConf := c.Healthcheck
 	if hcConf == nil {
 		hcConf = &HealthcheckConfig{}
 	}
 
 	h = &Handler{
-		logger: cmp.Or(conf.Logger, slog.Default()),
+		logger: cmp.Or(c.Logger, slog.Default()),
+		clock:  cmp.Or[timeutil.Clock](c.Clock, timeutil.SystemClock{}),
 		// #nosec G404 -- We don't need a real random, pseudorandom is enough.
 		rand:              rand.New(randutil.NewLockedSource(src)),
 		activeUpstreamsMu: &sync.RWMutex{},
@@ -188,15 +197,15 @@ func NewHandler(conf *HandlerConfig) (h *Handler) {
 		h.hcBackoff = hcConf.BackoffDuration
 	}
 
-	if l := conf.MetricsListener; l != nil {
+	if l := c.MetricsListener; l != nil {
 		h.metrics = l
 	} else {
 		h.metrics = &EmptyMetricsListener{}
 	}
 
-	h.upstreams = make([]*upstreamStatus, 0, len(conf.UpstreamsAddresses))
-	h.activeUpstreams = make([]Upstream, 0, len(conf.UpstreamsAddresses))
-	for _, upsConf := range conf.UpstreamsAddresses {
+	h.upstreams = make([]*upstreamStatus, 0, len(c.UpstreamsAddresses))
+	h.activeUpstreams = make([]Upstream, 0, len(c.UpstreamsAddresses))
+	for _, upsConf := range c.UpstreamsAddresses {
 		u := NewUpstreamPlain(upsConf)
 		h.activeUpstreams = append(h.activeUpstreams, u)
 		h.upstreams = append(h.upstreams, &upstreamStatus{
@@ -205,8 +214,8 @@ func NewHandler(conf *HandlerConfig) (h *Handler) {
 		})
 	}
 
-	h.fallbacks = make([]Upstream, 0, len(conf.FallbackAddresses))
-	for _, upsConf := range conf.FallbackAddresses {
+	h.fallbacks = make([]Upstream, 0, len(c.FallbackAddresses))
+	for _, upsConf := range c.FallbackAddresses {
 		h.fallbacks = append(h.fallbacks, NewUpstreamPlain(upsConf))
 	}
 
@@ -298,7 +307,7 @@ func (h *Handler) exchange(
 	u Upstream,
 	req *dns.Msg,
 ) (resp *dns.Msg, err error) {
-	startTime := time.Now()
+	startTime := h.clock.Now()
 	nw := NetworkAny
 	defer func() {
 		h.metrics.OnForwardRequest(ctx, u, req, resp, nw, startTime, err)

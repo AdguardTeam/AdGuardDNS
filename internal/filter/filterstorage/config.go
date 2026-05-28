@@ -9,6 +9,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/homoglyph"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/domain"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/ruleliststorage"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/typosquatting"
@@ -41,6 +42,12 @@ type Config struct {
 	// HashPrefix is the hashprefix-filter configuration for a default filter
 	// storage.  It must not be nil
 	HashPrefix *HashPrefixConfig
+
+	// Homoglyph is the configuration for the homoglyph filter.  It must not be
+	// nil.
+	//
+	// TODO(e.burkov):  Add to tests.
+	Homoglyph *HomoglyphConfig
 
 	// SafeSearchGeneral is the general safe-search configuration for a default
 	// filter storage.  It must not be nil.
@@ -229,6 +236,16 @@ type SafeSearchConfig struct {
 	ResultCacheCount uint64
 
 	// Enabled shows whether this safe-search filter is enabled.
+	Enabled bool
+}
+
+// HomoglyphConfig is the configuration structure for the homoglyph filter.
+type HomoglyphConfig struct {
+	// Filter is a homoglyph filter based on [UTR #39] confusable detection.
+	// If [HomoglyphConfig.Enabled] is true, it must not be nil.
+	Filter *homoglyph.Filter
+
+	// Enabled shows whether the homoglyph filter is enabled.
 	Enabled bool
 }
 

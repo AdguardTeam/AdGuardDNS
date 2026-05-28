@@ -13,9 +13,10 @@ import (
 	"time"
 )
 
-// NewTLSConfig returns a test TLS configuration that can be used for
-// both a server and a client.
-func NewTLSConfig(tlsServerName string) (tlsConfig *tls.Config) {
+// NewTLSConfig returns a test TLS configuration that can be used for both a
+// server and a client.  notBefore is the time when the certificate becomes
+// valid, if it is not set, time.Now() is used.
+func NewTLSConfig(tlsServerName string, notBefore time.Time) (tlsConfig *tls.Config) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		panic(fmt.Sprintf("cannot generate RSA key: %v", err))
@@ -27,7 +28,11 @@ func NewTLSConfig(tlsServerName string) (tlsConfig *tls.Config) {
 		panic(fmt.Sprintf("failed to generate serial number: %v", err))
 	}
 
-	notBefore := time.Now()
+	if notBefore.IsZero() {
+		notBefore = time.Now()
+	}
+
+	// The certificate is valid for 5 years.
 	notAfter := notBefore.Add(5 * 365 * time.Hour * 24)
 
 	template := x509.Certificate{

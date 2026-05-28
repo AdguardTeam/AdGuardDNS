@@ -16,6 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/profiledbtest"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,6 +29,7 @@ func newTestStorage(tb testing.TB, conf *filecacheopb.Config) (storage *filecach
 	conf = cmp.Or(conf, &filecacheopb.Config{})
 
 	storage = filecacheopb.New(&filecacheopb.Config{
+		Clock:            cmp.Or[timeutil.Clock](conf.Clock, timeutil.SystemClock{}),
 		Logger:           cmp.Or(conf.Logger, profiledbtest.Logger),
 		BaseCustomLogger: cmp.Or(conf.BaseCustomLogger, profiledbtest.Logger),
 		ProfileAccessConstructor: cmp.Or(

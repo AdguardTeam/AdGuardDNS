@@ -254,7 +254,7 @@ func (s *ServerDNS) newContextForTCPReq(
 	ctx, cancel = s.reqCtx.New(context.WithoutCancel(parent))
 
 	ri := &RequestInfo{
-		StartTime: time.Now(),
+		StartTime: s.clock.Now(),
 	}
 	if cs, ok := conn.(tlsConnectionStater); ok {
 		tlsConnState := cs.ConnectionState()
@@ -275,7 +275,7 @@ func (s *ServerDNS) readTCPMsg(
 ) (msg *dns.Msg, err error) {
 	// Use SetReadDeadline as opposed to SetDeadline, since the TLS handshake
 	// has already been performed, so conn.Read shouldn't perform writes.
-	err = conn.SetReadDeadline(time.Now().Add(timeout))
+	err = conn.SetReadDeadline(s.clock.Now().Add(timeout))
 	if err != nil {
 		return nil, fmt.Errorf("setting deadline: %w", err)
 	}

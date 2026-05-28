@@ -9,6 +9,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendgrpc/dnspb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -22,6 +23,9 @@ type RemoteKVConfig struct {
 	// GRPCMetrics is used for the collection of the protobuf communication
 	// statistics.
 	GRPCMetrics GRPCMetrics
+
+	// Clock is used to get the current time.  It must not be nil.
+	Clock timeutil.Clock
 
 	// Endpoint is the backend API URL.  The scheme should be either "grpc" or
 	// "grpcs".
@@ -38,6 +42,7 @@ type RemoteKVConfig struct {
 // uses the business logic backend as the key-value storage.  It is safe for
 // concurrent use.
 type RemoteKV struct {
+	clock       timeutil.Clock
 	grpcMetrics GRPCMetrics
 	metrics     RemoteKVMetrics
 	client      dnspb.RemoteKVServiceClient
@@ -46,7 +51,7 @@ type RemoteKV struct {
 }
 
 // NewRemoteKV returns a new [RemoteKV] that retrieves information from the
-// business logic backend.
+// business logic backend.  c must be valid.
 func NewRemoteKV(c *RemoteKVConfig) (kv *RemoteKV, err error) {
 	client, err := newClient(c.Endpoint)
 	if err != nil {
@@ -55,6 +60,7 @@ func NewRemoteKV(c *RemoteKVConfig) (kv *RemoteKV, err error) {
 	}
 
 	return &RemoteKV{
+		clock:       c.Clock,
 		grpcMetrics: c.GRPCMetrics,
 		metrics:     c.Metrics,
 		client:      dnspb.NewRemoteKVServiceClient(client),
@@ -74,7 +80,7 @@ func (kv *RemoteKV) Get(ctx context.Context, key string) (val []byte, ok bool, e
 
 	ctx = ctxWithAuthentication(ctx, kv.apiKey)
 
-	start := time.Now()
+	start := kv.clock.Now()
 	resp, err := kv.client.Get(ctx, req)
 	if err != nil {
 		err = fmt.Errorf("getting %q key: %w", key, fixGRPCError(ctx, kv.grpcMetrics, err))
@@ -82,7 +88,7 @@ func (kv *RemoteKV) Get(ctx context.Context, key string) (val []byte, ok bool, e
 		return nil, false, err
 	}
 
-	kv.metrics.ObserveOperation(ctx, RemoteKVOpGet, time.Since(start))
+	kv.metrics.ObserveOperation(ctx, RemoteKVOpGet, kv.clock.Now().Sub(start))
 
 	defer func() { kv.metrics.IncrementLookups(ctx, ok) }()
 
@@ -113,13 +119,13 @@ func (kv *RemoteKV) Set(ctx context.Context, key string, val []byte) (err error)
 
 	ctx = ctxWithAuthentication(ctx, kv.apiKey)
 
-	start := time.Now()
+	start := kv.clock.Now()
 	_, err = kv.client.Set(ctx, req)
 	if err != nil {
 		return fmt.Errorf("setting %q key: %w", key, fixGRPCError(ctx, kv.grpcMetrics, err))
 	}
 
-	kv.metrics.ObserveOperation(ctx, RemoteKVOpSet, time.Since(start))
+	kv.metrics.ObserveOperation(ctx, RemoteKVOpSet, kv.clock.Now().Sub(start))
 
 	return nil
 }

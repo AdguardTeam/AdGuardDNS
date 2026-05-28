@@ -140,6 +140,7 @@ func New(c *Config) (s *Default, err error) {
 	idxConf := c.IndexConfig
 
 	idxRefr, err := refreshable.New(&refreshable.Config{
+		Clock: c.Clock,
 		Logger: c.BaseLogger.With(
 			slogutil.KeyPrefix, path.Join("filters", string(filterIDRuleListIndex)),
 		),

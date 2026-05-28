@@ -23,6 +23,7 @@ func TestCacheMetricsListener_integration_cache(t *testing.T) {
 	require.NoError(t, err)
 
 	cacheMiddleware := cache.NewMiddleware(&cache.MiddlewareConfig{
+		Clock:           testClock,
 		Logger:          testLogger,
 		MetricsListener: mtrcListener,
 		Count:           100,

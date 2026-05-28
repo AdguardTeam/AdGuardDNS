@@ -2,20 +2,28 @@ package errcoll_test
 
 import (
 	"bytes"
-	"context"
 	"testing"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
-	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestWriterErrorCollector(t *testing.T) {
-	buf := &bytes.Buffer{}
-	c := errcoll.NewWriterErrorCollector(buf)
-	c.Collect(context.Background(), errors.Error("test error"))
+// testTimeout is the common timeout for tests.
+const testTimeout = 1 * time.Second
 
-	wantRx := `.*: caught error: test error.*`
+func TestWriterErrorCollector(t *testing.T) {
+	t.Parallel()
+
+	buf := &bytes.Buffer{}
+	c := errcoll.NewWriterErrorCollector(&errcoll.WriterErrorCollectorConfig{
+		Clock:  timeutil.SystemClock{},
+		Writer: buf,
+	})
+	c.Collect(testutil.ContextWithTimeout(t, testTimeout), assert.AnError)
+
 	got := buf.String()
-	assert.Regexp(t, wantRx, got)
+	assert.Regexp(t, ".*: caught error: "+assert.AnError.Error()+".*", got)
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/AdguardTeam/golibs/ioutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/requestid"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 	renameio "github.com/google/renameio/v2"
 )
@@ -31,6 +32,7 @@ import (
 // TODO(a.garipov, e.burkov):  Move to golibs.
 type Refreshable struct {
 	logger    *slog.Logger
+	clock     timeutil.Clock
 	http      *agdhttp.Client
 	url       *url.URL
 	id        filter.ID
@@ -43,6 +45,9 @@ type Refreshable struct {
 type Config struct {
 	// Logger is used to log errors during refreshes.
 	Logger *slog.Logger
+
+	// Clock is used to get the current time.  It must not be nil.
+	Clock timeutil.Clock
 
 	// URL is the URL used to refresh the data.  URL should be either a file URL
 	// or an HTTP(S) URL and should not be nil.
@@ -81,6 +86,7 @@ func New(c *Config) (f *Refreshable, err error) {
 
 	return &Refreshable{
 		logger: c.Logger,
+		clock:  c.Clock,
 		http: agdhttp.NewClient(&agdhttp.ClientConfig{
 			Timeout: c.Timeout,
 		}),
@@ -137,8 +143,7 @@ func (f *Refreshable) useCachedOrRefreshFromURL(
 	ctx context.Context,
 	acceptStale bool,
 ) (b []byte, err error) {
-	// TODO(e.burkov):  Add [timeutil.Clock].
-	now := time.Now()
+	now := f.clock.Now()
 
 	b, err = DataFromFile(f.cachePath, now, f.staleness, acceptStale)
 	if err != nil {

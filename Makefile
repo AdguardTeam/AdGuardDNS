@@ -18,18 +18,19 @@
 GO.MACRO = $${GO:-go}
 VERBOSE.MACRO = $${VERBOSE:-0}
 
+APP_VERSION = 0
 BRANCH = $${BRANCH:-$$(git rev-parse --abbrev-ref HEAD)}
 GOAMD64 = v1
 GOPROXY = https://proxy.golang.org|direct
 GOTELEMETRY = off
-GOTOOLCHAIN = go1.26.2
+GOTOOLCHAIN = go1.26.3
 RACE = 0
 REVISION = $${REVISION:-$$(git rev-parse --short HEAD)}
-VERSION = 0
 
 # TODO(f.setrakov): Remove the bin directory from the paths, as it is no longer
 # needed.
 ENV = env \
+	APP_VERSION="$(APP_VERSION)" \
 	BRANCH="$(BRANCH)" \
 	GO="$(GO.MACRO)" \
 	GOAMD64='$(GOAMD64)' \
@@ -41,7 +42,6 @@ ENV = env \
 	RACE='$(RACE)' \
 	REVISION="$(REVISION)" \
 	VERBOSE="$(VERBOSE.MACRO)" \
-	VERSION="$(VERSION)" \
 
 # Keep the line above blank.
 

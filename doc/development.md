@@ -37,6 +37,7 @@ This is not an extensive list. See `../Makefile`.
 
 - `make go-gen`: Regenerate the automatically generated Go files that need to be periodically updated. Those generated files are:
 
+    - `../internal/agdalg/confusables.go`
     - `../internal/backendgrpc/dnspb/dns.pb.go`
     - `../internal/backendgrpc/dnspb/dns_grpc.pb.go`
     - `../internal/ecscache/ecsblocklist_generate.go`
@@ -54,6 +55,8 @@ This is not an extensive list. See `../Makefile`.
 
     Available values:
 
+    - `agdalg`
+        - `CONFUSABLES_URL`:  Rewrites the default URL for `confusables.txt` file used to generate the confusables index.
     - `dnspb`
     - `ecscache`
     - `fcpb`
@@ -185,10 +188,6 @@ If you're using an OS different from Linux, you also need to make these changes:
 - Remove the `interface_listeners` section.
 - Remove `bind_interfaces` from the `default_dns` server configuration and replace it with `bind_addresses`.
 
-<!--
-    TODO(a.garipov,e.burkov): Update the script below.
--->
-
 ```sh
 env \
     ADULT_BLOCKING_URL='https://raw.githubusercontent.com/ameshkov/stuff/master/DNS/adult_blocking.txt' \
@@ -197,10 +196,24 @@ env \
     CATEGORY_FILTER_INDEX_URL='https://filters.adtidy.org/dns/category/filters.json' \
     CONSUL_ALLOWLIST_URL='https://raw.githubusercontent.com/ameshkov/stuff/master/DNS/consul_allowlist.json' \
     CONFIG_PATH='./config.yaml' \
+    CUSTOM_DOMAINS_CACHE_PATH='/path/to/cache' \
+    CUSTOM_DOMAINS_REFRESH_INTERVAL='5s' \
+    CUSTOM_DOMAINS_URL='grpc://127.0.0.1:6062' \
+    DNSCHECK_KV_TYPE='backend' \
+    DNSCHECK_KV_TTL='5s' \
+    DNSCHECK_REMOTEKV_URL='grpc://127.0.0.1:6062' \
+    RATELIMIT_ALLOWLIST_TYPE='backend' \
+    BACKEND_RATELIMIT_URL='grpc://127.0.0.1:6062' \
+    SESSION_TICKET_TYPE='local' \
+    SESSION_TICKET_REFRESH_INTERVAL='5s' \
+    STANDARD_ACCESS_TYPE='off' \
     FILTER_INDEX_URL='https://adguardteam.github.io/HostlistsRegistry/assets/filters.json' \
-    FILTER_CACHE_PATH='./test/cache' \
+    FILTER_CACHE_PATH='./path/to/filter/cache' \
+    FILTER_CACHE_MAX_STALENESS='72h' \
+    FILTER_REFRESH_INTERVAL='5s' \
     NEW_REG_DOMAINS_URL='https://raw.githubusercontent.com/ameshkov/stuff/master/DNS/nrd.txt' \
     NODE_NAME='node_name' \
+    PROFILES_CACHE_TYPE='none' \
     PROFILES_CACHE_PATH='./test/profilecache.pb' \
     PROFILES_URL='grpc://localhost:6062' \
     SAFE_BROWSING_URL='https://raw.githubusercontent.com/ameshkov/stuff/master/DNS/safe_browsing.txt' \

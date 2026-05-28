@@ -17,12 +17,16 @@ import (
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/golibs/testutil/servicetest"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/ameshkov/dnscrypt/v2"
 	"github.com/stretchr/testify/require"
 )
 
 // testTimeout is the timeout for test operations.
 const testTimeout = 2 * time.Second
+
+// testClock is a common clock for tests.
+var testClock = timeutil.SystemClock{}
 
 // LocalhostAnyPort is the localhost address with unspecified port, which can be
 // used for binding to any available port on localhost.
@@ -43,6 +47,7 @@ func newConfigDNSWithDefaults(tb testing.TB, c *dnsserver.ConfigDNS) {
 	c.Base = &base
 
 	base.BaseLogger = cmp.Or(base.BaseLogger, slogutil.NewDiscardLogger())
+	base.Clock = cmp.Or[timeutil.Clock](base.Clock, timeutil.SystemClock{})
 	base.Handler = cmp.Or(base.Handler, NewDefaultHandler())
 	base.Name = cmp.Or(base.Name, tb.Name())
 	base.Addr = cmp.Or(base.Addr, LocalhostAnyPort.String())
@@ -114,7 +119,7 @@ func RunTLSServer(tb testing.TB, c *dnsserver.ConfigTLS) (addr *net.TCPAddr, tls
 	c.DNS = &cDNS
 
 	if c.TLSConfig == nil {
-		c.TLSConfig = NewTLSConfig(DomainName)
+		c.TLSConfig = NewTLSConfig(DomainName, time.Now())
 	}
 
 	s := dnsserver.NewServerTLS(c)
@@ -169,6 +174,7 @@ func RunDNSCryptServer(tb testing.TB, h dnsserver.Handler) (s *TestDNSCryptServe
 	conf := &dnsserver.ConfigDNSCrypt{
 		Base: &dnsserver.ConfigBase{
 			BaseLogger: slogutil.NewDiscardLogger(),
+			Clock:      testClock,
 			Handler:    h,
 			Name:       "test",
 			Addr:       "127.0.0.1:0",
@@ -222,6 +228,7 @@ func RunLocalHTTPSServer(
 	conf := &dnsserver.ConfigHTTPS{
 		Base: &dnsserver.ConfigBase{
 			BaseLogger: slogutil.NewDiscardLogger(),
+			Clock:      testClock,
 			Handler:    h,
 			Network:    network,
 			Name:       "test",
@@ -254,6 +261,7 @@ func RunLocalQUICServer(
 		TLSConfig: tlsConfig,
 		Base: &dnsserver.ConfigBase{
 			BaseLogger: slogutil.NewDiscardLogger(),
+			Clock:      testClock,
 			Handler:    h,
 			Name:       "test",
 			Addr:       "127.0.0.1:0",

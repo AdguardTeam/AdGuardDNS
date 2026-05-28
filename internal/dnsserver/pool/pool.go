@@ -2,6 +2,7 @@
 package pool
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/timeutil"
 )
 
 // ErrClosed indicates that the Pool is closed and cannot be used anymore.
@@ -30,6 +32,9 @@ type Pool struct {
 	// more connections in the pool.
 	factory Factory
 
+	// clock is used to get the current time.
+	clock timeutil.Clock
+
 	// IdleTimeout is the maximum TTL of an idle connection in the pool.
 	// Connections that weren't used for more than the specified duration will
 	// be closed.  If set to 0, connections don't expire.
@@ -39,13 +44,15 @@ type Pool struct {
 }
 
 // NewPool creates a new Pool instance.  maxCapacity configures the maximum
-// number of idle connections in the pool.  If the pool is full,
-// Put will close the connection instead of adding it to the pool.
-func NewPool(maxCapacity int, factory Factory) (p *Pool) {
+// number of idle connections in the pool.  If the pool is full, Put will close
+// the connection instead of adding it to the pool.  factory must not be nil.
+// If clock is not set, [timeutil.SystemClock] is used.
+func NewPool(maxCapacity int, factory Factory, clock timeutil.Clock) (p *Pool) {
 	return &Pool{
 		connsChan:   make(chan *Conn, maxCapacity),
 		connsChanMu: &sync.RWMutex{},
 		factory:     factory,
+		clock:       cmp.Or[timeutil.Clock](clock, timeutil.SystemClock{}),
 	}
 }
 
@@ -67,7 +74,8 @@ func (p *Pool) Get(ctx context.Context) (conn *Conn, err error) {
 				return nil, ErrClosed
 			}
 
-			if isExpired(conn, p.IdleTimeout) {
+			now := p.clock.Now()
+			if isExpired(conn, p.IdleTimeout, now) {
 				// Close the expired connection immediately and look for a new
 				// one.  Ignoring the error here since it's not important what
 				// happens with it and I'd like to avoid logging
@@ -75,7 +83,7 @@ func (p *Pool) Get(ctx context.Context) (conn *Conn, err error) {
 				continue
 			}
 
-			conn.lastTimeUsed = time.Now()
+			conn.lastTimeUsed = now
 
 			return conn, nil
 		default:
@@ -149,5 +157,5 @@ func (p *Pool) Create(ctx context.Context) (c *Conn, err error) {
 		return nil, err
 	}
 
-	return wrapConn(netConn), nil
+	return wrapConn(netConn, p.clock.Now()), nil
 }

@@ -61,6 +61,7 @@ func TestDefault_Refresh(t *testing.T) {
 	c.SafeSearchGeneral = newConfigSafeSearch(safeSearchGenURL, filter.IDGeneralSafeSearch)
 	c.SafeSearchYouTube = newConfigSafeSearch(safeSearchYTURL, filter.IDYoutubeSafeSearch)
 	c.Typosquatting = &filterstorage.TyposquattingConfig{}
+	c.Homoglyph = &filterstorage.HomoglyphConfig{}
 
 	s, err := filterstorage.New(c)
 	require.NoError(t, err)
@@ -144,6 +145,7 @@ func TestDefault_Refresh_usePrevious(t *testing.T) {
 			Enabled: true,
 		},
 		SafeBrowsing: &filter.ConfigSafeBrowsing{
+			Homoglyph:     &filter.ConfigHomoglyph{},
 			Typosquatting: &filter.ConfigTyposquatting{},
 		},
 	}

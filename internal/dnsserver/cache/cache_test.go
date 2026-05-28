@@ -11,6 +11,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/cache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -189,6 +190,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 		withCache := dnsserver.WithMiddlewares(
 			handler,
 			cache.NewMiddleware(&cache.MiddlewareConfig{
+				Clock:       timeutil.SystemClock{},
 				Logger:      testLogger,
 				Count:       100,
 				MinTTL:      minTTL,

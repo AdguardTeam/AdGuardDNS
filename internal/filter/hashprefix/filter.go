@@ -18,6 +18,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/golibs/service"
 	"github.com/AdguardTeam/golibs/syncutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 )
 
@@ -25,6 +26,9 @@ import (
 type FilterConfig struct {
 	// Logger is used for logging the operation of the filter.
 	Logger *slog.Logger
+
+	// Clock is used to get the current time.  It must not be nil.
+	Clock timeutil.Clock
 
 	// Cloner is used to clone messages taken from filtering-result cache.
 	Cloner *dnsmsg.Cloner
@@ -89,6 +93,7 @@ type FilterConfig struct {
 // table.  It should be initially refreshed with [Filter.RefreshInitial].
 type Filter struct {
 	logger           *slog.Logger
+	clock            timeutil.Clock
 	cloner           *dnsmsg.Cloner
 	hashes           *Storage
 	refr             *refreshable.Refreshable
@@ -123,6 +128,7 @@ func NewFilter(c *FilterConfig) (f *Filter, err error) {
 
 	f = &Filter{
 		logger:   c.Logger,
+		clock:    c.Clock,
 		cloner:   c.Cloner,
 		hashes:   c.Hashes,
 		replCons: c.ReplacedResultConstructor,
@@ -142,6 +148,7 @@ func NewFilter(c *FilterConfig) (f *Filter, err error) {
 	}
 
 	f.refr, err = refreshable.New(&refreshable.Config{
+		Clock:     c.Clock,
 		Logger:    f.logger,
 		URL:       c.URL,
 		ID:        id,
@@ -243,10 +250,19 @@ func (f *Filter) RefreshInitial(ctx context.Context) (err error) {
 // not try to load the list from its URL when there is already a file in the
 // cache directory, regardless of its staleness.
 func (f *Filter) refresh(ctx context.Context, acceptStale bool) (err error) {
-	var count uint64
+	var (
+		count     uint64
+		sizeBytes uint64
+	)
 	defer func() {
 		// TODO(a.garipov):  Consider using [agdtime.Clock].
-		f.metrics.SetStatus(ctx, string(f.id), time.Now(), count, err)
+		f.metrics.SetStatus(ctx, &filter.StatusUpdate{
+			Error:      err,
+			UpdateTime: f.clock.Now(),
+			ID:         string(f.id),
+			RuleCount:  count,
+			SizeBytes:  sizeBytes,
+		})
 	}()
 
 	b, err := f.refr.Refresh(ctx, acceptStale)
@@ -255,6 +271,7 @@ func (f *Filter) refresh(ctx context.Context, acceptStale bool) (err error) {
 		return err
 	}
 
+	sizeBytes = uint64(len(b))
 	count, err = f.hashes.Reset(b)
 	if err != nil {
 		return fmt.Errorf("%s: resetting: %w", f.id, err)

@@ -14,6 +14,7 @@ import (
 func AssertEqualProfile(tb testing.TB, want, got any) (ok bool) {
 	tb.Helper()
 
+	// TODO(a.garipov):  Use a [gocmp.AllowUnexported] with precise types.
 	exportAll := gocmp.Exporter(func(_ reflect.Type) (ok bool) { return true })
 
 	defAccCmp := gocmp.Comparer(func(want, got *access.DefaultProfile) (ok bool) {

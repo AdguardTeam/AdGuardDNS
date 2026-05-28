@@ -17,7 +17,8 @@ import (
 //
 // TODO(a.garipov):  Add more metrics.
 type Config struct {
-	// Cloner is used to clone messages taken from filtering-result cache.
+	// Cloner is used to clone messages taken from filtering-result cache.  It
+	// must not be nil.
 	Cloner *dnsmsg.Cloner
 
 	// Logger is used for logging the operation of the filter.  It must not be
@@ -63,4 +64,8 @@ type Config struct {
 	// CacheCount is the count of items to keep in the LRU result cache.  It
 	// must be greater than zero and less than or equal to [math.MaxInt].
 	CacheCount uint64
+
+	// MinESLLLen is the minimum length of the effective second-level label that
+	// must be checked.  It must be less than or equal to [netutil.MaxDomainLabelLen].
+	MinESLLLen uint8
 }

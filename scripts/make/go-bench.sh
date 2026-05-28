@@ -1,5 +1,7 @@
 #!/bin/sh
 
+set -e -f -o 'pipefail' -u
+
 verbose="${VERBOSE:-0}"
 readonly verbose
 
@@ -21,8 +23,6 @@ else
 	x_flags='-x=0'
 fi
 readonly v_flags x_flags
-
-set -e -f -u
 
 if [ "${RACE:-1}" -eq '0' ]; then
 	race_flags='--race=0'

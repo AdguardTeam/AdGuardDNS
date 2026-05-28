@@ -17,6 +17,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -71,6 +72,7 @@ func TestNewHandlers(t *testing.T) {
 				Enabled: true,
 			},
 			SafeBrowsing: &filter.ConfigSafeBrowsing{
+				Homoglyph:     &filter.ConfigHomoglyph{},
 				Typosquatting: &filter.ConfigTyposquatting{},
 			},
 		},
@@ -81,12 +83,7 @@ func TestNewHandlers(t *testing.T) {
 		dnssvctest.FilteringGroupID: fltGrp,
 	}
 
-	fltStrg := &agdtest.FilterStorage{
-		OnForConfig: func(ctx context.Context, c filter.Config) (f filter.Interface) {
-			panic(testutil.UnexpectedCall(ctx, c))
-		},
-		OnHasListID: func(id filter.ID) (ok bool) { panic(testutil.UnexpectedCall(id)) },
-	}
+	fltStrg := agdtest.NewFilterStorage()
 
 	hashMatcher := &agdtest.HashMatcher{
 		OnMatchByPrefix: func(
@@ -158,6 +155,7 @@ func TestNewHandlers(t *testing.T) {
 			handlers, err := dnssvc.NewHandlers(ctx, &dnssvc.HandlersConfig{
 				BaseLogger:            testLogger,
 				Cloner:                agdtest.NewCloner(),
+				Clock:                 timeutil.SystemClock{},
 				Cache:                 tc.cacheConf,
 				HumanIDParser:         agd.NewHumanIDParser(),
 				MainMiddlewareMetrics: nil,

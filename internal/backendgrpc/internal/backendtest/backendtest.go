@@ -15,6 +15,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendgrpc/dnspb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterindex"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 	"github.com/stretchr/testify/require"
 )
@@ -49,6 +50,10 @@ const (
 const (
 	ETLDPlus1    = "protected.example"
 	ETLDPlus1Exc = "protectedx.example"
+
+	// ETLDPlus1Confusable is a confusable version of ETLDPlus1, where the "o"
+	// letter is Cyrillic.
+	ETLDPlus1Confusable = "prоtected.example"
 )
 
 // Timeout is the common timeout for tests.
@@ -83,6 +88,7 @@ var ErrColl = agdtest.NewErrorCollector()
 // ProfileAccessConstructor is the common constructor of profile access managers
 // for tests
 var ProfileAccessConstructor = access.NewProfileConstructor(&access.ProfileConstructorConfig{
+	Clock:    timeutil.SystemClock{},
 	Metrics:  access.EmptyProfileMetrics{},
 	Standard: access.EmptyBlocker{},
 })
@@ -106,6 +112,27 @@ var (
 		}},
 		Exceptions: []*filterindex.TyposquattingException{{
 			Domain: ETLDPlus1Exc,
+		}},
+	}
+)
+
+// Common homoglyph-filter index for tests.
+var (
+	HomoglyphIndexGRPC = &dnspb.HomoglyphFilterIndex{
+		Domains: []*dnspb.HomoglyphFilterIndex_ProtectedDomain{{
+			Domain: ETLDPlus1,
+		}},
+		Exceptions: []*dnspb.HomoglyphFilterIndex_Exception{{
+			Domain: ETLDPlus1Confusable,
+		}},
+	}
+
+	HomoglyphIndex = &filterindex.Homoglyph{
+		Domains: []*filterindex.HomoglyphProtectedDomain{{
+			Domain: ETLDPlus1,
+		}},
+		Exceptions: []*filterindex.HomoglyphException{{
+			Domain: ETLDPlus1Confusable,
 		}},
 	}
 )

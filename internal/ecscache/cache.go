@@ -47,7 +47,7 @@ func (mw *Middleware) get(
 	key := newCacheKey(cr, false)
 	item, ok := mw.cache.Get(key)
 	if ok {
-		return fromCacheItem(item, mw.cloner, req, cr.reqDO), false
+		return mw.fromCacheItem(item, req, cr.reqDO), false
 	} else if cr.isECSDeclined {
 		return nil, false
 	}
@@ -56,7 +56,7 @@ func (mw *Middleware) get(
 	key = newCacheKey(cr, true)
 	item, ok = mw.ecsCache.Get(key)
 	if ok {
-		return fromCacheItem(item, mw.cloner, req, cr.reqDO), true
+		return mw.fromCacheItem(item, req, cr.reqDO), true
 	}
 
 	return nil, false
@@ -141,18 +141,13 @@ type cacheItem struct {
 	msg *dns.Msg
 }
 
-// fromCacheItem creates a response from the cached item.  item, cloner, and req
-// must not be nil.
-func fromCacheItem(
-	item *cacheItem,
-	cloner *dnsmsg.Cloner,
-	req *dns.Msg,
-	reqDO bool,
-) (resp *dns.Msg) {
+// fromCacheItem creates a response from the cached item.  item and req must not
+// be nil.
+func (mw *Middleware) fromCacheItem(item *cacheItem, req *dns.Msg, reqDO bool) (resp *dns.Msg) {
 	// Update the TTL depending on when the item was cached.  If it's already
 	// expired, update TTL to 0.
 	newTTL := dnsmsg.FindLowestTTL(item.msg)
-	if timeLeft := time.Duration(newTTL)*time.Second - time.Since(item.when); timeLeft > 0 {
+	if timeLeft := time.Duration(newTTL)*time.Second - mw.clock.Now().Sub(item.when); timeLeft > 0 {
 		// #nosec G115 -- timeLeft is greater than zero and roundDiv is unlikely
 		// to result in something above [math.MaxUint32].
 		newTTL = uint32(roundDiv(timeLeft, time.Second))
@@ -160,7 +155,7 @@ func fromCacheItem(
 		newTTL = 0
 	}
 
-	resp = cloner.Clone(item.msg)
+	resp = mw.cloner.Clone(item.msg)
 
 	resp.SetRcode(req, item.msg.Rcode)
 	setRespAD(resp, req.AuthenticatedData, reqDO)

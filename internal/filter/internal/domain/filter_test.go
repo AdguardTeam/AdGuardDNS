@@ -15,6 +15,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/domain"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -135,6 +136,7 @@ func TestFilter_Refresh(t *testing.T) {
 
 	f, err := domain.NewFilter(&domain.FilterConfig{
 		Logger:           filtertest.Logger,
+		Clock:            timeutil.SystemClock{},
 		CacheManager:     agdcache.EmptyManager{},
 		URL:              srvURL,
 		DomainMetrics:    domain.EmptyMetrics{},
@@ -183,6 +185,7 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 	fconf := &domain.FilterConfig{
 		Logger:           filtertest.Logger,
 		CacheManager:     agdcache.EmptyManager{},
+		Clock:            timeutil.SystemClock{},
 		URL:              srvURL,
 		DomainMetrics:    domain.EmptyMetrics{},
 		Metrics:          filter.EmptyMetrics{},

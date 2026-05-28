@@ -9,13 +9,13 @@ import (
 	"net/http"
 	"path"
 	"slices"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/service"
+	"github.com/AdguardTeam/golibs/timeutil"
 )
 
 // RefresherID is a type alias for strings that represent IDs of refreshers.
@@ -29,6 +29,7 @@ type Refreshers map[RefresherID]service.Refresher
 
 // refreshHandler performs debug refreshes.
 type refreshHandler struct {
+	clock timeutil.Clock
 	refrs Refreshers
 }
 
@@ -112,7 +113,7 @@ func (h *refreshHandler) refresh(ctx context.Context, l *slog.Logger, id Refresh
 		return "error: refresher not found"
 	}
 
-	start := time.Now()
+	start := h.clock.Now()
 	err := r.Refresh(ctx)
 	if err != nil {
 		l.ErrorContext(ctx, "refresher error", "id", id, slogutil.KeyError, err)
@@ -120,7 +121,7 @@ func (h *refreshHandler) refresh(ctx context.Context, l *slog.Logger, id Refresh
 		return fmt.Sprintf("error: %s", err)
 	}
 
-	l.InfoContext(ctx, "refresh finished", "id", id, "duration", time.Since(start))
+	l.InfoContext(ctx, "refresh finished", "id", id, "duration", h.clock.Now().Sub(start))
 
 	return "ok"
 }

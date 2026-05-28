@@ -13,8 +13,6 @@ import (
 // urlFilterResultCollector is an entity simplifying the collection and
 // compilation of urlfilter results.  It contains per-pointer indexes of the IDs
 // of filters producing network and host rules.
-//
-// TODO(a.garipov):  Reuse these structures.
 type urlFilterResultCollector struct {
 	netRuleIDs  map[*rules.NetworkRule]filter.ID
 	hostRuleIDs map[*rules.HostRule]filter.ID
@@ -25,6 +23,18 @@ type urlFilterResultCollector struct {
 	networkRules []*rules.NetworkRule
 	hostRules4   []*rules.HostRule
 	hostRules6   []*rules.HostRule
+}
+
+// reset makes *urlFilterResultCollector ready for reuse.
+func (c *urlFilterResultCollector) reset() {
+	clear(c.netRuleIDs)
+	clear(c.hostRuleIDs)
+	clear(c.netRuleSvcIDs)
+	clear(c.hostRuleSvcIDs)
+
+	c.networkRules = c.networkRules[:0]
+	c.hostRules4 = c.hostRules4[:0]
+	c.hostRules6 = c.hostRules6[:0]
 }
 
 // newURLFilterResultCollector returns a properly initialized *urlFilterResult.

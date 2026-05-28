@@ -19,6 +19,7 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 	"github.com/stretchr/testify/require"
 )
@@ -76,6 +77,7 @@ var (
 // ProfileAccessConstructor is the common constructor of profile access managers
 // for tests.
 var ProfileAccessConstructor = access.NewProfileConstructor(&access.ProfileConstructorConfig{
+	Clock:    timeutil.SystemClock{},
 	Metrics:  access.EmptyProfileMetrics{},
 	Standard: access.EmptyProfile{},
 })
@@ -166,6 +168,10 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 		Rules:  []filter.RuleText{"|blocked-by-custom.example^"},
 	}
 
+	homoglyphConf := &filter.ConfigHomoglyph{
+		Enabled: true,
+	}
+
 	typosquattingConf := &filter.ConfigTyposquatting{
 		Enabled: true,
 	}
@@ -189,6 +195,7 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 				Enabled: true,
 			},
 			SafeBrowsing: &filter.ConfigSafeBrowsing{
+				Homoglyph:                     homoglyphConf,
 				Typosquatting:                 typosquattingConf,
 				Enabled:                       true,
 				DangerousDomainsEnabled:       true,
@@ -210,7 +217,7 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 			ClientSubnets: []netip.Prefix{netip.MustParsePrefix("5.5.5.0/24")},
 			RPS:           100,
 			Enabled:       true,
-		}, RespSzEst),
+		}, RespSzEst, timeutil.SystemClock{}),
 		AccountID:           AccountID,
 		ID:                  ProfileID,
 		DeviceIDs:           container.NewMapSet(dev.ID),

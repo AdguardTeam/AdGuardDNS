@@ -218,6 +218,9 @@ func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *dnspb.DNSProf
 		AutoDevicesEnabled: true,
 		IpLogEnabled:       true,
 		SafeBrowsing: &dnspb.SafeBrowsingSettings{
+			Homoglyph: &dnspb.HomoglyphFilterSettings{
+				Enabled: true,
+			},
 			Typosquatting: &dnspb.TyposquattingFilterSettings{
 				Enabled: true,
 			},

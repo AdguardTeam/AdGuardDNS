@@ -9,12 +9,12 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 )
 
@@ -35,6 +35,7 @@ func (Empty) Record(_ context.Context, _ *dns.Msg, _ *agd.RequestInfo) {}
 
 // Default is the default DNSDB implementation.
 type Default struct {
+	clock   timeutil.Clock
 	logger  *slog.Logger
 	buffer  *atomic.Pointer[buffer]
 	errColl errcoll.Interface
@@ -44,6 +45,9 @@ type Default struct {
 
 // DefaultConfig is the default DNS database configuration structure.
 type DefaultConfig struct {
+	// Clock is used to get the current time.  It must not be nil.
+	Clock timeutil.Clock
+
 	// Logger is used to log the operation of the DNS database.  It must not be
 	// nil.
 	Logger *slog.Logger
@@ -63,6 +67,7 @@ type DefaultConfig struct {
 // New creates a new default DNS database.  c must not be nil.
 func New(c *DefaultConfig) (db *Default) {
 	db = &Default{
+		clock:   c.Clock,
 		logger:  c.Logger,
 		buffer:  &atomic.Pointer[buffer]{},
 		errColl: c.ErrColl,
@@ -103,7 +108,7 @@ func (db *Default) Record(ctx context.Context, m *dns.Msg, ri *agd.RequestInfo) 
 
 // reset returns buffered records and resets the database.
 func (db *Default) reset(ctx context.Context) (records []*record) {
-	start := time.Now()
+	start := db.clock.Now()
 
 	prevBuf := db.buffer.Swap(&buffer{
 		mu:      &sync.Mutex{},
@@ -114,7 +119,7 @@ func (db *Default) reset(ctx context.Context) (records []*record) {
 	records = prevBuf.all()
 
 	db.metrics.SetRecordCount(ctx, 0)
-	db.metrics.ObserveRotation(ctx, time.Since(start))
+	db.metrics.ObserveRotation(ctx, db.clock.Now().Sub(start))
 
 	return records
 }

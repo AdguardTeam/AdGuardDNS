@@ -8,6 +8,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -91,6 +92,7 @@ func TestRefreshable_Refresh(t *testing.T) {
 	)
 	rl, err := rulelist.NewRefreshable(
 		&refreshable.Config{
+			Clock:     timeutil.SystemClock{},
 			Logger:    filtertest.Logger,
 			URL:       srvURL,
 			ID:        filtertest.RuleListID1,
@@ -107,6 +109,7 @@ func TestRefreshable_Refresh(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, uint64(1), rl.RulesCount())
+	assert.Equal(t, uint64(len(filtertest.RuleBlockStr)), rl.RulesSize())
 
 	ctx = testutil.ContextWithTimeout(t, filtertest.Timeout)
 	req := &urlfilter.DNSRequest{

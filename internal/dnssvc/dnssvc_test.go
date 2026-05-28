@@ -15,6 +15,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
@@ -23,6 +24,9 @@ import (
 
 // testLogger is the common logger for tests.
 var testLogger = slogutil.NewDiscardLogger()
+
+// testClock is a common clock for tests.
+var testClock = timeutil.SystemClock{}
 
 // testListener is a [dnssvc.Listener] for tests.
 type testListener struct {
@@ -165,11 +169,12 @@ func TestService_Start(t *testing.T) {
 	}
 
 	c := &dnssvc.Config{
-		BaseLogger:  testLogger,
-		NewListener: newTestListenerFunc(tl),
+		BaseLogger: testLogger,
 		Handlers: dnssvc.Handlers{
 			k: dnsservertest.NewDefaultHandler(),
 		},
+		NewListener:          newTestListenerFunc(tl),
+		Clock:                testClock,
 		PrometheusRegisterer: prometheus.NewRegistry(),
 		MetricsNamespace:     "test_start",
 		ServerGroups:         []*dnssvc.ServerGroupConfig{srvGrp},
@@ -228,6 +233,7 @@ func TestNew(t *testing.T) {
 	c := &dnssvc.Config{
 		BaseLogger:           testLogger,
 		Handlers:             handlers,
+		Clock:                testClock,
 		PrometheusRegisterer: prometheus.NewRegistry(),
 		MetricsNamespace:     "test_new",
 		ServerGroups:         []*dnssvc.ServerGroupConfig{srvGrp},

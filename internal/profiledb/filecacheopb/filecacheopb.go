@@ -6,28 +6,21 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"log/slog"
 	"slices"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/fcpb"
-	"github.com/c2h5oh/datasize"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// toInternal converts the protobuf-encoded data into a cache structure.  fc, l,
-// baseCustomLogger, and cons must not be nil.
-func fileCacheToInternal(
+// fileCacheToInternal converts the protobuf-encoded data into a cache
+// structure.  fc must not be nil.
+func (s *Storage) fileCacheToInternal(
 	ctx context.Context,
 	fc *fcpb.FileCache,
-	l *slog.Logger,
-	baseCustomLogger *slog.Logger,
-	cons *access.ProfileConstructor,
-	respSzEst datasize.ByteSize,
 ) (c *profiledb.FileCache, err error) {
-	profiles, err := profilesToInternal(ctx, fc.GetProfiles(), l, baseCustomLogger, cons, respSzEst)
+	profiles, err := s.profilesToInternal(ctx, fc.GetProfiles())
 	if err != nil {
 		return nil, fmt.Errorf("converting profiles: %w", err)
 	}

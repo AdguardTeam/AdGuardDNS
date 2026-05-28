@@ -9,6 +9,8 @@ type Metrics interface {
 	SetRecordCount(ctx context.Context, count int)
 
 	// HandleUploadDuration handles the upload duration of billing statistics.
+	//
+	// TODO(d.kolyshev):  Change dur to [time.Duration].
 	HandleUploadDuration(ctx context.Context, dur float64, err error)
 }
 

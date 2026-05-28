@@ -28,6 +28,7 @@ func TestServerMetricsListener_integration_requestLifetime(t *testing.T) {
 	conf := &dnsserver.ConfigDNS{
 		Base: &dnsserver.ConfigBase{
 			BaseLogger: testLogger,
+			Clock:      testClock,
 			Handler:    dnsservertest.NewDefaultHandler(),
 			Metrics:    mtrcListener,
 			Name:       "test",

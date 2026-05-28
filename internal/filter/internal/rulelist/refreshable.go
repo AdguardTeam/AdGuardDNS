@@ -33,6 +33,10 @@ type Refreshable struct {
 
 	// refr contains data for refreshing the filter.
 	refr *refreshable.Refreshable
+
+	// rulesSize is the size of the rules data in bytes from the last successful
+	// refresh.
+	rulesSize uint64
 }
 
 // NewRefreshable returns a new refreshable DNS request and response filter
@@ -50,6 +54,7 @@ func NewRefreshable(c *refreshable.Config, cache ResultCache) (f *Refreshable, e
 	}
 
 	f.refr, err = refreshable.New(&refreshable.Config{
+		Clock:     c.Clock,
 		Logger:    c.Logger,
 		URL:       c.URL,
 		ID:        c.ID,
@@ -123,6 +128,7 @@ func (f *Refreshable) Refresh(ctx context.Context, acceptStale bool) (err error)
 	f.cache.Clear()
 
 	f.engine = urlfilter.NewDNSEngine(s)
+	f.rulesSize = uint64(len(rulesData))
 
 	f.logger.InfoContext(ctx, "reset rules", "num", f.engine.RulesCount())
 
@@ -135,4 +141,13 @@ func (f *Refreshable) RulesCount() (n uint64) {
 	defer f.mu.RUnlock()
 
 	return f.baseFilter.RulesCount()
+}
+
+// RulesSize returns the size of the rules data in bytes from the last
+// successful refresh.
+func (f *Refreshable) RulesSize() (n uint64) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	return f.rulesSize
 }

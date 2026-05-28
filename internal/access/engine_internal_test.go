@@ -8,6 +8,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,6 +16,9 @@ import (
 
 // testTimeout is the common timeout for tests.
 const testTimeout = 1 * time.Second
+
+// testClock is a common clock for tests.
+var testClock = timeutil.SystemClock{}
 
 func TestBlockedHostEngine_IsBlocked(t *testing.T) {
 	t.Parallel()
@@ -27,7 +31,7 @@ func TestBlockedHostEngine_IsBlocked(t *testing.T) {
 		"@@||allow.allowlist.test^",
 	}
 
-	engine := newBlockedHostEngine(EmptyProfileMetrics{}, rules)
+	engine := newBlockedHostEngine(testClock, EmptyProfileMetrics{}, rules)
 
 	testCases := []struct {
 		want assert.BoolAssertionFunc
@@ -92,7 +96,7 @@ func TestBlockedHostEngine_IsBlocked_concurrent(t *testing.T) {
 	const routinesLimit = 50
 
 	rules := []string{"||block.test^"}
-	engine := newBlockedHostEngine(EmptyProfileMetrics{}, rules)
+	engine := newBlockedHostEngine(testClock, EmptyProfileMetrics{}, rules)
 
 	wg := &sync.WaitGroup{}
 	for i := range routinesLimit {
@@ -108,7 +112,7 @@ func TestBlockedHostEngine_IsBlocked_concurrent(t *testing.T) {
 }
 
 func BenchmarkBlockedHostEngine_IsBlocked(b *testing.B) {
-	engine := newBlockedHostEngine(EmptyProfileMetrics{}, []string{
+	engine := newBlockedHostEngine(testClock, EmptyProfileMetrics{}, []string{
 		"block.test",
 	})
 

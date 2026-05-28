@@ -18,6 +18,7 @@ import (
 	"github.com/AdguardTeam/golibs/netutil/httputil"
 	"github.com/AdguardTeam/golibs/osutil"
 	"github.com/AdguardTeam/golibs/service"
+	"github.com/AdguardTeam/golibs/timeutil"
 )
 
 // Service is the HTTP service of AdGuard DNS.  It serves prometheus metrics,
@@ -44,6 +45,9 @@ type server struct {
 // Config is the AdGuard DNS HTTP service configuration structure.
 type Config struct {
 	DNSDBHandler http.Handler
+
+	// Clock is used to get the current time.  It must not be nil.
+	Clock timeutil.Clock
 
 	// GeoIP is the GeoIP database used to detect geographic data about IP
 	// addresses in requests and responses.  It must not be nil.
@@ -74,6 +78,7 @@ func New(c *Config) (svc *Service) {
 	svc = &Service{
 		logger: c.Logger,
 		refrHdlr: &refreshHandler{
+			clock: c.Clock,
 			refrs: c.Refreshers,
 		},
 		cacheHdlr: &cacheHandler{

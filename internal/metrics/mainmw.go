@@ -10,6 +10,7 @@ import (
 
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -31,6 +32,9 @@ type MainMiddlewareRequestMetrics = struct {
 // MainMiddleware is the Prometheus-based implementation of the
 // [dnssvc.MainMiddleware] interface.
 type MainMiddleware struct {
+	// clock is used to get the current time.
+	clock timeutil.Clock
+
 	// filteringDuration is a histogram with the durations of actually filtering
 	// (e.g. applying filters, safebrowsing, etc) to queries.
 	filteringDuration prometheus.Histogram
@@ -61,6 +65,7 @@ func NewMainMiddleware(
 	logger *slog.Logger,
 	namespace string,
 	reg prometheus.Registerer,
+	clock timeutil.Clock,
 ) (m *MainMiddleware, err error) {
 	const (
 		filteringDuration      = "filtering_duration_seconds"
@@ -72,6 +77,7 @@ func NewMainMiddleware(
 	)
 
 	m = &MainMiddleware{
+		clock: clock,
 		filteringDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:      "filtering_duration_seconds",
 			Namespace: namespace,
@@ -191,5 +197,5 @@ func (m *MainMiddleware) OnRequest(ctx context.Context, rm *MainMiddlewareReques
 	// Assume that ip is the remote IP address, which has already been unmapped
 	// by [netutil.NetAddrToAddrPort].
 	ipArr := rm.RemoteIP.As16()
-	m.userCounter.Record(ctx, time.Now(), ipArr[:], false)
+	m.userCounter.Record(ctx, m.clock.Now(), ipArr[:], false)
 }

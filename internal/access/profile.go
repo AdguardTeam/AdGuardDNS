@@ -7,6 +7,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/syncutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/miekg/dns"
 )
@@ -86,6 +87,9 @@ type defaultProfileConfig struct {
 	// nil and must be valid.
 	conf *ProfileConfig
 
+	// clock is used to get the current time.  It must not be nil.
+	clock timeutil.Clock
+
 	// reqPool is the pool of URLFilter request data to use and reuse during
 	// filtering.  It must not be nil.
 	reqPool *syncutil.Pool[urlfilter.DNSRequest]
@@ -108,7 +112,7 @@ func newDefaultProfile(c *defaultProfileConfig) (p *DefaultProfile) {
 	return &DefaultProfile{
 		standard: c.standard,
 
-		blockedHostsEng: newBlockedHostEngine(c.metrics, c.conf.BlocklistDomainRules),
+		blockedHostsEng: newBlockedHostEngine(c.clock, c.metrics, c.conf.BlocklistDomainRules),
 
 		reqPool: c.reqPool,
 		resPool: c.resPool,

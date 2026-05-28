@@ -6,12 +6,16 @@ import (
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
+	"github.com/AdguardTeam/golibs/timeutil"
 )
 
 // Config is the configuration structure for the stream-connection limiter.
 type Config struct {
 	// Logger is used to log the operation of the limiter.  It must not be nil.
 	Logger *slog.Logger
+
+	// Clock is used to get the current time.  It must not be nil.
+	Clock timeutil.Clock
 
 	// Metrics is used for the collection of the stream connections statistics.
 	// It must not be nil.
@@ -34,6 +38,7 @@ type Config struct {
 // Limiter is the stream-connection limiter.
 type Limiter struct {
 	logger  *slog.Logger
+	clock   timeutil.Clock
 	metrics Metrics
 
 	// counterCond is the shared condition variable that protects counter.
@@ -47,6 +52,7 @@ type Limiter struct {
 func New(c *Config) (l *Limiter) {
 	return &Limiter{
 		logger:      c.Logger,
+		clock:       c.Clock,
 		metrics:     c.Metrics,
 		counterCond: sync.NewCond(&sync.Mutex{}),
 		counter: &counter{
@@ -67,6 +73,7 @@ func (l *Limiter) Limit(lsnr net.Listener, srvInfo *dnsserver.ServerInfo) (limit
 		Listener: lsnr,
 
 		logger:  l.logger.With("name", name),
+		clock:   l.clock,
 		metrics: l.metrics,
 
 		counterCond: l.counterCond,

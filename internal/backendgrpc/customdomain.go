@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendgrpc/dnspb"
@@ -81,7 +80,7 @@ func (s *CustomDomainStorage) CertificateData(
 	name agd.CertificateName,
 ) (cert, key []byte, err error) {
 	start := s.clock.Now()
-	defer func() { s.metrics.ObserveRequest(ctx, time.Since(start), err) }()
+	defer func() { s.metrics.ObserveRequest(ctx, s.clock.Now().Sub(start), err) }()
 
 	s.logger.DebugContext(ctx, "getting cert data", "name", name)
 

@@ -47,10 +47,11 @@ type checkConfig struct {
 }
 
 // toInternal converts c to the DNS server check configuration for the DNS
-// server.  c must be valid.
+// server.  c must be valid, all argument should not be nil.
 func (c *checkConfig) toInternal(
 	ctx context.Context,
 	baseLogger *slog.Logger,
+	clock timeutil.Clock,
 	envs *environment,
 	messages *dnsmsg.Constructor,
 	errColl errcoll.Interface,
@@ -63,7 +64,7 @@ func (c *checkConfig) toInternal(
 		return nil, fmt.Errorf("dnscheck metrics: %w", err)
 	}
 
-	kv, err := newRemoteKV(ctx, envs, namespace, reg, grpcMtrc, baseLogger)
+	kv, err := newRemoteKV(ctx, clock, envs, namespace, reg, grpcMtrc, baseLogger)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
@@ -96,9 +97,11 @@ const maxRespSize = 1 * datasize.MB
 const keyNamespaceCheck = "check"
 
 // newRemoteKV returns a new properly initialized remote key-value storage.
-// grpcMtrc should be registered before calling this method.
+// grpcMtrc should be registered before calling this method.  clock, envs, reg,
+// and baseLogger must not be nil.
 func newRemoteKV(
 	ctx context.Context,
+	clock timeutil.Clock,
 	envs *environment,
 	namespace string,
 	reg prometheus.Registerer,
@@ -107,7 +110,7 @@ func newRemoteKV(
 ) (kv remotekv.Interface, err error) {
 	switch envs.DNSCheckKVType {
 	case kvModeBackend:
-		kv, err = newBackendRemoteKV(envs, namespace, reg, grpcMtrc, envs.DNSCheckKVTTL)
+		kv, err = newBackendRemoteKV(clock, envs, namespace, reg, grpcMtrc, envs.DNSCheckKVTTL)
 		if err != nil {
 			return nil, fmt.Errorf("initializing backend dnscheck kv: %w", err)
 		}
@@ -125,7 +128,7 @@ func newRemoteKV(
 			return nil, fmt.Errorf("initializing redis dnscheck kv: %w", err)
 		}
 	case kvModeConsul:
-		kv, err = newConsulRemoteKV(envs, envs.DNSCheckKVTTL)
+		kv, err = newConsulRemoteKV(clock, envs, envs.DNSCheckKVTTL)
 		if err != nil {
 			return nil, fmt.Errorf("initializing consul dnscheck kv: %w", err)
 		}
@@ -144,10 +147,12 @@ func newRemoteKV(
 }
 
 // newBackendRemoteKV returns a new properly initialized backend remote
-// key-value storage.
+// key-value storage.  envs must be valid, clock, reg, and grpcMtrc must not be
+// nil.
 //
 // TODO(e.burkov):  Add key namespace.
 func newBackendRemoteKV(
+	clock timeutil.Clock,
 	envs *environment,
 	namespace string,
 	reg prometheus.Registerer,
@@ -161,8 +166,9 @@ func newBackendRemoteKV(
 
 	var kv *backendgrpc.RemoteKV
 	kv, err = backendgrpc.NewRemoteKV(&backendgrpc.RemoteKVConfig{
-		GRPCMetrics: grpcMtrc,
 		Metrics:     backendKVMtrc,
+		GRPCMetrics: grpcMtrc,
+		Clock:       clock,
 		Endpoint:    &envs.DNSCheckRemoteKVURL.URL,
 		APIKey:      envs.DNSCheckRemoteKVAPIKey,
 		TTL:         time.Duration(ttl),
@@ -202,8 +208,9 @@ func newRedisRemoteKV(
 }
 
 // newConsulRemoteKV returns a new properly initialized Consul-based remote
-// key-value storage.  envs must be valid.
+// key-value storage.  envs must be valid, clock must not be nil.
 func newConsulRemoteKV(
+	clock timeutil.Clock,
 	envs *environment,
 	ttl timeutil.Duration,
 ) (kv remotekv.Interface, err error) {
@@ -220,6 +227,7 @@ func newConsulRemoteKV(
 			// TODO(ameshkov): Consider making configurable.
 			Timeout: 15 * time.Second,
 		}),
+		Clock: clock,
 		// TODO(ameshkov): Consider making configurable.
 		Limiter:     rate.NewLimiter(rate.Limit(200)/60, 1),
 		TTL:         time.Duration(ttl),

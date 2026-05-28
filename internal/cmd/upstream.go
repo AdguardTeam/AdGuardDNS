@@ -33,17 +33,19 @@ type upstreamConfig struct {
 }
 
 // toInternal converts c to the upstream configuration for the DNS server.  c
-// must be valid.
+// must be valid.  All arguments must not be nil.
 func (c *upstreamConfig) toInternal(
-	logger *slog.Logger,
+	l *slog.Logger,
+	clock timeutil.Clock,
 	mtrcListener *dnssvcprom.ForwardMetricsListener,
 ) (fwdConf *forward.HandlerConfig) {
 	return &forward.HandlerConfig{
-		Logger:             logger.With(slogutil.KeyPrefix, "forward"),
+		Clock:              clock,
+		Logger:             l.With(slogutil.KeyPrefix, "forward"),
 		MetricsListener:    mtrcListener,
 		Healthcheck:        c.Healthcheck.toInternal(),
-		UpstreamsAddresses: toUpstreamConfigs(c.Servers),
-		FallbackAddresses:  toUpstreamConfigs(c.Fallback.Servers),
+		UpstreamsAddresses: toUpstreamConfigs(c.Servers, clock),
+		FallbackAddresses:  toUpstreamConfigs(c.Fallback.Servers, clock),
 	}
 }
 
@@ -253,13 +255,17 @@ func (c *upstreamServerConfig) Validate() (err error) {
 }
 
 // toUpstreamConfigs converts confs to the list of upstream configurations.
-// confs must be valid.
-func toUpstreamConfigs(confs []*upstreamServerConfig) (upsConfs []*forward.UpstreamPlainConfig) {
+// confs must be valid, clock must not be nil.
+func toUpstreamConfigs(
+	confs []*upstreamServerConfig,
+	clock timeutil.Clock,
+) (upsConfs []*forward.UpstreamPlainConfig) {
 	upsConfs = make([]*forward.UpstreamPlainConfig, 0, len(confs))
 	for _, c := range confs {
 		net, addrPort, _ := splitUpstreamURL(c.Address)
 
 		upsConfs = append(upsConfs, &forward.UpstreamPlainConfig{
+			Clock:   clock,
 			Network: net,
 			Address: addrPort,
 			Timeout: time.Duration(c.Timeout),

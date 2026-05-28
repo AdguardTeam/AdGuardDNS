@@ -9,6 +9,7 @@ import (
 
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/optslog"
+	"github.com/AdguardTeam/golibs/timeutil"
 )
 
 // limitConn is a wrapper for a stream connection that decreases the counter
@@ -20,6 +21,7 @@ type limitConn struct {
 
 	connInfo  *ConnMetricsData
 	logger    *slog.Logger
+	clock     timeutil.Clock
 	metrics   Metrics
 	decrement func(ctx context.Context)
 	start     time.Time
@@ -39,7 +41,7 @@ func (c *limitConn) Close() (err error) {
 	err = c.Conn.Close()
 
 	ctx := context.Background()
-	connLife := time.Since(c.start)
+	connLife := c.clock.Now().Sub(c.start)
 	optslog.Trace2(ctx, c.logger, "closed conn", "raddr", c.RemoteAddr(), "conn_life", connLife)
 
 	c.metrics.ObserveLifeDuration(ctx, c.connInfo, connLife)

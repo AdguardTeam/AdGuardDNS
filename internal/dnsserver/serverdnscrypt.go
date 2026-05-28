@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
@@ -272,7 +271,7 @@ func (h *dnsCryptHandler) ServeDNS(rw dnscrypt.ResponseWriter, req *dns.Msg) (er
 		Proto: h.srv.proto,
 	})
 
-	ctx = ContextWithRequestInfo(ctx, &RequestInfo{StartTime: time.Now()})
+	ctx = ContextWithRequestInfo(ctx, &RequestInfo{StartTime: h.srv.clock.Now()})
 
 	nrw := NewNonWriterResponseWriter(rw.LocalAddr(), rw.RemoteAddr())
 	written := h.srv.serveDNSMsg(ctx, req, nrw)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 	"github.com/miekg/dns"
 )
@@ -67,6 +68,7 @@ func (GlobalRatelimiter) CountResponses(_ context.Context, _ *dns.Msg, _ netip.A
 //
 // TODO(a.garipov):  Add tests.
 type DefaultRatelimiter struct {
+	clock         timeutil.Clock
 	counter       *ratelimit.RequestCounter
 	clientSubnets netutil.SliceSubnetSet
 	respSzEst     datasize.ByteSize
@@ -74,12 +76,14 @@ type DefaultRatelimiter struct {
 }
 
 // NewDefaultRatelimiter returns a properly initialized *DefaultRatelimiter.
-// conf must not be nil.
+// conf and clock must not be nil.
 func NewDefaultRatelimiter(
 	conf *RatelimitConfig,
 	respSzEst datasize.ByteSize,
+	clock timeutil.Clock,
 ) (r *DefaultRatelimiter) {
 	return &DefaultRatelimiter{
+		clock:         clock,
 		counter:       ratelimit.NewRequestCounter(uint(conf.RPS), time.Second),
 		clientSubnets: conf.ClientSubnets,
 		respSzEst:     respSzEst,
@@ -100,7 +104,7 @@ func (r *DefaultRatelimiter) Check(
 		return RatelimitResultUseGlobal
 	}
 
-	if r.counter.Add(time.Now()) {
+	if r.counter.Add(r.clock.Now()) {
 		return RatelimitResultDrop
 	}
 

@@ -24,6 +24,7 @@ import (
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,6 +35,8 @@ import (
 var (
 	testBindAll   = backendtest.Bind
 	testBindOther = netip.MustParsePrefix("192.0.2.1/32")
+
+	testClock = timeutil.SystemClock{}
 )
 
 func TestDNSProfile_ToInternal(t *testing.T) {
@@ -219,6 +222,7 @@ func profileToInternal(
 		ctx,
 		backendtest.Logger,
 		backendtest.Logger,
+		testClock,
 		backendtest.ProfileAccessConstructor,
 		bindSet,
 		errColl,
@@ -283,6 +287,9 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 	}
 
 	wantSafeBrowsing := &filter.ConfigSafeBrowsing{
+		Homoglyph: &filter.ConfigHomoglyph{
+			Enabled: true,
+		},
 		Typosquatting: &filter.ConfigTyposquatting{
 			Enabled: true,
 		},
@@ -317,7 +324,7 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 		ClientSubnets: []netip.Prefix{netip.MustParsePrefix("5.5.5.0/24")},
 		RPS:           100,
 		Enabled:       true,
-	}, 1*datasize.KB)
+	}, 1*datasize.KB, timeutil.SystemClock{})
 
 	return &agd.Profile{
 		FilterConfig: &filter.ConfigClient{
@@ -678,6 +685,7 @@ func BenchmarkDNSProfile_ToInternal(b *testing.B) {
 			ctx,
 			backendtest.Logger,
 			backendtest.Logger,
+			testClock,
 			backendtest.ProfileAccessConstructor,
 			testBindAll,
 			backendtest.ErrColl,

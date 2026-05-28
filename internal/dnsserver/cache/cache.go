@@ -16,6 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/bluele/gcache"
 	"github.com/miekg/dns"
 )
@@ -25,6 +26,7 @@ import (
 // TODO(a.garipov): Extract cache logic to golibs.
 type Middleware struct {
 	logger  *slog.Logger
+	clock   timeutil.Clock
 	metrics MetricsListener
 	// TODO(d.kolyshev): Use [agdcache.Default].
 	cache       gcache.Cache
@@ -34,6 +36,10 @@ type Middleware struct {
 
 // MiddlewareConfig is the configuration structure for NewMiddleware.
 type MiddlewareConfig struct {
+	// Clock is used to get the current time.  If not set,
+	// [timeutil.SystemClock] is used.
+	Clock timeutil.Clock
+
 	// Logger is used to log the operation of the middleware.  If Logger is nil,
 	// [slog.Default] is used.
 	Logger *slog.Logger
@@ -54,10 +60,11 @@ type MiddlewareConfig struct {
 	OverrideTTL bool
 }
 
-// NewMiddleware initializes a new LRU caching middleware.  c must not be nil.
+// NewMiddleware initializes a new LRU caching middleware.  c must be valid.
 func NewMiddleware(c *MiddlewareConfig) (m *Middleware) {
 	return &Middleware{
 		logger:      cmp.Or(c.Logger, slog.Default()),
+		clock:       cmp.Or[timeutil.Clock](c.Clock, timeutil.SystemClock{}),
 		metrics:     cmp.Or[MetricsListener](c.MetricsListener, EmptyMetricsListener{}),
 		cache:       gcache.New(int(c.Count)).LRU().Build(),
 		cacheMinTTL: c.MinTTL,
@@ -337,7 +344,7 @@ type cacheItem struct {
 func (m *Middleware) toCacheItem(msg *dns.Msg) (item cacheItem) {
 	return cacheItem{
 		msg:  msg.Copy(),
-		when: time.Now(),
+		when: m.clock.Now(),
 	}
 }
 
@@ -354,7 +361,8 @@ func (m *Middleware) fromCacheItem(item cacheItem, req *dns.Msg) (msg *dns.Msg) 
 	// Update all the TTL of all depending on when the item was cached.  If it's
 	// already expired, update TTL to 0.
 	newTTL := findLowestTTL(item.msg)
-	if timeLeft := math.Round(float64(newTTL) - time.Since(item.when).Seconds()); timeLeft > 0 {
+	sub := m.clock.Now().Sub(item.when)
+	if timeLeft := math.Round(float64(newTTL) - sub.Seconds()); timeLeft > 0 {
 		newTTL = uint32(timeLeft)
 	}
 

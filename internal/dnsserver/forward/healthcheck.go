@@ -118,10 +118,13 @@ func (h *Handler) healthcheckUpstream(
 	lastFailed := upsStatus.lastFailedHealthcheck
 	ups := upsStatus.upstream
 
+	now := h.clock.Now()
+
 	// TODO(a.garipov):  Augment our JSON log handler to use fmt.Stringer
 	// automatically?
 	upsLogger := h.logger.With("addr", agdslog.NewStringerValuer(ups))
-	if time.Since(lastFailed) < h.hcBackoff {
+
+	if now.Sub(lastFailed) < h.hcBackoff {
 		// Make sure that this main upstream is not in the backoff mode.
 		upsLogger.DebugContext(ctx, "healthcheck: upstream in backoff")
 
@@ -130,7 +133,7 @@ func (h *Handler) healthcheckUpstream(
 
 	err = checkUpstream(ctx, ups, req)
 	if err != nil {
-		upsStatus.lastFailedHealthcheck = time.Now()
+		upsStatus.lastFailedHealthcheck = now
 	} else {
 		upsStatus.lastFailedHealthcheck = time.Time{}
 	}

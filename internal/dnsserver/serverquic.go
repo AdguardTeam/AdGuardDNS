@@ -281,7 +281,7 @@ func (s *ServerQUIC) acceptQUICConn(
 	l *quic.Listener,
 	wg *sync.WaitGroup,
 ) (err error) {
-	acceptCtx, cancel := context.WithDeadline(ctx, time.Now().Add(DefaultReadTimeout))
+	acceptCtx, cancel := context.WithDeadline(ctx, s.clock.Now().Add(DefaultReadTimeout))
 	defer cancel()
 
 	conn, err := l.Accept(acceptCtx)
@@ -426,7 +426,7 @@ func (s *ServerQUIC) newContextForQUICReq(
 	tlsConnState := conn.ConnectionState().TLS
 	ctx = ContextWithRequestInfo(ctx, &RequestInfo{
 		TLS:       &tlsConnState,
-		StartTime: time.Now(),
+		StartTime: s.clock.Now(),
 	})
 
 	return ctx, cancel
@@ -479,7 +479,7 @@ func (s *ServerQUIC) readQUICMsg(
 	// One query, one stream.  The client MUST send the DNS query over the
 	// selected stream, and MUST indicate through the STREAM FIN mechanism that
 	// no further data will be sent on that stream.
-	err = stream.SetReadDeadline(time.Now().Add(DefaultReadTimeout))
+	err = stream.SetReadDeadline(s.clock.Now().Add(DefaultReadTimeout))
 	if err != nil {
 		return nil, fmt.Errorf("setting read deadline: %w", err)
 	}
@@ -567,7 +567,7 @@ func (s *ServerQUIC) newQUICRW(conn *quic.Conn, stream *quic.Stream) (rw *quicRe
 // arguments must not be nil.
 //
 // NOTE:  Any error returned from this method stops handling on conn.
-func (*ServerQUIC) acceptStream(
+func (s *ServerQUIC) acceptStream(
 	parent context.Context,
 	conn *quic.Conn,
 ) (stream *quic.Stream, err error) {
@@ -575,7 +575,7 @@ func (*ServerQUIC) acceptStream(
 	// client sends a query, and the server provides a response.  This design
 	// specifies that for each subsequent query on a QUIC connection the client
 	// MUST select the next available client-initiated bidirectional stream.
-	ctx, cancel := context.WithDeadline(parent, time.Now().Add(maxQUICIdleTimeout))
+	ctx, cancel := context.WithDeadline(parent, s.clock.Now().Add(maxQUICIdleTimeout))
 	defer cancel()
 
 	// For some reason AcceptStream below seems to get stuck even when ctx is

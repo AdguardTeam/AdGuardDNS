@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/netip"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 	"github.com/miekg/dns"
 	cache "github.com/patrickmn/go-cache"
@@ -17,6 +19,10 @@ import (
 type BackoffConfig struct {
 	// Allowlist defines which IP networks are excluded from rate limiting.
 	Allowlist Allowlist
+
+	// Clock is used to get the current time.  If not set,
+	// [timeutil.SystemClock] is used.
+	Clock timeutil.Clock
 
 	// Period is the time during which the rate limiter counts the number of
 	// times a client make more requests than RPS allows to increment the
@@ -82,6 +88,7 @@ type BackoffConfig struct {
 type Backoff struct {
 	reqCounters      *cache.Cache
 	hitCounters      *cache.Cache
+	clock            timeutil.Clock
 	allowlist        Allowlist
 	respSzEst        datasize.ByteSize
 	count            uint
@@ -94,7 +101,7 @@ type Backoff struct {
 	refuseANY        bool
 }
 
-// NewBackoff returns a new default rate limiter.
+// NewBackoff returns a new default rate limiter.  c must be valid.
 func NewBackoff(c *BackoffConfig) (l *Backoff) {
 	// TODO(ameshkov, a.garipov): Consider adding a job or an endpoint for
 	// purging the caches to free the map bucket space in the caches.
@@ -102,6 +109,7 @@ func NewBackoff(c *BackoffConfig) (l *Backoff) {
 		// TODO(ameshkov): Consider running the janitor more often.
 		reqCounters:      cache.New(c.Period, c.Period),
 		hitCounters:      cache.New(c.Duration, c.Duration),
+		clock:            cmp.Or[timeutil.Clock](c.Clock, timeutil.SystemClock{}),
 		allowlist:        c.Allowlist,
 		respSzEst:        c.ResponseSizeEstimate,
 		count:            c.Count,
@@ -224,7 +232,7 @@ func (l *Backoff) hasHitRateLimit(subnetIPStr string, count uint, ivl time.Durat
 		l.reqCounters.SetDefault(subnetIPStr, r)
 	}
 
-	above := r.Add(time.Now())
+	above := r.Add(l.clock.Now())
 	if above {
 		l.incBackoff(subnetIPStr)
 	}

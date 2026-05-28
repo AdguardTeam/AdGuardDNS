@@ -60,14 +60,78 @@ func TestTyposquattingFilterIndex_ToInternal(t *testing.T) {
 				Distance: 0,
 			}},
 		},
-		want:       nil,
-		name:       "bad_dist",
-		wantErrMsg: "domains: at index 0: distance: not positive: 0",
+		want: nil,
+		name: "bad_dist",
+		wantErrMsg: "domains: at index 0: distance: out of range: " +
+			"must be no less than 1, got 0",
 	}, {
 		index: &dnspb.TyposquattingFilterIndex{
 			Domains: []*dnspb.TyposquattingFilterIndex_ProtectedDomain{{
 				Domain:   "www." + backendtest.ETLDPlus1,
 				Distance: 1,
+			}},
+		},
+		want:       nil,
+		name:       "not_etldplus1",
+		wantErrMsg: "domains: at index 0: domain: not an etld+1 domain",
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := tc.index.ToInternal(publicsuffix.List)
+			assert.Equal(t, tc.want, got)
+			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)
+		})
+	}
+}
+
+func TestHomoglyphFilterIndex_ToInternal(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		index      *dnspb.HomoglyphFilterIndex
+		want       *filterindex.Homoglyph
+		name       string
+		wantErrMsg string
+	}{{
+		index:      nil,
+		want:       nil,
+		name:       "nil",
+		wantErrMsg: "index: no value",
+	}, {
+		index: &dnspb.HomoglyphFilterIndex{},
+		want: &filterindex.Homoglyph{
+			Domains:    []*filterindex.HomoglyphProtectedDomain{},
+			Exceptions: []*filterindex.HomoglyphException{},
+		},
+		name:       "empty",
+		wantErrMsg: "",
+	}, {
+		index:      backendtest.HomoglyphIndexGRPC,
+		want:       backendtest.HomoglyphIndex,
+		name:       "good",
+		wantErrMsg: "",
+	}, {
+		index: &dnspb.HomoglyphFilterIndex{
+			Domains: []*dnspb.HomoglyphFilterIndex_ProtectedDomain{{
+				Domain: "!",
+			}},
+			Exceptions: []*dnspb.HomoglyphFilterIndex_Exception{{
+				Domain: "!",
+			}},
+		},
+		want: nil,
+		name: "bad_domains",
+		wantErrMsg: `domains: at index 0: domain: publicsuffix: ` +
+			`cannot derive eTLD+1 for domain "!"` + "\n" +
+			`exceptions: at index 0: domain: publicsuffix: ` +
+			`cannot derive eTLD+1 for domain "!"`,
+	}, {
+		index: &dnspb.HomoglyphFilterIndex{
+			Domains: []*dnspb.HomoglyphFilterIndex_ProtectedDomain{{
+				Domain: "www." + backendtest.ETLDPlus1,
 			}},
 		},
 		want:       nil,

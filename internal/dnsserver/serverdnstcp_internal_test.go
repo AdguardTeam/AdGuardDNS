@@ -10,6 +10,7 @@ import (
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/golibs/testutil/fakenet"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 )
@@ -33,6 +34,7 @@ func BenchmarkServerDNS_ReadTCPMsg(b *testing.B) {
 	server := &ServerDNS{
 		tcpPool: syncutil.NewSlicePool[byte](testTCPRequestBufferInitialLength),
 		ServerBase: &ServerBase{
+			clock:   timeutil.SystemClock{},
 			metrics: EmptyMetricsListener{},
 		},
 	}

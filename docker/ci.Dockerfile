@@ -28,7 +28,7 @@
 #    needed.  Keep it in sync with bamboo-specs/bamboo.yaml.
 
 # NOTE:  Keep in sync with bamboo-specs/bamboo.yaml.
-ARG BASE_IMAGE=adguard/go-builder:1.26.2--1
+ARG BASE_IMAGE=adguard/go-builder:1.26.3--1
 
 # The dependencies stage is needed to install packages and tool dependencies.
 # This is also where binaries like osslsigncode, which may be required for tests
@@ -165,13 +165,13 @@ COPY --from=tester "$TEST_REPORTS_DIR" "$TEST_REPORTS_DIR"
 # The builder stage is used to build release artifacts.  Real BRANCH and
 # REVISION must be used here.
 FROM dependencies AS builder
+ARG APP_VERSION=""
 ARG BRANCH=master
 ARG CACHE_BUSTER=0
 ARG OUTPUT=""
-ARG SOURCE_DATE_EPOCH=0
 ARG RACE=0
 ARG REVISION=0000000000000000000000000000000000000000
-ARG VERSION=""
+ARG SOURCE_DATE_EPOCH=0
 ADD . /app
 WORKDIR /app
 RUN \
@@ -181,14 +181,14 @@ RUN \
 set -e -f -u -x
 
 make \
-	BRANCH="${BRANCH}" \
+	APP_VERSION="$APP_VERSION" \
+	BRANCH="$BRANCH" \
 	GOAMD64='v4' \
-	OUT="dist/${OUTPUT}" \
-	RACE="${RACE}" \
-	REVISION="${REVISION}" \
+	OUT="dist/$OUTPUT" \
+	RACE="$RACE" \
+	REVISION="$REVISION" \
 	SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
 	VERBOSE=1 \
-	VERSION="${VERSION}" \
 	go-build \
 	;
 EOF

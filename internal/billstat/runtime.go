@@ -10,6 +10,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/service"
+	"github.com/AdguardTeam/golibs/timeutil"
 )
 
 // RuntimeRecorderConfig is the configuration structure for a runtime billing
@@ -17,6 +18,9 @@ import (
 type RuntimeRecorderConfig struct {
 	// Logger is used for logging the operation of the recorder.
 	Logger *slog.Logger
+
+	// Clock is used to get the current time.  It must not be nil.
+	Clock timeutil.Clock
 
 	// ErrColl is used to collect errors during refreshes.
 	ErrColl errcoll.Interface
@@ -33,6 +37,7 @@ type RuntimeRecorderConfig struct {
 func NewRuntimeRecorder(c *RuntimeRecorderConfig) (r *RuntimeRecorder) {
 	return &RuntimeRecorder{
 		logger:   c.Logger,
+		clock:    c.Clock,
 		mu:       &sync.Mutex{},
 		records:  Records{},
 		uploader: c.Uploader,
@@ -45,6 +50,7 @@ func NewRuntimeRecorder(c *RuntimeRecorderConfig) (r *RuntimeRecorder) {
 // here are not persistent.
 type RuntimeRecorder struct {
 	logger *slog.Logger
+	clock  timeutil.Clock
 
 	// mu protects records and syncTime.
 	mu *sync.Mutex
@@ -109,9 +115,9 @@ func (r *RuntimeRecorder) Refresh(ctx context.Context) (err error) {
 
 	records := r.resetRecords(ctx)
 
-	startTime := time.Now()
+	startTime := r.clock.Now()
 	defer func() {
-		dur := time.Since(startTime).Seconds()
+		dur := r.clock.Now().Sub(startTime).Seconds()
 		r.metrics.HandleUploadDuration(ctx, dur, err)
 
 		if err != nil {

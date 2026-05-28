@@ -119,7 +119,7 @@ func TestServerTLS_integration_noTruncateQuery(t *testing.T) {
 	// into a UDP response, but it should fit a TCP response just okay.
 	handler := dnsservertest.NewDefaultHandlerWithCount(64)
 
-	tlsConfig := dnsservertest.NewTLSConfig("example.org")
+	tlsConfig := dnsservertest.NewTLSConfig("example.org", time.Now())
 	addr, _ := dnsservertest.RunTLSServer(t, &dnsserver.ConfigTLS{
 		TLSConfig: tlsConfig,
 		DNS: &dnsserver.ConfigDNS{

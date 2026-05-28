@@ -91,10 +91,14 @@ func (o *rateLimitOptions) Validate() (err error) {
 }
 
 // toInternal converts c to the rate limiting configuration for the DNS server.
-// c must be valid.
-func (c *rateLimitConfig) toInternal(al ratelimit.Allowlist) (conf *ratelimit.BackoffConfig) {
+// c must be valid, clock must not be nil.
+func (c *rateLimitConfig) toInternal(
+	al ratelimit.Allowlist,
+	clock timeutil.Clock,
+) (conf *ratelimit.BackoffConfig) {
 	return &ratelimit.BackoffConfig{
 		Allowlist:            al,
+		Clock:                clock,
 		ResponseSizeEstimate: c.ResponseSizeEstimate,
 		Duration:             time.Duration(c.BackoffDuration),
 		Period:               time.Duration(c.BackoffPeriod),
@@ -211,11 +215,12 @@ type connLimitConfig struct {
 }
 
 // toInternal converts c to a valid connection limiter config.  c must be valid.
-// mtrc must not be nil.
+// mtrc, logger, and clock must not be nil.
 func (c *connLimitConfig) toInternal(
 	ctx context.Context,
 	logger *slog.Logger,
 	mtrc connlimiter.Metrics,
+	clock timeutil.Clock,
 ) (l *connlimiter.Config) {
 	mtrc.SetStopLimit(ctx, c.Stop)
 	mtrc.SetResumeLimit(ctx, c.Resume)
@@ -223,6 +228,7 @@ func (c *connLimitConfig) toInternal(
 	return &connlimiter.Config{
 		Metrics: mtrc,
 		Logger:  logger.With(slogutil.KeyPrefix, "connlimiter"),
+		Clock:   clock,
 		Stop:    c.Stop,
 		Resume:  c.Resume,
 	}

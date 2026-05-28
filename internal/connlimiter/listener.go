@@ -7,9 +7,9 @@ import (
 	"log/slog"
 	"net"
 	"sync"
-	"time"
 
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/timeutil"
 )
 
 // limitListener is a wrapper that uses a counter to limit the number of active
@@ -20,6 +20,7 @@ type limitListener struct {
 	net.Listener
 
 	logger *slog.Logger
+	clock  timeutil.Clock
 
 	// metrics is used for the collection of the stream connections statistics.
 	// It must not be nil.
@@ -46,7 +47,7 @@ type limitListener struct {
 func (l *limitListener) Accept() (conn net.Conn, err error) {
 	defer func() { err = errors.Annotate(err, "limit listener: %w") }()
 
-	waitStart := time.Now()
+	waitStart := l.clock.Now()
 
 	// TODO(a.garipov):  Find a way to use contexts with Accept.
 	ctx := context.Background()
@@ -55,7 +56,7 @@ func (l *limitListener) Accept() (conn net.Conn, err error) {
 		return nil, net.ErrClosed
 	}
 
-	l.metrics.ObserveWaitingDuration(ctx, l.connInfo, time.Since(waitStart))
+	l.metrics.ObserveWaitingDuration(ctx, l.connInfo, l.clock.Now().Sub(waitStart))
 	l.metrics.IncrementActive(ctx, l.connInfo)
 
 	conn, err = l.Listener.Accept()
@@ -71,8 +72,9 @@ func (l *limitListener) Accept() (conn net.Conn, err error) {
 		connInfo:  l.connInfo,
 		metrics:   l.metrics,
 		logger:    l.logger,
+		clock:     l.clock,
 		decrement: l.decrement,
-		start:     time.Now(),
+		start:     l.clock.Now(),
 	}, nil
 }
 

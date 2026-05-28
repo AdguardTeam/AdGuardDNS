@@ -16,6 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendgrpc/internal/backendtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -220,6 +221,7 @@ func TestProfileStorage_Profiles(t *testing.T) {
 		testutil.ContextWithTimeout(t, backendtest.Timeout),
 		backendtest.Logger,
 		backendtest.Logger,
+		timeutil.SystemClock{},
 		backendtest.ProfileAccessConstructor,
 		backendtest.Bind,
 		backendtest.ErrColl,
@@ -379,6 +381,7 @@ func TestProfileStorage_Profiles_maxInvalidRatio(t *testing.T) {
 			s, err := backendgrpc.NewProfileStorage(&backendgrpc.ProfileStorageConfig{
 				Logger:                   backendtest.Logger,
 				BaseCustomLogger:         backendtest.Logger,
+				Clock:                    timeutil.SystemClock{},
 				Endpoint:                 endpoint,
 				ProfileAccessConstructor: backendtest.ProfileAccessConstructor,
 				BindSet:                  backendtest.Bind,
@@ -450,6 +453,7 @@ func BenchmarkProfileStorage_Profiles(b *testing.B) {
 	s, err := backendgrpc.NewProfileStorage(&backendgrpc.ProfileStorageConfig{
 		Logger:           backendtest.Logger,
 		BaseCustomLogger: backendtest.Logger,
+		Clock:            timeutil.SystemClock{},
 		Endpoint: &url.URL{
 			Scheme: "grpc",
 			Host:   l.Addr().String(),
@@ -631,6 +635,7 @@ func newTestProfileStorage(tb testing.TB, endpoint *url.URL) (s *backendgrpc.Pro
 	s, err := backendgrpc.NewProfileStorage(&backendgrpc.ProfileStorageConfig{
 		Logger:                   backendtest.Logger,
 		BaseCustomLogger:         backendtest.Logger,
+		Clock:                    timeutil.SystemClock{},
 		Endpoint:                 endpoint,
 		ProfileAccessConstructor: backendtest.ProfileAccessConstructor,
 		BindSet:                  backendtest.Bind,

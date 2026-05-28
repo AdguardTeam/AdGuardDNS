@@ -27,6 +27,7 @@ import (
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
@@ -86,6 +87,7 @@ func newTestService(
 				Enabled: true,
 			},
 			SafeBrowsing: &filter.ConfigSafeBrowsing{
+				Homoglyph:     &filter.ConfigHomoglyph{},
 				Typosquatting: &filter.ConfigTyposquatting{},
 			},
 		},
@@ -144,11 +146,19 @@ func newTestService(
 		return loc, nil
 	}
 
-	fltStrg := &agdtest.FilterStorage{
-		OnForConfig: func(_ context.Context, _ filter.Config) (f filter.Interface) {
-			return flt
-		},
-		OnHasListID: func(id filter.ID) (ok bool) { panic(testutil.UnexpectedCall(id)) },
+	disposeChan := make(chan struct{})
+	t.Cleanup(func() {
+		testutil.RequireReceive(t, disposeChan, dnssvctest.Timeout)
+	})
+
+	fltStrg := agdtest.NewFilterStorage()
+	fltStrg.OnForConfig = func(_ context.Context, _ filter.Config) (f filter.Interface) {
+		return flt
+	}
+
+	fltStrg.OnDispose = func(f filter.Interface) {
+		assert.Equal(t, flt, f)
+		close(disposeChan)
 	}
 
 	var ql querylog.Interface = &agdtest.QueryLog{
@@ -220,6 +230,7 @@ func newTestService(
 				Enabled: true,
 			},
 			SafeBrowsing: &filter.ConfigSafeBrowsing{
+				Homoglyph:     &filter.ConfigHomoglyph{},
 				Typosquatting: &filter.ConfigTyposquatting{},
 			},
 		},
@@ -231,6 +242,7 @@ func newTestService(
 		Cache: &dnssvc.CacheConfig{
 			Type: dnssvc.CacheTypeNone,
 		},
+		Clock:            timeutil.SystemClock{},
 		StructuredErrors: agdtest.NewSDEConfig(true),
 		Cloner:           agdtest.NewCloner(),
 		HumanIDParser:    agd.NewHumanIDParser(),
@@ -279,6 +291,7 @@ func newTestService(
 		Handlers:                handlers,
 		NewListener:             newTestListenerFunc(tl),
 		ActiveRequestsSemaphore: syncutil.EmptySemaphore{},
+		Clock:                   testClock,
 		Cloner:                  agdtest.NewCloner(),
 		ErrColl:                 errColl,
 		NonDNS:                  http.NotFoundHandler(),

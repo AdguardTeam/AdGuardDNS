@@ -20,6 +20,7 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/optslog"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 )
 
@@ -44,8 +45,8 @@ type ProfileResult struct {
 
 // ToInternal converts device settings from a backend protobuf response to an
 // AdGuard DNS profile and its devices or device changes.  l, baseCustomLogger,
-// cons, bindSet, and errColl must not be nil.  res is never nil.  If err is not
-// nil, res.Profile, res.DeviceChange, and res.Devices are all nil.
+// clock, cons, bindSet, and errColl must not be nil.  res is never nil.  If err
+// is not nil, res.Profile, res.DeviceChange, and res.Devices are all nil.
 //
 // TODO(a.garipov):  Consider refactoring conversion by using some kind of
 // converter struct.
@@ -53,6 +54,7 @@ func (x *DNSProfile) ToInternal(
 	ctx context.Context,
 	l *slog.Logger,
 	baseCustomLogger *slog.Logger,
+	clock timeutil.Clock,
 	cons *access.ProfileConstructor,
 	bindSet netutil.SubnetSet,
 	errColl errcoll.Interface,
@@ -91,7 +93,7 @@ func (x *DNSProfile) ToInternal(
 		return res, fmt.Errorf("account id: %w", err)
 	}
 
-	x.set(ctx, l, p, cons, deviceIDs, respSzEst, errColl)
+	x.set(ctx, l, clock, p, cons, deviceIDs, respSzEst, errColl)
 
 	res.Profile = p
 	res.DeviceChange = devChg
@@ -454,19 +456,20 @@ func (x *RuleListsSettings) toInternal(
 // safe-browsing configuration.  If x is nil, toInternal returns a disabled
 // configuration.
 func (x *SafeBrowsingSettings) toInternal() (c *filter.ConfigSafeBrowsing) {
-	c = &filter.ConfigSafeBrowsing{
-		Typosquatting: &filter.ConfigTyposquatting{},
-	}
 	if x == nil {
-		return c
+		return &filter.ConfigSafeBrowsing{
+			Homoglyph:     &filter.ConfigHomoglyph{},
+			Typosquatting: &filter.ConfigTyposquatting{},
+		}
 	}
 
-	c.Typosquatting = x.Typosquatting.toInternal()
-	c.Enabled = x.Enabled
-	c.DangerousDomainsEnabled = x.BlockDangerousDomains
-	c.NewlyRegisteredDomainsEnabled = x.BlockNrd
-
-	return c
+	return &filter.ConfigSafeBrowsing{
+		Homoglyph:                     x.Homoglyph.toInternal(),
+		Typosquatting:                 x.Typosquatting.toInternal(),
+		Enabled:                       x.Enabled,
+		DangerousDomainsEnabled:       x.BlockDangerousDomains,
+		NewlyRegisteredDomainsEnabled: x.BlockNrd,
+	}
 }
 
 // toInternal converts protobuf typosquatting settings to an internal
@@ -474,6 +477,14 @@ func (x *SafeBrowsingSettings) toInternal() (c *filter.ConfigSafeBrowsing) {
 // configuration.
 func (x *TyposquattingFilterSettings) toInternal() (c *filter.ConfigTyposquatting) {
 	return &filter.ConfigTyposquatting{
+		Enabled: x.GetEnabled(),
+	}
+}
+
+// toInternal converts protobuf homoglyph settings to an internal homoglyph
+// configuration.  If x is nil, toInternal returns a disabled configuration.
+func (x *HomoglyphFilterSettings) toInternal() (c *filter.ConfigHomoglyph) {
+	return &filter.ConfigHomoglyph{
 		Enabled: x.GetEnabled(),
 	}
 }
@@ -681,11 +692,12 @@ func (x *CustomDomain) toInternal() (c *agd.CustomDomainConfig, err error) {
 }
 
 // toInternal converts protobuf rate-limiting settings to an internal structure.
-// If x is nil, toInternal returns [agd.GlobalRatelimiter].  l and errColl must
-// not be nil.
+// If x is nil, toInternal returns [agd.GlobalRatelimiter].  l, clock, and
+// errColl must not be nil.
 func (x *RateLimitSettings) toInternal(
 	ctx context.Context,
 	l *slog.Logger,
+	clock timeutil.Clock,
 	errColl errcoll.Interface,
 	respSzEst datasize.ByteSize,
 ) (r agd.Ratelimiter) {
@@ -697,14 +709,15 @@ func (x *RateLimitSettings) toInternal(
 		ClientSubnets: CIDRRangeToInternal(ctx, l, x.ClientCidr, errColl),
 		RPS:           x.Rps,
 		Enabled:       x.Enabled,
-	}, respSzEst)
+	}, respSzEst, clock)
 }
 
-// set assigns p's fields that can be assigned relatively easily.  l, p, cons,
-// and errColl must not be nil.
+// set assigns p's fields that can be assigned relatively easily.  l, clock, p,
+// cons, and errColl must not be nil.
 func (x *DNSProfile) set(
 	ctx context.Context,
 	l *slog.Logger,
+	clock timeutil.Clock,
 	p *agd.Profile,
 	cons *access.ProfileConstructor,
 	deviceIDs []agd.DeviceID,
@@ -714,7 +727,7 @@ func (x *DNSProfile) set(
 	p.CustomDomains = x.CustomDomain.toInternal(ctx, l, errColl)
 	p.DeviceIDs = container.NewMapSet(deviceIDs...)
 	p.Access = x.Access.toInternal(ctx, l, errColl, cons, x.StandardAccessSettingsEnabled)
-	p.Ratelimiter = x.RateLimit.toInternal(ctx, l, errColl, respSzEst)
+	p.Ratelimiter = x.RateLimit.toInternal(ctx, l, clock, errColl, respSzEst)
 	p.FilteredResponseTTL = x.GetFilteredResponseTtl().AsDuration()
 	p.AutoDevicesEnabled = x.AutoDevicesEnabled
 	p.BlockChromePrefetch = x.BlockChromePrefetch

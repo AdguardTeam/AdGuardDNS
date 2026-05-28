@@ -80,7 +80,7 @@ func NewFilterIndexStorage(c *FilterIndexStorageConfig) (s *FilterIndexStorage, 
 // type check
 var _ filterindex.Storage = (*FilterIndexStorage)(nil)
 
-// Typosquatting implements the [filter.IndexStorage] interface for
+// Typosquatting implements the [filterindex.Storage] interface for
 // *FilterIndexStorage.
 func (s *FilterIndexStorage) Typosquatting(
 	ctx context.Context,
@@ -108,5 +108,36 @@ func (s *FilterIndexStorage) Typosquatting(
 		return nil, fmt.Errorf("converting typosquatting filter index: %w", err)
 	}
 
-	return idx, err
+	return idx, nil
+}
+
+// Homoglyph implements the [filterindex.Storage] interface for
+// *FilterIndexStorage.
+func (s *FilterIndexStorage) Homoglyph(
+	ctx context.Context,
+) (idx *filterindex.Homoglyph, err error) {
+	ctx = ctxWithAuthentication(ctx, s.apiKey)
+	req := &dnspb.HomoglyphFilterIndexRequest{}
+
+	startTime := s.clock.Now()
+	defer func() {
+		// TODO(a.garipov):  Consider separating metrics for networking and
+		// decoding.
+		s.metrics.ObserveHomoglyph(ctx, s.clock.Now().Sub(startTime), err)
+	}()
+
+	resp, err := s.client.GetHomoglyphFilterIndex(ctx, req)
+	if err != nil {
+		err = fixGRPCError(ctx, s.grpcMetrics, err)
+		err = fmt.Errorf("loading homoglyph filter index: %w", err)
+
+		return nil, err
+	}
+
+	idx, err = resp.GetIndex().ToInternal(s.publicSuffixList)
+	if err != nil {
+		return nil, fmt.Errorf("converting homoglyph filter index: %w", err)
+	}
+
+	return idx, nil
 }

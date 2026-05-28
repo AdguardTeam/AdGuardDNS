@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"os"
 	"runtime/debug"
-	"time"
 
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/service"
+	"github.com/AdguardTeam/golibs/timeutil"
 )
 
 // crashReporter is a helper that sets a file for Go runtime crashes and
@@ -24,6 +24,9 @@ type crashReporter struct {
 
 // crashReporterConfig is the configuration structure for a [crashReporter].
 type crashReporterConfig struct {
+	// clock is used to get the current time.  It must not be nil.
+	clock timeutil.Clock
+
 	// logger is used to log the operation of the crash reporter.  If enabled is
 	// true, logger must not be nil.
 	logger *slog.Logger
@@ -62,7 +65,7 @@ func newCrashReporter(c *crashReporterConfig) (r *crashReporter, err error) {
 	pat := fmt.Sprintf(
 		"%s_%s_%07d_*.txt",
 		c.prefix,
-		time.Now().Format("20060102150405"),
+		c.clock.Now().Format("20060102150405"),
 		os.Getpid(),
 	)
 

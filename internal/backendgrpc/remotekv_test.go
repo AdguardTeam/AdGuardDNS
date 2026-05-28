@@ -9,6 +9,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendgrpc/dnspb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendgrpc/internal/backendtest"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -58,6 +59,7 @@ func TestRemoteKV_Get(t *testing.T) {
 	endpoint := runLocalGRPCServer(t, grpcSrv)
 
 	kv, err := backendgrpc.NewRemoteKV(&backendgrpc.RemoteKVConfig{
+		Clock:       timeutil.SystemClock{},
 		GRPCMetrics: backendgrpc.EmptyGRPCMetrics{},
 		Metrics:     backendgrpc.EmptyRemoteKVMetrics{},
 		Endpoint:    endpoint,

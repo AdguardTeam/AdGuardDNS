@@ -25,8 +25,10 @@ func TestForwardMetricsListener_integration_request(t *testing.T) {
 
 	// Initialize a new forward.Handler and set the metrics listener.
 	handler := forward.NewHandler(&forward.HandlerConfig{
+		Clock:  testClock,
 		Logger: testLogger,
 		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
+			Clock:   testClock,
 			Network: forward.NetworkAny,
 			Address: netip.MustParseAddrPort(addr),
 		}},

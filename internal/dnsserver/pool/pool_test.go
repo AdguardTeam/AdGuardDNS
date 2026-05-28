@@ -6,14 +6,18 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/pool"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/stretchr/testify/require"
 )
+
+// testClock is a common clock for tests.
+var testClock = timeutil.SystemClock{}
 
 func TestPool_Get(t *testing.T) {
 	factory := pool.Factory(func(_ context.Context) (net.Conn, error) {
 		return &net.TCPConn{}, nil
 	})
-	p := pool.NewPool(10, factory)
+	p := pool.NewPool(10, factory, testClock)
 
 	conn1, err := p.Get(context.Background())
 	require.NoError(t, err)
@@ -24,7 +28,7 @@ func TestPool_Put(t *testing.T) {
 	factory := pool.Factory(func(_ context.Context) (net.Conn, error) {
 		return &net.TCPConn{}, nil
 	})
-	p := pool.NewPool(10, factory)
+	p := pool.NewPool(10, factory, testClock)
 
 	conn1, err := p.Get(context.Background())
 	require.NoError(t, err)
@@ -64,7 +68,7 @@ func TestPool_Close(t *testing.T) {
 	factory := pool.Factory(func(_ context.Context) (net.Conn, error) {
 		return &testConn{}, nil
 	})
-	p := pool.NewPool(10, factory)
+	p := pool.NewPool(10, factory, testClock)
 
 	conn1, err := p.Get(context.Background())
 	require.NoError(t, err)

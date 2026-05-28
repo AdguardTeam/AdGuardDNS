@@ -15,11 +15,13 @@ import (
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/syncutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 )
 
 // interfaceListener contains information about a single interface listener.
 type interfaceListener struct {
 	logger        *slog.Logger
+	clock         timeutil.Clock
 	conns         *connIndex
 	listenConf    *net.ListenConfig
 	bodyPool      *syncutil.Pool[[]byte]
@@ -292,9 +294,9 @@ func (l *interfaceListener) writeToUDPConn(
 	req *packetConnWriteReq,
 	resp *packetConnWriteResp,
 ) {
-	start := time.Now()
+	start := l.clock.Now()
 	defer func() {
-		l.metrics.ObserveUDPWriteDuration(ctx, l.ifaceName, time.Since(start))
+		l.metrics.ObserveUDPWriteDuration(ctx, l.ifaceName, l.clock.Now().Sub(start))
 	}()
 
 	s := req.session

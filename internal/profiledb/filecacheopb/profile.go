@@ -20,27 +20,23 @@ import (
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // profilesToInternal converts protobuf profile structures into internal ones.
-// l, baseCustomLogger and cons must not be nil.
 //
 // TODO(f.setrakov): Do not rely on builders and reuse entities.
-func profilesToInternal(
+func (s *Storage) profilesToInternal(
 	ctx context.Context,
 	pbProfiles []*fcpb.Profile,
-	l *slog.Logger,
-	baseCustomLogger *slog.Logger,
-	cons *access.ProfileConstructor,
-	respSzEst datasize.ByteSize,
 ) (profiles []*agd.Profile, err error) {
 	profiles = make([]*agd.Profile, 0, len(pbProfiles))
 	for i, pbProf := range pbProfiles {
 		var prof *agd.Profile
-		prof, err = profileToInternal(ctx, l, pbProf, baseCustomLogger, cons, respSzEst)
+		prof, err = s.profileToInternal(ctx, pbProf)
 		if err != nil {
 			return nil, fmt.Errorf("profile at index %d: %w", i, err)
 		}
@@ -52,21 +48,17 @@ func profilesToInternal(
 }
 
 // profileToInternal converts a protobuf profile structure to an internal one.
-// l, baseCustomLogger, cons and pbProfile must not be nil.
-func profileToInternal(
+// pbProfile must not be nil.
+func (s *Storage) profileToInternal(
 	ctx context.Context,
-	l *slog.Logger,
 	pbProfile *fcpb.Profile,
-	baseCustomLogger *slog.Logger,
-	cons *access.ProfileConstructor,
-	respSzEst datasize.ByteSize,
 ) (prof *agd.Profile, err error) {
 	var accID agd.AccountID
 	accID, err = newAccountIDFromProtobuf(pbProfile)
 	if err != nil {
 		// For full compatibility with existing cache, do not fail profile
 		// parsing because of an invalid account ID.
-		l.WarnContext(
+		s.logger.WarnContext(
 			ctx,
 			"failed to parse account id, using default",
 			slogutil.KeyError, err,
@@ -86,21 +78,23 @@ func profileToInternal(
 		return nil, err
 	}
 
-	fltConf, err := configClientToInternal(pbProfile, baseCustomLogger)
+	fltConf, err := configClientToInternal(pbProfile, s.baseCustomLogger)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
 	}
 
+	rateLimiter := rateLimiterToInternal(s.clock, pbProfile.GetRatelimiter(), s.respSzEst)
+
 	return &agd.Profile{
 		CustomDomains: customDomains,
 		FilterConfig:  fltConf,
 
-		Access:                   accessToInternal(pbProfile.GetAccess(), cons),
+		Access:                   accessToInternal(pbProfile.GetAccess(), s.profAccessCons),
 		AdultBlockingMode:        bmAdult,
 		BlockingMode:             bm,
 		SafeBrowsingBlockingMode: bmSafeBrowsing,
-		Ratelimiter:              rateLimiterToInternal(pbProfile.GetRatelimiter(), respSzEst),
+		Ratelimiter:              rateLimiter,
 
 		AccountID: accID,
 		ID:        agd.ProfileID(pbProfile.GetProfileId()),
@@ -200,6 +194,9 @@ func configClientToInternal(
 			Enabled: pbFltConf.GetRuleList().GetEnabled(),
 		},
 		SafeBrowsing: &filter.ConfigSafeBrowsing{
+			Homoglyph: configHomoglyphToInternal(
+				safeBrowsing.GetHomoglyph(),
+			),
 			Typosquatting: configTyposquattingToInternal(
 				safeBrowsing.GetTyposquatting(),
 			),
@@ -217,11 +214,17 @@ func configClientToInternal(
 func configTyposquattingToInternal(
 	x *fcpb.FilterConfig_SafeBrowsing_TyposquattingFilter,
 ) (c *filter.ConfigTyposquatting) {
-	if x == nil {
-		return &filter.ConfigTyposquatting{}
-	}
-
 	return &filter.ConfigTyposquatting{
+		Enabled: x.GetEnabled(),
+	}
+}
+
+// toInternal converts filter config's protobuf homoglyph filter structure to an
+// internal one.  If x is nil, returns a disabled config.
+func configHomoglyphToInternal(
+	x *fcpb.FilterConfig_SafeBrowsing_HomoglyphFilter,
+) (c *filter.ConfigHomoglyph) {
+	return &filter.ConfigHomoglyph{
 		Enabled: x.GetEnabled(),
 	}
 }
@@ -515,8 +518,9 @@ func customDomainConfigToInternal(
 }
 
 // rateLimiterToInternal converts a protobuf rate-limiting settings structure to
-// an internal one.
+// an internal one.  clock must not be nil.
 func rateLimiterToInternal(
+	clock timeutil.Clock,
 	pbRateLimiter *fcpb.Ratelimiter,
 	respSzEst datasize.ByteSize,
 ) (r agd.Ratelimiter) {
@@ -528,7 +532,7 @@ func rateLimiterToInternal(
 		ClientSubnets: fcpb.CIDRRangesToPrefixes(pbRateLimiter.GetClientCidr()),
 		RPS:           pbRateLimiter.GetRps(),
 		Enabled:       pbRateLimiter.GetEnabled(),
-	}, respSzEst)
+	}, respSzEst, clock)
 }
 
 // accessToInternal converts protobuf access settings to an internal structure.
@@ -708,6 +712,7 @@ func filterConfigToProtobuf(c *filter.ConfigClient) (fc *fcpb.FilterConfig) {
 	}.Build()
 
 	safeBrowsing := fcpb.FilterConfig_SafeBrowsing_builder{
+		Homoglyph:                     homoglyphToProtobuf(c.SafeBrowsing.Homoglyph),
 		Typosquatting:                 typosquattingToProtobuf(c.SafeBrowsing.Typosquatting),
 		Enabled:                       c.SafeBrowsing.Enabled,
 		DangerousDomainsEnabled:       c.SafeBrowsing.DangerousDomainsEnabled,
@@ -720,6 +725,16 @@ func filterConfigToProtobuf(c *filter.ConfigClient) (fc *fcpb.FilterConfig) {
 		Parental:       parental,
 		RuleList:       ruleList,
 		SafeBrowsing:   safeBrowsing,
+	}.Build()
+}
+
+// homoglyphToProtobuf converts homoglyph configuration to protobuf.  c must not
+// be nil.
+func homoglyphToProtobuf(
+	c *filter.ConfigHomoglyph,
+) (pb *fcpb.FilterConfig_SafeBrowsing_HomoglyphFilter) {
+	return fcpb.FilterConfig_SafeBrowsing_HomoglyphFilter_builder{
+		Enabled: c.Enabled,
 	}.Build()
 }
 

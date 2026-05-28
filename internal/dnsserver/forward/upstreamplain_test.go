@@ -38,6 +38,7 @@ func TestUpstreamPlain_Exchange(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ups := forward.NewUpstreamPlain(&forward.UpstreamPlainConfig{
+				Clock:   testClock,
 				Network: tc.network,
 				Address: netip.MustParseAddrPort(addr),
 			})
@@ -94,6 +95,7 @@ func TestUpstreamPlain_Exchange_truncated(t *testing.T) {
 	// First, check that we receive truncated response over UDP.
 	addr := netip.MustParseAddrPort(addrStr)
 	uUDP := forward.NewUpstreamPlain(&forward.UpstreamPlainConfig{
+		Clock:   testClock,
 		Network: forward.NetworkUDP,
 		Address: addr,
 	})
@@ -107,6 +109,7 @@ func TestUpstreamPlain_Exchange_truncated(t *testing.T) {
 
 	// Second, check that nothing is truncated over TCP.
 	uTCP := forward.NewUpstreamPlain(&forward.UpstreamPlainConfig{
+		Clock:   testClock,
 		Network: forward.NetworkTCP,
 		Address: addr,
 	})
@@ -121,6 +124,7 @@ func TestUpstreamPlain_Exchange_truncated(t *testing.T) {
 	// Now with NetworkANY response is also not truncated since the upstream
 	// fallbacks to TCP.
 	uAny := forward.NewUpstreamPlain(&forward.UpstreamPlainConfig{
+		Clock:   testClock,
 		Network: forward.NetworkAny,
 		Address: addr,
 	})
@@ -161,6 +165,7 @@ func TestUpstreamPlain_Exchange_fallbackFail(t *testing.T) {
 		},
 	})
 	u := forward.NewUpstreamPlain(&forward.UpstreamPlainConfig{
+		Clock:   testClock,
 		Network: forward.NetworkUDP,
 		Address: netip.MustParseAddrPort(addr),
 	})
@@ -275,6 +280,7 @@ func TestUpstreamPlain_Exchange_fallbackSuccess(t *testing.T) {
 			_, addr := dnsservertest.RunDNSServer(t, c)
 
 			u := forward.NewUpstreamPlain(&forward.UpstreamPlainConfig{
+				Clock:   testClock,
 				Network: network,
 				Address: netip.MustParseAddrPort(addr),
 			})

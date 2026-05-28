@@ -1,8 +1,6 @@
----
-
 name: 🌱 Feature request
 description: Create a feature request to help us improve AdGuard DNS.
-labels: [ 'feature request' ]
+labels: ['feature request']
 body:
   - type: textarea
     id: what-happened

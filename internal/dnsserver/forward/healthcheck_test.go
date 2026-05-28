@@ -55,8 +55,10 @@ func TestHandler_Refresh_healthcheck(t *testing.T) {
 		},
 	})
 	handler := forward.NewHandler(&forward.HandlerConfig{
+		Clock:  testClock,
 		Logger: slogutil.NewDiscardLogger(),
 		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
+			Clock:   testClock,
 			Network: forward.NetworkAny,
 			Address: netip.MustParseAddrPort(upstream.LocalUDPAddr().String()),
 			Timeout: testTimeout,
@@ -69,6 +71,7 @@ func TestHandler_Refresh_healthcheck(t *testing.T) {
 			BackoffDuration: 0,
 		},
 		FallbackAddresses: []*forward.UpstreamPlainConfig{{
+			Clock:   testClock,
 			Network: forward.NetworkAny,
 			Address: netip.MustParseAddrPort(fallback.LocalUDPAddr().String()),
 			Timeout: testTimeout,
@@ -152,6 +155,7 @@ func TestHandler_Refresh_healthcheckNetworkOverride(t *testing.T) {
 	}}
 
 	fallbackAddrs := []*forward.UpstreamPlainConfig{{
+		Clock:   testClock,
 		Network: forward.NetworkAny,
 		Address: netip.MustParseAddrPort("192.0.2.1:53"),
 		Timeout: testTimeout,
@@ -183,12 +187,14 @@ func TestHandler_Refresh_healthcheckNetworkOverride(t *testing.T) {
 				Base: &dnsserver.ConfigBase{Handler: dnsserver.HandlerFunc(hf)},
 			})
 			upstreamAddrs := []*forward.UpstreamPlainConfig{{
+				Clock:   testClock,
 				Network: tc.upsNet,
 				Address: netutil.NetAddrToAddrPort(upstreamSrv.LocalUDPAddr()),
 				Timeout: testTimeout,
 			}}
 
 			handler := forward.NewHandler(&forward.HandlerConfig{
+				Clock:              testClock,
 				Logger:             slogutil.NewDiscardLogger(),
 				UpstreamsAddresses: upstreamAddrs,
 				FallbackAddresses:  fallbackAddrs,

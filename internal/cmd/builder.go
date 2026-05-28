@@ -37,6 +37,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterindex"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterstorage"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/homoglyph"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/ruleliststorage"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/typosquatting"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
@@ -99,6 +100,7 @@ type builder struct {
 
 	baseLogger     *slog.Logger
 	cacheManager   *agdcache.DefaultManager
+	clock          timeutil.Clock
 	conf           *configuration
 	debugRefrs     debugsvc.Refreshers
 	env            *environment
@@ -138,6 +140,7 @@ type builder struct {
 	fwdHandler           *forward.Handler
 	geoIP                *geoip.File
 	hashMatcher          *hashprefix.Matcher
+	homoglyph            *homoglyph.Filter
 	messages             *dnsmsg.Constructor
 	newRegDomains        *hashprefix.Filter
 	newRegDomainsHashes  *hashprefix.Storage
@@ -177,6 +180,9 @@ type builderConfig struct {
 	// have a prefix and must not be nil.
 	baseLogger *slog.Logger
 
+	// clock is used to get the current time.  It must not be nil.
+	clock timeutil.Clock
+
 	// plugins is the registry of plugins to use, if any.
 	plugins *plugin.Registry
 
@@ -196,6 +202,7 @@ func newBuilder(c *builderConfig) (b *builder) {
 	return &builder{
 		baseLogger:     c.baseLogger,
 		cacheManager:   agdcache.NewDefaultManager(),
+		clock:          c.clock,
 		conf:           c.conf,
 		env:            c.envs,
 		errColl:        c.errColl,
@@ -208,7 +215,7 @@ func newBuilder(c *builderConfig) (b *builder) {
 		// #nosec G115 G404 -- The Unix epoch time is highly unlikely to be
 		// negative and we don't need a real random for simple refresh time
 		// randomization.
-		rand: rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 0)),
+		rand: rand.New(rand.NewPCG(uint64(c.clock.Now().UnixNano()), 0)),
 		sigHdlr: service.NewSignalHandler(&service.SignalHandlerConfig{
 			Logger:          c.baseLogger.With(slogutil.KeyPrefix, service.SignalHandlerPrefix),
 			ShutdownTimeout: shutdownTimeout,
@@ -217,9 +224,10 @@ func newBuilder(c *builderConfig) (b *builder) {
 	}
 }
 
-// initCrashReporter initializes the crash reporter.
-func (b *builder) initCrashReporter(ctx context.Context) (err error) {
+// initCrashReporter initializes the crash reporter.  clock must not be nil.
+func (b *builder) initCrashReporter(ctx context.Context, clock timeutil.Clock) (err error) {
 	crashRep, err := newCrashReporter(&crashReporterConfig{
+		clock:   clock,
 		logger:  b.baseLogger.With(slogutil.KeyPrefix, "crash_reporter"),
 		dirPath: b.env.CrashOutputDir,
 		prefix:  b.env.CrashOutputPrefix,
@@ -309,6 +317,32 @@ func (b *builder) initMsgCloner(ctx context.Context) (err error) {
 	return nil
 }
 
+// initSafeBrowsingReplacedConstructor initialises a new
+// [*filter.ReplacedResultConstructor] with all the required filters checked.
+// If initialisation of the constructor is not required, it is nil.
+//
+// TODO(a.garipov):  Consider adding an env for all safe-browsing related
+// functions, including dangerous domains, newly-registered domains, and
+// typosquatting.
+func (b *builder) initSafeBrowsingReplacedConstructor() (err error) {
+	switch strictBool(true) {
+	case
+		b.env.SafeBrowsingEnabled,
+		b.env.NewRegDomainsEnabled,
+		b.env.TyposquattingEnabled,
+		b.env.HomoglyphEnabled:
+		b.safeBrowsingReplCons, err = filter.NewReplacedResultConstructor(
+			&filter.ReplacedResultConstructorConfig{
+				Cloner:      b.cloner,
+				Replacement: b.conf.SafeBrowsing.BlockHost,
+			},
+		)
+	default:
+	}
+
+	return errors.Annotate(err, "creating safe browsing reply constructor: %w")
+}
+
 // hashPrefixFilterInitFunc is a function that initializes the hash-prefix
 // filter, populates the necessary [builder] fields and returns a RefreshWorker
 // to update the initialized filter.
@@ -322,6 +356,7 @@ type hashPrefixFilterInitFunc func(
 //
 // The following methods must be called before this one:
 //   - [builder.initMsgCloner]
+//   - [builder.initSafeBrowsingReplacedConstructor]
 func (b *builder) initHashPrefixFilters(ctx context.Context) (err error) {
 	// TODO(a.garipov):  Make a separate max_size config for hashprefix filters.
 	maxSize := b.conf.Filters.MaxSize
@@ -330,23 +365,6 @@ func (b *builder) initHashPrefixFilters(ctx context.Context) (err error) {
 	b.filterMtrc, err = metrics.NewFilter(b.mtrcNamespace, b.promRegisterer)
 	if err != nil {
 		return fmt.Errorf("registering filter metrics: %w", err)
-	}
-
-	// TODO(a.garipov):  Consider adding an env for all safe-browsing related
-	// functions, including dangerous domains, newly-registered domains, and
-	// typosquatting.
-	//
-	// TODO(a.garipov):  Add typosquatting.
-	if b.env.SafeBrowsingEnabled || b.env.NewRegDomainsEnabled {
-		b.safeBrowsingReplCons, err = filter.NewReplacedResultConstructor(
-			&filter.ReplacedResultConstructorConfig{
-				Cloner:      b.cloner,
-				Replacement: b.conf.SafeBrowsing.BlockHost,
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("creating safe browsing reply constructor: %w", err)
-		}
 	}
 
 	// TODO(a.garipov):  Merge the three functions below together.
@@ -479,6 +497,7 @@ func (b *builder) initAdultBlocking(
 
 	b.adultBlocking, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
 		Logger:                    b.baseLogger.With(slogutil.KeyPrefix, prefix),
+		Clock:                     b.clock,
 		Cloner:                    b.cloner,
 		CacheManager:              b.cacheManager,
 		Hashes:                    b.adultBlockingHashes,
@@ -581,6 +600,7 @@ func (b *builder) initNewRegDomains(
 
 	b.newRegDomains, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
 		Logger:                    b.baseLogger.With(slogutil.KeyPrefix, prefix),
+		Clock:                     b.clock,
 		Cloner:                    b.cloner,
 		CacheManager:              b.cacheManager,
 		Hashes:                    b.newRegDomainsHashes,
@@ -663,6 +683,7 @@ func (b *builder) initSafeBrowsing(
 
 	b.safeBrowsing, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
 		Logger:                    b.baseLogger.With(slogutil.KeyPrefix, prefix),
+		Clock:                     b.clock,
 		Cloner:                    b.cloner,
 		CacheManager:              b.cacheManager,
 		Hashes:                    b.safeBrowsingHashes,
@@ -735,6 +756,7 @@ func (b *builder) initStandardAccess(ctx context.Context) (err error) {
 	}
 
 	strg, err := backendgrpc.NewStandardAccess(&backendgrpc.StandardAccessConfig{
+		Clock:       b.clock,
 		Endpoint:    &b.env.StandardAccessURL.URL,
 		GRPCMetrics: b.backendGRPCMtrc,
 		Metrics:     mtrc,
@@ -747,6 +769,7 @@ func (b *builder) initStandardAccess(ctx context.Context) (err error) {
 	}
 
 	updater, err := filterstorage.NewStandardAccess(ctx, &filterstorage.StandardAccessConfig{
+		Clock:      b.clock,
 		BaseLogger: b.baseLogger,
 		Logger:     b.baseLogger.With(slogutil.KeyPrefix, "standard_access_updater"),
 		Getter:     strg,
@@ -798,7 +821,7 @@ func (b *builder) initRuleListStorage(ctx context.Context) (err error) {
 	b.ruleListStorage, err = ruleliststorage.New(&ruleliststorage.Config{
 		BaseLogger:   b.baseLogger,
 		CacheManager: b.cacheManager,
-		Clock:        timeutil.SystemClock{},
+		Clock:        b.clock,
 		ErrColl:      b.errColl,
 		IndexConfig: &ruleliststorage.IndexConfig{
 			IndexURL: &b.env.FilterIndexURL.URL,
@@ -853,7 +876,7 @@ func (b *builder) initRuleListStorage(ctx context.Context) (err error) {
 func (b *builder) initFilterIndexStorage(ctx context.Context) (err error) {
 	// TODO(a.garipov):  Add rule-list filters and any future filters depending
 	// on the index.
-	if !b.env.TyposquattingEnabled {
+	if !b.env.TyposquattingEnabled && !b.env.HomoglyphEnabled {
 		return nil
 	}
 
@@ -865,7 +888,7 @@ func (b *builder) initFilterIndexStorage(ctx context.Context) (err error) {
 	s, err := backendgrpc.NewFilterIndexStorage(&backendgrpc.FilterIndexStorageConfig{
 		Logger:           b.baseLogger.With(slogutil.KeyPrefix, "filter_index_storage"),
 		Endpoint:         &b.env.FilterIndexAPIURL.URL,
-		Clock:            timeutil.SystemClock{},
+		Clock:            b.clock,
 		GRPCMetrics:      b.backendGRPCMtrc,
 		Metrics:          mtrc,
 		PublicSuffixList: publicsuffix.List,
@@ -878,6 +901,66 @@ func (b *builder) initFilterIndexStorage(ctx context.Context) (err error) {
 	b.filterIndexStorage = s
 
 	b.logger.DebugContext(ctx, "initialized filter index storage")
+
+	return nil
+}
+
+// initHomoglyphFilter initializes and refreshes the homoglyph filter.  It also
+// adds the refresher with ID [homoglyph.IDPrefix] to the debug refreshers.
+//
+// The following methods must be called before this one:
+//   - [builder.initHashPrefixFilters]
+//   - [builder.initFilterIndexStorage]
+func (b *builder) initHomoglyphFilter(ctx context.Context) (err error) {
+	if !b.env.HomoglyphEnabled {
+		return nil
+	}
+
+	cachePath := filepath.Join(b.env.FilterCacheDir, filter.SubDirNameIndex, "homoglyph.json")
+	refrIvl := time.Duration(b.env.FilterIndexAPIRefreshIvl)
+
+	f := homoglyph.New(&homoglyph.Config{
+		Cloner:                    b.cloner,
+		Logger:                    b.baseLogger.With(slogutil.KeyPrefix, homoglyph.IDPrefix),
+		ReplacedResultConstructor: b.safeBrowsingReplCons,
+		CacheManager:              b.cacheManager,
+		Clock:                     b.clock,
+		ErrColl:                   b.errColl,
+		Metrics:                   b.filterMtrc,
+		PublicSuffixList:          publicsuffix.List,
+		Storage:                   b.filterIndexStorage,
+		CachePath:                 cachePath,
+		ResultListID:              filter.IDHomoglyph,
+		Staleness:                 refrIvl,
+		CacheCount:                b.env.HomoglyphCacheCount,
+	})
+
+	err = f.RefreshInitial(ctx)
+	if err != nil {
+		return fmt.Errorf("refreshing homoglyph filter: %w", err)
+	}
+
+	b.homoglyph = f
+
+	refr := service.NewRefreshWorker(&service.RefreshWorkerConfig{
+		ContextConstructor: contextutil.NewTimeoutConstructor(
+			time.Duration(b.conf.Backend.Timeout),
+		),
+		ErrorHandler: newSlogErrorHandler(b.baseLogger, homoglyph.IDPrefix),
+		Refresher:    b.homoglyph,
+		Schedule:     timeutil.NewConstSchedule(refrIvl),
+	})
+
+	err = refr.Start(context.WithoutCancel(ctx))
+	if err != nil {
+		return fmt.Errorf("starting homoglyph update: %w", err)
+	}
+
+	b.sigHdlr.AddService(refr)
+
+	b.debugRefrs[homoglyph.IDPrefix] = b.homoglyph
+
+	b.logger.DebugContext(ctx, "initialized homoglyph filter")
 
 	return nil
 }
@@ -902,7 +985,7 @@ func (b *builder) initTyposquattingFilter(ctx context.Context) (err error) {
 		Logger:                    b.baseLogger.With(slogutil.KeyPrefix, typosquatting.IDPrefix),
 		ReplacedResultConstructor: b.safeBrowsingReplCons,
 		CacheManager:              b.cacheManager,
-		Clock:                     timeutil.SystemClock{},
+		Clock:                     b.clock,
 		ErrColl:                   b.errColl,
 		Metrics:                   b.filterMtrc,
 		PublicSuffixList:          publicsuffix.List,
@@ -912,6 +995,7 @@ func (b *builder) initTyposquattingFilter(ctx context.Context) (err error) {
 		// TODO(a.garipov):  Consider adding a separate parameter here.
 		Staleness:  refrIvl,
 		CacheCount: b.env.TyposquattingCacheCount,
+		MinESLLLen: b.env.TyposquattingMinESLLLen,
 	})
 
 	err = f.RefreshInitial(ctx)
@@ -950,6 +1034,7 @@ func (b *builder) initTyposquattingFilter(ctx context.Context) (err error) {
 //
 // The following methods must be called before this one:
 //   - [builder.initHashPrefixFilters]
+//   - [builder.initHomoglyphFilter]
 //   - [builder.initRuleListStorage]
 //   - [builder.initTyposquattingFilter]
 func (b *builder) initFilterStorage(ctx context.Context) (err error) {
@@ -1024,12 +1109,16 @@ func (b *builder) initFilterStorage(ctx context.Context) (err error) {
 			filter.IDYoutubeSafeSearch,
 			bool(b.env.YoutubeSafeSearchEnabled),
 		),
+		Homoglyph: &filterstorage.HomoglyphConfig{
+			Filter:  b.homoglyph,
+			Enabled: bool(b.env.HomoglyphEnabled),
+		},
 		Typosquatting: &filterstorage.TyposquattingConfig{
 			Filter:  b.typosquatting,
 			Enabled: bool(b.env.TyposquattingEnabled),
 		},
 		CacheManager:             b.cacheManager,
-		Clock:                    timeutil.SystemClock{},
+		Clock:                    b.clock,
 		DomainMetrics:            domainMtrc,
 		ErrColl:                  b.errColl,
 		Metrics:                  b.filterMtrc,
@@ -1138,7 +1227,13 @@ func (b *builder) initBindToDevice(ctx context.Context) (err error) {
 
 	var btdCtrlConf *bindtodevice.ControlConfig
 	btdCtrlConf, b.controlConf = c.Network.toInternal()
-	b.btdManager, err = c.InterfaceListeners.toInternal(b.baseLogger, b.errColl, mtrc, btdCtrlConf)
+	b.btdManager, err = c.InterfaceListeners.toInternal(
+		b.baseLogger,
+		b.errColl,
+		mtrc,
+		btdCtrlConf,
+		b.clock,
+	)
 	if err != nil {
 		return fmt.Errorf("converting interface listeners: %w", err)
 	}
@@ -1163,6 +1258,7 @@ func (b *builder) initDNSDB(ctx context.Context) (err error) {
 
 	b.dnsDB = dnsdb.New(&dnsdb.DefaultConfig{
 		Logger:  b.baseLogger.With(slogutil.KeyPrefix, "dnsdb"),
+		Clock:   b.clock,
 		ErrColl: b.errColl,
 		Metrics: mtrc,
 		MaxSize: b.conf.DNSDB.MaxSize,
@@ -1198,6 +1294,7 @@ func (b *builder) initQueryLog(ctx context.Context) (err error) {
 
 	b.queryLog = querylog.NewFileSystem(&querylog.FileSystemConfig{
 		Logger:    b.baseLogger.With(slogutil.KeyPrefix, "querylog"),
+		Clock:     b.clock,
 		Path:      b.env.QueryLogPath,
 		Metrics:   mtrc,
 		Semaphore: sema,
@@ -1329,7 +1426,7 @@ func (b *builder) newTicketDB(ctx context.Context) (db tlsconfig.TicketDB, err e
 			Endpoint:    &b.env.SessionTicketURL.URL,
 			GRPCMetrics: b.backendGRPCMtrc,
 			Metrics:     mtrc,
-			Clock:       timeutil.SystemClock{},
+			Clock:       b.clock,
 			APIKey:      b.env.SessionTicketAPIKey,
 		})
 		if err != nil {
@@ -1339,7 +1436,7 @@ func (b *builder) newTicketDB(ctx context.Context) (db tlsconfig.TicketDB, err e
 		db, err = tlsconfig.NewRemoteTicketDB(&tlsconfig.RemoteTicketDBConfig{
 			Logger:        b.baseLogger.With(slogutil.KeyPrefix, "ticket database"),
 			Storage:       strg,
-			Clock:         timeutil.SystemClock{},
+			Clock:         b.clock,
 			CacheDirPath:  b.env.SessionTicketCachePath,
 			IndexFileName: b.env.SessionTicketIndexName,
 		})
@@ -1377,7 +1474,7 @@ func (b *builder) initCustomDomainDB(ctx context.Context) (err error) {
 	strg, err := backendgrpc.NewCustomDomainStorage(&backendgrpc.CustomDomainStorageConfig{
 		Endpoint:    &b.env.CustomDomainsURL.URL,
 		Logger:      b.baseLogger.With(slogutil.KeyPrefix, "custom_domain_storage"),
-		Clock:       timeutil.SystemClock{},
+		Clock:       b.clock,
 		GRPCMetrics: b.backendGRPCMtrc,
 		Metrics:     strgMtrc,
 		APIKey:      b.env.CustomDomainsAPIKey,
@@ -1395,7 +1492,7 @@ func (b *builder) initCustomDomainDB(ctx context.Context) (err error) {
 
 	b.customDomainDB, err = tlsconfig.NewCustomDomainDB(&tlsconfig.CustomDomainDBConfig{
 		Logger:          b.baseLogger.With(slogutil.KeyPrefix, "custom_domain_db"),
-		Clock:           timeutil.SystemClock{},
+		Clock:           b.clock,
 		ErrColl:         b.errColl,
 		Manager:         b.tlsManager,
 		Metrics:         mtrc,
@@ -1574,6 +1671,7 @@ func (b *builder) initGRPCMetrics(ctx context.Context) (err error) {
 	case
 		b.profilesEnabled,
 		bool(b.env.TyposquattingEnabled),
+		bool(b.env.HomoglyphEnabled),
 		b.env.SessionTicketType == sessionTicketRemote,
 		b.env.StandardAccessType == standardAccessBackend,
 		b.env.DNSCheckKVType == kvModeBackend,
@@ -1618,6 +1716,7 @@ func (b *builder) initBillStat(ctx context.Context) (err error) {
 
 	billStat := billstat.NewRuntimeRecorder(&billstat.RuntimeRecorderConfig{
 		Logger:   b.baseLogger.With(slogutil.KeyPrefix, "billstat"),
+		Clock:    b.clock,
 		ErrColl:  b.errColl,
 		Uploader: upl,
 		Metrics:  mtrc,
@@ -1693,6 +1792,7 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 	}
 
 	profAccessCons := access.NewProfileConstructor(&access.ProfileConstructorConfig{
+		Clock:    b.clock,
 		Metrics:  profileMtrc,
 		Standard: b.standardAccess,
 	})
@@ -1707,6 +1807,7 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 	strg, err := backendgrpc.NewProfileStorage(&backendgrpc.ProfileStorageConfig{
 		Logger:                   b.baseLogger.With(slogutil.KeyPrefix, "profilestorage"),
 		BaseCustomLogger:         customLogger,
+		Clock:                    b.clock,
 		Endpoint:                 apiURL,
 		ProfileAccessConstructor: profAccessCons,
 		BindSet:                  b.bindSet,
@@ -1733,7 +1834,7 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 
 	profDB, err := profiledb.New(&profiledb.Config{
 		Logger:           b.baseLogger,
-		Clock:            timeutil.SystemClock{},
+		Clock:            b.clock,
 		CustomDomainDB:   b.profDBCustomDomainDB,
 		ErrColl:          b.errColl,
 		ProfileMetrics:   profileMtrc,
@@ -1800,6 +1901,7 @@ func (b *builder) newCacheStorage(
 		return profiledb.EmptyFileCacheStorage{}
 	case profileCacheTypeOpaque:
 		return filecacheopb.New(&filecacheopb.Config{
+			Clock:                    b.clock,
 			Logger:                   l.With("cache_type", "opb"),
 			BaseCustomLogger:         customLogger,
 			ProfileAccessConstructor: profAccessCons,
@@ -1869,6 +1971,7 @@ func (b *builder) initDNSCheck(ctx context.Context) (err error) {
 	checkConf, err := c.toInternal(
 		ctx,
 		b.baseLogger,
+		b.clock,
 		b.env,
 		b.messages,
 		b.errColl,
@@ -2011,7 +2114,7 @@ func (b *builder) initRateLimiter(ctx context.Context) (err error) {
 		return fmt.Errorf("connlimit: %w", err)
 	}
 
-	b.rateLimit = ratelimit.NewBackoff(c.toInternal(allowlist))
+	b.rateLimit = ratelimit.NewBackoff(c.toInternal(allowlist, b.clock))
 
 	b.debugRefrs[debugIDAllowlist] = updater
 
@@ -2042,7 +2145,7 @@ func (b *builder) initConnLimit(ctx context.Context, conf *connLimitConfig) (err
 		return fmt.Errorf("metrics: %w", err)
 	}
 
-	b.connLimit = connlimiter.New(conf.toInternal(ctx, b.baseLogger, mtrc))
+	b.connLimit = connlimiter.New(conf.toInternal(ctx, b.baseLogger, mtrc, b.clock))
 
 	return nil
 }
@@ -2171,12 +2274,14 @@ func (b *builder) initDNS(ctx context.Context) (err error) {
 		return fmt.Errorf("forward metrics listener: %w", err)
 	}
 
-	b.fwdHandler = forward.NewHandler(b.conf.Upstream.toInternal(b.baseLogger, mtrcListener))
+	handlerConf := b.conf.Upstream.toInternal(b.baseLogger, b.clock, mtrcListener)
+	b.fwdHandler = forward.NewHandler(handlerConf)
 
 	dnsHdlrsConf := &dnssvc.HandlersConfig{
 		BaseLogger:            b.baseLogger,
 		Cache:                 b.conf.Cache.toInternal(),
 		Cloner:                b.cloner,
+		Clock:                 b.clock,
 		HumanIDParser:         agd.NewHumanIDParser(),
 		MainMiddlewareMetrics: b.plugins.MainMiddlewareMetrics(),
 		Messages:              b.messages,
@@ -2214,6 +2319,7 @@ func (b *builder) initDNS(ctx context.Context) (err error) {
 		BaseLogger:              b.baseLogger,
 		Handlers:                dnsHdlrs,
 		ActiveRequestsSemaphore: b.activeReqSema,
+		Clock:                   b.clock,
 		Cloner:                  b.cloner,
 		ControlConf:             b.controlConf,
 		ConnLimiter:             b.connLimit,
@@ -2328,7 +2434,7 @@ func (b *builder) mustStartDNS(ctx context.Context) {
 //   - [builder.initRuleStat]
 //   - [builder.initWeb]
 func (b *builder) mustInitDebugSvc(ctx context.Context) {
-	debugSvcConf := b.env.debugConf(b.dnsDB, b.baseLogger, b.geoIP)
+	debugSvcConf := b.env.debugConf(b.dnsDB, b.baseLogger, b.geoIP, b.clock)
 	debugSvcConf.Manager = b.cacheManager
 	debugSvcConf.Refreshers = b.debugRefrs
 	debugSvc := debugsvc.New(debugSvcConf)

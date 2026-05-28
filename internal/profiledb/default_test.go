@@ -18,9 +18,13 @@ import (
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/testutil/faketime"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// testClock is a common clock for tests.
+var testClock = timeutil.SystemClock{}
 
 func TestDefault(t *testing.T) {
 	t.Parallel()
@@ -349,6 +353,7 @@ func TestDefault_fileCache_success(t *testing.T) {
 
 	cacheFilePath := filepath.Join(t.TempDir(), "profiles.pb")
 	pbCache := filecacheopb.New(&filecacheopb.Config{
+		Clock:                    testClock,
 		Logger:                   profiledbtest.Logger,
 		BaseCustomLogger:         profiledbtest.Logger,
 		ProfileAccessConstructor: profiledbtest.ProfileAccessConstructor,
@@ -399,6 +404,7 @@ func TestDefault_fileCache_badVersion(t *testing.T) {
 
 	cacheFilePath := filepath.Join(t.TempDir(), "profiles.pb")
 	pbCache := filecacheopb.New(&filecacheopb.Config{
+		Clock:                    testClock,
 		Logger:                   profiledbtest.Logger,
 		BaseCustomLogger:         profiledbtest.Logger,
 		ProfileAccessConstructor: profiledbtest.ProfileAccessConstructor,
@@ -449,6 +455,7 @@ func TestDefault_fileCache_refresh(t *testing.T) {
 
 	cacheFilePath := filepath.Join(t.TempDir(), "profiles.pb")
 	pbCache := filecacheopb.New(&filecacheopb.Config{
+		Clock:                    testClock,
 		Logger:                   profiledbtest.Logger,
 		BaseCustomLogger:         profiledbtest.Logger,
 		ProfileAccessConstructor: profiledbtest.ProfileAccessConstructor,

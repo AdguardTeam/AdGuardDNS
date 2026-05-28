@@ -135,10 +135,15 @@ message FilterConfig {
   }
 
   message SafeBrowsing {
+    message HomoglyphFilter {
+      bool enabled = 1;
+    }
+
     message TyposquattingFilter {
       bool enabled = 1;
     }
 
+    HomoglyphFilter homoglyph = 5;
     TyposquattingFilter typosquatting = 4;
     bool enabled = 1;
     bool dangerous_domains_enabled = 2;

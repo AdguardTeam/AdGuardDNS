@@ -11,9 +11,13 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/serviceblock"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// testClock is a common clock for tests.
+var testClock = timeutil.SystemClock{}
 
 func TestFilter(t *testing.T) {
 	reqCh := make(chan struct{}, 1)
@@ -26,6 +30,7 @@ func TestFilter(t *testing.T) {
 
 	f, err := serviceblock.New(&serviceblock.Config{
 		Refreshable: &refreshable.Config{
+			Clock:     testClock,
 			Logger:    filtertest.Logger,
 			URL:       srvURL,
 			ID:        filter.IDBlockedService,
@@ -34,6 +39,7 @@ func TestFilter(t *testing.T) {
 			Timeout:   filtertest.Timeout,
 			MaxSize:   filtertest.FilterMaxSize,
 		},
+		Clock:   testClock,
 		ErrColl: agdtest.NewErrorCollector(),
 		Metrics: filter.EmptyMetrics{},
 	})
@@ -46,7 +52,7 @@ func TestFilter(t *testing.T) {
 
 	testutil.RequireReceive(t, reqCh, filtertest.Timeout)
 
-	rls := f.RuleLists(ctx, []filter.BlockedServiceID{
+	rls := f.AppendRuleLists(ctx, nil, []filter.BlockedServiceID{
 		filtertest.BlockedServiceID1,
 		filtertest.BlockedServiceID2,
 		filtertest.BlockedServiceIDDoesNotExist,

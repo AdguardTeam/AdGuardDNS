@@ -7,6 +7,17 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 [kec]: https://keepachangelog.com/en/1.0.0/
 [sem]: https://semver.org/spec/v2.0.0.html
 
+## AGDNS-3939 / Build 1200
+
+- New environment variables have been added:
+
+    - `HOMOGLYPH_CACHE_COUNT`; recommended value: same as `safe_browsing.cache_size`.
+    - `HOMOGLYPH_ENABLED`; recommended value: `1`.
+
+## AGDNS-3897 / Build 1185
+
+- The new environment variable `FILTER_CACHE_MAX_STALENESS` has been added.  It defines the maximum duration of staleness for files in the filter cache as a human-readable duration.
+
 ## AGDNS-3798 / Build 1180
 
 - New environment variables have been added:

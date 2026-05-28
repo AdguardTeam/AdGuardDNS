@@ -16,6 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv/consulkv"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -143,6 +144,7 @@ func TestConsulKV(t *testing.T) {
 		Client: agdhttp.NewClient(&agdhttp.ClientConfig{
 			Timeout: 15 * time.Second,
 		}),
+		Clock:       timeutil.SystemClock{},
 		Limiter:     rate.NewLimiter(rate.Limit(200)/60, 1),
 		TTL:         time.Minute,
 		MaxRespSize: datasize.MB * 1,

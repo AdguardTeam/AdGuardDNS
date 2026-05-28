@@ -11,6 +11,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -123,6 +124,7 @@ func TestStandardAccess(t *testing.T) {
 
 		newCtx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 		sa, newErr := filterstorage.NewStandardAccess(newCtx, &filterstorage.StandardAccessConfig{
+			Clock:      timeutil.SystemClock{},
 			Logger:     filtertest.Logger,
 			BaseLogger: filtertest.Logger,
 			Getter:     tc.storage,
@@ -194,6 +196,7 @@ func TestStandardAccess_cache(t *testing.T) {
 
 			ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
 			_, err := filterstorage.NewStandardAccess(ctx, &filterstorage.StandardAccessConfig{
+				Clock:      timeutil.SystemClock{},
 				Logger:     filtertest.Logger,
 				BaseLogger: filtertest.Logger,
 				Getter:     filterstorage.EmptyStandardAccessStorage{},

@@ -142,12 +142,20 @@ type ConfigTyposquatting struct {
 	Enabled bool
 }
 
+// ConfigHomoglyph is the configuration for homoglyph filtering.
+type ConfigHomoglyph struct {
+	// Enabled shows whether the homoglyph filtering is enabled.
+	Enabled bool
+}
+
 // ConfigSafeBrowsing is the configuration for safe-browsing filtering.
 type ConfigSafeBrowsing struct {
+	// Homoglyph is the configuration for homoglyph filtering.  It must not be
+	// nil.
+	Homoglyph *ConfigHomoglyph
+
 	// Typosquatting is the configuration for typosquatting filtering.  It must
 	// not be nil.
-	//
-	// TODO(d.kolyshev): Use.
 	Typosquatting *ConfigTyposquatting
 
 	// Enabled shows whether the safe-browsing hashprefix-based filtering should

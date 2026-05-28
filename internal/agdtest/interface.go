@@ -262,17 +262,37 @@ func (m *HashMatcher) MatchByPrefix(
 	return m.OnMatchByPrefix(ctx, host)
 }
 
-// type check
-var _ filter.Storage = (*FilterStorage)(nil)
-
 // FilterStorage is a [filter.Storage] for tests.
 type FilterStorage struct {
+	OnDispose   func(f filter.Interface)
 	OnForConfig func(ctx context.Context, c filter.Config) (f filter.Interface)
 	OnHasListID func(id filter.ID) (ok bool)
 }
 
-// ForConfig implements the [filter.Storage] interface for
-// *FilterStorage.
+// NewFilterStorage returns a new *Storage all methods of which panic.
+func NewFilterStorage() (s *FilterStorage) {
+	return &FilterStorage{
+		OnDispose: func(f filter.Interface) {
+			panic(testutil.UnexpectedCall(f))
+		},
+		OnForConfig: func(ctx context.Context, c filter.Config) (f filter.Interface) {
+			panic(testutil.UnexpectedCall(ctx, c))
+		},
+		OnHasListID: func(id filter.ID) (ok bool) {
+			panic(testutil.UnexpectedCall(id))
+		},
+	}
+}
+
+// type check
+var _ filter.Storage = (*FilterStorage)(nil)
+
+// Dispose implements the [filter.Storage] interface for *FilterStorage.
+func (s *FilterStorage) Dispose(f filter.Interface) {
+	s.OnDispose(f)
+}
+
+// ForConfig implements the [filter.Storage] interface for *FilterStorage.
 func (s *FilterStorage) ForConfig(ctx context.Context, c filter.Config) (f filter.Interface) {
 	return s.OnForConfig(ctx, c)
 }
@@ -290,6 +310,7 @@ var _ filterindex.Storage = (*FilterIndexStorage)(nil)
 // FilterIndexStorage is a [filterindex.Storage] for tests.
 type FilterIndexStorage struct {
 	OnTyposquatting func(ctx context.Context) (idx *filterindex.Typosquatting, err error)
+	OnHomoglyph     func(ctx context.Context) (idx *filterindex.Homoglyph, err error)
 }
 
 // Typosquatting implements the [filterindex.Storage] interface for
@@ -298,6 +319,14 @@ func (s *FilterIndexStorage) Typosquatting(
 	ctx context.Context,
 ) (idx *filterindex.Typosquatting, err error) {
 	return s.OnTyposquatting(ctx)
+}
+
+// Homoglyph implements the [filterindex.Storage] interface for
+// *FilterIndexStorage.
+func (s *FilterIndexStorage) Homoglyph(
+	ctx context.Context,
+) (idx *filterindex.Homoglyph, err error) {
+	return s.OnHomoglyph(ctx)
 }
 
 // Package geoip

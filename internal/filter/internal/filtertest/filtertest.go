@@ -63,6 +63,8 @@ const (
 	HostCategorySub           = "a.b.c." + HostCategory
 	HostDangerous             = "dangerous-domain.example"
 	HostDangerousRepl         = "dangerous-domain-repl.example"
+	HostHomographDomain       = "hоst.example"
+	HostHomographDomainExc    = "host.exarnple"
 	HostNewlyRegistered       = "newly-registered.example"
 	HostNewlyRegisteredRepl   = "newly-registered-repl.example"
 	HostSafeSearchGeneral     = "search-host.example"
@@ -83,6 +85,7 @@ const (
 	FQDNCname                 = HostCNAME + "."
 	FQDNDangerous             = HostDangerous + "."
 	FQDNDangerousRepl         = HostDangerousRepl + "."
+	FQDNHomographDomain       = HostHomographDomain + "."
 	FQDNNewlyRegistered       = HostNewlyRegistered + "."
 	FQDNNewlyRegisteredRepl   = HostNewlyRegisteredRepl + "."
 	FQDNSafeSearchGeneralIPv4 = HostSafeSearchGeneralIPv4 + "."

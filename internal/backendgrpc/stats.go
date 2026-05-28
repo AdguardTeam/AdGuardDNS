@@ -4,12 +4,15 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	"github.com/AdguardTeam/golibs/timeutil"
 )
 
 // profilesCallStats is a stateful structure that collects and reports
 // statistics about a [ProfileStorage.Profiles] call.
 type profilesCallStats struct {
 	logger *slog.Logger
+	clock  timeutil.Clock
 
 	recvStart time.Time
 	decStart  time.Time
@@ -26,12 +29,12 @@ type profilesCallStats struct {
 
 // startRecv starts the receive timer.
 func (s *profilesCallStats) startRecv() {
-	s.recvStart = time.Now()
+	s.recvStart = s.clock.Now()
 }
 
 // endRecv ends the receive timer and records the results.
 func (s *profilesCallStats) endRecv() {
-	d := time.Since(s.recvStart)
+	d := s.clock.Now().Sub(s.recvStart)
 	if s.numRecv == 0 {
 		// Count the initial receive separately, since it is often not
 		// representative of an average receive, because this is when gRPC
@@ -46,12 +49,12 @@ func (s *profilesCallStats) endRecv() {
 
 // startDec starts the decoding timer.
 func (s *profilesCallStats) startDec() {
-	s.decStart = time.Now()
+	s.decStart = s.clock.Now()
 }
 
 // endDec ends the decoding timer and records the results.
 func (s *profilesCallStats) endDec() {
-	s.totalDec += time.Since(s.decStart)
+	s.totalDec += s.clock.Now().Sub(s.decStart)
 }
 
 // incBadProf increments the number of invalid profiles.

@@ -54,3 +54,41 @@ func TestFilterIndexStorage_Typosquatting(t *testing.T) {
 
 	assert.Equal(t, backendtest.TyposquattingIndex, got)
 }
+
+func TestFilterIndexStorage_Homoglyph(t *testing.T) {
+	t.Parallel()
+
+	srv := &testFilterIndexServiceServer{
+		OnGetHomoglyphFilterIndex: func(
+			ctx context.Context,
+			_ *dnspb.HomoglyphFilterIndexRequest,
+		) (resp *dnspb.HomoglyphFilterIndexResponse, err error) {
+			return &dnspb.HomoglyphFilterIndexResponse{
+				Index: backendtest.HomoglyphIndexGRPC,
+			}, nil
+		},
+	}
+
+	grpcSrv := grpc.NewServer(
+		grpc.ConnectionTimeout(backendtest.Timeout),
+		grpc.Creds(insecure.NewCredentials()),
+	)
+	dnspb.RegisterFilterIndexServiceServer(grpcSrv, srv)
+	endpoint := runLocalGRPCServer(t, grpcSrv)
+
+	storage, err := backendgrpc.NewFilterIndexStorage(&backendgrpc.FilterIndexStorageConfig{
+		Logger:           slogutil.NewDiscardLogger(),
+		Endpoint:         endpoint,
+		GRPCMetrics:      backendgrpc.EmptyGRPCMetrics{},
+		Metrics:          backendgrpc.EmptyFilterIndexStorageMetrics{},
+		PublicSuffixList: publicsuffix.List,
+		Clock:            timeutil.SystemClock{},
+	})
+	require.NoError(t, err)
+
+	ctx := testutil.ContextWithTimeout(t, backendtest.Timeout)
+	got, err := storage.Homoglyph(ctx)
+	require.NoError(t, err)
+
+	assert.Equal(t, backendtest.HomoglyphIndex, got)
+}

@@ -96,6 +96,11 @@ type testFilterIndexServiceServer struct {
 		ctx context.Context,
 		req *dnspb.TyposquattingFilterIndexRequest,
 	) (resp *dnspb.TyposquattingFilterIndexResponse, err error)
+
+	OnGetHomoglyphFilterIndex func(
+		ctx context.Context,
+		req *dnspb.HomoglyphFilterIndexRequest,
+	) (resp *dnspb.HomoglyphFilterIndexResponse, err error)
 }
 
 // type check
@@ -108,6 +113,15 @@ func (s *testFilterIndexServiceServer) GetTyposquattingFilterIndex(
 	req *dnspb.TyposquattingFilterIndexRequest,
 ) (resp *dnspb.TyposquattingFilterIndexResponse, err error) {
 	return s.OnGetTyposquattingFilterIndex(ctx, req)
+}
+
+// GetHomoglyphFilterIndex implements the [dnspb.FilterIndexServiceServer]
+// interface for *testFilterIndexServiceServer.
+func (s *testFilterIndexServiceServer) GetHomoglyphFilterIndex(
+	ctx context.Context,
+	req *dnspb.HomoglyphFilterIndexRequest,
+) (resp *dnspb.HomoglyphFilterIndexResponse, err error) {
+	return s.OnGetHomoglyphFilterIndex(ctx, req)
 }
 
 // testRateLimitServiceServer is the [dnspb.RateLimitServiceServer] for tests.

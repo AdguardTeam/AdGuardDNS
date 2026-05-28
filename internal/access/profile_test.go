@@ -8,9 +8,13 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 )
+
+// testClock is a common clock for tests.
+var testClock = timeutil.SystemClock{}
 
 func TestDefaultProfile_Config(t *testing.T) {
 	t.Parallel()
@@ -25,6 +29,7 @@ func TestDefaultProfile_Config(t *testing.T) {
 	}
 
 	cons := access.NewProfileConstructor(&access.ProfileConstructorConfig{
+		Clock:    testClock,
 		Metrics:  testAccessMtrc,
 		Standard: access.EmptyBlocker{},
 	})
@@ -69,6 +74,7 @@ func TestDefaultProfile_IsBlocked(t *testing.T) {
 	}
 
 	cons := access.NewProfileConstructor(&access.ProfileConstructorConfig{
+		Clock:    testClock,
 		Metrics:  testAccessMtrc,
 		Standard: std,
 	})
@@ -300,6 +306,7 @@ func TestDefaultProfile_IsBlocked_prefixAllowlist(t *testing.T) {
 	}
 
 	cons := access.NewProfileConstructor(&access.ProfileConstructorConfig{
+		Clock:    testClock,
 		Metrics:  testAccessMtrc,
 		Standard: access.EmptyBlocker{},
 	})
@@ -362,6 +369,7 @@ func BenchmarkDefaultProfile_IsBlocked(b *testing.B) {
 	}
 
 	cons := access.NewProfileConstructor(&access.ProfileConstructorConfig{
+		Clock:    testClock,
 		Metrics:  testAccessMtrc,
 		Standard: access.EmptyBlocker{},
 	})

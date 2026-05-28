@@ -17,6 +17,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -161,6 +162,7 @@ func TestMiddleware_recordQueryInfo_respCtry(t *testing.T) {
 			}
 
 			mw := &Middleware{
+				clock:    timeutil.SystemClock{},
 				logger:   slogutil.NewDiscardLogger(),
 				billStat: billstat.EmptyRecorder{},
 				geoIP:    geoIP,

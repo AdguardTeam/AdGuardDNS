@@ -109,7 +109,7 @@ func TestServerHTTPS_integration_serveRequests(t *testing.T) {
 
 			var tlsConfig *tls.Config
 			if tc.tls {
-				tlsConfig = dnsservertest.NewTLSConfig("example.org")
+				tlsConfig = dnsservertest.NewTLSConfig("example.org", time.Now())
 			}
 
 			srv := dnsservertest.RunLocalHTTPSServer(
@@ -309,7 +309,7 @@ func TestDNSMsgToJSONMsg(t *testing.T) {
 }
 
 func TestServerHTTPS_integration_ENDS0Padding(t *testing.T) {
-	tlsConfig := dnsservertest.NewTLSConfig("example.org")
+	tlsConfig := dnsservertest.NewTLSConfig("example.org", time.Now())
 	srv := dnsservertest.RunLocalHTTPSServer(t, dnsservertest.NewDefaultHandler(), tlsConfig, nil)
 
 	req := dnsservertest.CreateMessage("example.org.", dns.TypeA)
@@ -325,7 +325,7 @@ func TestServerHTTPS_integration_ENDS0Padding(t *testing.T) {
 }
 
 func TestServerHTTPS_0RTT(t *testing.T) {
-	tlsConfig := dnsservertest.NewTLSConfig("example.org")
+	tlsConfig := dnsservertest.NewTLSConfig("example.org", time.Now())
 	srv := dnsservertest.RunLocalHTTPSServer(t, dnsservertest.NewDefaultHandler(), tlsConfig, nil)
 
 	quicTracer := dnsservertest.Tracer{}

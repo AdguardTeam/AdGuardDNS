@@ -13,6 +13,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/homoglyph"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/composite"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/domain"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
@@ -23,8 +24,8 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/typosquatting"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/AdguardTeam/golibs/timeutil"
-	"github.com/AdguardTeam/urlfilter"
 	"github.com/c2h5oh/datasize"
 )
 
@@ -46,6 +47,8 @@ type Default struct {
 
 	typosquatting *typosquatting.Filter
 
+	homoglyph *homoglyph.Filter
+
 	// domainFiltersMu protects domainFilters.
 	domainFiltersMu *sync.RWMutex
 	domainFilters   domainFilters
@@ -58,6 +61,9 @@ type Default struct {
 	errColl         errcoll.Interface
 	metrics         filter.Metrics
 	ruleListStorage ruleliststorage.Storage
+
+	filterPool *syncutil.Pool[composite.Filter]
+	configPool *syncutil.Pool[composite.Config]
 
 	cacheDir string
 
@@ -95,6 +101,7 @@ func New(c *Config) (s *Default, err error) {
 
 		// Initialized in [Default.init].
 		typosquatting: nil,
+		homoglyph:     nil,
 
 		// Initialized in [Default.initSafeSearch].
 		safeSearchGeneral: nil,
@@ -114,6 +121,14 @@ func New(c *Config) (s *Default, err error) {
 		errColl:         c.ErrColl,
 		metrics:         c.Metrics,
 		ruleListStorage: c.RuleListStorage,
+
+		filterPool: syncutil.NewPool(func() (f *composite.Filter) {
+			return composite.New(&composite.Config{})
+		}),
+
+		configPool: syncutil.NewPool(func() (c *composite.Config) {
+			return &composite.Config{}
+		}),
 
 		cacheDir: c.CacheDir,
 
@@ -148,7 +163,7 @@ func (s *Default) init(c *Config) (err error) {
 		errs = append(errs, err)
 	}
 
-	err = s.initSafeSearch(c.SafeSearchGeneral, c.SafeSearchYouTube)
+	err = s.initSafeSearch(c.SafeSearchGeneral, c.SafeSearchYouTube, s.clock)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		errs = append(errs, err)
@@ -164,6 +179,10 @@ func (s *Default) init(c *Config) (err error) {
 		s.typosquatting = c.Typosquatting.Filter
 	}
 
+	if c.Homoglyph.Enabled {
+		s.homoglyph = c.Homoglyph.Filter
+	}
+
 	return errors.Join(errs...)
 }
 
@@ -175,6 +194,7 @@ func (s *Default) initBlockedServices(c *BlockedServicesConfig) (err error) {
 	}
 
 	refrConf := &refreshable.Config{
+		Clock: s.clock,
 		Logger: s.baseLogger.With(
 			slogutil.KeyPrefix, path.Join("filters", string(FilterIDBlockedServiceIndex)),
 		),
@@ -187,6 +207,7 @@ func (s *Default) initBlockedServices(c *BlockedServicesConfig) (err error) {
 	}
 
 	s.services, err = serviceblock.New(&serviceblock.Config{
+		Clock:       s.clock,
 		Refreshable: refrConf,
 		ErrColl:     s.errColl,
 		Metrics:     s.metrics,
@@ -198,15 +219,15 @@ func (s *Default) initBlockedServices(c *BlockedServicesConfig) (err error) {
 	return nil
 }
 
-// initSafeSearch initializes the safe-search filters in s.  gen and yt must not
-// be nil.
-func (s *Default) initSafeSearch(gen, yt *SafeSearchConfig) (err error) {
-	s.safeSearchGeneral, err = newSafeSearch(s.baseLogger, gen, s.cacheManager, s.cacheDir)
+// initSafeSearch initializes the safe-search filters in s.  gen, yt, and clock
+// must not be nil.
+func (s *Default) initSafeSearch(gen, yt *SafeSearchConfig, clock timeutil.Clock) (err error) {
+	s.safeSearchGeneral, err = newSafeSearch(s.baseLogger, gen, s.cacheManager, s.cacheDir, clock)
 	if err != nil {
 		return fmt.Errorf("general safe search: %w", err)
 	}
 
-	s.safeSearchYouTube, err = newSafeSearch(s.baseLogger, yt, s.cacheManager, s.cacheDir)
+	s.safeSearchYouTube, err = newSafeSearch(s.baseLogger, yt, s.cacheManager, s.cacheDir, clock)
 	if err != nil {
 		return fmt.Errorf("youtube safe search: %w", err)
 	}
@@ -221,6 +242,7 @@ func newSafeSearch(
 	c *SafeSearchConfig,
 	cacheMgr agdcache.Manager,
 	cacheDir string,
+	clock timeutil.Clock,
 ) (f *safesearch.Filter, err error) {
 	if !c.Enabled {
 		return nil, nil
@@ -233,6 +255,7 @@ func newSafeSearch(
 	return safesearch.New(
 		&safesearch.Config{
 			Refreshable: &refreshable.Config{
+				Clock:     clock,
 				Logger:    baseLogger.With(slogutil.KeyPrefix, cacheID),
 				URL:       c.URL,
 				ID:        c.ID,
@@ -255,6 +278,7 @@ func (s *Default) initCategoryDomainIdxRefr(c *IndexConfig) (err error) {
 	}
 
 	s.categoryDomainsIdxRefr, err = refreshable.New(&refreshable.Config{
+		Clock: s.clock,
 		Logger: s.baseLogger.With(
 			slogutil.KeyPrefix,
 			path.Join("category_filters", string(FilterIDCategoryDomainsIndex)),
@@ -293,13 +317,10 @@ func (s *Default) ForConfig(ctx context.Context, c filter.Config) (f filter.Inte
 // forClient returns a new filter based on a client configuration.  c must not
 // be nil.
 func (s *Default) forClient(ctx context.Context, c *filter.ConfigClient) (f filter.Interface) {
-	compConf := &composite.Config{
-		// TODO(a.garipov):  Find ways of reusing these.  Perhaps add Close to
-		// [filter.Interface]?
-		URLFilterRequest: &urlfilter.DNSRequest{},
-		URLFilterResult:  &urlfilter.DNSResult{},
-	}
+	compConf := s.configPool.Get()
+	defer s.configPool.Put(compConf)
 
+	compConf.Reset()
 	s.setParental(ctx, compConf, c.Parental)
 	s.setCustomRuleLists(ctx, compConf, c.CustomRuleList)
 	s.setRuleLists(ctx, compConf, c.RuleList)
@@ -309,7 +330,10 @@ func (s *Default) forClient(ctx context.Context, c *filter.ConfigClient) (f filt
 		compConf.Custom = c.CustomFilter.Filter
 	}
 
-	return composite.New(compConf)
+	res := s.filterPool.Get()
+	res.Reset(compConf)
+
+	return res
 }
 
 // setParental checks if the parental-control filters are enabled and, if they
@@ -353,7 +377,11 @@ func (s *Default) setEnabledParental(
 	}
 
 	if len(c.BlockedServices) > 0 && s.services != nil {
-		compConf.ServiceLists = s.services.RuleLists(ctx, c.BlockedServices)
+		compConf.ServiceLists = s.services.AppendRuleLists(
+			ctx,
+			compConf.ServiceLists,
+			c.BlockedServices,
+		)
 	}
 
 	s.setDomainFilters(compConf, c.Categories)
@@ -412,36 +440,73 @@ func (s *Default) setRuleLists(
 // setSafeBrowsing sets the safe-browsing filters in compConf from c.  c must
 // not be nil.
 func (s *Default) setSafeBrowsing(compConf *composite.Config, c *filter.ConfigSafeBrowsing) {
-	if !c.Enabled {
-		return
+	if c.Enabled {
+		s.setDangerousDomains(compConf, c)
+		s.setNewlyRegisteredDomains(compConf, c)
+		s.setTyposquatting(compConf, c)
+		s.setHomoglyph(compConf, c)
 	}
+}
 
+// setDangerousDomains sets the dangerous-domain filter in compConf from c if
+// it's enabled and the filter is initialized in s.  c and compConf must not be
+// nil, c.Enabled must be true.
+func (s *Default) setDangerousDomains(comp *composite.Config, c *filter.ConfigSafeBrowsing) {
 	if c.DangerousDomainsEnabled && s.dangerous != nil {
-		compConf.SafeBrowsing = s.dangerous
+		comp.SafeBrowsing = s.dangerous
 	}
+}
 
+// setNewlyRegisteredDomains sets the newly-registered-domain filter in compConf
+// from c if it's enabled and the filter is initialized in s.  c and compConf
+// must not be nil, c.Enabled must be true.
+func (s *Default) setNewlyRegisteredDomains(comp *composite.Config, c *filter.ConfigSafeBrowsing) {
 	if c.NewlyRegisteredDomainsEnabled && s.newlyRegistered != nil {
-		compConf.NewRegisteredDomains = s.newlyRegistered
+		comp.NewRegisteredDomains = s.newlyRegistered
 	}
+}
 
+// setTyposquatting sets the typosquatting filter in compConf from c if it's
+// enabled and the filter is initialized in s.  c and compConf must not be nil,
+// c.Enabled must be true.
+func (s *Default) setTyposquatting(comp *composite.Config, c *filter.ConfigSafeBrowsing) {
 	if c.Typosquatting != nil && c.Typosquatting.Enabled && s.typosquatting != nil {
-		compConf.Typosquatting = s.typosquatting
+		comp.Typosquatting = s.typosquatting
+	}
+}
+
+// setHomoglyph sets the homoglyph filter in compConf from c if it's enabled and
+// the filter is initialized in s.  c and compConf must not be nil, c.Enabled
+// must be true.
+func (s *Default) setHomoglyph(comp *composite.Config, c *filter.ConfigSafeBrowsing) {
+	if c.Homoglyph != nil && c.Homoglyph.Enabled && s.homoglyph != nil {
+		comp.Homoglyph = s.homoglyph
 	}
 }
 
 // forGroup returns a new filter based on a group configuration.  c must not be
 // nil.
 func (s *Default) forGroup(ctx context.Context, c *filter.ConfigGroup) (f filter.Interface) {
-	compConf := &composite.Config{
-		// TODO(a.garipov):  Find ways of reusing these.  Perhaps add Close to
-		// [filter.Interface]?
-		URLFilterRequest: &urlfilter.DNSRequest{},
-		URLFilterResult:  &urlfilter.DNSResult{},
-	}
+	compConf := s.configPool.Get()
+	defer s.configPool.Put(compConf)
 
+	compConf.Reset()
 	s.setParental(ctx, compConf, c.Parental)
 	s.setRuleLists(ctx, compConf, c.RuleList)
 	s.setSafeBrowsing(compConf, c.SafeBrowsing)
 
-	return composite.New(compConf)
+	res := s.filterPool.Get()
+	res.Reset(compConf)
+
+	return res
+}
+
+// Dispose implements the [filter.Storage] interface for *Default.
+func (s *Default) Dispose(f filter.Interface) {
+	c, ok := f.(*composite.Filter)
+	if !ok {
+		return
+	}
+
+	s.filterPool.Put(c)
 }

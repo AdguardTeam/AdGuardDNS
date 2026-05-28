@@ -45,6 +45,9 @@ type Config struct {
 	// Client is the HTTP client for requests to the Consul key-value storage.
 	Client *agdhttp.Client
 
+	// Clock is used to get the current time.  It must not be nil.
+	Clock timeutil.Clock
+
 	// Limiter rate limits requests to the Consul key-value storage.
 	Limiter *rate.Limiter
 
@@ -59,6 +62,7 @@ type Config struct {
 
 // KV is the Consul remote KV implementation.
 type KV struct {
+	clock       timeutil.Clock
 	url         *url.URL
 	sessionURL  *url.URL
 	client      *agdhttp.Client
@@ -76,6 +80,7 @@ func NewKV(conf *Config) (kv *KV, err error) {
 	}
 
 	return &KV{
+		clock:       conf.Clock,
 		url:         conf.URL,
 		sessionURL:  conf.SessionURL,
 		client:      conf.Client,
@@ -211,7 +216,7 @@ func (kv *KV) Set(ctx context.Context, key string, val []byte) (err error) {
 	}
 
 	sessReq := &consulSessionRequest{
-		Name:     fmt.Sprintf("ad_guard_dns_session_%d", time.Now().UnixNano()),
+		Name:     fmt.Sprintf("ad_guard_dns_session_%d", kv.clock.Now().UnixNano()),
 		Behavior: consulSessionBehavior,
 		TTL:      timeutil.Duration(kv.ttl),
 	}

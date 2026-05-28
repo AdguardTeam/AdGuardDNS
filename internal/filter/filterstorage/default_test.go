@@ -300,6 +300,7 @@ func newFltConfigRuleList(enabled bool) (c *filter.ConfigRuleList) {
 // with the features properly enabled or disabled.
 func newFltConfigSafeBrowsing(hpDanger, hpNew bool) (c *filter.ConfigSafeBrowsing) {
 	return &filter.ConfigSafeBrowsing{
+		Homoglyph:                     &filter.ConfigHomoglyph{},
 		Typosquatting:                 &filter.ConfigTyposquatting{},
 		Enabled:                       hpDanger || hpNew,
 		DangerousDomainsEnabled:       hpDanger,
@@ -435,4 +436,62 @@ func assertFilterResultsSafeBrowsing(
 	require.NoError(tb, err)
 
 	filtertest.AssertEqualResult(tb, wantResNewReg, r)
+}
+
+func BenchmarkDefault_ForConfig(b *testing.B) {
+	s := newDefault(b)
+
+	ctx := testutil.ContextWithTimeout(b, filtertest.Timeout)
+
+	parental := newFltConfigParental(true, true, true, true)
+	ruleList := newFltConfigRuleList(true)
+	safeBrowsing := newFltConfigSafeBrowsing(true, true)
+
+	b.Run("client", func(b *testing.B) {
+		conf := newFltConfigCli(parental, ruleList, safeBrowsing)
+
+		// Warmup to fill the pools.
+		cliFlt := s.ForConfig(ctx, conf)
+		require.NotNil(b, cliFlt)
+
+		s.Dispose(cliFlt)
+
+		b.ReportAllocs()
+		for b.Loop() {
+			cliFlt = s.ForConfig(ctx, conf)
+			s.Dispose(cliFlt)
+		}
+
+		require.NotNil(b, cliFlt)
+	})
+
+	b.Run("group", func(b *testing.B) {
+		conf := &filter.ConfigGroup{
+			Parental:     parental,
+			RuleList:     ruleList,
+			SafeBrowsing: safeBrowsing,
+		}
+
+		// Warmup to fill the pools.
+		grpFlt := s.ForConfig(ctx, conf)
+		require.NotNil(b, grpFlt)
+
+		s.Dispose(grpFlt)
+
+		b.ReportAllocs()
+		for b.Loop() {
+			grpFlt = s.ForConfig(ctx, conf)
+			s.Dispose(grpFlt)
+		}
+
+		require.NotNil(b, grpFlt)
+	})
+
+	// Most recent results
+	//	goos: darwin
+	//	goarch: arm64
+	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/filterstorage
+	//	cpu: Apple M4 Pro
+	//	BenchmarkDefault_ForConfig/client-14         	23040810	        51.90 ns/op	       0 B/op	       0 allocs/op
+	//	BenchmarkDefault_ForConfig/group-14          	23413891	        50.73 ns/op	       0 B/op	       0 allocs/op
 }

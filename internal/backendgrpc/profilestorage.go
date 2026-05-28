@@ -16,6 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -31,6 +32,9 @@ type ProfileStorageConfig struct {
 
 	// BaseCustomLogger is the base logger used for the custom filters.
 	BaseCustomLogger *slog.Logger
+
+	// Clock is used to get the current time.  It must not be nil.
+	Clock timeutil.Clock
 
 	// Endpoint is the backend API URL.  The scheme should be either "grpc" or
 	// "grpcs".  It must not be nil.
@@ -80,6 +84,7 @@ type ProfileStorageConfig struct {
 type ProfileStorage struct {
 	logger           *slog.Logger
 	baseCustomLogger *slog.Logger
+	clock            timeutil.Clock
 	profAccessCons   *access.ProfileConstructor
 	bindSet          netutil.SubnetSet
 	errColl          errcoll.Interface
@@ -104,6 +109,7 @@ func NewProfileStorage(c *ProfileStorageConfig) (s *ProfileStorage, err error) {
 	return &ProfileStorage{
 		logger:           c.Logger,
 		baseCustomLogger: c.BaseCustomLogger,
+		clock:            c.Clock,
 		profAccessCons:   c.ProfileAccessConstructor,
 		bindSet:          c.BindSet,
 		errColl:          c.ErrColl,
@@ -189,6 +195,7 @@ func (s *ProfileStorage) readProfilesFromStream(
 
 	stats := &profilesCallStats{
 		logger:     s.logger,
+		clock:      s.clock,
 		isFullSync: isFullSync,
 	}
 
@@ -257,6 +264,7 @@ func (s *ProfileStorage) addProfileToResp(
 		ctx,
 		s.logger,
 		s.baseCustomLogger,
+		s.clock,
 		s.profAccessCons,
 		s.bindSet,
 		s.errColl,

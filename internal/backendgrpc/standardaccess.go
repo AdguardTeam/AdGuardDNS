@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendgrpc/dnspb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterstorage"
+	"github.com/AdguardTeam/golibs/timeutil"
 )
 
 // StandardAccessConfig is the configuration structure for the business logic
@@ -30,6 +30,9 @@ type StandardAccessConfig struct {
 	// ErrColl is used to collect errors during procedure calls.
 	ErrColl errcoll.Interface
 
+	// Clock is used to get the current time.  It must not be nil.
+	Clock timeutil.Clock
+
 	// Endpoint is the backend API URL.  The scheme should be either "grpc" or
 	// "grpcs".  It must not be nil.
 	Endpoint *url.URL
@@ -43,6 +46,7 @@ type StandardAccessConfig struct {
 // that retrieves the standard access settings from the business logic backend.
 type StandardAccess struct {
 	logger      *slog.Logger
+	clock       timeutil.Clock
 	grpcMetrics GRPCMetrics
 	metrics     StandardAccessMetrics
 	errColl     errcoll.Interface
@@ -61,6 +65,7 @@ func NewStandardAccess(c *StandardAccessConfig) (a *StandardAccess, err error) {
 
 	return &StandardAccess{
 		logger:      c.Logger,
+		clock:       c.Clock,
 		grpcMetrics: c.GRPCMetrics,
 		metrics:     c.Metrics,
 		errColl:     c.ErrColl,
@@ -78,11 +83,11 @@ func (a *StandardAccess) Config(ctx context.Context) (c *access.StandardBlockerC
 	ctx = ctxWithAuthentication(ctx, a.apiKey)
 	req := &dnspb.GlobalAccessSettingsRequest{}
 
-	start := time.Now()
+	start := a.clock.Now()
 	defer func() {
 		// TODO(e.burkov):  Consider separating metrics for networking and
 		// decoding.
-		a.metrics.ObserveUpdate(ctx, time.Since(start), err)
+		a.metrics.ObserveUpdate(ctx, a.clock.Now().Sub(start), err)
 	}()
 
 	resp, err := a.client.GetGlobalAccessSettings(ctx, req)

@@ -16,6 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/composite"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,6 +25,9 @@ import (
 
 // type check
 var _ composite.RequestFilter = (*hashprefix.Filter)(nil)
+
+// testClock is a common clock for tests.
+var testClock = timeutil.SystemClock{}
 
 func TestFilter_FilterRequest(t *testing.T) {
 	t.Parallel()
@@ -236,6 +240,7 @@ func TestFilter_Refresh(t *testing.T) {
 
 	f, err := hashprefix.NewFilter(&hashprefix.FilterConfig{
 		Logger:                    filtertest.Logger,
+		Clock:                     testClock,
 		Cloner:                    cloner,
 		CacheManager:              agdcache.EmptyManager{},
 		Hashes:                    strg,
@@ -296,6 +301,7 @@ func TestFilter_FilterRequest_staleCache(t *testing.T) {
 
 	fconf := &hashprefix.FilterConfig{
 		Logger:                    filtertest.Logger,
+		Clock:                     testClock,
 		Cloner:                    cloner,
 		CacheManager:              agdcache.EmptyManager{},
 		Hashes:                    strg,

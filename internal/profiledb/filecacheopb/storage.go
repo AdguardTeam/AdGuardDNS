@@ -12,6 +12,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb/internal/fcpb"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 	renameio "github.com/google/renameio/v2"
 	"google.golang.org/protobuf/proto"
@@ -20,6 +21,7 @@ import (
 // Storage is the file-cache storage that encodes data using protobuf.  Profiles
 // and devices are sorted before serialization.
 type Storage struct {
+	clock            timeutil.Clock
 	logger           *slog.Logger
 	baseCustomLogger *slog.Logger
 	profAccessCons   *access.ProfileConstructor
@@ -30,6 +32,9 @@ type Storage struct {
 // Config is the configuration structure for the protobuf-encoded file-cache
 // storage.
 type Config struct {
+	// Clock is used for rate limiter.  It must not be nil.
+	Clock timeutil.Clock
+
 	// Logger is used for logging the operation of profile database.  It must
 	// not be nil.
 	Logger *slog.Logger
@@ -55,6 +60,7 @@ type Config struct {
 // must be valid.
 func New(c *Config) (s *Storage) {
 	return &Storage{
+		clock:            c.Clock,
 		logger:           c.Logger,
 		baseCustomLogger: c.BaseCustomLogger,
 		profAccessCons:   c.ProfileAccessConstructor,
@@ -97,7 +103,7 @@ func (s *Storage) Load(ctx context.Context) (c *profiledb.FileCache, err error) 
 		)
 	}
 
-	return fileCacheToInternal(ctx, fc, s.logger, s.baseCustomLogger, s.profAccessCons, s.respSzEst)
+	return s.fileCacheToInternal(ctx, fc)
 }
 
 // Store implements the [profiledb.FileCacheStorage] interface for *Storage.

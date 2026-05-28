@@ -17,4 +17,8 @@ type Storage interface {
 	// ForConfig returns a filter created from the configuration.  If c is nil,
 	// f is [filter.Empty].
 	ForConfig(ctx context.Context, c Config) (f Interface)
+
+	// Dispose returns f to the storage pool for reuse.  f must not be nil.  f
+	// must not be used after this call.
+	Dispose(f Interface)
 }

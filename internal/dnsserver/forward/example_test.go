@@ -12,12 +12,15 @@ import (
 
 func ExampleNewHandler() {
 	handler := forward.NewHandler(&forward.HandlerConfig{
+		Clock: testClock,
 		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
+			Clock:   testClock,
 			Network: forward.NetworkAny,
 			Address: netip.MustParseAddrPort("8.8.8.8:53"),
 			Timeout: testTimeout,
 		}},
 		FallbackAddresses: []*forward.UpstreamPlainConfig{{
+			Clock:   testClock,
 			Network: forward.NetworkAny,
 			Address: netip.MustParseAddrPort("1.1.1.1:53"),
 			Timeout: testTimeout,
@@ -27,6 +30,7 @@ func ExampleNewHandler() {
 	conf := &dnsserver.ConfigDNS{
 		Base: &dnsserver.ConfigBase{
 			BaseLogger: slogutil.NewDiscardLogger(),
+			Clock:      testClock,
 			Handler:    handler,
 			Name:       "srv",
 			Addr:       "127.0.0.1:0",

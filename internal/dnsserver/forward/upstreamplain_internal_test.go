@@ -9,6 +9,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/golibs/testutil/fakenet"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +26,9 @@ func BenchmarkUpstreamPlain_ReadMsg(b *testing.B) {
 	tcpLen := binary.BigEndian.AppendUint16(nil, uint16(len(data)))
 	tcpData := append(tcpLen, data...)
 
-	ups := NewUpstreamPlain(&UpstreamPlainConfig{})
+	ups := NewUpstreamPlain(&UpstreamPlainConfig{
+		Clock: timeutil.SystemClock{},
+	})
 	testutil.CleanupAndRequireSuccess(b, ups.Close)
 
 	b.Run("udp", func(b *testing.B) {

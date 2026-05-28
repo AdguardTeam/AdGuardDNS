@@ -2,11 +2,15 @@ package access
 
 import (
 	"github.com/AdguardTeam/golibs/syncutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/AdguardTeam/urlfilter"
 )
 
 // ProfileConstructorConfig is the configuration for the [ProfileConstructor].
 type ProfileConstructorConfig struct {
+	// Clock is used to get the current time.  It must not be nil.
+	Clock timeutil.Clock
+
 	// Metrics is used for the collection of the statistics of profile access
 	// managers.  It must not be nil.
 	Metrics ProfileMetrics
@@ -20,6 +24,7 @@ type ProfileConstructorConfig struct {
 type ProfileConstructor struct {
 	reqPool  *syncutil.Pool[urlfilter.DNSRequest]
 	resPool  *syncutil.Pool[urlfilter.DNSResult]
+	clock    timeutil.Clock
 	metrics  ProfileMetrics
 	standard Blocker
 }
@@ -34,6 +39,7 @@ func NewProfileConstructor(conf *ProfileConstructorConfig) (c *ProfileConstructo
 		resPool: syncutil.NewPool(func() (v *urlfilter.DNSResult) {
 			return &urlfilter.DNSResult{}
 		}),
+		clock:    conf.Clock,
 		metrics:  conf.Metrics,
 		standard: conf.Standard,
 	}
@@ -49,6 +55,7 @@ func (c *ProfileConstructor) New(conf *ProfileConfig) (p *DefaultProfile) {
 
 	return newDefaultProfile(&defaultProfileConfig{
 		conf:     conf,
+		clock:    c.clock,
 		reqPool:  c.reqPool,
 		resPool:  c.resPool,
 		metrics:  c.metrics,

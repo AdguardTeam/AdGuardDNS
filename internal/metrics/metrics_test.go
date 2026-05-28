@@ -11,7 +11,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/ecscache"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
@@ -44,7 +43,6 @@ var (
 	_ dnssvc.MainMiddlewareMetrics           = (*metrics.MainMiddleware)(nil)
 	_ dnssvc.RatelimitMiddlewareMetrics      = (*metrics.RatelimitMiddleware)(nil)
 	_ ecscache.Metrics                       = (*metrics.ECSCache)(nil)
-	_ filter.Metrics                         = (*metrics.Filter)(nil)
 	_ geoip.Metrics                          = (*metrics.GeoIP)(nil)
 	_ hashprefix.Metrics                     = (*metrics.HashPrefixFilter)(nil)
 	_ profiledb.Metrics                      = (*metrics.ProfileDB)(nil)

@@ -8,6 +8,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/domain"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/publicsuffix"
 )
@@ -20,6 +21,7 @@ func NewDomainFilter(tb testing.TB, data string) (f *domain.Filter) {
 	cachePath, srvURL := PrepareRefreshable(tb, nil, data, http.StatusOK)
 	f, err := domain.NewFilter(&domain.FilterConfig{
 		Logger:           Logger,
+		Clock:            timeutil.SystemClock{},
 		CacheManager:     agdcache.EmptyManager{},
 		URL:              srvURL,
 		DomainMetrics:    domain.EmptyMetrics{},

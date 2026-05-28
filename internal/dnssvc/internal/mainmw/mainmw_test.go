@@ -19,6 +19,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -60,6 +61,8 @@ var (
 		QueryLogEnabled: true,
 		IPLogEnabled:    true,
 	}
+
+	testClock = timeutil.SystemClock{}
 )
 
 func TestMiddleware_Wrap(t *testing.T) {
@@ -108,13 +111,6 @@ func TestMiddleware_Wrap(t *testing.T) {
 		) (r filter.Result, err error) {
 			return nil, nil
 		},
-	}
-
-	fltStrg := &agdtest.FilterStorage{
-		OnForConfig: func(_ context.Context, _ filter.Config) (f filter.Interface) {
-			return flt
-		},
-		OnHasListID: func(id filter.ID) (ok bool) { panic(testutil.UnexpectedCall(id)) },
 	}
 
 	geoIP := agdtest.NewGeoIP()
@@ -207,6 +203,21 @@ func TestMiddleware_Wrap(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
+			disposeChan := make(chan struct{})
+			t.Cleanup(func() {
+				testutil.RequireReceive(t, disposeChan, dnssvctest.Timeout)
+			})
+
+			fltStrg := agdtest.NewFilterStorage()
+			fltStrg.OnForConfig = func(_ context.Context, _ filter.Config) (f filter.Interface) {
+				return flt
+			}
+
+			fltStrg.OnDispose = func(f filter.Interface) {
+				assert.Equal(t, flt, f)
+				close(disposeChan)
+			}
+
 			q := tc.req.Question[0]
 			reqFQDN := q.Name
 			reqHost := agdnet.NormalizeDomain(reqFQDN)
@@ -222,6 +233,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 			}
 
 			c := &mainmw.Config{
+				Clock:         testClock,
 				Cloner:        cloner,
 				Logger:        slogutil.NewDiscardLogger(),
 				Messages:      msgs,
@@ -353,6 +365,7 @@ func newContext(
 			Enabled: true,
 		},
 		SafeBrowsing: &filter.ConfigSafeBrowsing{
+			Homoglyph:     &filter.ConfigHomoglyph{},
 			Typosquatting: &filter.ConfigTyposquatting{},
 		},
 	}
@@ -680,11 +693,19 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 				},
 			}
 
-			fltStrg := &agdtest.FilterStorage{
-				OnForConfig: func(_ context.Context, _ filter.Config) (f filter.Interface) {
-					return flt
-				},
-				OnHasListID: func(id filter.ID) (ok bool) { panic(testutil.UnexpectedCall(id)) },
+			disposeChan := make(chan struct{})
+			t.Cleanup(func() {
+				testutil.RequireReceive(t, disposeChan, dnssvctest.Timeout)
+			})
+
+			fltStrg := agdtest.NewFilterStorage()
+			fltStrg.OnForConfig = func(_ context.Context, _ filter.Config) (f filter.Interface) {
+				return flt
+			}
+
+			fltStrg.OnDispose = func(f filter.Interface) {
+				assert.Equal(t, flt, f)
+				close(disposeChan)
 			}
 
 			q := tc.req.Question[0]
@@ -710,6 +731,7 @@ func TestMiddleware_Wrap_filtering(t *testing.T) {
 			}
 
 			c := &mainmw.Config{
+				Clock:         testClock,
 				Cloner:        cloner,
 				Logger:        slogutil.NewDiscardLogger(),
 				Messages:      msgs,

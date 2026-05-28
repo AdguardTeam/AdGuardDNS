@@ -10,6 +10,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/golibs/container"
+	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/miekg/dns"
 )
@@ -22,6 +23,15 @@ type Filter struct {
 
 	// ufRes is the URLFilter result data to use and reuse during filtering.
 	ufRes *urlfilter.DNSResult
+
+	// generalSafeSearchFilter is a wrapper for general safe search filter.
+	generalSafeSearchFilter *ufRequestFilter
+
+	// youtubeSafeSearchFilter is a wrapper for youtube safe search filter.
+	youtubeSafeSearchFilter *ufRequestFilter
+
+	// resultCollectorPool is used to reuse urlFilterResultCollector objects.
+	resultCollectorPool *syncutil.Pool[urlFilterResultCollector]
 
 	// custom is the custom rule-list filter of the profile, if any.
 	custom filter.Custom
@@ -43,14 +53,6 @@ type Filter struct {
 
 // Config is the configuration structure for the composite filter.
 type Config struct {
-	// URLFilterRequest is the request data to use and reuse during filtering.
-	// It must not be nil.
-	URLFilterRequest *urlfilter.DNSRequest
-
-	// URLFilterResult is the result data to use and reuse during filtering.  It
-	// must not be nil.
-	URLFilterResult *urlfilter.DNSResult
-
 	// SafeBrowsing is the safe-browsing filter to apply, if any.
 	SafeBrowsing RequestFilter
 
@@ -64,6 +66,10 @@ type Config struct {
 	// Typosquatting is a typosquatting filter based on Damerau–Levenshtein
 	// distance, if any.
 	Typosquatting RequestFilter
+
+	// Homoglyph is a IDN homograph filter that detects domains with
+	// similar-looking characters, if any.
+	Homoglyph RequestFilter
 
 	// GeneralSafeSearch is the general safe-search filter to apply, if any.
 	GeneralSafeSearch RequestFilterUF
@@ -89,32 +95,40 @@ type Config struct {
 	ServiceLists []*rulelist.Immutable
 }
 
+// Reset makes c ready for reuse.
+func (c *Config) Reset() {
+	c.SafeBrowsing = nil
+	c.AdultBlocking = nil
+	c.NewRegisteredDomains = nil
+	c.Typosquatting = nil
+	c.GeneralSafeSearch = nil
+	c.YouTubeSafeSearch = nil
+	c.Custom = nil
+
+	c.CategoryFilters = c.CategoryFilters[:0]
+	c.CustomRuleLists = c.CustomRuleLists[:0]
+	c.RuleLists = c.RuleLists[:0]
+	c.ServiceLists = c.ServiceLists[:0]
+}
+
 // New returns a new composite filter.  c must not be nil.
-//
-// TODO(a.garipov):  Consider reusing composite filters and adding function Set
-// and method Reset.
 func New(c *Config) (f *Filter) {
+	ufReq := &urlfilter.DNSRequest{}
+	ufRes := &urlfilter.DNSResult{}
+
 	f = &Filter{
-		ufReq:           c.URLFilterRequest,
-		ufRes:           c.URLFilterResult,
-		custom:          c.Custom,
-		customRuleLists: c.CustomRuleLists,
-		ruleLists:       c.RuleLists,
-		svcLists:        c.ServiceLists,
+		ufReq:                   ufReq,
+		ufRes:                   ufRes,
+		custom:                  c.Custom,
+		customRuleLists:         make([]*rulelist.Refreshable, 0, len(c.CustomRuleLists)),
+		ruleLists:               make([]*rulelist.Refreshable, 0, len(c.RuleLists)),
+		svcLists:                make([]*rulelist.Immutable, 0, len(c.ServiceLists)),
+		resultCollectorPool:     syncutil.NewPool(newURLFilterResultCollector),
+		generalSafeSearchFilter: &ufRequestFilter{req: ufReq, res: ufRes},
+		youtubeSafeSearchFilter: &ufRequestFilter{req: ufReq, res: ufRes},
 	}
 
-	// DO NOT change the order of request filters without necessity.
-	f.reqFilters = appendIfNotNil(f.reqFilters, c.SafeBrowsing)
-	f.reqFilters = appendIfNotNil(f.reqFilters, c.AdultBlocking)
-	f.reqFilters = appendIfNotNilUF(f.reqFilters, c.GeneralSafeSearch, f.ufReq, f.ufRes)
-	f.reqFilters = appendIfNotNilUF(f.reqFilters, c.YouTubeSafeSearch, f.ufReq, f.ufRes)
-	f.reqFilters = appendIfNotNil(f.reqFilters, c.NewRegisteredDomains)
-
-	for _, df := range c.CategoryFilters {
-		f.reqFilters = appendIfNotNil(f.reqFilters, df)
-	}
-
-	f.reqFilters = appendIfNotNil(f.reqFilters, c.Typosquatting)
+	f.Reset(c)
 
 	return f
 }
@@ -130,22 +144,18 @@ func appendIfNotNil(orig []RequestFilter, flt RequestFilter) (flts []RequestFilt
 	return flts
 }
 
-// appendIfNotNilUF wraps flt and appends it to orig if flt is not nil.
+// appendIfNotNilUF wraps flt and appends it to orig if flt is not nil.  wrapper
+// must not be nil.
 func appendIfNotNilUF(
 	orig []RequestFilter,
 	flt RequestFilterUF,
-	req *urlfilter.DNSRequest,
-	res *urlfilter.DNSResult,
+	wrapper *ufRequestFilter,
 ) (flts []RequestFilter) {
 	flts = orig
 
 	if flt != nil {
-		// TODO(a.garipov):  Consider reusing wrapper structures.
-		flts = append(flts, &ufRequestFilter{
-			flt: flt,
-			req: req,
-			res: res,
-		})
+		wrapper.flt = flt
+		flts = append(flts, wrapper)
 	}
 
 	return flts
@@ -168,6 +178,7 @@ var _ filter.Interface = (*Filter)(nil)
 //  9. Newly-registered domains filter.
 //  10. Category filters.
 //  11. Typosquatting filter.
+//  12. Homoglyph filter.
 //
 // If f is empty, it returns nil with no error.
 func (f *Filter) FilterRequest(
@@ -226,7 +237,10 @@ func (f *Filter) filterReqWithRuleLists(
 	f.ufReq.DNSType = req.QType
 	f.ufReq.Hostname = req.Host
 
-	c := newURLFilterResultCollector()
+	c := f.resultCollectorPool.Get()
+	defer f.resultCollectorPool.Put(c)
+
+	c.reset()
 	r = f.filterReqWithCustomFilter(ctx, req, c)
 	if r != nil {
 		// Custom rules have priority over all other rule lists.
@@ -427,7 +441,10 @@ func (f *Filter) filterRespWithRuleLists(
 	f.ufReq.DNSType = rrType
 	f.ufReq.Hostname = host
 
-	c := newURLFilterResultCollector()
+	c := f.resultCollectorPool.Get()
+	defer f.resultCollectorPool.Put(c)
+
+	c.reset()
 	if f.custom != nil {
 		addClientID(f.ufReq, resp.ClientName)
 
@@ -561,4 +578,34 @@ func parseRespAnswer(ans dns.RR) (hostname string, rrType dnsmsg.RRType, ok bool
 	default:
 		return "", dns.TypeNone, false
 	}
+}
+
+// Reset reinitializes f with a new configuration while preserving
+// reusable fields.  c must not be nil.  c must be valid.
+func (f *Filter) Reset(c *Config) {
+	f.ufReq.Reset()
+	f.ufRes.Reset()
+	f.custom = c.Custom
+	f.customRuleLists = append(f.customRuleLists[:0], c.CustomRuleLists...)
+	f.ruleLists = append(f.ruleLists[:0], c.RuleLists...)
+	f.svcLists = append(f.svcLists[:0], c.ServiceLists...)
+
+	f.generalSafeSearchFilter.flt = nil
+	f.youtubeSafeSearchFilter.flt = nil
+
+	f.reqFilters = f.reqFilters[:0]
+
+	// DO NOT change the order of request filters without necessity.
+	f.reqFilters = appendIfNotNil(f.reqFilters, c.SafeBrowsing)
+	f.reqFilters = appendIfNotNil(f.reqFilters, c.AdultBlocking)
+	f.reqFilters = appendIfNotNilUF(f.reqFilters, c.GeneralSafeSearch, f.generalSafeSearchFilter)
+	f.reqFilters = appendIfNotNilUF(f.reqFilters, c.YouTubeSafeSearch, f.youtubeSafeSearchFilter)
+	f.reqFilters = appendIfNotNil(f.reqFilters, c.NewRegisteredDomains)
+
+	for _, df := range c.CategoryFilters {
+		f.reqFilters = appendIfNotNil(f.reqFilters, df)
+	}
+
+	f.reqFilters = appendIfNotNil(f.reqFilters, c.Typosquatting)
+	f.reqFilters = appendIfNotNil(f.reqFilters, c.Homoglyph)
 }

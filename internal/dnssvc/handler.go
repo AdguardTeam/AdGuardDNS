@@ -17,8 +17,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/ecscache"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
-	"github.com/AdguardTeam/golibs/timeutil"
-
 	// TODO(e.burkov):  Move registering of the metrics to another package to
 	// avoid dependency on the metrics package.
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
@@ -40,6 +38,7 @@ func NewHandlers(ctx context.Context, c *HandlersConfig) (handlers Handlers, err
 
 	mainMw := mainmw.New(&mainmw.Config{
 		Cloner:        c.Cloner,
+		Clock:         c.Clock,
 		Logger:        c.BaseLogger.With(slogutil.KeyPrefix, "mainmw"),
 		Messages:      c.Messages,
 		BillStat:      c.BillStat,
@@ -100,6 +99,7 @@ func wrapPreUpstreamMw(
 		}
 
 		cacheMw := cache.NewMiddleware(&cache.MiddlewareConfig{
+			Clock:           c.Clock,
 			Logger:          c.BaseLogger.With(slogutil.KeyPrefix, "cache"),
 			MetricsListener: mtrcListener,
 			Count:           conf.NoECSCount,
@@ -124,7 +124,7 @@ func wrapPreUpstreamMw(
 
 		cacheMw := ecscache.NewMiddleware(&ecscache.MiddlewareConfig{
 			Metrics:      mtrc,
-			Clock:        timeutil.SystemClock{},
+			Clock:        c.Clock,
 			Cloner:       c.Cloner,
 			Logger:       c.BaseLogger.With(slogutil.KeyPrefix, "ecscache"),
 			CacheManager: c.CacheManager,
@@ -161,6 +161,7 @@ func newMainMiddlewareMetrics(c *HandlersConfig) (mainMwMtrc MainMiddlewareMetri
 		c.BaseLogger.With(slogutil.KeyPrefix, "mainmw_metrics"),
 		c.MetricsNamespace,
 		c.PrometheusRegisterer,
+		c.Clock,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("mainmw metrics: %w", err)

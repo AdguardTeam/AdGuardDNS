@@ -14,6 +14,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -39,6 +40,7 @@ func TestStandardAccess_Config(t *testing.T) {
 	endpoint := runLocalGRPCServer(t, grpcSrv)
 
 	stdAccess := newTestStandardAccess(t, &backendgrpc.StandardAccessConfig{
+		Clock:    timeutil.SystemClock{},
 		Endpoint: endpoint,
 	})
 	require.True(t, t.Run("success", func(t *testing.T) {
@@ -137,6 +139,7 @@ func TestStandardAccess_Config_malformed(t *testing.T) {
 	endpoint := runLocalGRPCServer(t, grpcSrv)
 
 	stdAccess := newTestStandardAccess(t, &backendgrpc.StandardAccessConfig{
+		Clock:    timeutil.SystemClock{},
 		Endpoint: endpoint,
 		ErrColl:  errColl,
 	})
@@ -251,6 +254,7 @@ func newTestStandardAccess(
 
 	c = cmp.Or(c, &backendgrpc.StandardAccessConfig{})
 
+	c.Clock = cmp.Or[timeutil.Clock](c.Clock, timeutil.SystemClock{})
 	c.Logger = cmp.Or(c.Logger, backendtest.Logger)
 
 	c.ErrColl = cmp.Or[errcoll.Interface](c.ErrColl, backendtest.ErrColl)

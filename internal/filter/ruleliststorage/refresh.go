@@ -218,7 +218,10 @@ func (s *Default) resultRuleList(ctx context.Context, res refrResult) (rl *ruleL
 	if res.err != nil {
 		err := fmt.Errorf("initializing rule list %q: %w", fltID, res.err)
 		errcoll.Collect(ctx, s.errColl, s.logger, "rule list error", err)
-		s.metrics.SetStatus(ctx, string(fltID), s.clock.Now(), 0, err)
+		s.metrics.SetStatus(ctx, &filter.StatusUpdate{
+			Error: err,
+			ID:    string(fltID),
+		})
 
 		return s.prevRuleList(fltID)
 	}
@@ -296,7 +299,13 @@ func (s *Default) refreshRuleList(
 		return
 	}
 
-	s.metrics.SetStatus(ctx, string(id), s.clock.Now(), rl.RulesCount(), nil)
+	s.metrics.SetStatus(ctx, &filter.StatusUpdate{
+		Error:      nil,
+		UpdateTime: s.clock.Now(),
+		ID:         string(id),
+		RuleCount:  rl.RulesCount(),
+		SizeBytes:  rl.RulesSize(),
+	})
 
 	res.refr = rl
 	res.updTime = fl.updTime
@@ -321,6 +330,7 @@ func (s *Default) newRuleListRefreshable(
 	)
 
 	return rulelist.NewRefreshable(&refreshable.Config{
+		Clock:     s.clock,
 		Logger:    s.baseLogger.With(slogutil.KeyPrefix, cacheID),
 		URL:       fl.url,
 		ID:        id,

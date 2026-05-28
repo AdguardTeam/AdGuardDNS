@@ -19,6 +19,7 @@ import (
 	"github.com/AdguardTeam/golibs/netutil/httputil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil/servicetest"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,6 +34,9 @@ const testTimeout = 7 * time.Second
 //
 // TODO(m.kazantsev):  Move to golibs.
 var localhostAnyPort = netip.AddrPortFrom(netutil.IPv4Localhost(), 0)
+
+// testClock is a common clock for tests.
+var testClock = timeutil.SystemClock{}
 
 func TestService_Start_services(t *testing.T) {
 	t.Parallel()
@@ -100,6 +104,7 @@ func newTestDebugService(tb testing.TB, c *debugsvc.Config) (svc *debugsvc.Servi
 
 	emptyAddr := netip.AddrPort{}
 
+	c.Clock = cmp.Or[timeutil.Clock](c.Clock, testClock)
 	c.Logger = cmp.Or(c.Logger, slogutil.NewDiscardLogger())
 	c.Manager = cmp.Or(c.Manager, agdcache.NewDefaultManager())
 	c.APIAddr = cmp.Or(c.APIAddr, emptyAddr)

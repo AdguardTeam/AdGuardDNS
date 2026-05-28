@@ -14,6 +14,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,6 +33,9 @@ var (
 	testTextFileData = []byte(testTextFile)
 	testTextURLData  = []byte(testTextURL)
 )
+
+// testClock is a common clock for tests.
+var testClock = timeutil.SystemClock{}
 
 func TestRefreshable_Refresh(t *testing.T) {
 	testCases := []struct {
@@ -116,6 +120,7 @@ func TestRefreshable_Refresh(t *testing.T) {
 			cachePath := prepareCachePath(t, realCachePath, tc.useCacheFile)
 
 			c := &refreshable.Config{
+				Clock:     testClock,
 				Logger:    filtertest.Logger,
 				URL:       srvURL,
 				ID:        refrID,
@@ -174,6 +179,7 @@ func TestRefreshable_Refresh_properStaleness(t *testing.T) {
 	)
 
 	c := &refreshable.Config{
+		Clock:     testClock,
 		Logger:    filtertest.Logger,
 		URL:       addr,
 		ID:        refrID,
@@ -230,6 +236,7 @@ func TestRefreshable_Refresh_fileURL(t *testing.T) {
 	require.NoError(t, fltFile.Close())
 
 	c := &refreshable.Config{
+		Clock:  testClock,
 		Logger: filtertest.Logger,
 		URL: &url.URL{
 			Scheme: urlutil.SchemeFile,

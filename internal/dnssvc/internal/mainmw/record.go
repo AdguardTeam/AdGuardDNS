@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
@@ -62,7 +61,7 @@ func (mw *Middleware) recordQueryInfo(
 		DeviceID:       devID,
 		ClientCountry:  reqCtry,
 		DomainFQDN:     fctx.originalRequest.Question[0].Name,
-		Elapsed:        time.Since(start),
+		Elapsed:        mw.clock.Now().Sub(start),
 		ClientASN:      reqASN,
 		RequestType:    ri.QType,
 		Protocol:       ri.ServerInfo.Protocol,

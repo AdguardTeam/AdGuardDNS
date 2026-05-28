@@ -34,6 +34,9 @@ var (
 		Domains: []*filterindex.TyposquattingProtectedDomain{{
 			Domain:   filtertest.HostTypoProtectedDomain,
 			Distance: 1,
+		}, {
+			Domain:   "bbd.co.uk",
+			Distance: 1,
 		}},
 		Exceptions: nil,
 	}
@@ -51,8 +54,11 @@ var (
 func TestFilter_FilterRequest_basic(t *testing.T) {
 	t.Parallel()
 
+	const minESLLen = 4
+
 	f := newTestFilter(t, &typosquatting.Config{
-		Storage: newTestStorage(testIndex),
+		Storage:    newTestStorage(testIndex),
+		MinESLLLen: minESLLen,
 	})
 
 	testCases := []struct {
@@ -122,6 +128,11 @@ func TestFilter_FilterRequest_basic(t *testing.T) {
 		host:         filtertest.HostTypoDomain,
 		qtype:        dns.TypeMX,
 		wantFiltered: false,
+	}, {
+		name:         "too_short_essl",
+		host:         "bbc.co.uk",
+		qtype:        dns.TypeA,
+		wantFiltered: false,
 	}}
 
 	for _, tc := range testCases {
@@ -149,6 +160,9 @@ func newTestStorage(fltIdx *filterindex.Typosquatting) (s *agdtest.FilterIndexSt
 		OnTyposquatting: func(_ context.Context) (idx *filterindex.Typosquatting, err error) {
 			return fltIdx, nil
 		},
+		OnHomoglyph: func(ctx context.Context) (_ *filterindex.Homoglyph, _ error) {
+			panic(testutil.UnexpectedCall(ctx))
+		},
 	}
 }
 
@@ -168,6 +182,7 @@ func newTestFilter(tb testing.TB, c *typosquatting.Config) (f *typosquatting.Fil
 	c.Metrics = cmp.Or[filter.Metrics](c.Metrics, filter.EmptyMetrics{})
 	c.PublicSuffixList = cmp.Or(c.PublicSuffixList, publicsuffix.List)
 	c.Storage = cmp.Or[filterindex.Storage](c.Storage, filterindex.EmptyStorage{})
+	c.MinESLLLen = cmp.Or(c.MinESLLLen, 0)
 
 	if c.CachePath == "" {
 		c.CachePath = filepath.Join(tb.TempDir(), "typosquatting.json")
@@ -517,7 +532,7 @@ func BenchmarkFilter_FilterRequest(b *testing.B) {
 		ctx := b.Context()
 		res, err := f.FilterRequest(ctx, req)
 		require.NoError(b, err)
-		require.Equal(b, want, res)
+		filtertest.AssertEqualResult(b, want, res)
 
 		b.ReportAllocs()
 
@@ -552,11 +567,11 @@ func BenchmarkFilter_FilterRequest(b *testing.B) {
 
 	// Most recent results:
 	//
-	// goos: darwin
-	// goarch: arm64
+	// goos: linux
+	// goarch: amd64
 	// pkg: github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/typosquatting
-	// cpu: Apple M4 Pro
-	// BenchmarkFilter_FilterRequest/correct-14         	 8395945	       130.9 ns/op	      72 B/op	       2 allocs/op
-	// BenchmarkFilter_FilterRequest/hit_typo-14        	 9111565	       132.9 ns/op	      72 B/op	       2 allocs/op
-	// BenchmarkFilter_FilterRequest/miss-14            	 8599117	       136.5 ns/op	      72 B/op	       2 allocs/op
+	// cpu: AMD Ryzen AI 7 PRO 350 w/ Radeon 860M
+	// BenchmarkFilter_FilterRequest/correct-16              5464855           191.7 ns/op         72 B/op         2 allocs/op
+	// BenchmarkFilter_FilterRequest/hit_typo-16             3254779           352.3 ns/op        290 B/op         6 allocs/op
+	// BenchmarkFilter_FilterRequest/miss-16                 6963446            74.7 ns/op         72 B/op         2 allocs/op
 }

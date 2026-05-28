@@ -35,6 +35,7 @@ func ExampleNewServerDNS() {
 	conf := &dnsserver.ConfigDNS{
 		Base: &dnsserver.ConfigBase{
 			BaseLogger: baseLogger,
+			Clock:      testClock,
 			Handler:    handler,
 			Name:       "test",
 			Addr:       "127.0.0.1:0",
@@ -65,7 +66,9 @@ func ExampleNewServerDNS() {
 func ExampleWithMiddlewares() {
 	// Init a handler func function with middlewares.
 	forwarder := forward.NewHandler(&forward.HandlerConfig{
+		Clock: testClock,
 		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
+			Clock:   testClock,
 			Network: forward.NetworkAny,
 			Address: netip.MustParseAddrPort("94.140.14.140:53"),
 		}},
@@ -82,6 +85,7 @@ func ExampleWithMiddlewares() {
 	conf := &dnsserver.ConfigDNS{
 		Base: &dnsserver.ConfigBase{
 			BaseLogger: baseLogger.With("server_name", "test"),
+			Clock:      testClock,
 			Handler:    handler,
 			Name:       "test",
 			Addr:       "127.0.0.1:0",

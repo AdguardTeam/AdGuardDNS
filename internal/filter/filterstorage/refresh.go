@@ -205,6 +205,7 @@ func (s *Default) initDomainFilter(cat *categoryData) (df *domain.Filter, err er
 	return domain.NewFilter(&domain.FilterConfig{
 		Logger:           s.baseLogger.With(slogutil.KeyPrefix, cacheID),
 		CacheManager:     s.cacheManager,
+		Clock:            s.clock,
 		URL:              cat.url,
 		DomainMetrics:    s.domainMetrics,
 		Metrics:          s.metrics,

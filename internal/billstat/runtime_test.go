@@ -12,6 +12,7 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,9 +29,13 @@ const (
 	clientASN  geoip.ASN = 42
 )
 
+// testClock is a common clock for tests.
+var testClock = timeutil.SystemClock{}
+
 func TestRuntimeRecorder_success(t *testing.T) {
 	var gotRecord *billstat.Record
 	c := &billstat.RuntimeRecorderConfig{
+		Clock:   testClock,
 		Logger:  slogutil.NewDiscardLogger(),
 		ErrColl: agdtest.NewErrorCollector(),
 		Uploader: &agdtest.BillStatUploader{
@@ -95,6 +100,7 @@ func TestRuntimeRecorder_fail(t *testing.T) {
 
 	var gotCollErr error
 	c := &billstat.RuntimeRecorderConfig{
+		Clock:  testClock,
 		Logger: slogutil.NewDiscardLogger(),
 		ErrColl: &agdtest.ErrorCollector{
 			OnCollect: func(_ context.Context, err error) {

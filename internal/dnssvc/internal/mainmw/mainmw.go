@@ -20,11 +20,13 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/optslog"
 	"github.com/AdguardTeam/golibs/syncutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 )
 
 // Middleware is the main middleware of AdGuard DNS.
 type Middleware struct {
+	clock       timeutil.Clock
 	cloner      *dnsmsg.Cloner
 	fltCtxPool  *syncutil.Pool[filteringContext]
 	fltReqPool  *syncutil.Pool[filter.Request]
@@ -47,6 +49,9 @@ type Config struct {
 	// Cloner is used to clone messages more efficiently by disposing of parts
 	// of DNS responses for later reuse.
 	Cloner *dnsmsg.Cloner
+
+	// Clock is used to get the current time.  It must not be nil.
+	Clock timeutil.Clock
 
 	// Logger is used to log the operation of the middleware.
 	Logger *slog.Logger
@@ -86,6 +91,7 @@ type Config struct {
 // New returns a new main middleware.  c must not be nil.
 func New(c *Config) (mw *Middleware) {
 	return &Middleware{
+		clock:  c.Clock,
 		cloner: c.Cloner,
 		fltCtxPool: syncutil.NewPool(func() (v *filteringContext) {
 			return &filteringContext{}
@@ -137,6 +143,8 @@ func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
 		)
 
 		flt := mw.filter(ctx, ri)
+		defer mw.fltStrg.Dispose(flt)
+
 		mw.filterRequest(ctx, fctx, flt, ri)
 
 		// Check the context error here, since the context could have already

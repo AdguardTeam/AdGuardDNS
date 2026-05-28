@@ -36,6 +36,9 @@ func NewDNSProfile(tb testing.TB) (p *dnspb.DNSProfile) {
 		QueryLogEnabled:  true,
 		Deleted:          false,
 		SafeBrowsing: &dnspb.SafeBrowsingSettings{
+			Homoglyph: &dnspb.HomoglyphFilterSettings{
+				Enabled: true,
+			},
 			Typosquatting: &dnspb.TyposquattingFilterSettings{
 				Enabled: true,
 			},

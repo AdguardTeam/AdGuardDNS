@@ -456,7 +456,7 @@ func (h *httpHandler) serveDoH(ctx context.Context, w http.ResponseWriter, r *ht
 	}
 
 	rw := NewNonWriterResponseWriter(h.localAddr, h.remoteAddr(r))
-	ctx = addRequestInfo(ctx, r)
+	ctx = h.srv.addRequestInfo(ctx, r)
 
 	req := &dns.Msg{}
 	err = req.Unpack(buf)
@@ -591,14 +591,17 @@ func (s *ServerHTTPS) listenQUIC(ctx context.Context) (err error) {
 	return nil
 }
 
-// addRequestInfo adds request info to the context.
-func addRequestInfo(parent context.Context, r *http.Request) (ctx context.Context) {
+// addRequestInfo sets request info in the context.  r must not be nil.
+func (s *ServerHTTPS) addRequestInfo(
+	parent context.Context,
+	r *http.Request,
+) (ctx context.Context) {
 	ctx = parent
 
 	ri := &RequestInfo{
 		TLS:       r.TLS,
 		URL:       netutil.CloneURL(r.URL),
-		StartTime: time.Now(),
+		StartTime: s.clock.Now(),
 	}
 
 	if username, pass, ok := r.BasicAuth(); ok {

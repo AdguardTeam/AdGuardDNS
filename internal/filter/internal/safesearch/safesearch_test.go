@@ -16,6 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -243,6 +244,7 @@ func newTestFilter(tb testing.TB) (f *safesearch.Filter) {
 	f, err := safesearch.New(
 		&safesearch.Config{
 			Refreshable: &refreshable.Config{
+				Clock:     timeutil.SystemClock{},
 				Logger:    filtertest.Logger,
 				ID:        filter.IDGeneralSafeSearch,
 				URL:       srvURL,

@@ -18,12 +18,14 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/service"
 	"github.com/AdguardTeam/golibs/syncutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 )
 
 // Manager creates individual listeners and dispatches connections to them.
 type Manager struct {
 	logger         *slog.Logger
+	clock          timeutil.Clock
 	interfaces     InterfaceStorage
 	closeOnce      *sync.Once
 	ifaceListeners map[ID]*interfaceListener
@@ -37,6 +39,7 @@ type Manager struct {
 func NewManager(c *ManagerConfig) (m *Manager) {
 	return &Manager{
 		logger:         c.Logger,
+		clock:          c.Clock,
 		interfaces:     c.InterfaceStorage,
 		closeOnce:      &sync.Once{},
 		ifaceListeners: map[ID]*interfaceListener{},
@@ -108,6 +111,7 @@ func (m *Manager) newInterfaceListener(
 ) (l *interfaceListener) {
 	return &interfaceListener{
 		logger:        m.logger.With("iface", ifaceName, "port", port),
+		clock:         m.clock,
 		conns:         &connIndex{},
 		listenConf:    newListenConfig(ifaceName, ctrlConf),
 		bodyPool:      syncutil.NewSlicePool[byte](bodySize),

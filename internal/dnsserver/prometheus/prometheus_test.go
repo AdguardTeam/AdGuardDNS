@@ -7,6 +7,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 )
@@ -16,6 +17,9 @@ const testTimeout = 1 * time.Second
 
 // testLogger is the common logger for tests.
 var testLogger = slogutil.NewDiscardLogger()
+
+// testClock is a common clock for tests.
+var testClock = timeutil.SystemClock{}
 
 // testNamespace is a test namespace for metrics.
 const testNamespace = "dns"

@@ -23,6 +23,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
 	"github.com/AdguardTeam/golibs/syncutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -45,6 +46,9 @@ type Config struct {
 	// ActiveRequestsSemaphore allows limiting the number of requests processed
 	// simultaneously.  It must not be nil.
 	ActiveRequestsSemaphore syncutil.Semaphore
+
+	// Clock is used to get the current time.  It must not be nil.
+	Clock timeutil.Clock
 
 	// Cloner is used to clone messages more efficiently by disposing of parts
 	// of DNS responses for later reuse.  It must not be nil.
@@ -104,6 +108,9 @@ type HandlersConfig struct {
 	// Cloner is used to clone messages more efficiently by disposing of parts
 	// of DNS responses for later reuse.  It must not be nil.
 	Cloner *dnsmsg.Cloner
+
+	// Clock is used to get the current time.  It must not be nil.
+	Clock timeutil.Clock
 
 	// Cache is the configuration for the DNS cache.
 	Cache *CacheConfig

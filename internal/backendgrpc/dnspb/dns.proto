@@ -367,6 +367,12 @@ message SafeBrowsingSettings {
   TyposquattingFilterSettings typosquatting = 4;
 
   /**
+   * Field homoglyph contains settings for the homoglyph filter.  If absent,
+   * the homoglyph filter is disabled.
+   */
+  HomoglyphFilterSettings homoglyph = 5;
+
+  /**
    * Field block_dangerous_domains, if true, enables the dangerous-domains filter.
    *
    * NOTE:  Fields DNSProfile.filtering_enabled,
@@ -685,6 +691,14 @@ service FilterIndexService {
    * TODO(a.tropnikov):  Document errors.
    */
   rpc getTyposquattingFilterIndex(TyposquattingFilterIndexRequest) returns (TyposquattingFilterIndexResponse);
+
+  /**
+   * Method getHomoglyphFilterIndex returns the homoglyph filter index and
+   * settings.
+   *
+   * TODO(a.tropnikov):  Document errors.
+   */
+  rpc getHomoglyphFilterIndex(HomoglyphFilterIndexRequest) returns (HomoglyphFilterIndexResponse);
 }
 
 /**
@@ -729,13 +743,13 @@ message TyposquattingFilterSettings {
 message TyposquattingFilterIndex {
   /**
    * Message TyposquattingFilterIndex.ProtectedDomain represents information
-   * about a single protected domain.
+   * about a single domain protected by the typosquatting filter.
    */
   message ProtectedDomain {
     /**
      * Field domain is the protected domain name, for example "google.com".  It
      * MUST NOT be empty and the value MUST be a valid domain name.  It SHOULD
-     * be an eTLD+1 domain.
+     * be an eTLD+1 domain in lowercase.
      */
     string domain = 1;
 
@@ -747,7 +761,7 @@ message TyposquattingFilterIndex {
      * "gooogle.com", and "gogole.com" will match, but "ggle.com",
      * "goooogle.com", and "ggoole.com" won't.
      *
-     * It MUST be positive.
+     * It MUST be in range [1; 253].
      */
     uint32 distance = 2;
   }
@@ -761,7 +775,7 @@ message TyposquattingFilterIndex {
     /**
      * Field domain is the domain name that isn't checked by the typosquatting
      * filter.  It MUST NOT be empty and the value MUST be a valid domain name.
-     * It SHOULD be an eTLD+1 domain.
+     * It SHOULD be an eTLD+1 domain in lowercase.
      */
     string domain = 1;
   }
@@ -774,6 +788,86 @@ message TyposquattingFilterIndex {
 
   /**
    * Field exceptions contains the data about exceptions to the typosquatting
+   * filter.
+   */
+  repeated Exception exceptions = 2;
+}
+
+/**
+ * Message HomoglyphFilterIndexRequest contains the data to use to obtain the
+ * homoglyph filter index.
+ *
+ * TODO(a.garipov):  Add fields if necessary.
+ */
+message HomoglyphFilterIndexRequest {}
+
+/**
+ * Message HomoglyphFilterIndexResponse contains the data about the homoglyph
+ * filter index.
+ */
+message HomoglyphFilterIndexResponse {
+  /**
+   * Field index contains the current index of protected domains and other
+   * settings for the homoglyph filter.
+   */
+  HomoglyphFilterIndex index = 1;
+}
+
+/**
+ * Message HomoglyphFilterSettings contains settings for the homoglyph filter.
+ *
+ * NOTE:  Fields DNSProfile.filtering_enabled, DNSProfile.safe_browsing.enabled
+ * and DeviceSettings.filtering_enabled MUST also be true to enable the
+ * homoglyph filter for a particular device.
+ */
+message HomoglyphFilterSettings {
+  /**
+   * Field enabled, if true, enables the homoglyph filter feature.
+   */
+  bool enabled = 1;
+}
+
+/**
+ * Message HomoglyphFilterIndex contains domains that must be protected by the
+ * homoglyph filter, exceptions, etc.
+ */
+message HomoglyphFilterIndex {
+  /**
+   * Message HomoglyphFilterIndex.ProtectedDomain represents information about a
+   * single domain protected by the homoglyph filter.
+   */
+  message ProtectedDomain {
+    /**
+     * Field domain is the protected domain name, for example "google.com".  It
+     * MUST NOT be empty and the value MUST be a valid domain name.  It SHOULD
+     * be an eTLD+1 domain in lowercase.
+     */
+    string domain = 1;
+  }
+
+  /**
+   * Message HomoglyphFilterIndex.Exception is a single exception to the
+   * homoglyph filter.  For example, if HomoglyphFilterIndex.domains contains
+   * "google.com", an exception might be "gооgle.com", where the "о"s are
+   * Cyrillic.
+   */
+  message Exception {
+    /**
+     * Field domain is the domain name that isn't checked by the homoglyph
+     * filter.  It MUST NOT be empty and the value MUST be a valid domain name.
+     * It SHOULD be an eTLD+1 domain in lowercase.
+     */
+    string domain = 1;
+  }
+
+  /**
+   * Field domains contains the data about domain names protected by the
+   * homoglyph filter.
+   */
+  repeated ProtectedDomain domains = 1;
+
+  /**
+   * Field exceptions contains the data about exceptions to the homoglyph
    * filter.
    */
   repeated Exception exceptions = 2;

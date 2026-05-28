@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdurlflt"
 	"github.com/AdguardTeam/golibs/syncutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/AdguardTeam/urlfilter/filterlist"
 	"github.com/miekg/dns"
@@ -18,6 +18,7 @@ import (
 //
 // TODO(a.garipov):  Replace/merge with [custom.Filter].
 type blockedHostEngine struct {
+	clock      timeutil.Clock
 	initOnce   *sync.Once
 	lazyEngine *urlfilter.DNSEngine
 	reqPool    *syncutil.Pool[urlfilter.DNSRequest]
@@ -26,9 +27,15 @@ type blockedHostEngine struct {
 	rules      []string
 }
 
-// newBlockedHostEngine creates a new blockedHostEngine.  mtrc must not be nil.
-func newBlockedHostEngine(mtrc ProfileMetrics, rules []string) (e *blockedHostEngine) {
+// newBlockedHostEngine creates a new blockedHostEngine.  clock and mtrc must
+// not be nil.
+func newBlockedHostEngine(
+	clock timeutil.Clock,
+	mtrc ProfileMetrics,
+	rules []string,
+) (e *blockedHostEngine) {
 	return &blockedHostEngine{
+		clock:    clock,
 		initOnce: &sync.Once{},
 		reqPool: syncutil.NewPool(func() (req *urlfilter.DNSRequest) {
 			return &urlfilter.DNSRequest{}
@@ -47,12 +54,11 @@ func newBlockedHostEngine(mtrc ProfileMetrics, rules []string) (e *blockedHostEn
 // TODO(s.chzhen):  Use config.
 func (e *blockedHostEngine) isBlocked(ctx context.Context, req *dns.Msg) (blocked bool) {
 	e.initOnce.Do(func() {
-		// TODO(s.chzhen):  Use [timeutil.Clock].
-		start := time.Now()
+		start := e.clock.Now()
 
 		e.lazyEngine = e.init()
 
-		e.metrics.ObserveProfileInit(ctx, time.Since(start))
+		e.metrics.ObserveProfileInit(ctx, e.clock.Now().Sub(start))
 	})
 
 	q := req.Question[0]

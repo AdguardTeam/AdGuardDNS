@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
@@ -73,7 +72,7 @@ func (s *ServerDNS) acceptUDP(ctx context.Context, conn net.PacketConn) (err err
 	defer func() { callOnError(reqCancel, recover(), err) }()
 
 	reqCtx = ContextWithRequestInfo(reqCtx, &RequestInfo{
-		StartTime: time.Now(),
+		StartTime: s.clock.Now(),
 	})
 
 	err = s.acquireSema(reqCtx, s.activeRequestsSema, req, rw, errMsgActiveReqSema)
@@ -100,7 +99,7 @@ func (s *ServerDNS) readUDPMsg(
 	ctx context.Context,
 	conn net.PacketConn,
 ) (req *dns.Msg, sess netext.PacketSession, err error) {
-	err = conn.SetReadDeadline(time.Now().Add(s.readTimeout))
+	err = conn.SetReadDeadline(s.clock.Now().Add(s.readTimeout))
 	if err != nil {
 		return nil, nil, fmt.Errorf("setting deadline: %w", err)
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -121,6 +122,7 @@ func TestDefault_ServeHTTP(t *testing.T) {
 
 	for _, tc := range testCases {
 		db := dnsdb.New(&dnsdb.DefaultConfig{
+			Clock:   timeutil.SystemClock{},
 			Logger:  slogutil.NewDiscardLogger(),
 			ErrColl: agdtest.NewErrorCollector(),
 			Metrics: dnsdb.EmptyMetrics{},

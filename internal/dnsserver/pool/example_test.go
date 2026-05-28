@@ -11,7 +11,7 @@ func ExampleNewPool() {
 	f := pool.Factory(func(_ context.Context) (net.Conn, error) {
 		return net.Dial("udp", "8.8.8.8:53")
 	})
-	p := pool.NewPool(10, f)
+	p := pool.NewPool(10, f, testClock)
 
 	// Create a new connection or get it from the pool
 	conn, err := p.Get(context.Background())

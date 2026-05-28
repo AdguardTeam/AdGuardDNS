@@ -23,28 +23,35 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/service"
 	"github.com/AdguardTeam/golibs/syncutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 )
 
 // FilterConfig is the domain filter configuration structure.
 type FilterConfig struct {
-	// Logger is used for logging the operation of the filter.
+	// Logger is used for logging the operation of the filter.  It must not be
+	// nil.
 	Logger *slog.Logger
 
-	// CacheManager is the global cache manager.  CacheManager must not be nil.
+	// Clock is used to get the current time.  It must not be nil.
+	Clock timeutil.Clock
+
+	// CacheManager is the global cache manager.  It must not be nil.
 	CacheManager agdcache.Manager
 
-	// URL is the URL used to update the filter.
+	// URL is the URL used to update the filter.  URL should be either a file
+	// URL or an HTTP(S) URL and should not be nil.
 	URL *url.URL
 
-	// DomainMetrics are the specific metrics for the domain filter.
+	// DomainMetrics are the specific metrics for the domain filter.  It must
+	// not be nil.
 	DomainMetrics Metrics
 
-	// Metrics are the metrics for the domain filter.
+	// Metrics are the metrics for the domain filter.  It must not be nil.
 	Metrics filter.Metrics
 
 	// PublicSuffixList is used for obtaining public suffix for specified
-	// domain.
+	// domain.  It must not be nil.
 	PublicSuffixList cookiejar.PublicSuffixList
 
 	// CategoryID is the category identifier used for logging and error
@@ -87,6 +94,7 @@ type FilterConfig struct {
 // TODO(f.setrakov): Consider DRYing it with the hasprefix filter.
 type Filter struct {
 	logger           *slog.Logger
+	clock            timeutil.Clock
 	domains          *atomic.Pointer[container.MapSet[string]]
 	refr             *refreshable.Refreshable
 	subDomainsPool   *syncutil.Pool[[]string]
@@ -118,6 +126,7 @@ func NewFilter(c *FilterConfig) (f *Filter, err error) {
 
 	f = &Filter{
 		logger:  c.Logger,
+		clock:   c.Clock,
 		domains: &atomic.Pointer[container.MapSet[string]]{},
 		// #nosec G115 -- Assume that c.SubDomainNum is always less then or
 		// equal to 63.
@@ -135,6 +144,7 @@ func NewFilter(c *FilterConfig) (f *Filter, err error) {
 	}
 
 	f.refr, err = refreshable.New(&refreshable.Config{
+		Clock:     c.Clock,
 		Logger:    f.logger,
 		URL:       c.URL,
 		ID:        filter.ID(catID),
@@ -235,11 +245,20 @@ func (f *Filter) RefreshInitial(ctx context.Context) (err error) {
 // to load the list from its URL when there is already a file in the cache
 // directory, regardless of its staleness.
 func (f *Filter) refresh(ctx context.Context, acceptStale bool) (err error) {
-	var count uint64
+	var (
+		count     uint64
+		sizeBytes uint64
+	)
 	defer func() {
 		// TODO(a.garipov):  Consider using [agdtime.Clock].
 		// TODO(a.garipov):  Consider using a prefix or a label for categories.
-		f.metrics.SetStatus(ctx, string(f.catID), time.Now(), count, err)
+		f.metrics.SetStatus(ctx, &filter.StatusUpdate{
+			Error:      err,
+			UpdateTime: f.clock.Now(),
+			ID:         string(f.catID),
+			RuleCount:  count,
+			SizeBytes:  sizeBytes,
+		})
 	}()
 
 	b, err := f.refr.Refresh(ctx, acceptStale)
@@ -248,6 +267,7 @@ func (f *Filter) refresh(ctx context.Context, acceptStale bool) (err error) {
 		return err
 	}
 
+	sizeBytes = uint64(len(b))
 	count, err = f.resetDomains(b)
 	if err != nil {
 		return fmt.Errorf("%s: resetting: %w", f.catID, err)

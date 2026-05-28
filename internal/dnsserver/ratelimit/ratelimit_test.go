@@ -10,6 +10,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -93,6 +94,7 @@ func TestRatelimitMiddleware(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rl := ratelimit.NewBackoff(&ratelimit.BackoffConfig{
 				Allowlist:            ratelimit.NewDynamicAllowlist(persistent, nil),
+				Clock:                timeutil.SystemClock{},
 				Period:               time.Minute,
 				Duration:             time.Minute,
 				Count:                rps,

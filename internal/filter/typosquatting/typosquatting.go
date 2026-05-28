@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http/cookiejar"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +20,8 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/composite"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/golibs/container"
+	"github.com/AdguardTeam/golibs/logutil/optslog"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
@@ -47,6 +50,7 @@ type Filter struct {
 	cachePath        string
 	id               filter.ID
 	staleness        time.Duration
+	minESLLLen       uint8
 }
 
 // lenIndex is used to optimize the filtering by having domain data mapped to
@@ -83,6 +87,7 @@ func New(c *Config) (f *Filter) {
 		cachePath:        c.CachePath,
 		id:               c.ResultListID,
 		staleness:        c.Staleness,
+		minESLLLen:       c.MinESLLLen,
 	}
 
 	return f
@@ -112,7 +117,20 @@ func (f *Filter) FilterRequest(
 
 	etld1, err := agdnet.EffectiveTLDPlusOne(f.publicSuffixList, host)
 	if err != nil {
-		etld1 = host
+		optslog.Trace2(
+			ctx,
+			f.logger,
+			"domain is not etld+1; skipping",
+			"domain", host,
+			slogutil.KeyError, err,
+		)
+
+		return nil, nil
+	}
+
+	esllLen := calculateESLLLength(etld1)
+	if esllLen < f.minESLLLen {
+		return nil, nil
 	}
 
 	// Check cache first.
@@ -144,6 +162,16 @@ func (f *Filter) FilterRequest(
 	filter.SetModifiedResultInCache(f.resCache, cacheKey, r, f.cloner)
 
 	return r, nil
+}
+
+// calculateESLLLength calculates the length of ESLL for ETLD+1.  etld1 can be
+// empty, but if it is not, it must be a valid ETLD+1.
+func calculateESLLLength(etld1 string) (length uint8) {
+	if etld1 == "" {
+		return 0
+	}
+
+	return uint8(max(0, strings.IndexByte(etld1, '.')))
 }
 
 // matchProtectedDomain checks if etld1 is a typosquatting attempt of any
@@ -180,6 +208,8 @@ func (f *Filter) indexData() (exceptions *container.MapSet[string], protectedByL
 }
 
 // setIndexData sets the current index data from idx.  idx must not be nil.
+//
+// TODO(m.kazantsev):  Consider improving the selection of domains for indexing.
 func (f *Filter) setIndexData(idx *filterindex.Typosquatting) {
 	exceptions := container.NewMapSet[string]()
 	for _, exc := range idx.Exceptions {
@@ -189,6 +219,7 @@ func (f *Filter) setIndexData(idx *filterindex.Typosquatting) {
 	protectedByLen := lenIndex{}
 	for _, pd := range idx.Domains {
 		l := len(pd.Domain)
+
 		minLen, maxLen := max(0, l-int(pd.Distance)), l+int(pd.Distance)
 
 		for i := minLen; i <= maxLen; i++ {

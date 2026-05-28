@@ -159,6 +159,7 @@ func newListeners(
 				slogutil.KeyPrefix, "dnsserver",
 			),
 			ActiveRequestsSemaphore: c.ActiveRequestsSemaphore,
+			Clock:                   c.Clock,
 			Disposer:                c.Cloner,
 			Handler:                 handler,
 			ListenConfig: newListenConfig(

@@ -22,7 +22,7 @@ import (
 )
 
 func TestServerQUIC_integration_query(t *testing.T) {
-	tlsConfig := dnsservertest.NewTLSConfig("example.org")
+	tlsConfig := dnsservertest.NewTLSConfig("example.org", time.Now())
 	addr := dnsservertest.RunLocalQUICServer(t, dnsservertest.NewDefaultHandler(), tlsConfig)
 
 	// Open a QUIC connection.
@@ -63,7 +63,7 @@ func TestServerQUIC_integration_query(t *testing.T) {
 }
 
 func TestServerQUIC_integration_ENDS0Padding(t *testing.T) {
-	tlsConfig := dnsservertest.NewTLSConfig("example.org")
+	tlsConfig := dnsservertest.NewTLSConfig("example.org", time.Now())
 	addr := dnsservertest.RunLocalQUICServer(t, dnsservertest.NewDefaultHandler(), tlsConfig)
 
 	// Open a QUIC connection.
@@ -89,7 +89,7 @@ func TestServerQUIC_integration_ENDS0Padding(t *testing.T) {
 }
 
 func TestServerQUIC_integration_0RTT(t *testing.T) {
-	tlsConfig := dnsservertest.NewTLSConfig("example.org")
+	tlsConfig := dnsservertest.NewTLSConfig("example.org", time.Now())
 	tlsConfig.NextProtos = dnsserver.NextProtoDoQ
 	addr := dnsservertest.RunLocalQUICServer(t, dnsservertest.NewDefaultHandler(), tlsConfig)
 
@@ -147,7 +147,7 @@ func testQUICExchange(
 }
 
 func TestServerQUIC_integration_largeQuery(t *testing.T) {
-	tlsConfig := dnsservertest.NewTLSConfig("example.org")
+	tlsConfig := dnsservertest.NewTLSConfig("example.org", time.Now())
 	addr := dnsservertest.RunLocalQUICServer(t, dnsservertest.NewDefaultHandler(), tlsConfig)
 
 	// Open a QUIC connection.

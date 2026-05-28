@@ -58,7 +58,7 @@ func (mw *Middleware) filterRequest(
 	f filter.Interface,
 	ri *agd.RequestInfo,
 ) {
-	start := time.Now()
+	start := mw.clock.Now()
 
 	fltReq := mw.reqInfoToFltReq(fctx.originalRequest, ri)
 	defer mw.putFltReq(fltReq)
@@ -73,7 +73,7 @@ func (mw *Middleware) filterRequest(
 	}
 
 	fctx.requestResult = reqRes
-	fctx.elapsed += time.Since(start)
+	fctx.elapsed += mw.clock.Now().Sub(start)
 }
 
 // reqInfoToFltReq converts data from a DNS request and request info into a
@@ -119,7 +119,7 @@ func (mw *Middleware) filterResponse(
 	f filter.Interface,
 	ri *agd.RequestInfo,
 ) {
-	start := time.Now()
+	start := mw.clock.Now()
 
 	if modReq := fctx.modifiedRequest; modReq != nil {
 		// Return the request ID and target name to their original values, since
@@ -144,7 +144,7 @@ func (mw *Middleware) filterResponse(
 		fctx.responseResult = respRes
 	}
 
-	fctx.elapsed += time.Since(start)
+	fctx.elapsed += mw.clock.Now().Sub(start)
 }
 
 // reqInfoToFltResp converts data from a DNS response and request info into a
@@ -371,6 +371,7 @@ func filterBlockingMode(ri *agd.RequestInfo, res filter.Result) (m dnsmsg.Blocki
 		filter.IDCategory:
 		return profile.AdultBlockingMode
 	case
+		filter.IDHomoglyph,
 		filter.IDSafeBrowsing,
 		filter.IDTyposquatting:
 		return profile.SafeBrowsingBlockingMode

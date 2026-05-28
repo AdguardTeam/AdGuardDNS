@@ -84,6 +84,10 @@ const (
 	// filtered by the typosquatting filter.
 	IDTyposquatting ID = "typosquatting"
 
+	// IDHomoglyph is the special shared filter ID used when a request was
+	// filtered by the homoglyph filter.
+	IDHomoglyph ID = "homoglyph"
+
 	// IDYoutubeSafeSearch is the special shared filter ID used when a request
 	// was modified by the YouTube safe search filter.
 	IDYoutubeSafeSearch ID = "youtube_safe_search"

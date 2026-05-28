@@ -15,6 +15,7 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/sentryutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"golang.org/x/sys/unix"
 )
 
@@ -55,12 +56,14 @@ func Main(plugins *plugin.Registry) {
 		"race", version.RaceEnabled,
 	)
 
+	clock := timeutil.SystemClock{}
+
 	// Error collector
 	//
 	// TODO(a.garipov): Consider parsing SENTRY_DSN separately to set sentry up
 	// first and collect panics from the readEnvs call above as well.
 
-	errColl := errors.Must(envs.buildErrColl(baseLogger))
+	errColl := errors.Must(envs.buildErrColl(baseLogger, clock))
 
 	defer reportPanics(ctx, errColl, mainLogger)
 
@@ -86,12 +89,13 @@ func Main(plugins *plugin.Registry) {
 		envs:            envs,
 		conf:            c,
 		baseLogger:      baseLogger,
+		clock:           clock,
 		plugins:         plugins,
 		errColl:         errColl,
 		profilesEnabled: profilesEnabled,
 	})
 
-	errors.Check(b.initCrashReporter(ctx))
+	errors.Check(b.initCrashReporter(ctx, clock))
 
 	errors.Check(experiment.Init(baseLogger, b.promRegisterer))
 
@@ -101,7 +105,17 @@ func Main(plugins *plugin.Registry) {
 
 	errors.Check(сreateFilterCacheDirs(envs.FilterCacheDir))
 
+	cw := newWalker(&walkerConfig{
+		logger:   baseLogger,
+		clock:    clock,
+		cacheDir: b.env.FilterCacheDir,
+		maxAge:   envs.FilterCacheMaxStaleness,
+	})
+	cw.walk(ctx)
+
 	errors.Check(b.initMsgCloner(ctx))
+
+	errors.Check(b.initSafeBrowsingReplacedConstructor())
 
 	errors.Check(b.initHashPrefixFilters(ctx))
 
@@ -112,6 +126,8 @@ func Main(plugins *plugin.Registry) {
 	errors.Check(b.initFilterIndexStorage(ctx))
 
 	errors.Check(b.initTyposquattingFilter(ctx))
+
+	errors.Check(b.initHomoglyphFilter(ctx))
 
 	errors.Check(b.initFilterStorage(ctx))
 

@@ -1,6 +1,7 @@
 package forward
 
 import (
+	"cmp"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/pool"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/syncutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 )
 
@@ -51,6 +53,9 @@ const (
 
 // UpstreamPlain is a simple plain DNS client.
 type UpstreamPlain struct {
+	// clock is used to get the current time.
+	clock timeutil.Clock
+
 	// connection pools for TCP and TCP
 	connsPoolUDP *pool.Pool
 	connsPoolTCP *pool.Pool
@@ -72,6 +77,10 @@ var _ Upstream = (*UpstreamPlain)(nil)
 
 // UpstreamPlainConfig is the configuration structure for a plain-DNS upstream.
 type UpstreamPlainConfig struct {
+	// Clock is used to get the current time.  If not set,
+	// [timeutil.SystemClock] is used.
+	Clock timeutil.Clock
+
 	// Network is the network to use for this upstream.
 	Network Network
 
@@ -87,6 +96,8 @@ type UpstreamPlainConfig struct {
 // not be nil.
 func NewUpstreamPlain(c *UpstreamPlainConfig) (ups *UpstreamPlain) {
 	ups = &UpstreamPlain{
+		clock: cmp.Or[timeutil.Clock](c.Clock, timeutil.SystemClock{}),
+
 		udpBufs: syncutil.NewSlicePool[byte](udpBufSize),
 		tcpBufs: syncutil.NewSlicePool[byte](tcpBufSize),
 
@@ -96,9 +107,9 @@ func NewUpstreamPlain(c *UpstreamPlainConfig) (ups *UpstreamPlain) {
 		timeout: c.Timeout,
 	}
 
-	ups.connsPoolUDP = pool.NewPool(poolMaxCapacity, makeConnsPoolFactory(ups, NetworkUDP))
+	ups.connsPoolUDP = pool.NewPool(poolMaxCapacity, makeConnsPoolFactory(ups, NetworkUDP), c.Clock)
 	ups.connsPoolUDP.IdleTimeout = poolIdleTimeout
-	ups.connsPoolTCP = pool.NewPool(poolMaxCapacity, makeConnsPoolFactory(ups, NetworkTCP))
+	ups.connsPoolTCP = pool.NewPool(poolMaxCapacity, makeConnsPoolFactory(ups, NetworkTCP), c.Clock)
 	ups.connsPoolTCP.IdleTimeout = poolIdleTimeout
 
 	return ups
@@ -290,7 +301,7 @@ func (u *UpstreamPlain) processConn(
 	// Prepare a context with a deadline if needed.
 	deadline, ok := ctx.Deadline()
 	if !ok && network == NetworkUDP {
-		deadline, ok = time.Now().Add(defaultUDPTimeout), true
+		deadline, ok = u.clock.Now().Add(defaultUDPTimeout), true
 	}
 
 	if ok {

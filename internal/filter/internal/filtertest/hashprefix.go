@@ -9,6 +9,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/hashprefix"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/publicsuffix"
 )
@@ -71,6 +72,7 @@ func NewHashprefixFilterWithRepl(
 
 	f, err = hashprefix.NewFilter(&hashprefix.FilterConfig{
 		Logger:                    Logger,
+		Clock:                     timeutil.SystemClock{},
 		Cloner:                    cloner,
 		CacheManager:              agdcache.EmptyManager{},
 		Hashes:                    strg,

@@ -16,6 +16,7 @@ import (
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/osutil"
 	"github.com/AdguardTeam/golibs/syncutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 )
 
@@ -24,8 +25,6 @@ import (
 //
 // TODO(a.garipov):  Consider splitting and adding appropriate fields to the
 // configs of the separate server types.
-//
-// TODO(a.garipov):  Add and use [timeutil.Clock].
 type ConfigBase struct {
 	// BaseLogger is used to create loggers for servers and requests.  It should
 	// contain the name of the server.  If BaseLogger is nil, [slog.Default] is
@@ -42,6 +41,10 @@ type ConfigBase struct {
 	// simultaneously.  If nil, [syncutil.EmptySemaphore] is used, meaning there
 	// is no limit.
 	ActiveRequestsSemaphore syncutil.Semaphore
+
+	// Clock is used to get the current time.  If not set,
+	// [timeutil.SystemClock] is used.
+	Clock timeutil.Clock
 
 	// Disposer is used to help module users reuse parts of DNS responses.  If
 	// not set, [EmptyDisposer] is used.
@@ -82,6 +85,9 @@ type ConfigBase struct {
 type ServerBase struct {
 	// baseLogger is the base logger of this server.
 	baseLogger *slog.Logger
+
+	// clock is used to get the current time.
+	clock timeutil.Clock
 
 	// attrPool is the pool of logging attributes for reuse.
 	attrPool *syncutil.Pool[[]slog.Attr]
@@ -158,6 +164,7 @@ const logAttrNum = 4
 func newServerBase(proto Protocol, c *ConfigBase) (s *ServerBase) {
 	return &ServerBase{
 		baseLogger: cmp.Or(c.BaseLogger, slog.Default()),
+		clock:      cmp.Or[timeutil.Clock](c.Clock, timeutil.SystemClock{}),
 		attrPool:   syncutil.NewSlicePool[slog.Attr](logAttrNum),
 		handler:    cmp.Or[Handler](c.Handler, notImplementedHandlerFunc),
 		reqCtx: cmp.Or[contextutil.Constructor](

@@ -10,6 +10,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/AdguardTeam/golibs/validate"
 )
 
@@ -25,13 +26,14 @@ type interfaceListenersConfig struct {
 }
 
 // toInternal converts c to a possibly-nil bindtodevice.Manager.  c must be
-// valid.  logger, errColl, and mtrc must not be nil.  If ctrlConf is nil, a
-// default configuration is used.
+// valid.  logger, errColl, mtrc, and clock must not be nil.  If ctrlConf is
+// nil, a default configuration is used.
 func (c *interfaceListenersConfig) toInternal(
 	logger *slog.Logger,
 	errColl errcoll.Interface,
 	mtrc bindtodevice.Metrics,
 	ctrlConf *bindtodevice.ControlConfig,
+	clock timeutil.Clock,
 ) (m *bindtodevice.Manager, err error) {
 	if c == nil {
 		return nil, nil
@@ -39,6 +41,7 @@ func (c *interfaceListenersConfig) toInternal(
 
 	m = bindtodevice.NewManager(&bindtodevice.ManagerConfig{
 		Logger:            logger.With(slogutil.KeyPrefix, "bindtodevice"),
+		Clock:             clock,
 		InterfaceStorage:  bindtodevice.DefaultInterfaceStorage{},
 		ErrColl:           errColl,
 		Metrics:           mtrc,

@@ -36,11 +36,14 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`FILTER_INDEX_API_KEY`](#FILTER_INDEX_API_KEY)
 - [`FILTER_INDEX_API_REFRESH_INTERVAL`](#FILTER_INDEX_API_REFRESH_INTERVAL)
 - [`FILTER_INDEX_API_URL`](#FILTER_INDEX_API_URL)
+- [`FILTER_CACHE_MAX_STALENESS`](#FILTER_CACHE_MAX_STALENESS)
 - [`FILTER_INDEX_URL`](#FILTER_INDEX_URL)
 - [`FILTER_REFRESH_INTERVAL`](#FILTER_REFRESH_INTERVAL)
 - [`GENERAL_SAFE_ENABLED`](#GENERAL_SAFE_SEARCH_ENABLED)
 - [`GENERAL_SAFE_SEARCH_URL`](#GENERAL_SAFE_SEARCH_URL)
 - [`GEOIP_ASN_PATH` and `GEOIP_COUNTRY_PATH`](#GEOIP_ASN_PATH)
+- [`HOMOGLYPH_CACHE_COUNT`](#HOMOGLYPH_CACHE_COUNT)
+- [`HOMOGLYPH_ENABLED`](#HOMOGLYPH_ENABLED)
 - [`LINKED_IP_TARGET_URL`](#LINKED_IP_TARGET_URL)
 - [`LISTEN_ADDR`](#LISTEN_ADDR)
 - [`LISTEN_PORT`](#LISTEN_PORT)
@@ -89,6 +92,7 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`SSL_KEY_LOG_FILE`](#SSL_KEY_LOG_FILE)
 - [`TYPOSQUATTING_CACHE_COUNT`](#TYPOSQUATTING_CACHE_COUNT)
 - [`TYPOSQUATTING_ENABLED`](#TYPOSQUATTING_ENABLED)
+- [`TYPOSQUATTING_MIN_ESLL_LEN`](#TYPOSQUATTING_MIN_ESLL_LEN)
 - [`VERBOSE`](#VERBOSE)
 - [`WEB_STATIC_DIR_ENABLED`](#WEB_STATIC_DIR_ENABLED)
 - [`WEB_STATIC_DIR`](#WEB_STATIC_DIR)
@@ -316,6 +320,12 @@ The backend URL for the filter-index API. Supports gRPC(S) (`grpc://` and `grpcs
 
 **Default:** No default value, the variable is **required** if [`TYPOSQUATTING_ENABLED`] is set to `1`.
 
+## <a href="#FILTER_CACHE_MAX_STALENESS" id="FILTER_CACHE_MAX_STALENESS" name="FILTER_CACHE_MAX_STALENESS">`FILTER_CACHE_MAX_STALENESS`</a>
+
+The maximum duration of staleness for the filter cache.
+
+**Default** `720h`.
+
 ## <a href="#FILTER_INDEX_URL" id="FILTER_INDEX_URL" name="FILTER_INDEX_URL">`FILTER_INDEX_URL`</a>
 
 The HTTP(S) URL or a hostless file URI (e.g. `file:///tmp/filters.json`) of the filtering rule index file server. See the [external HTTP API requirements section][ext-lists] on the expected format of the response.
@@ -349,6 +359,20 @@ The HTTP(S) URL of the list of general safe search rewriting rules. See the [ext
 Paths to the files containing MaxMind GeoIP databases: for ASNs and for countries and continents respectively.
 
 **Default:** `./asn.mmdb` and `./country.mmdb`.
+
+## <a href="#HOMOGLYPH_CACHE_COUNT" id="HOMOGLYPH_CACHE_COUNT" name="HOMOGLYPH_CACHE_COUNT">`HOMOGLYPH_CACHE_COUNT`</a>
+
+The maximum number of entries in the cache of the homoglyph-filter results. It must be positive and less than or equal to max integer value.
+
+**Default:** No default value, a positive value is required if [`HOMOGLYPH_ENABLED`](#HOMOGLYPH_ENABLED) is set to `1`.
+
+**Example:** `100000`
+
+## <a href="#HOMOGLYPH_ENABLED" id="HOMOGLYPH_ENABLED" name="HOMOGLYPH_ENABLED">`HOMOGLYPH_ENABLED`</a>
+
+When set to `1`, enable the homoglyph filter. When set to `0`, disable it.
+
+**Default:** `0`.
 
 ## <a href="#LINKED_IP_TARGET_URL" id="LINKED_IP_TARGET_URL" name="LINKED_IP_TARGET_URL">`LINKED_IP_TARGET_URL`</a>
 
@@ -711,6 +735,14 @@ The maximum number of entries in the cache of the typosquatting-filter results. 
 When set to `1`, enable the typosquatting filter. When set to `0`, disable it.
 
 **Default:** `0`.
+
+## <a href="#TYPOSQUATTING_MIN_ESLL_LEN" id="TYPOSQUATTING_MIN_ESLL_LEN" name="TYPOSQUATTING_MIN_ESLL_LEN">`TYPOSQUATTING_MIN_ESLL_LEN`</a>
+
+The minimum length of the next label after eTLD that needs to be checked for typosquatting.  It must be greater or equal to zero and less than or equal to 63, which is the maximum length of a domain label.  If equals zero, means it is disabled.
+
+**Default:** `0`.
+
+**Example:** `4`
 
 ## <a href="#VERBOSE" id="VERBOSE" name="VERBOSE">`VERBOSE`</a>
 

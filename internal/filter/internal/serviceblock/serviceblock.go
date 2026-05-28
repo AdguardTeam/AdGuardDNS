@@ -9,19 +9,20 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
+	"github.com/AdguardTeam/golibs/timeutil"
 )
 
 // Filter is a service-blocking filter that uses rule lists that it gets from an
 // index.
 type Filter struct {
 	logger *slog.Logger
+	clock  timeutil.Clock
 	refr   *refreshable.Refreshable
 
 	// mu protects services.
@@ -40,6 +41,9 @@ type Config struct {
 	// Refreshable is the configuration of the refreshable index of the
 	// service-blocking filter.  It must not be nil and must be valid.
 	Refreshable *refreshable.Config
+
+	// Clock is used to get the current time.  It must not be nil.
+	Clock timeutil.Clock
 
 	// ErrColl used to collect non-critical and rare errors.  It must not be
 	// nil.
@@ -60,6 +64,7 @@ func New(c *Config) (f *Filter, err error) {
 
 	return &Filter{
 		logger:   c.Refreshable.Logger,
+		clock:    c.Clock,
 		refr:     refr,
 		mu:       &sync.RWMutex{},
 		services: serviceRuleLists{},
@@ -68,14 +73,16 @@ func New(c *Config) (f *Filter, err error) {
 	}, nil
 }
 
-// RuleLists returns the rule-list filters for the given blocked service IDs.
-// The order of the elements in rls is undefined.
-func (f *Filter) RuleLists(
+// AppendRuleLists appends the rule-list filters for the given blocked service
+// IDs to the given slice.  The order of the appended elements is undefined.
+func (f *Filter) AppendRuleLists(
 	ctx context.Context,
+	orig []*rulelist.Immutable,
 	ids []filter.BlockedServiceID,
-) (rls []*rulelist.Immutable) {
+) (res []*rulelist.Immutable) {
+	res = orig
 	if len(ids) == 0 {
-		return nil
+		return res
 	}
 
 	f.mu.RLock()
@@ -86,11 +93,11 @@ func (f *Filter) RuleLists(
 		if rl == nil {
 			f.logger.WarnContext(ctx, "no service with id", "id", id)
 		} else {
-			rls = append(rls, rl)
+			res = append(res, rl)
 		}
 	}
 
-	return rls
+	return res
 }
 
 // Refresh loads new service data from the index URL.
@@ -101,13 +108,22 @@ func (f *Filter) Refresh(
 	useCache bool,
 	acceptStale bool,
 ) (err error) {
-	var count uint64
+	var (
+		count     uint64
+		sizeBytes uint64
+	)
 	defer func() {
 		// TODO(a.garipov):  Consider using [agdtime.Clock].
-		f.metrics.SetStatus(ctx, string(filter.IDBlockedService), time.Now(), count, err)
+		f.metrics.SetStatus(ctx, &filter.StatusUpdate{
+			Error:      err,
+			UpdateTime: f.clock.Now(),
+			ID:         string(filter.IDBlockedService),
+			RuleCount:  count,
+			SizeBytes:  sizeBytes,
+		})
 	}()
 
-	resp, err := f.loadIndex(ctx, acceptStale)
+	resp, sizeBytes, err := f.loadIndex(ctx, acceptStale)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return err
@@ -132,19 +148,23 @@ func (f *Filter) Refresh(
 }
 
 // loadIndex fetches, decodes, and returns the blocked service index data.
-func (f *Filter) loadIndex(ctx context.Context, acceptStale bool) (resp *indexResp, err error) {
+// sizeBytes is the size of the marshaled filter index data.
+func (f *Filter) loadIndex(
+	ctx context.Context,
+	acceptStale bool,
+) (resp *indexResp, sizeBytes uint64, err error) {
 	b, err := f.refr.Refresh(ctx, acceptStale)
 	if err != nil {
-		return nil, fmt.Errorf("loading index: %w", err)
+		return nil, 0, fmt.Errorf("loading index: %w", err)
 	}
 
 	resp = &indexResp{}
 	err = json.Unmarshal(b, resp)
 	if err != nil {
-		return nil, fmt.Errorf("decoding index: %w", err)
+		return nil, 0, fmt.Errorf("decoding index: %w", err)
 	}
 
 	f.logger.DebugContext(ctx, "loaded index", "num_svc", len(resp.BlockedServices))
 
-	return resp, nil
+	return resp, uint64(len(b)), nil
 }

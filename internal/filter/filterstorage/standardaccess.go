@@ -19,6 +19,7 @@ import (
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/service"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/AdguardTeam/golibs/validate"
 	"github.com/google/renameio/v2"
 )
@@ -54,6 +55,9 @@ func (EmptyStandardAccessStorage) Config(
 type StandardAccessConfig struct {
 	// BaseLogger is used to log cache loading.
 	BaseLogger *slog.Logger
+
+	// Clock is used to get the current time.  It must not be nil.
+	Clock timeutil.Clock
 
 	// Logger is used to log refresh operations.
 	Logger *slog.Logger
@@ -94,6 +98,7 @@ func NewStandardAccess(
 	)
 
 	refr, err := refreshable.New(&refreshable.Config{
+		Clock:  c.Clock,
 		Logger: c.BaseLogger.With(slogutil.KeyPrefix, "standard_access_cache"),
 		URL: &url.URL{
 			Scheme: urlutil.SchemeFile,

@@ -11,12 +11,16 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 )
 
 // testTimeout is the timeout for tests.
 const testTimeout = 1 * time.Second
+
+// testClock is the clock used in tests.
+var testClock timeutil.Clock = timeutil.SystemClock{}
 
 func TestHandler_ServeDNS(t *testing.T) {
 	srv, addr := dnsservertest.RunDNSServer(t, &dnsserver.ConfigDNS{
@@ -27,8 +31,10 @@ func TestHandler_ServeDNS(t *testing.T) {
 
 	// No-fallbacks handler.
 	handler := forward.NewHandler(&forward.HandlerConfig{
+		Clock:  testClock,
 		Logger: slogutil.NewDiscardLogger(),
 		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
+			Clock:   testClock,
 			Network: forward.NetworkAny,
 			Address: netip.MustParseAddrPort(addr),
 			Timeout: testTimeout,
@@ -52,13 +58,16 @@ func TestHandler_ServeDNS_fallbackNetError(t *testing.T) {
 		},
 	})
 	handler := forward.NewHandler(&forward.HandlerConfig{
+		Clock:  testClock,
 		Logger: slogutil.NewDiscardLogger(),
 		UpstreamsAddresses: []*forward.UpstreamPlainConfig{{
+			Clock:   testClock,
 			Network: forward.NetworkAny,
 			Address: netip.MustParseAddrPort("127.0.0.1:0"),
 			Timeout: testTimeout,
 		}},
 		FallbackAddresses: []*forward.UpstreamPlainConfig{{
+			Clock:   testClock,
 			Network: forward.NetworkAny,
 			Address: netip.MustParseAddrPort(srv.LocalUDPAddr().String()),
 			Timeout: testTimeout,

@@ -8,6 +8,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterindex"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/golibs/errors"
@@ -36,8 +37,19 @@ func (f *Filter) RefreshInitial(ctx context.Context) (err error) {
 func (f *Filter) refresh(ctx context.Context, acceptStale bool) (err error) {
 	now := f.clock.Now()
 
-	var ruleCount uint64
-	defer func() { f.metrics.SetStatus(ctx, string(f.id), now, ruleCount, err) }()
+	var (
+		ruleCount uint64
+		sizeBytes uint64
+	)
+	defer func() {
+		f.metrics.SetStatus(ctx, &filter.StatusUpdate{
+			Error:      err,
+			UpdateTime: now,
+			ID:         string(f.id),
+			RuleCount:  ruleCount,
+			SizeBytes:  sizeBytes,
+		})
+	}()
 
 	_, ok := requestid.IDFromContext(ctx)
 	if !ok {
@@ -45,7 +57,7 @@ func (f *Filter) refresh(ctx context.Context, acceptStale bool) (err error) {
 	}
 
 	var idx *filterindex.Typosquatting
-	cachedIdx, err := f.refreshFromFile(now, acceptStale)
+	cachedIdx, sizeBytes, err := f.refreshFromFile(now, acceptStale)
 	if err != nil {
 		errcoll.Collect(ctx, f.errColl, f.logger, "refreshing typosquatting index from cache", err)
 	} else if cachedIdx != nil {
@@ -58,7 +70,7 @@ func (f *Filter) refresh(ctx context.Context, acceptStale bool) (err error) {
 	}
 
 	if idx == nil {
-		idx, err = f.indexFromStorage(ctx)
+		idx, sizeBytes, err = f.indexFromStorage(ctx)
 		if err != nil {
 			// Don't wrap the error, because it's informative enough as is.
 			return err
@@ -80,13 +92,16 @@ func (f *Filter) refresh(ctx context.Context, acceptStale bool) (err error) {
 }
 
 // indexFromStorage retrieves the typosquatting-filter index from f.storage and
-// caches it.  idx may be nil even if err is nil.
-func (f *Filter) indexFromStorage(ctx context.Context) (idx *filterindex.Typosquatting, err error) {
+// caches it.  idx may be nil even if err is nil.  sizeBytes is the size of the
+// marshaled index data.
+func (f *Filter) indexFromStorage(
+	ctx context.Context,
+) (idx *filterindex.Typosquatting, sizeBytes uint64, err error) {
 	f.logger.InfoContext(ctx, "refreshing from storage")
 
 	idx, err = f.storage.Typosquatting(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("getting index from storage: %w", err)
+		return nil, 0, fmt.Errorf("getting index from storage: %w", err)
 	}
 
 	cachedIdx := newIndexCache(idx)
@@ -96,37 +111,39 @@ func (f *Filter) indexFromStorage(ctx context.Context) (idx *filterindex.Typosqu
 	if err != nil {
 		errcoll.Collect(ctx, f.errColl, f.logger, "encoding new typosquatting index", err)
 
-		return idx, nil
+		return idx, 0, nil
 	}
 
 	err = renameio.WriteFile(f.cachePath, b, agd.PermFileDefault)
 	if err != nil {
 		errcoll.Collect(ctx, f.errColl, f.logger, "writing new typosquatting index", err)
-
-		return idx, nil
 	}
 
-	return idx, nil
+	return idx, uint64(len(b)), nil
 }
 
 // refreshFromFile loads the data from the cache path if the file's mtime shows
 // that it's still fresh relative to updTime.  If acceptStale is true, and the
 // file exists, the data is read from there regardless of its staleness.
-func (f *Filter) refreshFromFile(updTime time.Time, acceptStale bool) (idx *indexCache, err error) {
+// sizeBytes is the size of the file data in bytes, or zero if no file was read.
+func (f *Filter) refreshFromFile(
+	updTime time.Time,
+	acceptStale bool,
+) (idx *indexCache, sizeBytes uint64, err error) {
 	b, err := refreshable.DataFromFile(f.cachePath, updTime, f.staleness, acceptStale)
 	if err != nil {
-		return nil, fmt.Errorf("refreshing from file %q: %w", f.cachePath, err)
+		return nil, 0, fmt.Errorf("refreshing from file %q: %w", f.cachePath, err)
 	}
 
 	if b == nil {
-		return nil, nil
+		return nil, 0, nil
 	}
 
 	idx = &indexCache{}
 	err = json.Unmarshal(b, idx)
 	if err != nil {
-		return nil, fmt.Errorf("decoding file %q: %w", f.cachePath, err)
+		return nil, 0, fmt.Errorf("decoding file %q: %w", f.cachePath, err)
 	}
 
-	return idx, nil
+	return idx, uint64(len(b)), nil
 }

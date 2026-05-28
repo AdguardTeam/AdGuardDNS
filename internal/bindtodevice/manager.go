@@ -4,6 +4,7 @@ import (
 	"log/slog"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+	"github.com/AdguardTeam/golibs/timeutil"
 )
 
 // ManagerConfig is the configuration structure for [NewManager].  All fields
@@ -11,6 +12,9 @@ import (
 type ManagerConfig struct {
 	// Logger is used to log the operation of the manager.
 	Logger *slog.Logger
+
+	// Clock is used to get the current time.  It must not be nil.
+	Clock timeutil.Clock
 
 	// InterfaceStorage is used to get the information about the system's
 	// network interfaces.  Normally, this is [DefaultInterfaceStorage].

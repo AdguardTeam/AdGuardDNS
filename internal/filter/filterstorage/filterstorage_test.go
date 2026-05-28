@@ -134,6 +134,7 @@ func newDefault(tb testing.TB) (s *filterstorage.Default) {
 	c.SafeSearchGeneral = newConfigSafeSearch(safeSearchGenURL, filter.IDGeneralSafeSearch)
 	c.SafeSearchYouTube = newConfigSafeSearch(safeSearchYTURL, filter.IDYoutubeSafeSearch)
 	c.Typosquatting = &filterstorage.TyposquattingConfig{}
+	c.Homoglyph = &filterstorage.HomoglyphConfig{}
 
 	s, err := filterstorage.New(c)
 	require.NoError(tb, err)
@@ -189,6 +190,9 @@ func newDisabledConfig(
 			Enabled: false,
 		},
 		Typosquatting: &filterstorage.TyposquattingConfig{
+			Enabled: false,
+		},
+		Homoglyph: &filterstorage.HomoglyphConfig{
 			Enabled: false,
 		},
 		CacheManager:             agdcache.EmptyManager{},

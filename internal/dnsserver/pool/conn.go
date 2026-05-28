@@ -16,16 +16,17 @@ type Conn struct {
 	lastTimeUsed time.Time
 }
 
-// wrapConn wraps a net.Conn in a Conn instance.
-func wrapConn(conn net.Conn) (c *Conn) {
+// wrapConn wraps a net.Conn in a Conn instance.  lastUsed is the time when the
+// connection was last used.
+func wrapConn(conn net.Conn, lastUsed time.Time) (c *Conn) {
 	return &Conn{
 		Conn:         conn,
-		lastTimeUsed: time.Now(),
+		lastTimeUsed: lastUsed,
 	}
 }
 
-// isExpired checks if the connection has expired.
-func isExpired(conn *Conn, timeout time.Duration) (exp bool) {
-	return timeout > 0 &&
-		time.Since(conn.lastTimeUsed) > timeout
+// isExpired checks if the connection has expired.  now is the current time used
+// to compare against the connection's last-used time.
+func isExpired(conn *Conn, timeout time.Duration, now time.Time) (exp bool) {
+	return timeout > 0 && now.Sub(conn.lastTimeUsed) > timeout
 }

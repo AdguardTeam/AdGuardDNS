@@ -19,6 +19,14 @@ type BackendFilterIndexStorage struct {
 	// typosquattingUpdateDuration is the histogram with the duration of the
 	// last filter-index update.
 	typosquattingUpdateDuration prometheus.Observer
+
+	// homoglyphErrorsTotal is the counter with the total number of errors
+	// occurred during filter-index updates.
+	homoglyphErrorsTotal prometheus.Counter
+
+	// homoglyphUpdateDuration is the histogram with the duration of the last
+	// filter-index update.
+	homoglyphUpdateDuration prometheus.Observer
 }
 
 // NewBackendFilterIndexStorage returns a new *BackendFilterIndexStorage that
@@ -53,6 +61,8 @@ func NewBackendFilterIndexStorage(
 	m = &BackendFilterIndexStorage{
 		typosquattingErrorsTotal:    errorsTotalCounters.WithLabelValues("typosquatting"),
 		typosquattingUpdateDuration: updateDurationHistograms.WithLabelValues("typosquatting"),
+		homoglyphErrorsTotal:        errorsTotalCounters.WithLabelValues("homoglyph"),
+		homoglyphUpdateDuration:     updateDurationHistograms.WithLabelValues("homoglyph"),
 	}
 
 	var errs []error
@@ -88,5 +98,18 @@ func (m *BackendFilterIndexStorage) ObserveTyposquatting(
 	m.typosquattingUpdateDuration.Observe(d.Seconds())
 	if err != nil {
 		m.typosquattingErrorsTotal.Inc()
+	}
+}
+
+// ObserveHomoglyph implements the [backendgrpc.FilterIndexStorageMetrics]
+// interface for *BackendFilterIndexStorage.
+func (m *BackendFilterIndexStorage) ObserveHomoglyph(
+	_ context.Context,
+	d time.Duration,
+	err error,
+) {
+	m.homoglyphUpdateDuration.Observe(d.Seconds())
+	if err != nil {
+		m.homoglyphErrorsTotal.Inc()
 	}
 }

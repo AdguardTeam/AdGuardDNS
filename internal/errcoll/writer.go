@@ -4,22 +4,33 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/timeutil"
 )
 
 // WriterErrorCollector is an [Interface] implementation that writes errors to
 // an [io.Writer].
 type WriterErrorCollector struct {
-	w io.Writer
+	clock timeutil.Clock
+	w     io.Writer
+}
+
+// WriterErrorCollectorConfig is the configuration for [WriterErrorCollector].
+type WriterErrorCollectorConfig struct {
+	// Clock is used to get the current time.  It must not be nil.
+	Clock timeutil.Clock
+
+	// Writer is the writer to write errors to.  It must not be nil.
+	Writer io.Writer
 }
 
 // NewWriterErrorCollector returns a new properly initialized
-// *WriterErrorCollector.
-func NewWriterErrorCollector(w io.Writer) (c *WriterErrorCollector) {
+// *WriterErrorCollector.  c must be valid.
+func NewWriterErrorCollector(c *WriterErrorCollectorConfig) (coll *WriterErrorCollector) {
 	return &WriterErrorCollector{
-		w: w,
+		clock: c.Clock,
+		w:     c.Writer,
 	}
 }
 
@@ -40,7 +51,7 @@ func (c *WriterErrorCollector) Collect(ctx context.Context, err error) {
 	_, _ = fmt.Fprintf(
 		c.w,
 		"%s: caught error: %s (sentry iface: %t, reportable: %t)\n",
-		time.Now(),
+		c.clock.Now(),
 		err,
 		isIface,
 		isReportable,

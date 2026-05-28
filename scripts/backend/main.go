@@ -40,6 +40,9 @@ func main() {
 	customDomainSrv := newCustomDomainServiceServer(l.With(slogutil.KeyPrefix, "custom_domain"))
 	dnspb.RegisterCustomDomainServiceServer(grpcSrv, customDomainSrv)
 
+	filterIndex := newMockFilterIndexServiceServer(l.With(slogutil.KeyPrefix, "filter_index"))
+	dnspb.RegisterFilterIndexServiceServer(grpcSrv, filterIndex)
+
 	l.Info("starting serving", "laddr", listenAddr)
 	err = grpcSrv.Serve(lsnr)
 	if err != nil {

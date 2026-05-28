@@ -1,7 +1,6 @@
 package composite_test
 
 import (
-	"cmp"
 	"context"
 	"net/http"
 	"net/netip"
@@ -17,6 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterindex"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/homoglyph"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/composite"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
@@ -25,7 +25,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/typosquatting"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/golibs/timeutil"
-	"github.com/AdguardTeam/urlfilter"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,22 +81,10 @@ func newReqDataWithFQDN(tb testing.TB, fqdn string) (ctx context.Context, req *f
 	return ctx, req
 }
 
-// newComposite is a helper for creating composite filters tests.  c may be nil,
-// and all zero-value fields in c are replaced with defaults for tests.
-func newComposite(tb testing.TB, c *composite.Config) (f *composite.Filter) {
-	tb.Helper()
-
-	c = cmp.Or(c, &composite.Config{})
-	c.URLFilterRequest = cmp.Or(c.URLFilterRequest, &urlfilter.DNSRequest{})
-	c.URLFilterResult = cmp.Or(c.URLFilterResult, &urlfilter.DNSResult{})
-
-	return composite.New(c)
-}
-
 func TestFilter_FilterRequest_customWithClientName(t *testing.T) {
 	t.Parallel()
 
-	f := newComposite(t, &composite.Config{
+	f := composite.New(&composite.Config{
 		Custom: custom.New(&custom.Config{
 			Logger: filtertest.Logger,
 			Rules: []filter.RuleText{
@@ -130,7 +117,7 @@ func TestFilter_FilterRequest_customRuleListWithClientName(t *testing.T) {
 
 	rl := newFromStr(t, filtertest.RuleBlockForClientNameStr, filtertest.RuleListID1)
 
-	f := newComposite(t, &composite.Config{
+	f := composite.New(&composite.Config{
 		CustomRuleLists: []*rulelist.Refreshable{rl},
 	})
 
@@ -189,7 +176,7 @@ func TestFilter_FilterRequest_badfilter(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			f := newComposite(t, &composite.Config{
+			f := composite.New(&composite.Config{
 				RuleLists: tc.ruleLists,
 			})
 
@@ -227,7 +214,7 @@ func TestFilter_FilterRequest_customAllow(t *testing.T) {
 		t.Parallel()
 
 		blockingRL := newFromStr(t, filtertest.RuleBlockStr, filtertest.RuleListID1)
-		f := newComposite(t, &composite.Config{
+		f := composite.New(&composite.Config{
 			Custom:    customRL,
 			RuleLists: []*rulelist.Refreshable{blockingRL},
 		})
@@ -251,7 +238,7 @@ func TestFilter_FilterRequest_customAllow(t *testing.T) {
 				List: filtertest.RuleListID1,
 			}, nil
 		}
-		f := newComposite(t, &composite.Config{
+		f := composite.New(&composite.Config{
 			Custom:       customRL,
 			SafeBrowsing: sb,
 		})
@@ -268,7 +255,7 @@ func TestFilter_FilterRequest_customAllow(t *testing.T) {
 
 		domainFilter := filtertest.NewDomainFilter(t, filtertest.HostBlocked)
 
-		f := newComposite(t, &composite.Config{
+		f := composite.New(&composite.Config{
 			Custom:          customRL,
 			CategoryFilters: []composite.RequestFilter{domainFilter},
 		})
@@ -291,7 +278,7 @@ func TestFilter_FilterRequest_customBlockDespiteCommonAllow(t *testing.T) {
 		Rules:  []filter.RuleText{filtertest.RuleBlock},
 	})
 
-	f := newComposite(t, &composite.Config{
+	f := composite.New(&composite.Config{
 		Custom:    customRL,
 		RuleLists: []*rulelist.Refreshable{allowingRL},
 	})
@@ -378,7 +365,7 @@ func TestFilter_FilterRequest_dnsrewrite(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			f := newComposite(t, &composite.Config{
+			f := composite.New(&composite.Config{
 				Custom:    tc.custom,
 				RuleLists: []*rulelist.Refreshable{rlNonRewrite},
 			})
@@ -440,7 +427,7 @@ func TestFilter_FilterRequest_dnsrewriteQType(t *testing.T) {
 		name: "dnsrewrite_soa",
 	}}
 
-	f := newComposite(t, &composite.Config{
+	f := composite.New(&composite.Config{
 		Custom:    newCustom(t, dnsRewriteTypedRules),
 		RuleLists: []*rulelist.Refreshable{},
 	})
@@ -488,7 +475,7 @@ func TestFilter_FilterRequest_hostsRules(t *testing.T) {
 	)
 
 	rl := newFromStr(t, rules, filtertest.RuleListID1)
-	f := newComposite(t, &composite.Config{
+	f := composite.New(&composite.Config{
 		RuleLists: []*rulelist.Refreshable{rl},
 	})
 
@@ -572,6 +559,7 @@ func TestFilter_FilterRequest_safeSearch(t *testing.T) {
 	gen, err := safesearch.New(
 		&safesearch.Config{
 			Refreshable: &refreshable.Config{
+				Clock:     timeutil.SystemClock{},
 				Logger:    filtertest.Logger,
 				URL:       srvURL,
 				ID:        fltListID,
@@ -589,7 +577,7 @@ func TestFilter_FilterRequest_safeSearch(t *testing.T) {
 	err = gen.Refresh(testutil.ContextWithTimeout(t, filtertest.Timeout), false)
 	require.NoError(t, err)
 
-	f := newComposite(t, &composite.Config{
+	f := composite.New(&composite.Config{
 		GeneralSafeSearch: gen,
 	})
 
@@ -622,7 +610,7 @@ func TestFilter_FilterRequest_services(t *testing.T) {
 		rulelist.EmptyResultCache{},
 	)
 
-	f := newComposite(t, &composite.Config{
+	f := composite.New(&composite.Config{
 		ServiceLists: []*rulelist.Immutable{svcRL},
 	})
 
@@ -646,7 +634,7 @@ func TestFilter_FilterRequest_domainFilters(t *testing.T) {
 	)
 
 	domainFilter := filtertest.NewDomainFilter(t, testDomain)
-	f := newComposite(t, &composite.Config{
+	f := composite.New(&composite.Config{
 		CategoryFilters: []composite.RequestFilter{domainFilter},
 	})
 
@@ -659,6 +647,71 @@ func TestFilter_FilterRequest_domainFilters(t *testing.T) {
 		Rule: filter.RuleText(filtertest.CategoryIDStr),
 	}
 	assert.Equal(t, want, res)
+}
+
+func TestFilter_FilterRequest_homoglyph(t *testing.T) {
+	t.Parallel()
+
+	cloner := agdtest.NewCloner()
+	replCons, err := filter.NewReplacedResultConstructor(&filter.ReplacedResultConstructorConfig{
+		Cloner:      cloner,
+		Replacement: filtertest.HostDangerousRepl,
+	})
+	require.NoError(t, err)
+
+	s := &agdtest.FilterIndexStorage{
+		OnTyposquatting: func(ctx context.Context) (_ *filterindex.Typosquatting, _ error) {
+			panic(testutil.UnexpectedCall(ctx))
+		},
+		OnHomoglyph: func(_ context.Context) (idx *filterindex.Homoglyph, err error) {
+			domains := []*filterindex.HomoglyphProtectedDomain{{
+				Domain: filtertest.Host,
+			}}
+
+			return &filterindex.Homoglyph{
+				Domains: domains,
+			}, nil
+		},
+	}
+
+	cachePath := filepath.Join(t.TempDir(), "homoglyph.json")
+
+	hg := homoglyph.New(&homoglyph.Config{
+		Cloner:                    cloner,
+		Logger:                    filtertest.Logger,
+		ReplacedResultConstructor: replCons,
+		CacheManager:              agdcache.EmptyManager{},
+		Clock:                     timeutil.SystemClock{},
+		ErrColl:                   agdtest.NewErrorCollector(),
+		Metrics:                   filter.EmptyMetrics{},
+		PublicSuffixList:          publicsuffix.List,
+		Storage:                   s,
+		CachePath:                 cachePath,
+		ResultListID:              filter.IDHomoglyph,
+		Staleness:                 filtertest.Staleness,
+		CacheCount:                filtertest.CacheCount,
+	})
+
+	ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
+	err = hg.RefreshInitial(ctx)
+	require.NoError(t, err)
+
+	f := composite.New(&composite.Config{
+		Homoglyph: hg,
+	})
+
+	ctx, req := newReqDataWithFQDN(t, filtertest.FQDNHomographDomain)
+	res, err := f.FilterRequest(ctx, req)
+	require.NoError(t, err)
+
+	wantReq := dnsservertest.NewReq(filtertest.FQDNDangerousRepl, dns.TypeA, dns.ClassINET)
+	want := &filter.ResultModifiedRequest{
+		Msg:  wantReq,
+		List: filter.IDHomoglyph,
+		Rule: filtertest.Host,
+	}
+
+	filtertest.AssertEqualResult(t, want, res)
 }
 
 func TestFilter_FilterRequest_typosquatting(t *testing.T) {
@@ -706,7 +759,7 @@ func TestFilter_FilterRequest_typosquatting(t *testing.T) {
 	err = ts.RefreshInitial(ctx)
 	require.NoError(t, err)
 
-	f := newComposite(t, &composite.Config{
+	f := composite.New(&composite.Config{
 		Typosquatting: ts,
 	})
 
@@ -732,7 +785,7 @@ func TestFilter_FilterResponse(t *testing.T) {
 		testIPv6BlockedStr + "\n"
 
 	blockingRL := newFromStr(t, blockRules, filtertest.RuleListID1)
-	f := newComposite(t, &composite.Config{
+	f := composite.New(&composite.Config{
 		RuleLists: []*rulelist.Refreshable{blockingRL},
 	})
 
@@ -795,7 +848,7 @@ func TestFilter_FilterResponse_blocked(t *testing.T) {
 	}
 
 	blockingRL := newFromStr(t, blockRules, filtertest.RuleListID1)
-	f := newComposite(t, &composite.Config{
+	f := composite.New(&composite.Config{
 		RuleLists: []*rulelist.Refreshable{blockingRL},
 	})
 
@@ -883,7 +936,7 @@ func TestFilter_FilterResponse_customRuleList(t *testing.T) {
 
 	rl := newFromStr(t, testIPv4BlockedStr, filtertest.RuleListID1)
 
-	f := newComposite(t, &composite.Config{
+	f := composite.New(&composite.Config{
 		CustomRuleLists: []*rulelist.Refreshable{rl},
 	})
 
