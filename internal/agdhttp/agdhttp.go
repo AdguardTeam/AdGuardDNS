@@ -4,7 +4,7 @@
 // TODO(a.garipov): Consider moving all or some of this stuff to module golibs.
 package agdhttp
 
-import "github.com/AdguardTeam/AdGuardDNS/internal/version"
+import "github.com/AdguardTeam/golibs/version"
 
 // Common Constants, Functions And Types
 
@@ -29,7 +29,7 @@ const RobotsDisallowAll = "User-agent: *\nDisallow: /\n"
 const NotFoundString = "404 page not found\n"
 
 // userAgent is the cached User-Agent string for AdGuardDNS.
-var userAgent = version.Name() + "/" + version.Version()
+var userAgent = "AdGuardDNS/" + version.Version()
 
 // UserAgent returns the ID of the service as a User-Agent string.  It can also
 // be used as the value of the Server HTTP header.

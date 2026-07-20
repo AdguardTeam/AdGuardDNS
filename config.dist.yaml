@@ -323,7 +323,9 @@ filtering_groups:
     safe_browsing:
       enabled: true
       block_dangerous_domains: true
+      block_homoglyphs: false
       block_newly_registered_domains: false
+      block_typos: false
     block_chrome_prefetch: true
     block_firefox_canary: true
     block_private_relay: false
@@ -340,7 +342,9 @@ filtering_groups:
     safe_browsing:
       enabled: true
       block_dangerous_domains: true
+      block_homoglyphs: true
       block_newly_registered_domains: false
+      block_typos: true
     block_chrome_prefetch: true
     block_firefox_canary: true
     block_private_relay: false
@@ -352,7 +356,9 @@ filtering_groups:
     safe_browsing:
       enabled: false
       block_dangerous_domains: true
+      block_homoglyphs: false
       block_newly_registered_domains: false
+      block_typos: false
     block_chrome_prefetch: false
     block_firefox_canary: true
     block_private_relay: false

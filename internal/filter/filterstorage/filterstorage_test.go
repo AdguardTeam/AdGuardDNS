@@ -1,22 +1,30 @@
 package filterstorage_test
 
 import (
+	"context"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterindex"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterstorage"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/homoglyph"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/domain"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/ruleliststorage"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/typosquatting"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/publicsuffix"
 )
 
 // initialTimeout is the maximum time to wait for a filter storage
@@ -123,7 +131,8 @@ func newDefault(tb testing.TB) (s *filterstorage.Default) {
 		http.StatusOK,
 	)
 
-	rlStorage := newRuleListStorage(tb, newRuleListIndexConfig(ruleListIdxURL))
+	idxStorage := newRuleListIdxStorage(tb, ruleListIdxURL)
+	rlStorage := newRuleListStorage(tb, idxStorage, filtertest.Staleness)
 	c := newDisabledConfig(tb, rlStorage, newIndexConfig(catIdxURL))
 	c.BlockedServices = newConfigBlockedServices(svcIdxURL)
 	c.HashPrefix = &filterstorage.HashPrefixConfig{
@@ -133,8 +142,8 @@ func newDefault(tb testing.TB) (s *filterstorage.Default) {
 	}
 	c.SafeSearchGeneral = newConfigSafeSearch(safeSearchGenURL, filter.IDGeneralSafeSearch)
 	c.SafeSearchYouTube = newConfigSafeSearch(safeSearchYTURL, filter.IDYoutubeSafeSearch)
-	c.Typosquatting = &filterstorage.TyposquattingConfig{}
-	c.Homoglyph = &filterstorage.HomoglyphConfig{}
+	c.Typosquatting = newConfigTyposquatting(tb)
+	c.Homoglyph = newConfigHomoglyph(tb)
 
 	s, err := filterstorage.New(c)
 	require.NoError(tb, err)
@@ -207,10 +216,11 @@ func newDisabledConfig(
 }
 
 // newRuleListStorage returns a new [*ruleliststorage.Default] with the given
-// index configuration.
+// index configuration.  idxStorage must not be nil, staleness must be positive.
 func newRuleListStorage(
 	tb testing.TB,
-	idxConf *ruleliststorage.IndexConfig,
+	idxStorage filterindex.RulelistStorage,
+	staleness time.Duration,
 ) (s *ruleliststorage.Default) {
 	tb.Helper()
 
@@ -218,14 +228,19 @@ func newRuleListStorage(
 	filtertest.CreateFilterCacheDirs(tb, cacheDir)
 
 	s, err := ruleliststorage.New(&ruleliststorage.Config{
-		BaseLogger:   filtertest.Logger,
-		CacheManager: agdcache.EmptyManager{},
-		Clock:        timeutil.SystemClock{},
-		ErrColl:      agdtest.NewErrorCollector(),
-		IndexConfig:  idxConf,
-		Logger:       filtertest.Logger,
-		Metrics:      filter.EmptyMetrics{},
-		CacheDir:     cacheDir,
+		BaseLogger:         filtertest.Logger,
+		CacheManager:       agdcache.EmptyManager{},
+		Clock:              timeutil.SystemClock{},
+		ErrColl:            agdtest.NewErrorCollector(),
+		IndexStorage:       idxStorage,
+		Logger:             filtertest.Logger,
+		Metrics:            filter.EmptyMetrics{},
+		CacheDir:           cacheDir,
+		MaxSize:            filtertest.FilterMaxSize,
+		RefreshTimeout:     filtertest.Timeout,
+		Staleness:          staleness,
+		ResultCacheCount:   filtertest.CacheCount,
+		ResultCacheEnabled: true,
 	})
 	require.NoError(tb, err)
 
@@ -268,21 +283,19 @@ func newIndexConfig(indexURL *url.URL) (c *filterstorage.IndexConfig) {
 	}
 }
 
-// newRuleListIndexConfig is a test helper that returns a new
-// [*ruleliststorage.IndexConfig] with the given index URL.  The rest of the
-// fields are set to the corresponding [filtertest] values.
-func newRuleListIndexConfig(indexURL *url.URL) (c *ruleliststorage.IndexConfig) {
-	return &ruleliststorage.IndexConfig{
-		IndexURL:            indexURL,
-		IndexMaxSize:        filtertest.FilterMaxSize,
-		MaxSize:             filtertest.FilterMaxSize,
-		IndexRefreshTimeout: filtertest.Timeout,
-		IndexStaleness:      filtertest.Staleness,
-		RefreshTimeout:      filtertest.Timeout,
-		Staleness:           filtertest.Staleness,
-		ResultCacheCount:    filtertest.CacheCount,
-		ResultCacheEnabled:  true,
-	}
+// newRuleListIdxStorage is a test helper that returns a new
+// [filterindex.RulelistStorage] for the given index URL.  indexURL must not be
+// nil.
+func newRuleListIdxStorage(tb testing.TB, indexURL *url.URL) (s filterindex.RulelistStorage) {
+	tb.Helper()
+
+	return ruleliststorage.NewIndexHTTP(&ruleliststorage.IndexHTTPConfig{
+		Logger:  slogutil.NewDiscardLogger(),
+		ErrColl: agdtest.NewErrorCollector(),
+		URL:     indexURL,
+		Timeout: filtertest.Timeout,
+		MaxSize: filtertest.FilterMaxSize,
+	})
 }
 
 // newConfigSafeSearch is a test helper that returns a new enabled
@@ -298,5 +311,100 @@ func newConfigSafeSearch(u *url.URL, id filter.ID) (c *filterstorage.SafeSearchC
 		Staleness:        filtertest.Staleness,
 		ResultCacheCount: filtertest.CacheCount,
 		Enabled:          true,
+	}
+}
+
+// newConfigHomoglyph is a helper that returns [*filterstorage.HomoglyphConfig]
+// populated with common test values.
+func newConfigHomoglyph(tb testing.TB) (c *filterstorage.HomoglyphConfig) {
+	tb.Helper()
+
+	cloner := agdtest.NewCloner()
+	replCons, err := filter.NewReplacedResultConstructor(&filter.ReplacedResultConstructorConfig{
+		Cloner:      cloner,
+		Replacement: filtertest.HostDangerousRepl,
+	})
+	require.NoError(tb, err)
+
+	s := &agdtest.FilterIndexStorage{
+		OnTyposquatting: func(ctx context.Context) (_ *filterindex.Typosquatting, _ error) {
+			panic(testutil.UnexpectedCall(ctx))
+		},
+		OnHomoglyph: func(_ context.Context) (idx *filterindex.Homoglyph, err error) {
+			domains := []*filterindex.HomoglyphProtectedDomain{{
+				Domain: filtertest.Host,
+			}}
+
+			return &filterindex.Homoglyph{
+				Domains: domains,
+			}, nil
+		},
+	}
+
+	return &filterstorage.HomoglyphConfig{
+		Enabled: true,
+		Filter: homoglyph.New(&homoglyph.Config{
+			Cloner:                    cloner,
+			Logger:                    filtertest.Logger,
+			ReplacedResultConstructor: replCons,
+			CacheManager:              agdcache.EmptyManager{},
+			Clock:                     timeutil.SystemClock{},
+			ErrColl:                   agdtest.NewErrorCollector(),
+			Metrics:                   filter.EmptyMetrics{},
+			PublicSuffixList:          publicsuffix.List,
+			Storage:                   s,
+			CachePath:                 filepath.Join(tb.TempDir(), "homoglyph.json"),
+			ResultListID:              filter.IDHomoglyph,
+			Staleness:                 filtertest.Staleness,
+			CacheCount:                filtertest.CacheCount,
+		}),
+	}
+}
+
+// newConfigTyposquatting is a helper that returns
+// [*filterstorage.TyposquattingConfig] populated with common test values.
+func newConfigTyposquatting(tb testing.TB) (c *filterstorage.TyposquattingConfig) {
+	tb.Helper()
+
+	cloner := agdtest.NewCloner()
+	replCons, err := filter.NewReplacedResultConstructor(&filter.ReplacedResultConstructorConfig{
+		Cloner:      cloner,
+		Replacement: filtertest.HostDangerousRepl,
+	})
+	require.NoError(tb, err)
+
+	s := &agdtest.FilterIndexStorage{
+		OnTyposquatting: func(_ context.Context) (idx *filterindex.Typosquatting, err error) {
+			domains := []*filterindex.TyposquattingProtectedDomain{{
+				Domain:   filtertest.HostTypoProtectedDomain,
+				Distance: 1,
+			}}
+
+			return &filterindex.Typosquatting{
+				Domains: domains,
+			}, nil
+		},
+		OnHomoglyph: func(ctx context.Context) (idx *filterindex.Homoglyph, err error) {
+			panic(testutil.UnexpectedCall(ctx))
+		},
+	}
+
+	return &filterstorage.TyposquattingConfig{
+		Enabled: true,
+		Filter: typosquatting.New(&typosquatting.Config{
+			Cloner:                    cloner,
+			Logger:                    filtertest.Logger,
+			ReplacedResultConstructor: replCons,
+			CacheManager:              agdcache.EmptyManager{},
+			Clock:                     timeutil.SystemClock{},
+			ErrColl:                   agdtest.NewErrorCollector(),
+			Metrics:                   filter.EmptyMetrics{},
+			PublicSuffixList:          publicsuffix.List,
+			Storage:                   s,
+			CachePath:                 filepath.Join(tb.TempDir(), "typosquatting.json"),
+			ResultListID:              filter.IDTyposquatting,
+			Staleness:                 filtertest.Staleness,
+			CacheCount:                filtertest.CacheCount,
+		}),
 	}
 }

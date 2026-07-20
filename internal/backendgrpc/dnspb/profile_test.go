@@ -262,11 +262,11 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 		PauseSchedule: &filter.ConfigSchedule{
 			Week: &filter.WeeklySchedule{
 				nil,
-				dayIvl,
-				dayIvl,
-				dayIvl,
-				dayIvl,
-				dayIvl,
+				filter.DayIntervals{dayIvl},
+				filter.DayIntervals{dayIvl},
+				filter.DayIntervals{dayIvl},
+				filter.DayIntervals{dayIvl},
+				filter.DayIntervals{dayIvl},
 				nil,
 			},
 			TimeZone: wantLoc,

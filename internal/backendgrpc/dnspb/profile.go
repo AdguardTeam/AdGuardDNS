@@ -21,6 +21,7 @@ import (
 	"github.com/AdguardTeam/golibs/logutil/optslog"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/timeutil"
+	"github.com/AdguardTeam/golibs/validate"
 	"github.com/c2h5oh/datasize"
 )
 
@@ -567,6 +568,12 @@ func (x *ScheduleSettings) toInternal() (c *filter.ConfigSchedule, err error) {
 	}
 
 	w := x.WeeklyRange
+	err = validate.NotNil("weekly_range", w)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return nil, err
+	}
+
 	days := []*DayRange{w.Sun, w.Mon, w.Tue, w.Wed, w.Thu, w.Fri, w.Sat}
 	for i, d := range days {
 		if d == nil {
@@ -578,12 +585,15 @@ func (x *ScheduleSettings) toInternal() (c *filter.ConfigSchedule, err error) {
 			End:   uint16(d.End.AsDuration().Minutes() + 1),
 		}
 
-		err = ivl.Validate()
+		// TODO(m.kazantsev):  Support multiple intervals per day.
+		ivls := filter.DayIntervals{ivl}
+
+		err = ivls.Validate()
 		if err != nil {
 			return nil, fmt.Errorf("weekday %s: %w", time.Weekday(i), err)
 		}
 
-		c.Week[i] = ivl
+		c.Week[i] = ivls
 	}
 
 	return c, nil

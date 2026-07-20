@@ -135,25 +135,39 @@ func (f *Filter) FilterRequest(
 
 	// Check cache first.
 	cacheKey := rulelist.NewCacheKey(etld1, qt, cl, false)
+
+	return f.matchWithCache(req, cacheKey, etld1, exceptions, protectedByLen, fam)
+}
+
+// matchWithCache checks the cache and matches the domain against protected
+// domains, returning the appropriate result.  All arguments must not be nil.
+func (f *Filter) matchWithCache(
+	req *filter.Request,
+	cacheKey rulelist.CacheKey,
+	domain string,
+	exceptions *container.MapSet[string],
+	protectedByLen lenIndex,
+	family netutil.AddrFamily,
+) (r filter.Result, err error) {
 	item, ok := f.resCache.Get(cacheKey)
 	if ok {
 		return filter.CloneModifiedResult(item, req.DNS, f.cloner), nil
 	}
 
-	if exceptions.Has(etld1) {
+	if exceptions.Has(domain) {
 		f.resCache.Set(cacheKey, nil)
 
 		return nil, nil
 	}
 
-	matched := f.matchProtectedDomain(etld1, protectedByLen)
+	matched := f.matchProtectedDomain(domain, protectedByLen)
 	if matched == nil {
 		f.resCache.Set(cacheKey, nil)
 
 		return nil, nil
 	}
 
-	r, err = f.replCons.New(req, f.id, filter.RuleText(matched.Domain), fam)
+	r, err = f.replCons.New(req, f.id, filter.RuleText(matched.Domain), family)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err

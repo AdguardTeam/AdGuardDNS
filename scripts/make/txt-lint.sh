@@ -36,6 +36,7 @@ trailing_newlines() (
 		-o -name '*.test' \
 		-o -name 'AdGuardDNS' \
 		-o -name 'agdns' \
+		-o -name 'lint-output.txt' \
 		')' \
 		-print \
 		| while read -r f; do
@@ -59,6 +60,7 @@ trailing_whitespace() {
 		-o -name '*.test' \
 		-o -name 'AdGuardDNS' \
 		-o -name 'agdns' \
+		-o -name 'lint-output.txt' \
 		')' \
 		-print \
 		| while read -r f; do
@@ -103,7 +105,7 @@ readonly go
 	--lint \
 	./*.yaml \
 	./.github/ISSUE_TEMPLATE/*.yaml \
-	./bamboo-specs/*.yaml \
+	./.github/workflows/*.yaml \
 	;
 
 find_with_ignore \

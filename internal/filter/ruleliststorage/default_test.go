@@ -44,7 +44,7 @@ func newDefaultWithList(tb testing.TB) (s *ruleliststorage.Default) {
 	_, ruleListIdxURL := filtertest.PrepareRefreshable(tb, nil, string(rlIdxData), http.StatusOK)
 
 	s = newDefault(tb, &ruleliststorage.Config{
-		IndexConfig: newIndexConfig(ruleListIdxURL),
+		IndexStorage: newRuleListIdxStorage(tb, ruleListIdxURL),
 	})
 
 	ctx := testutil.ContextWithTimeout(tb, filtertest.Timeout)

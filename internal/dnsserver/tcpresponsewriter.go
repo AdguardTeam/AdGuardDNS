@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/messagetap"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/miekg/dns"
 )
@@ -14,7 +15,8 @@ import (
 // tcpResponseWriter implements ResponseWriter interface for a DNS-over-TCP or
 // a DNS-over-TLS server.
 type tcpResponseWriter struct {
-	respPool *syncutil.Pool[[]byte]
+	messageTap messagetap.Interface
+	respPool   *syncutil.Pool[[]byte]
 	// writeMu is used to serialize the sequence of setting the write deadline,
 	// writing to a connection, and resetting the write deadline, across
 	// multiple goroutines in the pipeline.
@@ -54,6 +56,8 @@ func (r *tcpResponseWriter) WriteMsg(ctx context.Context, req, resp *dns.Msg) (e
 	}
 
 	*bufPtr = b
+
+	tapResponse(ctx, r.messageTap, r.LocalAddr(), r.RemoteAddr(), b[2:])
 
 	// Serialize the write deadline setting on the shared connection, since
 	// messages accepted over TCP are processed out of order.

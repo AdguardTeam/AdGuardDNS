@@ -27,7 +27,14 @@ const (
 func TestTicketsToInternal(t *testing.T) {
 	t.Parallel()
 
-	ctx := testutil.ContextWithTimeout(t, backendtest.Timeout)
+	const (
+		errMsgBadLen = "loading session ticket: at index 0: ticket: length: out of range: " +
+			"must be no less than 32, got 19"
+		errMsgEmptyStr = "loading session ticket: at index 0: str: empty value"
+
+		errMsgBoth = errMsgEmptyStr + "\n" +
+			"ticket: length: out of range: must be no less than 32, got 19"
+	)
 
 	testCases := []struct {
 		want       map[tlsconfig.SessionTicketName]*dnspb.TicketResult
@@ -48,19 +55,17 @@ func TestTicketsToInternal(t *testing.T) {
 		wantErrMsg: "",
 	}, {
 		name: "empty_ticket_name",
-		pbTickets: []*dnspb.SessionTicket{
-			{
-				Name: "",
-				Data: []byte(testTicketData),
-			},
-		},
+		pbTickets: []*dnspb.SessionTicket{{
+			Name: "",
+			Data: []byte(testTicketData),
+		}},
 		want: map[tlsconfig.SessionTicketName]*dnspb.TicketResult{
 			"bad_ticket_name_0": {
 				Ticket: tlsconfig.SessionTicket([]byte(testTicketData)),
-				Error:  errors.Error("loading session ticket: at index 0: str: empty value"),
+				Error:  errors.Error(errMsgEmptyStr),
 			},
 		},
-		wantErrMsg: "loading session ticket: at index 0: str: empty value",
+		wantErrMsg: errMsgEmptyStr,
 	}, {
 		name: "invalid_ticket_data",
 		pbTickets: []*dnspb.SessionTicket{{
@@ -70,31 +75,23 @@ func TestTicketsToInternal(t *testing.T) {
 		want: map[tlsconfig.SessionTicketName]*dnspb.TicketResult{
 			testTicketName: {
 				Ticket: tlsconfig.SessionTicket{},
-				Error: errors.Error("loading session ticket: at index 0: ticket: length: " +
-					"out of range: must be no less than 32, got 19",
-				),
+				Error:  errors.Error(errMsgBadLen),
 			},
 		},
-		wantErrMsg: "loading session ticket: at index 0: ticket: length: " +
-			"out of range: must be no less than 32, got 19",
+		wantErrMsg: errMsgBadLen,
 	}, {
 		name: "empty_ticket_name_and_invalid_data",
-		pbTickets: []*dnspb.SessionTicket{
-			{
-				Name: "",
-				Data: []byte(testInvalidTicketData),
-			},
-		},
+		pbTickets: []*dnspb.SessionTicket{{
+			Name: "",
+			Data: []byte(testInvalidTicketData),
+		}},
 		want: map[tlsconfig.SessionTicketName]*dnspb.TicketResult{
 			"bad_ticket_name_0": {
 				Ticket: tlsconfig.SessionTicket{},
-				Error: errors.Error(`loading session ticket: at index 0: str: empty value` + "\n" +
-					`ticket: length: out of range: must be no less than 32, got 19`,
-				),
+				Error:  errors.Error(errMsgBoth),
 			},
 		},
-		wantErrMsg: `loading session ticket: at index 0: str: empty value` + "\n" +
-			`ticket: length: out of range: must be no less than 32, got 19`,
+		wantErrMsg: errMsgBoth,
 	}, {
 		name:       "empty_slice",
 		pbTickets:  []*dnspb.SessionTicket{},
@@ -111,6 +108,7 @@ func TestTicketsToInternal(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
+			ctx := testutil.ContextWithTimeout(t, backendtest.Timeout)
 			got, err := dnspb.TicketsToInternal(ctx, tc.pbTickets)
 			EqualSessionTicketMap(t, tc.want, got)
 			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)

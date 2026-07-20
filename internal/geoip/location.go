@@ -24,6 +24,9 @@ type Location struct {
 // See also https://datatracker.ietf.org/doc/html/rfc7300.
 type ASN uint32
 
+// ASNNone is an unknown AS number.
+const ASNNone ASN = 0
+
 // Continent represents a continent code used by MaxMind.
 type Continent string
 

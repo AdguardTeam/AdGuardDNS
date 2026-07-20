@@ -11,6 +11,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/miekg/dns"
 )
 
@@ -26,7 +27,11 @@ type filteringContext struct {
 	requestResult  filter.Result
 	responseResult filter.Result
 
+	responseCtry geoip.Country
+
 	elapsed time.Duration
+
+	responseASN geoip.ASN
 
 	isDebug bool
 }
@@ -133,7 +138,7 @@ func (mw *Middleware) filterResponse(
 		var rr dns.RR = ri.Messages.NewAnswerCNAME(origReq, modReq.Question[0].Name)
 		origResp.Answer = slices.Insert(origResp.Answer, 0, rr)
 	} else {
-		fltResp := mw.reqInfoToFltResp(fctx.originalResponse, ri)
+		fltResp := mw.reqInfoToFltResp(fctx, ri)
 		defer mw.putFltResp(fltResp)
 
 		respRes, err := f.FilterResponse(ctx, fltResp)
@@ -149,22 +154,28 @@ func (mw *Middleware) filterResponse(
 
 // reqInfoToFltResp converts data from a DNS response and request info into a
 // *filter.Response.  The returned response data should be put back into
-// the pool by using [Middleware.putFltResp].
+// the pool by using [Middleware.putFltResp].  All arguments must not be nil.
 func (mw *Middleware) reqInfoToFltResp(
-	resp *dns.Msg,
+	fctx *filteringContext,
 	ri *agd.RequestInfo,
 ) (fltResp *filter.Response) {
 	fltResp = mw.fltRespPool.Get()
 
 	// NOTE:  Fill all fields of fltResp since it is reused from the pool.
-	fltResp.DNS = resp
+	fltResp.DNS = fctx.originalResponse
 	fltResp.RemoteIP = ri.RemoteIP
+
+	fltResp.Host = ri.Host
+	fltResp.Country = fctx.responseCtry
 
 	if _, d := ri.DeviceData(); d != nil {
 		fltResp.ClientName = string(d.Name)
 	} else {
 		fltResp.ClientName = ""
 	}
+
+	fltResp.ASN = fctx.responseASN
+	fltResp.QType = ri.QType
 
 	return fltResp
 }

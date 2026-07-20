@@ -103,8 +103,8 @@ func (f *Filter) FilterRequest(
 	ctx context.Context,
 	req *filter.Request,
 ) (r filter.Result, err error) {
-	exceptions, protectedByLen := f.indexData()
-	if len(protectedByLen) == 0 {
+	exceptions, idx := f.indexData()
+	if len(idx) == 0 {
 		return nil, nil
 	}
 
@@ -146,25 +146,39 @@ func (f *Filter) FilterRequest(
 	// Check cache first.
 	cl := req.QClass
 	cacheKey := rulelist.NewCacheKey(etld1, qt, cl, false)
+
+	return f.matchWithCache(req, cacheKey, etld1, exceptions, idx, fam)
+}
+
+// matchWithCache checks the cache and matches the domain against protected
+// domains, returning the appropriate result.  All arguments must not be nil.
+func (f *Filter) matchWithCache(
+	req *filter.Request,
+	cacheKey rulelist.CacheKey,
+	domain string,
+	exceptions *container.MapSet[string],
+	idx skelIndex,
+	family netutil.AddrFamily,
+) (r filter.Result, err error) {
 	item, ok := f.resCache.Get(cacheKey)
 	if ok {
 		return filter.CloneModifiedResult(item, req.DNS, f.cloner), nil
 	}
 
-	if exceptions.Has(etld1) {
+	if exceptions.Has(domain) {
 		f.resCache.Set(cacheKey, nil)
 
 		return nil, nil
 	}
 
-	matched := f.matchProtectedDomain(etld1, protectedByLen)
+	matched := f.matchProtectedDomain(domain, idx)
 	if matched == "" {
 		f.resCache.Set(cacheKey, nil)
 
 		return nil, nil
 	}
 
-	r, err = f.replCons.New(req, f.id, matched, fam)
+	r, err = f.replCons.New(req, f.id, matched, family)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
@@ -195,7 +209,7 @@ func (f *Filter) matchProtectedDomain(etld1 string, idx skelIndex) (matched filt
 }
 
 // indexData returns the current index data.
-func (f *Filter) indexData() (exceptions *container.MapSet[string], protectedByLen skelIndex) {
+func (f *Filter) indexData() (exceptions *container.MapSet[string], idx skelIndex) {
 	f.indexMu.RLock()
 	defer f.indexMu.RUnlock()
 

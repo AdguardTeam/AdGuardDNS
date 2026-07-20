@@ -9,6 +9,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/AdguardTeam/urlfilter"
@@ -101,6 +102,7 @@ func (c *Config) Reset() {
 	c.AdultBlocking = nil
 	c.NewRegisteredDomains = nil
 	c.Typosquatting = nil
+	c.Homoglyph = nil
 	c.GeneralSafeSearch = nil
 	c.YouTubeSafeSearch = nil
 	c.Custom = nil
@@ -397,6 +399,11 @@ func (f *Filter) FilterResponse(
 	ctx context.Context,
 	resp *filter.Response,
 ) (r filter.Result, err error) {
+	r = f.filterHostWithGeoIP(ctx, resp)
+	if r != nil {
+		return r, nil
+	}
+
 	for _, ans := range resp.DNS.Answer {
 		r = f.filterAnswer(ctx, resp, ans)
 		if r != nil {
@@ -407,8 +414,18 @@ func (f *Filter) FilterResponse(
 	return r, nil
 }
 
+// filterHostWithGeoIP filters the response based on the request hostname and
+// the GeoIP data from the response.  resp must not be nil.
+func (f *Filter) filterHostWithGeoIP(ctx context.Context, resp *filter.Response) (r filter.Result) {
+	if !resp.Country.IsPresent() && resp.ASN == geoip.ASNNone {
+		return nil
+	}
+
+	return f.filterRespWithRuleLists(ctx, resp, resp.Host, resp.QType)
+}
+
 // filterAnswer filters a single answer of a response.  r is not nil if the
-// response is filtered.
+// response is filtered.  resp must not be nil.
 func (f *Filter) filterAnswer(
 	ctx context.Context,
 	resp *filter.Response,
@@ -427,7 +444,7 @@ func (f *Filter) filterAnswer(
 }
 
 // filterRespWithRuleLists filters one answer's information through all
-// rule-list filters of the composite filter.
+// rule-list filters of the composite filter.  resp must not be nil.
 func (f *Filter) filterRespWithRuleLists(
 	ctx context.Context,
 	resp *filter.Response,
@@ -440,6 +457,8 @@ func (f *Filter) filterRespWithRuleLists(
 	f.ufReq.ClientIP = resp.RemoteIP
 	f.ufReq.DNSType = rrType
 	f.ufReq.Hostname = host
+
+	setGeoIPInUFReq(f.ufReq, resp)
 
 	c := f.resultCollectorPool.Get()
 	defer f.resultCollectorPool.Put(c)
@@ -478,6 +497,15 @@ func (f *Filter) filterRespWithRuleLists(
 	}
 
 	return c.toInternal(rrType)
+}
+
+// setGeoIPInUFReq sets the fields related to the response's GeoIP data in r.
+// All arguments must not be nil.
+func setGeoIPInUFReq(r *urlfilter.DNSRequest, resp *filter.Response) {
+	r.ResponseASN = uint32(resp.ASN)
+	if resp.Country.IsPresent() {
+		r.ResponseCountry = string(resp.Country)
+	}
 }
 
 // filterRespWithCustomRuleLists filters one answer's information through the

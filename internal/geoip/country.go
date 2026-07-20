@@ -12,6 +12,12 @@ import (
 // Country represents an ISO 3166-1 alpha-2 country code.
 type Country string
 
+// IsPresent returns true if c is neither [CountryNotApplicable] nor
+// [CountryNone].
+func (c Country) IsPresent() (ok bool) {
+	return c != CountryNone && c != CountryNotApplicable
+}
+
 // Country code constants.  Note that these constants don't include the
 // user-assigned ones.
 const (

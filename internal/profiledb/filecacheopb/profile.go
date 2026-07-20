@@ -434,33 +434,43 @@ func filterConfigScheduleToInternal(
 	}
 
 	week := pbSchedule.GetWeek()
+
 	return &filter.ConfigSchedule{
 		// Consider the lengths to be prevalidated.
 		Week: &filter.WeeklySchedule{
-			time.Monday:    dayIntervalToInternal(week.GetMon()),
-			time.Tuesday:   dayIntervalToInternal(week.GetTue()),
-			time.Wednesday: dayIntervalToInternal(week.GetWed()),
-			time.Thursday:  dayIntervalToInternal(week.GetThu()),
-			time.Friday:    dayIntervalToInternal(week.GetFri()),
-			time.Saturday:  dayIntervalToInternal(week.GetSat()),
-			time.Sunday:    dayIntervalToInternal(week.GetSun()),
+			time.Monday:    dayIntervalsToInternal(week.GetMon()),
+			time.Tuesday:   dayIntervalsToInternal(week.GetTue()),
+			time.Wednesday: dayIntervalsToInternal(week.GetWed()),
+			time.Thursday:  dayIntervalsToInternal(week.GetThu()),
+			time.Friday:    dayIntervalsToInternal(week.GetFri()),
+			time.Saturday:  dayIntervalsToInternal(week.GetSat()),
+			time.Sunday:    dayIntervalsToInternal(week.GetSun()),
 		},
 		TimeZone: loc,
 	}, nil
 }
 
-// dayIntervalToInternal converts a protobuf day interval to an internal one.
-func dayIntervalToInternal(pbInterval *fcpb.DayInterval) (i *filter.DayInterval) {
-	if pbInterval == nil {
+// dayIntervalsToInternal converts protobuf day intervals to internal.
+func dayIntervalsToInternal(pbIntervals []*fcpb.DayInterval) (i filter.DayIntervals) {
+	if pbIntervals == nil {
 		return nil
 	}
 
-	return &filter.DayInterval{
-		// #nosec G115 -- The values put in these are always from uint16s.
-		Start: uint16(pbInterval.GetStart()),
-		// #nosec G115 -- The values put in these are always from uint16s.
-		End: uint16(pbInterval.GetEnd()),
+	i = make(filter.DayIntervals, 0, len(pbIntervals))
+
+	var di *filter.DayInterval
+	for _, pbInterval := range pbIntervals {
+		di = &filter.DayInterval{
+			// #nosec G115 -- The values put in these are always from uint16s.
+			Start: uint16(pbInterval.GetStart()),
+			// #nosec G115 -- The values put in these are always from uint16s.
+			End: uint16(pbInterval.GetEnd()),
+		}
+
+		i = append(i, di)
 	}
+
+	return i
 }
 
 // customDomainConfsToInternal converts protobuf custom-domain configurations to
@@ -758,28 +768,40 @@ func scheduleToProtobuf(c *filter.ConfigSchedule) (conf *fcpb.FilterConfig_Sched
 	return fcpb.FilterConfig_Schedule_builder{
 		TimeZone: c.TimeZone.String(),
 		Week: fcpb.FilterConfig_WeeklySchedule_builder{
-			Mon: dayIntervalToProtobuf(c.Week[time.Monday]),
-			Tue: dayIntervalToProtobuf(c.Week[time.Tuesday]),
-			Wed: dayIntervalToProtobuf(c.Week[time.Wednesday]),
-			Thu: dayIntervalToProtobuf(c.Week[time.Thursday]),
-			Fri: dayIntervalToProtobuf(c.Week[time.Friday]),
-			Sat: dayIntervalToProtobuf(c.Week[time.Saturday]),
-			Sun: dayIntervalToProtobuf(c.Week[time.Sunday]),
+			Mon: dayIntervalsToProtobuf(c.Week[time.Monday]),
+			Tue: dayIntervalsToProtobuf(c.Week[time.Tuesday]),
+			Wed: dayIntervalsToProtobuf(c.Week[time.Wednesday]),
+			Thu: dayIntervalsToProtobuf(c.Week[time.Thursday]),
+			Fri: dayIntervalsToProtobuf(c.Week[time.Friday]),
+			Sat: dayIntervalsToProtobuf(c.Week[time.Saturday]),
+			Sun: dayIntervalsToProtobuf(c.Week[time.Sunday]),
 		}.Build(),
 	}.Build()
 }
 
-// dayIntervalToProtobuf converts a daily schedule interval to protobuf.  If i
-// is nil, ivl is nil.
-func dayIntervalToProtobuf(i *filter.DayInterval) (ivl *fcpb.DayInterval) {
-	if i == nil {
+// dayIntervalsToProtobuf converts a daily schedule interval to protobuf.  If
+// ivls is nil, ivlsPb is nil.
+func dayIntervalsToProtobuf(ivls []*filter.DayInterval) (ivlsPb []*fcpb.DayInterval) {
+	if ivls == nil {
 		return nil
 	}
 
-	return fcpb.DayInterval_builder{
-		Start: uint32(i.Start),
-		End:   uint32(i.End),
-	}.Build()
+	ivlsPb = make([]*fcpb.DayInterval, 0, len(ivls))
+	var ivlPb *fcpb.DayInterval
+	for _, ivl := range ivls {
+		if ivl.IsZero() {
+			continue
+		}
+
+		ivlPb = fcpb.DayInterval_builder{
+			Start: uint32(ivl.Start),
+			End:   uint32(ivl.End),
+		}.Build()
+
+		ivlsPb = append(ivlsPb, ivlPb)
+	}
+
+	return ivlsPb
 }
 
 // accessToProtobuf converts access settings to protobuf structure.  if c is

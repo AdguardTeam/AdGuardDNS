@@ -138,9 +138,17 @@ type fltGrpSafeBrowsing struct {
 	// filtering should be enforced.
 	BlockDangerousDomains bool `yaml:"block_dangerous_domains"`
 
+	// BlockHomoglyphs shows whether the homoglyph safe browsing filtering
+	// should be enforced.
+	BlockHomoglyphs bool `yaml:"block_homoglyphs"`
+
 	// BlockNewlyRegisteredDomains shows whether the newly registered domains
 	// safe browsing filtering should be enforced.
 	BlockNewlyRegisteredDomains bool `yaml:"block_newly_registered_domains"`
+
+	// BlockTypos shows whether the typosquatting safe browsing filtering should
+	// be enforced.
+	BlockTypos bool `yaml:"block_typos"`
 }
 
 // toInternal converts c to the safe-browsing configuration for the filtering
@@ -148,12 +156,10 @@ type fltGrpSafeBrowsing struct {
 func (c *fltGrpSafeBrowsing) toInternal() (fltConf *filter.ConfigSafeBrowsing) {
 	return &filter.ConfigSafeBrowsing{
 		Homoglyph: &filter.ConfigHomoglyph{
-			// TODO(f.setrakov):  Add corresponding field in YAML.
-			Enabled: false,
+			Enabled: c.BlockHomoglyphs,
 		},
 		Typosquatting: &filter.ConfigTyposquatting{
-			// TODO(d.kolyshev):  Add corresponding field in YAML.
-			Enabled: false,
+			Enabled: c.BlockTypos,
 		},
 		Enabled:                       c.Enabled,
 		DangerousDomainsEnabled:       c.BlockDangerousDomains,

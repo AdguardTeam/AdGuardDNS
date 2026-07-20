@@ -5,12 +5,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/url"
+	"strings"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterindex"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/validate"
 )
@@ -25,9 +26,13 @@ type indexResp struct {
 // indexRespFilter is the struct for a filter from the JSON response from a
 // filter index API.
 //
-// NOTE:  Keep these strings instead of unmarshalers to make sure that objects
-// with invalid data do not prevent valid objects from being used.
+// NOTE:  Keep DownloadURL and TimeUpdated strings instead of unmarshalers to
+// make sure that objects with invalid data do not prevent valid objects from
+// being used.
 type indexRespFilter struct {
+	// IsCustom defines if the filter is custom for a client.
+	IsCustom *bool `json:"isCustom"`
+
 	// DownloadURL contains the URL to use for downloading this filter.
 	DownloadURL string `json:"downloadUrl"`
 
@@ -79,21 +84,15 @@ func (f *indexRespFilter) validate() (err error) {
 	return errors.Join(errs...)
 }
 
-// indexData is the data of a single item in the filtering-rule index response.
-type indexData struct {
-	url     *url.URL
-	updTime time.Time
-}
-
-// toInternal converts the filters from the index to a map of *indexData by
-// filter identifiers.  All errors are logged and collected.  logger and errColl
-// must not be nil.
+// toInternal converts the filters from the index to a map of
+// *filterindex.RulelistFilter by filter identifiers.  All errors are logged and
+// collected.  logger and errColl must not be nil.
 func (r *indexResp) toInternal(
 	ctx context.Context,
 	logger *slog.Logger,
 	errColl errcoll.Interface,
-) (fls map[filter.ID]*indexData) {
-	fls = make(map[filter.ID]*indexData, len(r.Filters))
+) (fls map[filter.ID]*filterindex.RulelistFilter) {
+	fls = make(map[filter.ID]*filterindex.RulelistFilter, len(r.Filters))
 	for i, rf := range r.Filters {
 		err := rf.validate()
 		if err != nil {
@@ -113,7 +112,7 @@ func (r *indexResp) toInternal(
 			continue
 		}
 
-		fl, err := rf.toInternal()
+		fl, err := rf.toInternal(id)
 		if err != nil {
 			errcoll.Collect(ctx, errColl, logger, "index response", err)
 
@@ -126,9 +125,12 @@ func (r *indexResp) toInternal(
 	return fls
 }
 
-// toInternal converts the filter from the index to *indexData.  f must be
-// valid.
-func (f *indexRespFilter) toInternal() (d *indexData, err error) {
+// isCustomIDPrefix used to determine custom filters from identifiers.
+const isCustomIDPrefix = "custom_"
+
+// toInternal converts the filter from the index to *filterindex.RulelistFilter.
+// f must be valid.
+func (f *indexRespFilter) toInternal(id filter.ID) (d *filterindex.RulelistFilter, err error) {
 	u, err := agdhttp.ParseHTTPURL(f.DownloadURL)
 	if err != nil {
 		return nil, fmt.Errorf("parsing url: %w", err)
@@ -139,8 +141,16 @@ func (f *indexRespFilter) toInternal() (d *indexData, err error) {
 		return nil, fmt.Errorf("parsing timeUpdated: %w", err)
 	}
 
-	return &indexData{
-		url:     u,
-		updTime: updTime,
+	var isCustom bool
+	if f.IsCustom == nil {
+		isCustom = strings.HasPrefix(string(id), isCustomIDPrefix)
+	} else {
+		isCustom = *f.IsCustom
+	}
+
+	return &filterindex.RulelistFilter{
+		DownloadURL: u,
+		UpdateTime:  updTime,
+		IsCustom:    isCustom,
 	}, nil
 }

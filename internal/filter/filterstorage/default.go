@@ -102,6 +102,8 @@ func New(c *Config) (s *Default, err error) {
 		// Initialized in [Default.init].
 		typosquatting: nil,
 		homoglyph:     nil,
+		filterPool:    nil,
+		configPool:    nil,
 
 		// Initialized in [Default.initSafeSearch].
 		safeSearchGeneral: nil,
@@ -121,14 +123,6 @@ func New(c *Config) (s *Default, err error) {
 		errColl:         c.ErrColl,
 		metrics:         c.Metrics,
 		ruleListStorage: c.RuleListStorage,
-
-		filterPool: syncutil.NewPool(func() (f *composite.Filter) {
-			return composite.New(&composite.Config{})
-		}),
-
-		configPool: syncutil.NewPool(func() (c *composite.Config) {
-			return &composite.Config{}
-		}),
 
 		cacheDir: c.CacheDir,
 
@@ -174,6 +168,14 @@ func (s *Default) init(c *Config) (err error) {
 		// Don't wrap the error, because it's informative enough as is.
 		errs = append(errs, err)
 	}
+
+	s.filterPool = syncutil.NewPool(func() (f *composite.Filter) {
+		return composite.New(&composite.Config{})
+	})
+
+	s.configPool = syncutil.NewPool(func() (c *composite.Config) {
+		return &composite.Config{}
+	})
 
 	if c.Typosquatting.Enabled {
 		s.typosquatting = c.Typosquatting.Filter

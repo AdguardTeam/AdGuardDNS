@@ -6,6 +6,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/messagetap"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/miekg/dns"
@@ -15,6 +16,7 @@ import (
 // quicResponseWriter is an implementation of the [ResponseWriter] interface for
 // the DNS-over-QUIC server.
 type quicResponseWriter struct {
+	messageTap   messagetap.Interface
 	respPool     *syncutil.Pool[[]byte]
 	conn         *quic.Conn
 	stream       *quic.Stream
@@ -51,6 +53,8 @@ func (r *quicResponseWriter) WriteMsg(ctx context.Context, req, resp *dns.Msg) (
 	}
 
 	*bufPtr = b
+
+	tapResponse(ctx, r.messageTap, r.LocalAddr(), r.RemoteAddr(), b[2:])
 
 	withWriteDeadline(ctx, r.writeTimeout, r.stream, func() {
 		_, err = r.stream.Write(b)

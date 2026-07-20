@@ -64,7 +64,7 @@ func (c tlsConfig) store(ctx context.Context, tlsMgr tlsconfig.Manager) (err err
 }
 
 // type check
-var _ validate.Interface = (certificateGroupConfigs)(nil)
+var _ validate.Interface = certificateGroupConfigs(nil)
 
 // Validate implements the [validate.Interface] interface for
 // certificateGroupConfigs.

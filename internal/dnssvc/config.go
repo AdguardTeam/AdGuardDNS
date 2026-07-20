@@ -14,6 +14,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/messagetap"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
@@ -64,6 +65,10 @@ type Config struct {
 	// ErrColl is the error collector that is used to collect critical and
 	// non-critical errors.  It must not be nil.
 	ErrColl errcoll.Interface
+
+	// MessageTap is used to tap raw DNS request and response bytes.  It must
+	// not be nil.
+	MessageTap messagetap.Interface
 
 	// NonDNS is the handler for non-DNS HTTP requests.  It must not be nil.
 	NonDNS http.Handler

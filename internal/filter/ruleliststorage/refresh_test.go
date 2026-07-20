@@ -42,7 +42,7 @@ func TestDefault_Refresh(t *testing.T) {
 	)
 
 	s := newDefault(t, &ruleliststorage.Config{
-		IndexConfig: newIndexConfig(ruleListIdxURL),
+		IndexStorage: newRuleListIdxStorage(t, ruleListIdxURL),
 	})
 
 	testutil.RequireReceive(t, rlCh, filtertest.Timeout)
@@ -75,10 +75,6 @@ func TestDefault_Refresh_usePrevious(t *testing.T) {
 	rlIdxData := filtertest.NewRuleListIndex(ruleListURL.String())
 	_, rlIdxURL := filtertest.PrepareRefreshable(t, nil, string(rlIdxData), http.StatusOK)
 
-	// Use a smaller staleness value to make sure that the filter is refreshed.
-	ruleListsConf := newIndexConfig(rlIdxURL)
-	ruleListsConf.Staleness = 1 * time.Microsecond
-
 	errColl := &agdtest.ErrorCollector{
 		OnCollect: func(_ context.Context, err error) {
 			errStatus := &agdhttp.StatusError{}
@@ -90,8 +86,10 @@ func TestDefault_Refresh_usePrevious(t *testing.T) {
 	}
 
 	s := newDefault(t, &ruleliststorage.Config{
-		ErrColl:     errColl,
-		IndexConfig: ruleListsConf,
+		ErrColl:      errColl,
+		IndexStorage: newRuleListIdxStorage(t, rlIdxURL),
+		// Use a smaller staleness value to make sure that the filter is refreshed.
+		Staleness: 1 * time.Microsecond,
 	})
 
 	// The first refresh, success.
@@ -137,14 +135,10 @@ func TestDefault_Refresh_updTime(t *testing.T) {
 	indexDataCh <- rlIdxData
 
 	rlIdxURL := newDataServer(t, indexDataCh)
-
-	// Use a smaller staleness value to make sure that the filter is refreshed.
-	ruleListsConf := newIndexConfig(rlIdxURL)
-	ruleListsConf.IndexStaleness = 1 * time.Microsecond
-	ruleListsConf.Staleness = 1 * time.Microsecond
-
 	s := newDefault(t, &ruleliststorage.Config{
-		IndexConfig: ruleListsConf,
+		IndexStorage: newRuleListIdxStorage(t, rlIdxURL),
+		// Use a smaller staleness value to make sure that the filter is refreshed.
+		Staleness: 1 * time.Microsecond,
 	})
 
 	// The first refresh, success.

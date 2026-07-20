@@ -142,7 +142,7 @@ func (srvGrps serverGroups) collectSessTicketPaths() (paths []string) {
 }
 
 // type check
-var _ tlsValidator = (serverGroups)(nil)
+var _ tlsValidator = serverGroups(nil)
 
 // validate implements the [tlsValidator] interface for serverGroups.
 func (srvGrps serverGroups) validate(tlsConf *tlsConfig, ts *tlsState) (err error) {

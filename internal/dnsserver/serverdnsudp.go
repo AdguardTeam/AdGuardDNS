@@ -48,7 +48,12 @@ func (s *ServerDNS) serveUDP(ctx context.Context, conn net.PacketConn) {
 // NOTE:  Any error returned from this method stops handling on conn.
 func (s *ServerDNS) acceptUDP(ctx context.Context, conn net.PacketConn) (err error) {
 	req, sess, err := s.readUDPMsg(ctx, conn)
-	if err != nil {
+
+	mErr, ok := errors.AsType[*messageFormatError](err)
+	if ok {
+		// Do not drop requests with valid headers.
+		s.baseLogger.DebugContext(ctx, "reading message data", slogutil.KeyError, err)
+	} else if err != nil {
 		if isNonCriticalNetError(err) || errors.Is(err, dns.ErrShortRead) {
 			// Non-critical errors, do not register in the metrics or log
 			// anywhere.
@@ -62,6 +67,7 @@ func (s *ServerDNS) acceptUDP(ctx context.Context, conn net.PacketConn) (err err
 	}
 
 	rw := &udpResponseWriter{
+		messageTap:   s.messageTap,
 		udpSession:   sess,
 		conn:         conn,
 		writeTimeout: s.writeTimeout,
@@ -89,12 +95,28 @@ func (s *ServerDNS) acceptUDP(ctx context.Context, conn net.PacketConn) (err err
 		defer reqCancel()
 		defer s.activeRequestsSema.Release()
 
-		_ = s.serveDNSMsg(reqCtx, req, rw)
+		_ = s.serveDNSMsg(reqCtx, req, rw, mErr)
 	})
 }
 
+// messageFormatError is returned from ServerDNS.readUDPMsg.
+type messageFormatError struct {
+	// err is the underlying error.
+	err error
+}
+
+// type check
+var _ error = (*messageFormatError)(nil)
+
+// Error implements the error interface for *messageFormatError.
+func (err *messageFormatError) Error() (msg string) {
+	return fmt.Sprintf("unpacking: %v", err.err)
+}
+
 // readUDPMsg reads the next incoming DNS message.  If the message is invalid,
-// all req, sess, and err are all nil.  conn must not be nil.
+// all req, sess, and err are all nil.  In case message header is valid, it
+// returns the req and sess, but the returned err is a [*messageFormatError].
+// conn must not be nil.
 func (s *ServerDNS) readUDPMsg(
 	ctx context.Context,
 	conn net.PacketConn,
@@ -118,13 +140,21 @@ func (s *ServerDNS) readUDPMsg(
 		return nil, nil, dns.ErrShortRead
 	}
 
+	tapRequest(ctx, s.messageTap, sess.LocalAddr(), sess.RemoteAddr(), (*bufPtr)[:n])
+
 	req = &dns.Msg{}
 	err = req.Unpack((*bufPtr)[:n])
 	if err != nil {
-		s.metrics.OnInvalidMsg(ctx)
+		if req.MsgHdr == (dns.MsgHdr{}) {
+			s.metrics.OnInvalidMsg(ctx)
 
-		// Do not interrupt handling on bad messages.
-		return nil, nil, nil
+			// Do not interrupt handling on bad messages.
+			return nil, nil, nil
+		}
+
+		return req, sess, &messageFormatError{
+			err: err,
+		}
 	}
 
 	return req, sess, nil

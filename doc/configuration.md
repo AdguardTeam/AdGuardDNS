@@ -664,7 +664,15 @@ The items of the `filtering_groups` array have the following properties:
 
         **Example:** `true`.
 
+    - <a href="#fg-*-sb-block_homoglyphs" id="fg-*-sb-block_homoglyphs" name="fg-*-sb-block_homoglyphs">`block_homoglyphs`</a>: Shows if the homoglyph filtering should be enforced.
+
+        **Example:** `true`.
+
     - <a href="#fg-*-sb-block_newly_registered_domains" id="fg-*-sb-block_newly_registered_domains" name="fg-*-sb-block_newly_registered_domains">`block_newly_registered_domains`</a>: Shows if the newly registered domains filtering should be enforced.
+
+        **Example:** `true`.
+
+    - <a href="#fg-*-sb-block_typos" id="fg-*-sb-block_typos" name="fg-*-sb-block_typos">`block_typos`</a>: Shows if the typosquatting filtering should be enforced.
 
         **Example:** `true`.
 

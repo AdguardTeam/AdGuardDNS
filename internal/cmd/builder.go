@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsdb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/forward"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/messagetap"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	dnssvcprom "github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/prometheus"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/ratelimit"
@@ -142,6 +144,7 @@ type builder struct {
 	hashMatcher          *hashprefix.Matcher
 	homoglyph            *homoglyph.Filter
 	messages             *dnsmsg.Constructor
+	msgTap               messagetap.Interface
 	newRegDomains        *hashprefix.Filter
 	newRegDomainsHashes  *hashprefix.Storage
 	profDBCustomDomainDB profiledb.CustomDomainDB
@@ -807,6 +810,31 @@ func (b *builder) initStandardAccess(ctx context.Context) (err error) {
 	return nil
 }
 
+// initRuleListIndexStorage initializes rule list index storage.
+func (b *builder) initRuleListIndexStorage() (idx filterindex.RulelistStorage) {
+	l := b.baseLogger.With(slogutil.KeyPrefix, "rule_list_index")
+	idxURL := &b.env.FilterIndexURL.URL
+
+	if strings.EqualFold(idxURL.Scheme, urlutil.SchemeFile) {
+		return ruleliststorage.NewIndexFile(&ruleliststorage.IndexFileConfig{
+			Logger:   l,
+			ErrColl:  b.errColl,
+			FilePath: idxURL.Path,
+		})
+	}
+
+	filtersConf := b.conf.Filters
+
+	return ruleliststorage.NewIndexHTTP(&ruleliststorage.IndexHTTPConfig{
+		Logger:  l,
+		ErrColl: b.errColl,
+		URL:     idxURL,
+		Timeout: time.Duration(filtersConf.IndexRefreshTimeout),
+		// TODO(a.garipov):  Consider adding a separate parameter here.
+		MaxSize: filtersConf.MaxSize,
+	})
+}
+
 // initRuleListStorage initializes and refreshes the rule lists storage.  It
 // also adds the refresher with ID [ruleliststorage.StoragePrefix] to the debug
 // refreshers.
@@ -819,25 +847,19 @@ func (b *builder) initRuleListStorage(ctx context.Context) (err error) {
 	refrTimeout := time.Duration(c.RefreshTimeout)
 
 	b.ruleListStorage, err = ruleliststorage.New(&ruleliststorage.Config{
-		BaseLogger:   b.baseLogger,
-		CacheManager: b.cacheManager,
-		Clock:        b.clock,
-		ErrColl:      b.errColl,
-		IndexConfig: &ruleliststorage.IndexConfig{
-			IndexURL: &b.env.FilterIndexURL.URL,
-			// TODO(a.garipov):  Consider adding a separate parameter here.
-			IndexMaxSize:        c.MaxSize,
-			MaxSize:             c.MaxSize,
-			IndexRefreshTimeout: time.Duration(c.IndexRefreshTimeout),
-			IndexStaleness:      refrIvl,
-			RefreshTimeout:      refrTimeout,
-			Staleness:           refrIvl,
-			ResultCacheCount:    c.RuleListCache.Size,
-			ResultCacheEnabled:  c.RuleListCache.Enabled,
-		},
-		Logger:   b.baseLogger.With(slogutil.KeyPrefix, ruleliststorage.StoragePrefix),
-		Metrics:  b.filterMtrc,
-		CacheDir: b.env.FilterCacheDir,
+		BaseLogger:         b.baseLogger,
+		CacheManager:       b.cacheManager,
+		Clock:              b.clock,
+		ErrColl:            b.errColl,
+		IndexStorage:       b.initRuleListIndexStorage(),
+		Logger:             b.baseLogger.With(slogutil.KeyPrefix, ruleliststorage.StoragePrefix),
+		Metrics:            b.filterMtrc,
+		CacheDir:           b.env.FilterCacheDir,
+		MaxSize:            c.MaxSize,
+		RefreshTimeout:     refrTimeout,
+		Staleness:          refrIvl,
+		ResultCacheCount:   c.RuleListCache.Size,
+		ResultCacheEnabled: c.RuleListCache.Enabled,
 	})
 	if err != nil {
 		return fmt.Errorf("creating default rule list storage: %w", err)
@@ -2246,6 +2268,61 @@ func (b *builder) waitGeoIP(ctx context.Context) (err error) {
 	return nil
 }
 
+// defaultDNSTapCheckInterval is the interval at which DNSTap checks whether
+// there is a listener on the socket.
+//
+// TODO(a.garipov):  Consider making configurable.
+const defaultDNSTapCheckInterval = 30 * time.Second
+
+// initDNSTap initializes the DNSTap message tap.
+func (b *builder) initDNSTap(ctx context.Context) (err error) {
+	l := b.baseLogger.With(slogutil.KeyPrefix, "dnstap")
+
+	switch typ := b.env.DNSTapType; typ {
+	case dnsTapOff:
+		b.msgTap = messagetap.Empty{}
+
+		return nil
+	case dnsTapLog:
+		b.msgTap = messagetap.NewLog(&messagetap.LogConfig{
+			Logger:   l,
+			LogLevel: slogutil.LevelDebug,
+		})
+
+		return nil
+	case dnsTapSocket:
+		// Go on.
+	default:
+		panic(fmt.Errorf("env DNSTAP_TYPE: %w: %q", errors.ErrBadEnumValue, typ))
+	}
+
+	socketPath := b.env.DNSTapSocketURL.Path
+	tapper, err := messagetap.NewDefaultTapper(l, socketPath)
+	if err != nil {
+		return fmt.Errorf("initializing dnstap tapper: %w", err)
+	}
+
+	dnsTap := messagetap.NewDNSTap(&messagetap.DNSTapConfig{
+		Logger:        l,
+		Tapper:        tapper,
+		SocketPath:    socketPath,
+		CheckInterval: defaultDNSTapCheckInterval,
+	})
+
+	// Use context without cancel, because this context is used for service
+	// loops.  The tap, however, should be stopped with its Shutdown method.
+	err = dnsTap.Start(context.WithoutCancel(ctx))
+	if err != nil {
+		return fmt.Errorf("starting dnstap: %w", err)
+	}
+
+	b.sigHdlr.AddService(dnsTap)
+
+	b.msgTap = dnsTap
+
+	return nil
+}
+
 // initDNS initializes the DNS service.
 //
 // The following methods must be called before this one:
@@ -2262,6 +2339,7 @@ func (b *builder) waitGeoIP(ctx context.Context) (err error) {
 //   - [builder.initQueryLog]
 //   - [builder.initRateLimiter]
 //   - [builder.initRuleStat]
+//   - [builder.initDNSTap]
 //   - [builder.initWeb]
 //   - [builder.waitGeoIP]
 func (b *builder) initDNS(ctx context.Context) (err error) {
@@ -2323,8 +2401,9 @@ func (b *builder) initDNS(ctx context.Context) (err error) {
 		Cloner:                  b.cloner,
 		ControlConf:             b.controlConf,
 		ConnLimiter:             b.connLimit,
-		NonDNS:                  b.webSvc.Handler(),
 		ErrColl:                 b.errColl,
+		MessageTap:              b.msgTap,
+		NonDNS:                  b.webSvc.Handler(),
 		PrometheusRegisterer:    b.promRegisterer,
 		MetricsNamespace:        b.mtrcNamespace,
 		ServerGroups:            b.serverGroups,

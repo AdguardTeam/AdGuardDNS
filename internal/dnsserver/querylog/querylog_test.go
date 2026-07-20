@@ -51,7 +51,8 @@ func TestLogMiddleware_Wrap(t *testing.T) {
 			Name:  "test",
 			Addr:  "0.0.0.0:53",
 			Proto: dnsserver.ProtoDNS,
-		})
+		},
+	)
 	ctx = dnsserver.ContextWithRequestInfo(ctx, &dnsserver.RequestInfo{
 		StartTime: time.Now().Add(-time.Second),
 	})
@@ -66,7 +67,8 @@ func TestLogMiddleware_Wrap(t *testing.T) {
 	require.NoError(t, err)
 
 	// duration is different all the time so don't check it
-	require.True(t,
+	require.True(
+		t,
 		strings.HasPrefix(
 			w.String(),
 			"[test dns://0.0.0.0:53] 1 A example.org. 29 0 29",

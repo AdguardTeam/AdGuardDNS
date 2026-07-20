@@ -11,6 +11,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/messagetap"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
@@ -175,6 +176,7 @@ func TestService_Start(t *testing.T) {
 		},
 		NewListener:          newTestListenerFunc(tl),
 		Clock:                testClock,
+		MessageTap:           messagetap.Empty{},
 		PrometheusRegisterer: prometheus.NewRegistry(),
 		MetricsNamespace:     "test_start",
 		ServerGroups:         []*dnssvc.ServerGroupConfig{srvGrp},
@@ -234,6 +236,7 @@ func TestNew(t *testing.T) {
 		BaseLogger:           testLogger,
 		Handlers:             handlers,
 		Clock:                testClock,
+		MessageTap:           messagetap.Empty{},
 		PrometheusRegisterer: prometheus.NewRegistry(),
 		MetricsNamespace:     "test_new",
 		ServerGroups:         []*dnssvc.ServerGroupConfig{srvGrp},

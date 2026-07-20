@@ -12,20 +12,20 @@ type Storage interface {
 	Homoglyph(ctx context.Context) (idx *Homoglyph, err error)
 }
 
-// EmptyStorage is an [Storage] that does nothing.
+// EmptyStorage is the [Storage] implementation that does nothing.
 type EmptyStorage struct{}
 
 // type check
 var _ Storage = EmptyStorage{}
 
-// Typosquatting implements the [filter.Storage] interface for EmptyStorage.
-// idx and err are always nil.
+// Typosquatting implements the [Storage] interface for EmptyStorage.  idx and
+// err are always nil.
 func (EmptyStorage) Typosquatting(_ context.Context) (idx *Typosquatting, err error) {
 	return nil, nil
 }
 
-// Homoglyph implements the [filter.Storage] interface for EmptyStorage.  idx
-// and err are always nil.
+// Homoglyph implements the [Storage] interface for EmptyStorage.  idx and err
+// are always nil.
 func (EmptyStorage) Homoglyph(_ context.Context) (idx *Homoglyph, err error) {
 	return nil, nil
 }

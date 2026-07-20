@@ -223,7 +223,7 @@ func (s *ServerDNS) acceptTCPMsg(
 		defer msgSema.Release()
 		defer s.activeRequestsSema.Release()
 
-		written := s.serveDNSMsg(reqCtx, req, rw)
+		written := s.serveDNSMsg(reqCtx, req, rw, nil)
 		if !written {
 			// Nothing has been written, so close the connection in order to
 			// avoid hanging connections.  That can happen when the handler
@@ -237,6 +237,7 @@ func (s *ServerDNS) acceptTCPMsg(
 // not be nil.
 func (s *ServerDNS) newTCPRW(writeMu *sync.Mutex, conn net.Conn) (rw *tcpResponseWriter) {
 	return &tcpResponseWriter{
+		messageTap:   s.messageTap,
 		respPool:     s.respPool,
 		writeMu:      writeMu,
 		conn:         conn,
@@ -299,6 +300,8 @@ func (s *ServerDNS) readTCPMsg(
 	if err != nil {
 		return nil, fmt.Errorf("reading message: %w", err)
 	}
+
+	tapRequest(ctx, s.messageTap, conn.LocalAddr(), conn.RemoteAddr(), buf[:length])
 
 	req := &dns.Msg{}
 	err = req.Unpack(buf[:length])

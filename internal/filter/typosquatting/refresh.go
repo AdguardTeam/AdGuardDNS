@@ -12,7 +12,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterindex"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/requestid"
 	"github.com/AdguardTeam/golibs/service"
 	"github.com/google/renameio/v2"
 )
@@ -51,10 +50,7 @@ func (f *Filter) refresh(ctx context.Context, acceptStale bool) (err error) {
 		})
 	}()
 
-	_, ok := requestid.IDFromContext(ctx)
-	if !ok {
-		ctx = requestid.ContextWithRequestID(ctx, requestid.New())
-	}
+	ctx = agd.EnsureContextRequestID(ctx)
 
 	var idx *filterindex.Typosquatting
 	cachedIdx, sizeBytes, err := f.refreshFromFile(now, acceptStale)

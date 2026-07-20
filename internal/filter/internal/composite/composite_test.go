@@ -23,6 +23,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/safesearch"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/typosquatting"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
@@ -777,12 +778,46 @@ func TestFilter_FilterRequest_typosquatting(t *testing.T) {
 	filtertest.AssertEqualResult(t, want, res)
 }
 
+func TestFilter_FilterRequest_respgeoAll(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name       string
+		ruleSuffix filter.RuleText
+	}{{
+		name:       "ASN",
+		ruleSuffix: "AS--",
+	}, {
+		name:       "country",
+		ruleSuffix: "--",
+	}}
+
+	for _, tc := range testCases {
+		custom := custom.New(&custom.Config{
+			Logger: filtertest.Logger,
+			Rules:  []filter.RuleText{"||*^$respgeo=" + tc.ruleSuffix},
+		})
+		f := composite.New(&composite.Config{Custom: custom})
+
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, req := newReqDataWithFQDN(t, filtertest.FQDNBlockedByRespGeo)
+			res, err := f.FilterRequest(ctx, req)
+			require.NoError(t, err)
+
+			assert.Nil(t, res)
+		})
+	}
+}
+
 func TestFilter_FilterResponse(t *testing.T) {
 	t.Parallel()
 
 	const blockRules = filtertest.HostBlocked + "\n" +
 		testIPv4BlockedStr + "\n" +
-		testIPv6BlockedStr + "\n"
+		testIPv6BlockedStr + "\n" +
+		filtertest.RuleRespGeoStr + "\n"
 
 	blockingRL := newFromStr(t, blockRules, filtertest.RuleListID1)
 	f := composite.New(&composite.Config{
@@ -795,7 +830,9 @@ func TestFilter_FilterResponse(t *testing.T) {
 		want    filter.Result
 		name    string
 		reqFQDN string
+		country geoip.Country
 		respAns dnsservertest.SectionAnswer
+		asn     geoip.ASN
 	}{{
 		want:    nil,
 		name:    "pass",
@@ -803,6 +840,8 @@ func TestFilter_FilterResponse(t *testing.T) {
 		respAns: dnsservertest.SectionAnswer{
 			dnsservertest.NewA(filtertest.FQDN, ttl, testIPv4Passed),
 		},
+		country: geoip.CountryNone,
+		asn:     geoip.ASNNone,
 	}, {
 		want: &filter.ResultBlocked{
 			List: filtertest.RuleListID1,
@@ -814,6 +853,32 @@ func TestFilter_FilterResponse(t *testing.T) {
 			dnsservertest.NewCNAME(filtertest.FQDNCname, ttl, filtertest.FQDNBlocked),
 			dnsservertest.NewA(filtertest.FQDNBlocked, ttl, testIPv4Blocked),
 		},
+		country: geoip.CountryNone,
+		asn:     geoip.ASNNone,
+	}, {
+		want: &filter.ResultBlocked{
+			List: filtertest.RuleListID1,
+			Rule: filtertest.RuleRespGeo,
+		},
+		name:    "respgeo_country",
+		reqFQDN: filtertest.FQDNBlockedByRespGeo,
+		respAns: dnsservertest.SectionAnswer{
+			dnsservertest.NewA(filtertest.FQDNBlockedByRespGeo, ttl, testIPv4Blocked),
+		},
+		country: geoip.CountryFR,
+		asn:     geoip.ASNNone,
+	}, {
+		want: &filter.ResultBlocked{
+			List: filtertest.RuleListID1,
+			Rule: filtertest.RuleRespGeo,
+		},
+		name:    "respgeo_asn",
+		reqFQDN: filtertest.FQDNBlockedByRespGeo,
+		respAns: dnsservertest.SectionAnswer{
+			dnsservertest.NewA(filtertest.FQDNBlockedByRespGeo, ttl, testIPv4Blocked),
+		},
+		country: geoip.CountryNone,
+		asn:     filtertest.ASN,
 	}}
 
 	for _, tc := range testCases {
@@ -822,6 +887,10 @@ func TestFilter_FilterResponse(t *testing.T) {
 			res, err := f.FilterResponse(ctx, &filter.Response{
 				DNS:      dnsservertest.NewResp(dns.RcodeSuccess, req.DNS, tc.respAns),
 				RemoteIP: filtertest.IPv4Client,
+				Host:     req.Host,
+				Country:  tc.country,
+				ASN:      tc.asn,
+				QType:    dns.TypeA,
 			})
 			require.NoError(t, err)
 
@@ -957,4 +1026,106 @@ func TestFilter_FilterResponse_customRuleList(t *testing.T) {
 	}
 
 	assert.Equal(t, wantRes, res)
+}
+
+func TestFilter_FilterResponse_customWithRespgeo(t *testing.T) {
+	t.Parallel()
+
+	f := composite.New(&composite.Config{
+		Custom: custom.New(&custom.Config{
+			Logger: filtertest.Logger,
+			Rules:  []filter.RuleText{filtertest.RuleRespGeo},
+		}),
+	})
+
+	wantRes := &filter.ResultBlocked{
+		List: filter.IDCustom,
+		Rule: filtertest.RuleRespGeo,
+	}
+
+	req := dnsservertest.NewReq(filtertest.FQDNBlockedByRespGeo, dns.TypeA, dns.ClassINET)
+	respAns := dnsservertest.SectionAnswer{
+		dnsservertest.NewA(
+			filtertest.FQDNBlockedByRespGeo,
+			agdtest.FilteredResponseTTLSec,
+			testIPv4Blocked,
+		),
+	}
+
+	require.True(t, t.Run("country", func(t *testing.T) {
+		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
+		res, err := f.FilterResponse(ctx, &filter.Response{
+			DNS:      dnsservertest.NewResp(dns.RcodeSuccess, req, respAns),
+			RemoteIP: filtertest.IPv4Client,
+			Country:  geoip.CountryFR,
+			Host:     filtertest.HostBlockedByRespGeo,
+			QType:    dns.TypeA,
+		})
+		require.NoError(t, err)
+
+		assert.Equal(t, wantRes, res)
+	}))
+
+	require.True(t, t.Run("ASN", func(t *testing.T) {
+		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
+		res, err := f.FilterResponse(ctx, &filter.Response{
+			DNS:      dnsservertest.NewResp(dns.RcodeSuccess, req, respAns),
+			RemoteIP: filtertest.IPv4Client,
+			Host:     filtertest.HostBlockedByRespGeo,
+			ASN:      filtertest.ASN,
+			QType:    dns.TypeA,
+		})
+		require.NoError(t, err)
+
+		assert.Equal(t, wantRes, res)
+	}))
+}
+
+func TestFilter_FilterResponse_customWithRespgeoAll(t *testing.T) {
+	req := dnsservertest.NewReq(filtertest.FQDNBlockedByRespGeo, dns.TypeA, dns.ClassINET)
+	respAns := dnsservertest.SectionAnswer{
+		dnsservertest.NewA(
+			filtertest.FQDNBlockedByRespGeo,
+			agdtest.FilteredResponseTTLSec,
+			testIPv4Blocked,
+		),
+	}
+
+	filterResp := &filter.Response{
+		DNS:      dnsservertest.NewResp(dns.RcodeSuccess, req, respAns),
+		RemoteIP: filtertest.IPv4Client,
+		Host:     filtertest.HostBlockedByRespGeo,
+		ASN:      filtertest.ASN,
+		Country:  filtertest.Country,
+		QType:    dns.TypeA,
+	}
+
+	testCases := []struct {
+		name       string
+		ruleSuffix filter.RuleText
+	}{{
+		name:       "ASN",
+		ruleSuffix: "AS--",
+	}, {
+		name:       "country",
+		ruleSuffix: "--",
+	}}
+
+	for _, tc := range testCases {
+		custom := custom.New(&custom.Config{
+			Logger: filtertest.Logger,
+			Rules:  []filter.RuleText{"||*^$respgeo=" + tc.ruleSuffix},
+		})
+		f := composite.New(&composite.Config{Custom: custom})
+
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
+			res, err := f.FilterResponse(ctx, filterResp)
+			require.NoError(t, err)
+
+			assert.Nil(t, res)
+		})
+	}
 }

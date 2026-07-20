@@ -110,6 +110,7 @@ func (svc *Service) routePrometheusGroup(mux *http.ServeMux) {
 		routePatternMetrics,
 		httputil.Wrap(
 			promhttp.Handler(),
-			httputil.NewLogMiddleware(l, slogutil.LevelTrace)),
+			httputil.NewLogMiddleware(l, slogutil.LevelTrace),
+		),
 	)
 }

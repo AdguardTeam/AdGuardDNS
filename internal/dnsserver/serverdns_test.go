@@ -55,9 +55,9 @@ func newTestHdr(tb testing.TB, hdr dns.Header) (hdrData []byte) {
 	return hdrData
 }
 
-// newInvalidMsgMetrics returns a metrics listener that signals when an invalid
-// message is received and a channel to receive the signal.
-func newInvalidMsgMetrics(tb testing.TB) (mtrc dnsserver.MetricsListener, ch chan unit) {
+// newTestMetricsListener returns a metrics listener that signals when an
+// invalid message is received and a channel to receive the signal.
+func newTestMetricsListener(tb testing.TB) (mtrc dnsserver.MetricsListener, ch chan unit) {
 	tb.Helper()
 
 	ch = make(chan unit)
@@ -67,6 +67,8 @@ func newInvalidMsgMetrics(tb testing.TB) (mtrc dnsserver.MetricsListener, ch cha
 		// TODO(e.burkov):  Use [testutil.NewPanicT].
 		testutil.RequireSend(testutil.PanicT{}, ch, unit{}, testTimeout)
 	}
+	m.OnAdjustActiveRequests = func(_ context.Context, _ int) {}
+	m.OnOnRequest = func(_ context.Context, _ *dnsserver.QueryInfo, _ dnsserver.ResponseWriter) {}
 
 	return m, ch
 }
@@ -523,17 +525,20 @@ func TestServerDNS_integration_tcpMsgIgnore(t *testing.T) {
 	}
 }
 
-func TestServerDNS_ServeTCP_badHeader(t *testing.T) {
+func TestServerDNS_badPacket(t *testing.T) {
+	t.Parallel()
+
+	data := []byte{0x00, 0x00, 0x00, 0x00}
+	exchangeData(t, dnsserver.NetworkTCP, data)
+}
+
+func TestServerDNS_badHeader(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
 		name string
 		data []byte
 	}{{
-		// Obviously invalid packet.
-		name: "bad_packet",
-		data: []byte{0x00, 0x00, 0x00, 0x00},
-	}, {
 		// QDCOUNT=32768 (0x8000, testing signed/unsigned handling).
 		name: "qdcount_32768",
 		data: slices.Concat(
@@ -590,39 +595,11 @@ func TestServerDNS_ServeTCP_badHeader(t *testing.T) {
 	}}
 
 	for _, tc := range testCases {
-		conf := &dnsserver.ConfigDNS{
-			Base: &dnsserver.ConfigBase{Handler: dnsservertest.NewPanicHandler()},
-		}
-
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			var invalidMsgCh chan unit
-			conf.Base.Metrics, invalidMsgCh = newInvalidMsgMetrics(t)
-
-			_, addr := dnsservertest.RunDNSServer(t, conf)
-
-			conn, err := net.Dial("tcp", addr)
-			require.NoError(t, err)
-			testutil.CleanupAndRequireSuccess(t, conn.Close)
-
-			deadline := time.Now().Add(testTimeout)
-			require.NoError(t, conn.SetDeadline(deadline))
-
-			err = binary.Write(conn, binary.BigEndian, uint16(len(tc.data)))
-			require.NoError(t, err)
-
-			n, err := conn.Write(tc.data)
-			require.NoError(t, err)
-			require.Equal(t, len(tc.data), n)
-
-			_, ok := testutil.RequireReceive(t, invalidMsgCh, testTimeout)
-			require.True(t, ok)
-		})
+		runBadPacketCase(t, tc.name, tc.data)
 	}
 }
 
-func TestServerDNS_ServeTCP_badQuestion(t *testing.T) {
+func TestServerDNS_badQuestion(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
@@ -698,39 +675,11 @@ func TestServerDNS_ServeTCP_badQuestion(t *testing.T) {
 	}}
 
 	for _, tc := range testCases {
-		conf := &dnsserver.ConfigDNS{
-			Base: &dnsserver.ConfigBase{Handler: dnsservertest.NewPanicHandler()},
-		}
-
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			var invalidMsgCh chan unit
-			conf.Base.Metrics, invalidMsgCh = newInvalidMsgMetrics(t)
-
-			_, addr := dnsservertest.RunDNSServer(t, conf)
-
-			conn, err := net.Dial("tcp", addr)
-			require.NoError(t, err)
-			testutil.CleanupAndRequireSuccess(t, conn.Close)
-
-			deadline := time.Now().Add(testTimeout)
-			require.NoError(t, conn.SetDeadline(deadline))
-
-			err = binary.Write(conn, binary.BigEndian, uint16(len(tc.data)))
-			require.NoError(t, err)
-
-			n, err := conn.Write(tc.data)
-			require.NoError(t, err)
-			require.Equal(t, len(tc.data), n)
-
-			_, ok := testutil.RequireReceive(t, invalidMsgCh, testTimeout)
-			require.True(t, ok)
-		})
+		runBadPacketCase(t, tc.name, tc.data)
 	}
 }
 
-func TestServerDNS_ServeTCP_badRR(t *testing.T) {
+func TestServerDNS_badRR(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
@@ -780,39 +729,11 @@ func TestServerDNS_ServeTCP_badRR(t *testing.T) {
 	}}
 
 	for _, tc := range testCases {
-		conf := &dnsserver.ConfigDNS{
-			Base: &dnsserver.ConfigBase{Handler: dnsservertest.NewPanicHandler()},
-		}
-
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			var invalidMsgCh chan unit
-			conf.Base.Metrics, invalidMsgCh = newInvalidMsgMetrics(t)
-
-			_, addr := dnsservertest.RunDNSServer(t, conf)
-
-			conn, err := net.Dial("tcp", addr)
-			require.NoError(t, err)
-			testutil.CleanupAndRequireSuccess(t, conn.Close)
-
-			deadline := time.Now().Add(testTimeout)
-			require.NoError(t, conn.SetDeadline(deadline))
-
-			err = binary.Write(conn, binary.BigEndian, uint16(len(tc.data)))
-			require.NoError(t, err)
-
-			n, err := conn.Write(tc.data)
-			require.NoError(t, err)
-			require.Equal(t, len(tc.data), n)
-
-			_, ok := testutil.RequireReceive(t, invalidMsgCh, testTimeout)
-			require.True(t, ok)
-		})
+		runBadPacketCase(t, tc.name, tc.data)
 	}
 }
 
-func TestServerDNS_ServeTCP_badEDNS0(t *testing.T) {
+func TestServerDNS_badEDNS0(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
@@ -845,49 +766,6 @@ func TestServerDNS_ServeTCP_badEDNS0(t *testing.T) {
 			[]byte{0x00, 0x0C, 0x00, 0x06},
 		),
 	}, {
-		// ECS with IPv4 source prefix length 33 (exceeds 32-bit).
-		name: "ecs_ipv4_prefix_33",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=13 (4 option hdr + 9 ECS data).
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0D},
-			// ECS option: CODE=8, LENGTH=9.
-			[]byte{0x00, 0x08, 0x00, 0x09},
-			// FAMILY=1(IPv4), SOURCE PREFIX=33, SCOPE PREFIX=0.
-			[]byte{0x00, 0x01, 0x21, 0x00},
-			// ADDRESS: ceil(33/8)=5 bytes.
-			[]byte{0x01, 0x02, 0x03, 0x04, 0x80},
-		),
-	}, {
-		// ECS with IPv6 source prefix length 129 (exceeds 128-bit).
-		name: "ecs_ipv6_prefix_129",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=25 (4 option hdr + 21 ECS data).
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x19},
-			// ECS option: CODE=8, LENGTH=21.
-			[]byte{0x00, 0x08, 0x00, 0x15},
-			// FAMILY=2(IPv6), SOURCE PREFIX=129, SCOPE PREFIX=0.
-			[]byte{0x00, 0x02, 0x81, 0x00},
-			// ADDRESS: ceil(129/8)=17 bytes.
-			make([]byte, 17),
-		),
-	}, {
-		// ECS with unsupported ADDRESS FAMILY=8.
-		name: "ecs_unsupported_family",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=8 (4 option hdr + 4 ECS data).
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08},
-			// ECS option: CODE=8, LENGTH=4.
-			[]byte{0x00, 0x08, 0x00, 0x04},
-			// FAMILY=8(unsupported), SOURCE PREFIX=0, SCOPE PREFIX=0.
-			[]byte{0x00, 0x08, 0x00, 0x00},
-		),
-	}, {
 		// OPT RR with RDLEN indicating bytes but truncated option header (3
 		// bytes where 4 needed for option CODE+LENGTH).
 		name: "edns_option_header_truncated",
@@ -897,97 +775,6 @@ func TestServerDNS_ServeTCP_badEDNS0(t *testing.T) {
 			// OPT RR: RDLENGTH=3 (incomplete option header).
 			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03},
 			[]byte{0x00, 0x0A, 0x00},
-		),
-	}, {
-		// COOKIE option with OPTION-CODE=8 instead of 10.
-		name: "cookie_wrong_option_code",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=12 (4 hdr + 8 cookie data).
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C},
-			// Option CODE=8(ECS code), LENGTH=8, 8 bytes client cookie.
-			[]byte{0x00, 0x08, 0x00, 0x08},
-			bytes.Repeat([]byte{0xAA}, 8),
-		),
-	}, {
-		// DAU option with OPTION-CODE=11 instead of 5.
-		name: "dau_wrong_option_code",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=6 (4 hdr + 2 alg).
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06},
-			// Option CODE=11(KEEPALIVE code), LENGTH=2, alg list.
-			[]byte{0x00, 0x0B, 0x00, 0x02, 0x08, 0x0D},
-		),
-	}, {
-		// DHU option with OPTION-CODE=9 instead of 6.
-		name: "dhu_wrong_option_code",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=6.
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06},
-			// Option CODE=9(EXPIRE code), LENGTH=2, hash alg list.
-			[]byte{0x00, 0x09, 0x00, 0x02, 0x01, 0x02},
-		),
-	}, {
-		// DAU/DHU/N3U with LIST-LENGTH not matching actual list.
-		name: "dau_list_length_mismatch",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=8 (4 hdr + 4 data).
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08},
-			// DAU option CODE=5, LENGTH=4, but only 2 algs meaningful.
-			[]byte{0x00, 0x05, 0x00, 0x04, 0x08, 0x0D, 0x00, 0x00},
-		),
-	}, {
-		// N3U option with OPTION-CODE=8 instead of 7.
-		name: "n3u_wrong_option_code",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=5 (4 hdr + 1 alg).
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05},
-			// Option CODE=8(ECS code), LENGTH=1, 1 hash alg.
-			[]byte{0x00, 0x08, 0x00, 0x01, 0x01},
-		),
-	}, {
-		// ECS option with OPTION-CODE=10 instead of 8.
-		name: "ecs_wrong_option_code",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=12 (4 hdr + 8 ECS data).
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C},
-			// Option CODE=10(COOKIE code), LENGTH=8.
-			[]byte{0x00, 0x0A, 0x00, 0x08},
-			// FAMILY=1(IPv4), SOURCE PREFIX=24, SCOPE=0, ADDR=192.168.1.
-			[]byte{0x00, 0x01, 0x18, 0x00, 0xC0, 0xA8, 0x01, 0x00},
-		),
-	}, {
-		// EDE option with OPTION-CODE=9 instead of 15.
-		name: "ede_wrong_option_code",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=8 (4 hdr + 4 EDE data).
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08},
-			// Option CODE=9(EXPIRE), LENGTH=4, INFO-CODE=0, extra text "ab".
-			[]byte{0x00, 0x09, 0x00, 0x04, 0x00, 0x00, 0x61, 0x62},
-		),
-	}, {
-		// CHAIN option with OPTION-CODE=11 instead of 13.
-		name: "chain_wrong_option_code",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=5 (4 hdr + 1 root name).
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05},
-			// Option CODE=11(KEEPALIVE), LENGTH=1, root domain.
-			[]byte{0x00, 0x0B, 0x00, 0x01, 0x00},
 		),
 	}, {
 		// EDNS option chain requiring maximum parser iterations.
@@ -1043,28 +830,6 @@ func TestServerDNS_ServeTCP_badEDNS0(t *testing.T) {
 			bytes.Repeat([]byte{0x00, 0x0A, 0x00, 0x00}, 10),
 		),
 	}, {
-		// EXPIRE option with OPTION-CODE=11 instead of 9.
-		name: "expire_wrong_option_code",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=8 (4 hdr + 4 expire data).
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08},
-			// Option CODE=11(KEEPALIVE), LENGTH=4, expire value.
-			[]byte{0x00, 0x0B, 0x00, 0x04, 0x00, 0x00, 0x0E, 0x10},
-		),
-	}, {
-		// KEY-TAG option with OPTION-CODE=8 instead of 14.
-		name: "keytag_wrong_option_code",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=6 (4 hdr + 2 key tag).
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06},
-			// Option CODE=8(ECS), LENGTH=2, key tag=0x1234.
-			[]byte{0x00, 0x08, 0x00, 0x02, 0x12, 0x34},
-		),
-	}, {
 		// Multiple EDNS options each claiming large lengths.
 		name: "edns_multiple_large_lengths",
 		data: slices.Concat(
@@ -1080,107 +845,6 @@ func TestServerDNS_ServeTCP_badEDNS0(t *testing.T) {
 			[]byte{0x00, 0x00, 0x00, 0x00},
 		),
 	}, {
-		// TCP-KEEPALIVE option with OPTION-CODE=8 instead of 11.
-		name: "keepalive_wrong_option_code",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=6 (4 hdr + 2 timeout).
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06},
-			// Option CODE=8(ECS), LENGTH=2, timeout=300.
-			[]byte{0x00, 0x08, 0x00, 0x02, 0x01, 0x2C},
-		),
-	}, {
-		// COOKIE option with client cookie being sequential counter.
-		name: "cookie_sequential_counter",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=12 (4 hdr + 8 client cookie).
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C},
-			// COOKIE CODE=10, LENGTH=8, sequential counter client cookie.
-			[]byte{0x00, 0x0A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
-		),
-	}, {
-		// ECS with private IP but querying public DNS.
-		name: "ecs_private_ip_public_dns",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=11 (4 hdr + 7 ECS data).
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0B},
-			// ECS CODE=8, LENGTH=7.
-			[]byte{0x00, 0x08, 0x00, 0x07},
-			// FAMILY=1(IPv4), SOURCE PREFIX=24, SCOPE=0, ADDR=192.168.1.
-			[]byte{0x00, 0x01, 0x18, 0x00, 0xC0, 0xA8, 0x01},
-		),
-	}, {
-		// DAU option listing deprecated algorithm 1 (RSA/MD5).
-		name: "dau_deprecated_algorithm",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=5.
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05},
-			// DAU CODE=5, LENGTH=1, alg=1(RSA/MD5 deprecated).
-			[]byte{0x00, 0x05, 0x00, 0x01, 0x01},
-		),
-	}, {
-		// ECS with SCOPE PREFIX-LENGTH non-zero in query.
-		name: "ecs_scope_prefix_nonzero_in_query",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=11.
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0B},
-			// ECS CODE=8, LENGTH=7.
-			[]byte{0x00, 0x08, 0x00, 0x07},
-			// FAMILY=1, SOURCE PREFIX=24, SCOPE=16 (non-zero in query!).
-			[]byte{0x00, 0x01, 0x18, 0x10, 0x0A, 0x00, 0x01},
-		),
-	}, {
-		// ECS query with SCOPE PREFIX-LENGTH=18.
-		name: "ecs_scope_prefix_18",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=11.
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0B},
-			// ECS CODE=8, LENGTH=7.
-			[]byte{0x00, 0x08, 0x00, 0x07},
-			// FAMILY=1, SOURCE PREFIX=24, SCOPE=18.
-			[]byte{0x00, 0x01, 0x18, 0x12, 0x0A, 0x00, 0x01},
-		),
-	}, {
-		// ECS source prefix length set to 255 (exceeds IP bits).
-		name: "ecs_source_prefix_255",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=36 (4 hdr + 32 ECS data: 4 hdr + ceil(255/8)
-			// bytes addr).
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x24},
-			// ECS CODE=8, LENGTH=36.
-			[]byte{0x00, 0x08, 0x00, 0x24},
-			// FAMILY=1(IPv4), SOURCE PREFIX=255, SCOPE=0.
-			[]byte{0x00, 0x01, 0xFF, 0x00},
-			// ceil(255/8)=32 bytes of address.
-			make([]byte, 32),
-		),
-	}, {
-		// ECS with source prefix length 0 (no client subnet info).
-		name: "ecs_source_prefix_zero",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=8 (4 hdr + 4 ECS data).
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08},
-			// ECS CODE=8, LENGTH=4.
-			[]byte{0x00, 0x08, 0x00, 0x04},
-			// FAMILY=1(IPv4), SOURCE PREFIX=0, SCOPE=0.
-			[]byte{0x00, 0x01, 0x00, 0x00},
-		),
-	}, {
 		// EDNS Padding with non-zero bytes (should be zero).
 		name: "edns_padding_nonzero",
 		data: slices.Concat(
@@ -1191,30 +855,6 @@ func TestServerDNS_ServeTCP_badEDNS0(t *testing.T) {
 			// Padding CODE=12, LENGTH=10, non-zero bytes.
 			[]byte{0x00, 0x0C, 0x00, 0x0A},
 			bytes.Repeat([]byte{0xFF}, 10),
-		),
-	}, {
-		// Internal query with ECS indicating external client subnet.
-		name: "ecs_internal_query_external_subnet",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=11.
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0B},
-			// ECS CODE=8, LENGTH=7.
-			[]byte{0x00, 0x08, 0x00, 0x07},
-			// FAMILY=1, SOURCE PREFIX=24, SCOPE=0, ADDR=8.8.8 (public).
-			[]byte{0x00, 0x01, 0x18, 0x00, 0x08, 0x08, 0x08},
-		),
-	}, {
-		// NSEC3 parameters requested but N3U algorithm list empty.
-		name: "n3u_empty_algorithm_list",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=4 (option with zero-length data).
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04},
-			// N3U CODE=7, LENGTH=0 (empty algorithm list).
-			[]byte{0x00, 0x07, 0x00, 0x00},
 		),
 	}, {
 		// OPT RR RDLEN indicates 50 bytes but options list is empty.
@@ -1253,19 +893,6 @@ func TestServerDNS_ServeTCP_badEDNS0(t *testing.T) {
 			make([]byte, 789),
 		),
 	}, {
-		// ECS indicating internal subnet from external source.
-		name: "ecs_external_source_internal_subnet",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=11.
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0B},
-			// ECS CODE=8, LENGTH=7.
-			[]byte{0x00, 0x08, 0x00, 0x07},
-			// FAMILY=1, SOURCE PREFIX=24, SCOPE=0, ADDR=10.0.1 (private).
-			[]byte{0x00, 0x01, 0x18, 0x00, 0x0A, 0x00, 0x01},
-		),
-	}, {
 		// OPT RR header complete but RDATA truncated.
 		name: "opt_rdata_truncated",
 		data: slices.Concat(
@@ -1286,17 +913,6 @@ func TestServerDNS_ServeTCP_badEDNS0(t *testing.T) {
 			// Padding CODE=12, LENGTH=1196.
 			[]byte{0x00, 0x0C, 0x04, 0xAC},
 			make([]byte, 1196),
-		),
-	}, {
-		// ZONEVERSION option without corresponding SOA query.
-		name: "zoneversion_without_soa",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=4.
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04},
-			// ZONEVERSION CODE=19, LENGTH=0.
-			[]byte{0x00, 0x13, 0x00, 0x00},
 		),
 	}, {
 		// EDNS option chain with backward option code ordering.
@@ -1336,18 +952,6 @@ func TestServerDNS_ServeTCP_badEDNS0(t *testing.T) {
 			[]byte{0x00, 0x0A, 0x00, 0x00},
 		),
 	}, {
-		// Padding option with OPTION-CODE=11 instead of 12.
-		name: "padding_wrong_option_code",
-		data: slices.Concat(
-			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
-			rootQuestion,
-			// OPT RR: RDLENGTH=14 (4 hdr + 10 padding).
-			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0E},
-			// Option CODE=11(KEEPALIVE), LENGTH=10, zero padding bytes.
-			[]byte{0x00, 0x0B, 0x00, 0x0A},
-			make([]byte, 10),
-		),
-	}, {
 		// EDNS padding option at the beginning instead of end.
 		name: "edns_padding_at_beginning",
 		data: slices.Concat(
@@ -1364,34 +968,418 @@ func TestServerDNS_ServeTCP_badEDNS0(t *testing.T) {
 	}}
 
 	for _, tc := range testCases {
-		conf := &dnsserver.ConfigDNS{
-			Base: &dnsserver.ConfigBase{Handler: dnsservertest.NewPanicHandler()},
-		}
-
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			var invalidMsgCh chan unit
-			conf.Base.Metrics, invalidMsgCh = newInvalidMsgMetrics(t)
-
-			_, addr := dnsservertest.RunDNSServer(t, conf)
-
-			conn, err := net.Dial("tcp", addr)
-			require.NoError(t, err)
-			testutil.CleanupAndRequireSuccess(t, conn.Close)
-
-			deadline := time.Now().Add(testTimeout)
-			require.NoError(t, conn.SetDeadline(deadline))
-
-			err = binary.Write(conn, binary.BigEndian, uint16(len(tc.data)))
-			require.NoError(t, err)
-
-			n, err := conn.Write(tc.data)
-			require.NoError(t, err)
-			require.Equal(t, len(tc.data), n)
-
-			_, ok := testutil.RequireReceive(t, invalidMsgCh, testTimeout)
-			require.True(t, ok)
-		})
+		runBadPacketCase(t, tc.name, tc.data)
 	}
+}
+
+func TestServerDNS_badOption(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+		data []byte
+	}{{
+		// DAU/DHU/N3U with LIST-LENGTH not matching actual list.
+		name: "dau_list_length_mismatch",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=8 (4 hdr + 4 data).
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08},
+			// DAU option CODE=5, LENGTH=4, but only 2 algs meaningful.
+			[]byte{0x00, 0x05, 0x00, 0x04, 0x08, 0x0D, 0x00, 0x00},
+		),
+	}, {
+		// COOKIE option with client cookie being sequential counter.
+		name: "cookie_sequential_counter",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=12 (4 hdr + 8 client cookie).
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C},
+			// COOKIE CODE=10, LENGTH=8, sequential counter client cookie.
+			[]byte{0x00, 0x0A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
+		),
+	}, {
+		// DAU option listing deprecated algorithm 1 (RSA/MD5).
+		name: "dau_deprecated_algorithm",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=5.
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05},
+			// DAU CODE=5, LENGTH=1, alg=1(RSA/MD5 deprecated).
+			[]byte{0x00, 0x05, 0x00, 0x01, 0x01},
+		),
+	}, {
+		// NSEC3 parameters requested but N3U algorithm list empty.
+		name: "n3u_empty_algorithm_list",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=4 (option with zero-length data).
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04},
+			// N3U CODE=7, LENGTH=0 (empty algorithm list).
+			[]byte{0x00, 0x07, 0x00, 0x00},
+		),
+	}, {
+		// ZONEVERSION option without corresponding SOA query.
+		name: "zoneversion_without_soa",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=4.
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04},
+			// ZONEVERSION CODE=19, LENGTH=0.
+			[]byte{0x00, 0x13, 0x00, 0x00},
+		),
+	}}
+
+	for _, tc := range testCases {
+		runBadPacketCase(t, tc.name, tc.data)
+	}
+}
+
+func TestServerDNS_badOptionCode(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+		data []byte
+	}{{
+		// COOKIE option with OPTION-CODE=8 instead of 10.
+		name: "cookie",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=12 (4 hdr + 8 cookie data).
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C},
+			// Option CODE=8(ECS code), LENGTH=8, 8 bytes client cookie.
+			[]byte{0x00, 0x08, 0x00, 0x08},
+			bytes.Repeat([]byte{0xAA}, 8),
+		),
+	}, {
+		// DAU option with OPTION-CODE=11 instead of 5.
+		name: "dau",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=6 (4 hdr + 2 alg).
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06},
+			// Option CODE=11(KEEPALIVE code), LENGTH=2, alg list.
+			[]byte{0x00, 0x0B, 0x00, 0x02, 0x08, 0x0D},
+		),
+	}, {
+		// DHU option with OPTION-CODE=9 instead of 6.
+		name: "dhu",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=6.
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06},
+			// Option CODE=9(EXPIRE code), LENGTH=2, hash alg list.
+			[]byte{0x00, 0x09, 0x00, 0x02, 0x01, 0x02},
+		),
+	}, {
+		// N3U option with OPTION-CODE=8 instead of 7.
+		name: "n3u",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=5 (4 hdr + 1 alg).
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05},
+			// Option CODE=8(ECS code), LENGTH=1, 1 hash alg.
+			[]byte{0x00, 0x08, 0x00, 0x01, 0x01},
+		),
+	}, {
+		// ECS option with OPTION-CODE=10 instead of 8.
+		name: "ecs",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=12 (4 hdr + 8 ECS data).
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C},
+			// Option CODE=10(COOKIE code), LENGTH=8.
+			[]byte{0x00, 0x0A, 0x00, 0x08},
+			// FAMILY=1(IPv4), SOURCE PREFIX=24, SCOPE=0, ADDR=192.168.1.
+			[]byte{0x00, 0x01, 0x18, 0x00, 0xC0, 0xA8, 0x01, 0x00},
+		),
+	}, {
+		// EDE option with OPTION-CODE=9 instead of 15.
+		name: "ede",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=8 (4 hdr + 4 EDE data).
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08},
+			// Option CODE=9(EXPIRE), LENGTH=4, INFO-CODE=0, extra text "ab".
+			[]byte{0x00, 0x09, 0x00, 0x04, 0x00, 0x00, 0x61, 0x62},
+		),
+	}, {
+		// CHAIN option with OPTION-CODE=11 instead of 13.
+		name: "chain",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=5 (4 hdr + 1 root name).
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05},
+			// Option CODE=11(KEEPALIVE), LENGTH=1, root domain.
+			[]byte{0x00, 0x0B, 0x00, 0x01, 0x00},
+		),
+	}, {
+		// EXPIRE option with OPTION-CODE=11 instead of 9.
+		name: "expire",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=8 (4 hdr + 4 expire data).
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08},
+			// Option CODE=11(KEEPALIVE), LENGTH=4, expire value.
+			[]byte{0x00, 0x0B, 0x00, 0x04, 0x00, 0x00, 0x0E, 0x10},
+		),
+	}, {
+		// KEY-TAG option with OPTION-CODE=8 instead of 14.
+		name: "keytag",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=6 (4 hdr + 2 key tag).
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06},
+			// Option CODE=8(ECS), LENGTH=2, key tag=0x1234.
+			[]byte{0x00, 0x08, 0x00, 0x02, 0x12, 0x34},
+		),
+	}, {
+		// TCP-KEEPALIVE option with OPTION-CODE=8 instead of 11.
+		name: "keepalive",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=6 (4 hdr + 2 timeout).
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06},
+			// Option CODE=8(ECS), LENGTH=2, timeout=300.
+			[]byte{0x00, 0x08, 0x00, 0x02, 0x01, 0x2C},
+		),
+	}, {
+		// Padding option with OPTION-CODE=11 instead of 12.
+		name: "padding",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=14 (4 hdr + 10 padding).
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0E},
+			// Option CODE=11(KEEPALIVE), LENGTH=10, zero padding bytes.
+			[]byte{0x00, 0x0B, 0x00, 0x0A},
+			make([]byte, 10),
+		),
+	}}
+
+	for _, tc := range testCases {
+		runBadPacketCase(t, tc.name, tc.data)
+	}
+}
+
+func TestServerDNS_badECS(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+		data []byte
+	}{{
+		// ECS with IPv4 source prefix length 33 (exceeds 32-bit).
+		name: "ipv4_prefix_33",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=13 (4 option hdr + 9 ECS data).
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0D},
+			// ECS option: CODE=8, LENGTH=9.
+			[]byte{0x00, 0x08, 0x00, 0x09},
+			// FAMILY=1(IPv4), SOURCE PREFIX=33, SCOPE PREFIX=0.
+			[]byte{0x00, 0x01, 0x21, 0x00},
+			// ADDRESS: ceil(33/8)=5 bytes.
+			[]byte{0x01, 0x02, 0x03, 0x04, 0x80},
+		),
+	}, {
+		// ECS with IPv6 source prefix length 129 (exceeds 128-bit).
+		name: "ipv6_prefix_129",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=25 (4 option hdr + 21 ECS data).
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x19},
+			// ECS option: CODE=8, LENGTH=21.
+			[]byte{0x00, 0x08, 0x00, 0x15},
+			// FAMILY=2(IPv6), SOURCE PREFIX=129, SCOPE PREFIX=0.
+			[]byte{0x00, 0x02, 0x81, 0x00},
+			// ADDRESS: ceil(129/8)=17 bytes.
+			make([]byte, 17),
+		),
+	}, {
+		// ECS with unsupported ADDRESS FAMILY=8.
+		name: "unsupported_family",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=8 (4 option hdr + 4 ECS data).
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08},
+			// ECS option: CODE=8, LENGTH=4.
+			[]byte{0x00, 0x08, 0x00, 0x04},
+			// FAMILY=8(unsupported), SOURCE PREFIX=0, SCOPE PREFIX=0.
+			[]byte{0x00, 0x08, 0x00, 0x00},
+		),
+	}, {
+		// ECS with private IP but querying public DNS.
+		name: "private_ip_public_dns",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=11 (4 hdr + 7 ECS data).
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0B},
+			// ECS CODE=8, LENGTH=7.
+			[]byte{0x00, 0x08, 0x00, 0x07},
+			// FAMILY=1(IPv4), SOURCE PREFIX=24, SCOPE=0, ADDR=192.168.1.
+			[]byte{0x00, 0x01, 0x18, 0x00, 0xC0, 0xA8, 0x01},
+		),
+	}, {
+		// ECS with SCOPE PREFIX-LENGTH non-zero in query.
+		name: "scope_prefix_nonzero_in_query",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=11.
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0B},
+			// ECS CODE=8, LENGTH=7.
+			[]byte{0x00, 0x08, 0x00, 0x07},
+			// FAMILY=1, SOURCE PREFIX=24, SCOPE=16 (non-zero in query!).
+			[]byte{0x00, 0x01, 0x18, 0x10, 0x0A, 0x00, 0x01},
+		),
+	}, {
+		// ECS query with SCOPE PREFIX-LENGTH=18.
+		name: "scope_prefix_18",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=11.
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0B},
+			// ECS CODE=8, LENGTH=7.
+			[]byte{0x00, 0x08, 0x00, 0x07},
+			// FAMILY=1, SOURCE PREFIX=24, SCOPE=18.
+			[]byte{0x00, 0x01, 0x18, 0x12, 0x0A, 0x00, 0x01},
+		),
+	}, {
+		// ECS source prefix length set to 255 (exceeds IP bits).
+		name: "source_prefix_255",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=36 (4 hdr + 32 ECS data: 4 hdr + ceil(255/8)
+			// bytes addr).
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x24},
+			// ECS CODE=8, LENGTH=36.
+			[]byte{0x00, 0x08, 0x00, 0x24},
+			// FAMILY=1(IPv4), SOURCE PREFIX=255, SCOPE=0.
+			[]byte{0x00, 0x01, 0xFF, 0x00},
+			// ceil(255/8)=32 bytes of address.
+			make([]byte, 32),
+		),
+	}, {
+		// ECS with source prefix length 0 (no client subnet info).
+		name: "source_prefix_zero",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=8 (4 hdr + 4 ECS data).
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08},
+			// ECS CODE=8, LENGTH=4.
+			[]byte{0x00, 0x08, 0x00, 0x04},
+			// FAMILY=1(IPv4), SOURCE PREFIX=0, SCOPE=0.
+			[]byte{0x00, 0x01, 0x00, 0x00},
+		),
+	}, {
+		// Internal query with ECS indicating external client subnet.
+		name: "internal_query_external_subnet",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=11.
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0B},
+			// ECS CODE=8, LENGTH=7.
+			[]byte{0x00, 0x08, 0x00, 0x07},
+			// FAMILY=1, SOURCE PREFIX=24, SCOPE=0, ADDR=8.8.8 (public).
+			[]byte{0x00, 0x01, 0x18, 0x00, 0x08, 0x08, 0x08},
+		),
+	}, {
+		// ECS indicating internal subnet from external source.
+		name: "external_source_internal_subnet",
+		data: slices.Concat(
+			newTestHdr(t, dns.Header{Id: dns.Id(), Bits: testHdrBits, Qdcount: 1, Arcount: 1}),
+			rootQuestion,
+			// OPT RR: RDLENGTH=11.
+			[]byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0B},
+			// ECS CODE=8, LENGTH=7.
+			[]byte{0x00, 0x08, 0x00, 0x07},
+			// FAMILY=1, SOURCE PREFIX=24, SCOPE=0, ADDR=10.0.1 (private).
+			[]byte{0x00, 0x01, 0x18, 0x00, 0x0A, 0x00, 0x01},
+		),
+	}}
+
+	for _, tc := range testCases {
+		runBadPacketCase(t, tc.name, tc.data)
+	}
+}
+
+// runBadPacketCase runs a subtest for the given test case name and data,
+// testing both TCP and UDP protocols.  It sends the provided data to the DNS
+// server and checks that the server correctly identifies the packet as invalid
+// without crashing or returning an error.
+func runBadPacketCase(t *testing.T, name string, data []byte) {
+	t.Run(name+"_tcp", func(t *testing.T) {
+		t.Parallel()
+
+		exchangeData(t, dnsserver.NetworkTCP, data)
+	})
+
+	t.Run(name+"_udp", func(t *testing.T) {
+		t.Parallel()
+
+		exchangeData(t, dnsserver.NetworkUDP, data)
+	})
+}
+
+// exchangeData sends the provided data to a DNS server over specified network
+// protocol (TCP or UDP).  It sets up a DNS server with a panic handler and
+// metrics for invalid messages, then sends the data and checks that the server
+// correctly identifies the packet as invalid without crashing or returning
+// an error.
+func exchangeData(tb testing.TB, network dnsserver.Network, data []byte) {
+	tb.Helper()
+
+	conf := &dnsserver.ConfigDNS{
+		Base: &dnsserver.ConfigBase{Handler: dnsservertest.NewPanicHandler()},
+	}
+
+	var invalidMsgCh chan unit
+	conf.Base.Metrics, invalidMsgCh = newTestMetricsListener(tb)
+
+	_, addr := dnsservertest.RunDNSServer(tb, conf)
+
+	conn, err := net.Dial(string(network), addr)
+	require.NoError(tb, err)
+	testutil.CleanupAndRequireSuccess(tb, conn.Close)
+
+	deadline := time.Now().Add(testTimeout)
+	require.NoError(tb, conn.SetDeadline(deadline))
+
+	if network == dnsserver.NetworkTCP {
+		// TCP expects a 2-byte length prefix.
+		err = binary.Write(conn, binary.BigEndian, uint16(len(data)))
+		require.NoError(tb, err)
+	}
+
+	n, err := conn.Write(data)
+	require.NoError(tb, err)
+	require.Equal(tb, len(data), n)
+
+	_, ok := testutil.RequireReceive(tb, invalidMsgCh, testTimeout)
+	require.True(tb, ok)
 }

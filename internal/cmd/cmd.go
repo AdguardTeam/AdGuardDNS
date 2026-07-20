@@ -11,11 +11,11 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/cmd/plugin"
 	"github.com/AdguardTeam/AdGuardDNS/internal/experiment"
 	"github.com/AdguardTeam/AdGuardDNS/internal/metrics"
-	"github.com/AdguardTeam/AdGuardDNS/internal/version"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/sentryutil"
 	"github.com/AdguardTeam/golibs/timeutil"
+	"github.com/AdguardTeam/golibs/version"
 	"golang.org/x/sys/unix"
 )
 
@@ -170,6 +170,8 @@ func Main(plugins *plugin.Registry) {
 	errors.Check(b.initWeb(ctx))
 
 	errors.Check(b.waitGeoIP(ctx))
+
+	errors.Check(b.initDNSTap(ctx))
 
 	errors.Check(b.initDNS(ctx))
 

@@ -3,10 +3,13 @@ package dnsserver
 import (
 	"bytes"
 	"encoding/binary"
+	"net"
 	"net/netip"
 	"testing"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/messagetap"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/golibs/testutil/fakenet"
@@ -27,15 +30,33 @@ const (
 	testTCPRequestBufferInitialLength = 2
 )
 
-// testIPv4 is a common IPv4 value for tests.
-var testIPv4 = netip.MustParseAddr("192.0.2.0")
+var (
+	// testIPv4 is a common IPv4 value for tests.
+	testIPv4 = netip.MustParseAddr("192.0.2.0")
+
+	// localhostNetIPv4 is the [net.IP] IPv4 localhost address "127.0.0.1".
+	localhostNetIPv4 net.IP = netutil.IPv4Localhost().AsSlice()
+
+	// testLocalAddr is a common local address for tests.
+	testLocalAddr = &net.TCPAddr{
+		IP:   localhostNetIPv4,
+		Port: 5757,
+	}
+
+	// testRemoteAddr is a common remote address for tests.
+	testRemoteAddr = &net.TCPAddr{
+		IP:   localhostNetIPv4,
+		Port: 5858,
+	}
+)
 
 func BenchmarkServerDNS_ReadTCPMsg(b *testing.B) {
 	server := &ServerDNS{
 		tcpPool: syncutil.NewSlicePool[byte](testTCPRequestBufferInitialLength),
 		ServerBase: &ServerBase{
-			clock:   timeutil.SystemClock{},
-			metrics: EmptyMetricsListener{},
+			messageTap: messagetap.Empty{},
+			clock:      timeutil.SystemClock{},
+			metrics:    EmptyMetricsListener{},
 		},
 	}
 
@@ -65,6 +86,12 @@ func BenchmarkServerDNS_ReadTCPMsg(b *testing.B) {
 	conn := &fakenet.Conn{
 		OnRead:            reader.Read,
 		OnSetReadDeadline: func(_ time.Time) (err error) { return nil },
+		OnRemoteAddr: func() (raddr net.Addr) {
+			return testRemoteAddr
+		},
+		OnLocalAddr: func() (laddr net.Addr) {
+			return testLocalAddr
+		},
 	}
 
 	ctx := testutil.ContextWithTimeout(b, testTimeout)
@@ -85,6 +112,6 @@ func BenchmarkServerDNS_ReadTCPMsg(b *testing.B) {
 	//	goos: darwin
 	//	goarch: arm64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsserver
-	//	cpu: Apple M4 Pro
-	//	BenchmarkServerDNS_ReadTCPMsg-14    	 4720626	       239.9 ns/op	     320 B/op	       8 allocs/op
+	//	cpu: Apple M1 Pro
+	//	BenchmarkServerDNS_ReadTCPMsg-8   	 3209209	       376.1 ns/op	     320 B/op	       8 allocs/op
 }

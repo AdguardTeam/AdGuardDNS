@@ -55,7 +55,7 @@ committime="${SOURCE_DATE_EPOCH:-$(git log -1 --pretty=%ct)}"
 readonly committime
 
 # Compile them in.
-version_pkg='github.com/AdguardTeam/AdGuardDNS/internal/version'
+version_pkg='github.com/AdguardTeam/golibs/version'
 # NOTE:  For AdGuard DNS, leave the debug info and symbol info in the binary for
 # easier debugging.
 ldflags=""

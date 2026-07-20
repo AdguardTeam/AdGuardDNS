@@ -8,6 +8,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/requestid"
 )
 
 // ctxKey is the type for all common context keys.
@@ -123,4 +124,15 @@ func MustRequestInfoFromContext(ctx context.Context) (ri *RequestInfo) {
 	}
 
 	return ri
+}
+
+// EnsureContextRequestID returns parent with a [requestid.ID] if it doesn't
+// have one.
+func EnsureContextRequestID(parent context.Context) (ctx context.Context) {
+	_, ok := requestid.IDFromContext(parent)
+	if !ok {
+		return requestid.ContextWithRequestID(parent, requestid.New())
+	}
+
+	return parent
 }

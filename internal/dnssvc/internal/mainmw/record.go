@@ -28,7 +28,7 @@ func (mw *Middleware) recordQueryInfo(
 	fctx *filteringContext,
 	ri *agd.RequestInfo,
 ) {
-	id, text, blocked := filteringData(fctx)
+	id, text, _ := filteringData(fctx)
 	mw.ruleStat.Collect(ctx, id, text)
 
 	prof, dev := ri.DeviceData()
@@ -53,22 +53,23 @@ func (mw *Middleware) recordQueryInfo(
 	}
 
 	e := &querylog.Entry{
-		RequestResult:  fctx.requestResult,
-		ResponseResult: fctx.responseResult,
-		Time:           start,
-		AccountID:      prof.AccountID,
-		ProfileID:      prof.ID,
-		DeviceID:       devID,
-		ClientCountry:  reqCtry,
-		DomainFQDN:     fctx.originalRequest.Question[0].Name,
-		Elapsed:        mw.clock.Now().Sub(start),
-		ClientASN:      reqASN,
-		RequestType:    ri.QType,
-		Protocol:       ri.ServerInfo.Protocol,
-		Stream:         prof.QueryLogStream,
+		RequestResult:   fctx.requestResult,
+		ResponseResult:  fctx.responseResult,
+		Time:            start,
+		AccountID:       prof.AccountID,
+		ProfileID:       prof.ID,
+		DeviceID:        devID,
+		ClientCountry:   reqCtry,
+		ResponseCountry: fctx.responseCtry,
+		DomainFQDN:      fctx.originalRequest.Question[0].Name,
+		Elapsed:         mw.clock.Now().Sub(start),
+		ClientASN:       reqASN,
+		RequestType:     ri.QType,
+		Protocol:        ri.ServerInfo.Protocol,
+		Stream:          prof.QueryLogStream,
 	}
 
-	mw.writeQueryLogEntry(ctx, fctx, ri, e, blocked, prof.IPLogEnabled)
+	mw.writeQueryLogEntry(ctx, fctx, ri, e, prof.IPLogEnabled)
 }
 
 // writeQueryLogEntry adds properties to e and writes it to the query log.
@@ -78,24 +79,12 @@ func (mw *Middleware) writeQueryLogEntry(
 	fctx *filteringContext,
 	ri *agd.RequestInfo,
 	e *querylog.Entry,
-	blocked bool,
 	logIP bool,
 ) {
-	var respIP netip.Addr
-	e.ResponseCode, respIP, e.DNSSEC = mw.responseData(ctx, fctx.filteredResponse)
-	if blocked {
-		// If the request or the response were blocked, resp may contain an
-		// unspecified IP address, a rewritten IP address, or none at all, while
-		// the original response may contain an actual IP address that should be
-		// used to determine the response country.
-		_, respIP, _ = mw.responseData(ctx, fctx.originalResponse)
-	}
-
+	e.ResponseCode, _, e.DNSSEC = mw.responseData(ctx, fctx.filteredResponse)
 	if logIP {
 		e.RemoteIP = ri.RemoteIP
 	}
-
-	e.ResponseCountry = mw.responseCountry(ctx, fctx, ri.Host, respIP, e.ResponseCode)
 
 	err := mw.queryLog.Write(ctx, e)
 	// Consider query logging errors non-critical and don't collect timeouts.
@@ -109,30 +98,31 @@ func (mw *Middleware) writeQueryLogEntry(
 	}
 }
 
-// responseCountry returns the country of the response IP address based on the
+// responseLocation returns the location of the response IP address based on the
 // request and filtering data.  If rcode is not a NOERROR one or there is no
-// IP-address data in the response, ctry is [geoip.CountryNotApplicable].
-func (mw *Middleware) responseCountry(
+// IP-address data in the response, ctry is [geoip.CountryNotApplicable], asn is
+// [geoip.ASNNone].
+func (mw *Middleware) responseLocation(
 	ctx context.Context,
 	fctx *filteringContext,
 	host string,
 	respIP netip.Addr,
 	rcode dnsmsg.RCode,
-) (ctry geoip.Country) {
+) (ctry geoip.Country, asn geoip.ASN) {
 	if rcode != dns.RcodeSuccess || respIP == (netip.Addr{}) || respIP.IsUnspecified() {
-		return geoip.CountryNotApplicable
+		return geoip.CountryNotApplicable, geoip.ASNNone
 	}
 
 	if modReq := fctx.modifiedRequest; modReq != nil {
-		// If the request was modified by CNAME rule, the actual result
-		// belongs to the hostname from that CNAME.
+		// If the request was modified by CNAME rule, the actual result belongs
+		// to the hostname from that CNAME.
 		host = agdnet.NormalizeDomain(modReq.Question[0].Name)
 	}
 
-	ctry = mw.country(ctx, host, respIP)
-	optslog.Trace2(ctx, mw.logger, "geoip for resp", "ctry", ctry, "resp_ip", respIP)
+	ctry, asn = mw.location(ctx, host, respIP)
+	optslog.Trace3(ctx, mw.logger, "geoip for resp", "asn", asn, "ctry", ctry, "resp_ip", respIP)
 
-	return ctry
+	return ctry, asn
 }
 
 // responseData is a helper that returns the response code, the first IP
@@ -240,9 +230,13 @@ func ipFromHTTPSRRKV(kv dns.SVCBKeyValue) (fam netutil.AddrFamily, netIP net.IP)
 	return netutil.AddrFamilyNone, nil
 }
 
-// country is a wrapper around the GeoIP call that contains the handling of
+// location is a wrapper around the GeoIP call that contains the handling of
 // non-critical GeoIP errors.
-func (mw *Middleware) country(ctx context.Context, host string, ip netip.Addr) (c geoip.Country) {
+func (mw *Middleware) location(
+	ctx context.Context,
+	host string,
+	ip netip.Addr,
+) (c geoip.Country, asn geoip.ASN) {
 	l, err := mw.geoIP.Data(ctx, host, ip)
 	if err != nil {
 		// Consider GeoIP errors non-critical.
@@ -250,8 +244,8 @@ func (mw *Middleware) country(ctx context.Context, host string, ip netip.Addr) (
 	}
 
 	if l != nil {
-		return l.Country
+		return l.Country, l.ASN
 	}
 
-	return geoip.CountryNone
+	return geoip.CountryNone, geoip.ASNNone
 }

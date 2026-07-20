@@ -182,14 +182,13 @@ func TestFile_SubnetByLocation(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := testutil.ContextWithTimeout(t, testTimeout)
-			ctrySubnet, err := g.SubnetByLocation(
-				ctx,
-				&geoip.Location{
-					Country:        tc.country,
-					Continent:      "",
-					TopSubdivision: tc.subdiv,
-					ASN:            tc.asn,
-				}, tc.fam)
+			loc := &geoip.Location{
+				Country:        tc.country,
+				Continent:      "",
+				TopSubdivision: tc.subdiv,
+				ASN:            tc.asn,
+			}
+			ctrySubnet, err := g.SubnetByLocation(ctx, loc, tc.fam)
 			require.NoError(t, err)
 
 			assert.Equal(t, tc.want, ctrySubnet)

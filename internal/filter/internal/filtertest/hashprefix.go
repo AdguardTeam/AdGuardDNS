@@ -46,18 +46,7 @@ func NewHashprefixFilterWithRepl(
 ) (f *hashprefix.Filter) {
 	tb.Helper()
 
-	var data string
-	switch id {
-	case filter.IDAdultBlocking:
-		data = HostAdultContent + "\n"
-	case filter.IDNewRegDomains:
-		data = HostNewlyRegistered + "\n"
-	case filter.IDSafeBrowsing:
-		data = HostDangerous + "\n"
-	default:
-		tb.Fatalf("bad id: %q", id)
-	}
-
+	data := dataFromFilterID(tb, id)
 	cachePath, srvURL := PrepareRefreshable(tb, nil, data, http.StatusOK)
 
 	strg, err := hashprefix.NewStorage(nil)
@@ -96,4 +85,23 @@ func NewHashprefixFilterWithRepl(
 	require.NoError(tb, f.RefreshInitial(ctx))
 
 	return f
+}
+
+// dataFromFilterID is a helper that returns test refresh data for the given
+// filter ID.
+func dataFromFilterID(tb testing.TB, id filter.ID) (data string) {
+	tb.Helper()
+
+	switch id {
+	case filter.IDAdultBlocking:
+		data = HostAdultContent + "\n"
+	case filter.IDNewRegDomains:
+		data = HostNewlyRegistered + "\n"
+	case filter.IDSafeBrowsing:
+		data = HostDangerous + "\n"
+	default:
+		tb.Fatalf("bad id: %q", id)
+	}
+
+	return data
 }

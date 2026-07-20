@@ -50,7 +50,8 @@ func (l *LogMiddleware) Wrap(h dnsserver.Handler) (wrapped dnsserver.Handler) {
 
 		// [{name} {proto}://{addr}]
 		sb.WriteString(
-			fmt.Sprintf("[%s %s://%s] ",
+			fmt.Sprintf(
+				"[%s %s://%s] ",
 				serverInfo.Name,
 				serverInfo.Proto,
 				serverInfo.Addr,

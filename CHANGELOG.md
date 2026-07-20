@@ -7,6 +7,24 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 [kec]: https://keepachangelog.com/en/1.0.0/
 [sem]: https://semver.org/spec/v2.0.0.html
 
+## AGDNS-1746 / Build 1207
+
+- New environment variables have been added:
+
+    - `DNSTAP_TYPE`: defines the type of the DNS tap output, possible values are `off`, `log`, and `socket`, the default value is `off`.
+    - `DNSTAP_SOCKET_URL`: if `DNSTAP_TYPE` is set to `socket`, this variable must be set to a valid Unix socket address, for example, `unix:///tmp/dnstap.sock`.
+
+## AGDNS-4037 / Build 1206
+
+- Object `filtering_groups.safe_browsing` has two new properties: `block_typos` and `block_homoglyphs`.  They enable or disable typosquatting and homoglyph filters for specific filtering groups.  Example configuration:
+
+    ```yaml
+    safe_browsing:
+        # …
+        block_typos: true
+        block_homoglyphs: true
+    ```
+
 ## AGDNS-3939 / Build 1200
 
 - New environment variables have been added:

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/c2h5oh/datasize"
@@ -26,10 +27,12 @@ const (
 		IPv6SafeSearchReplStr
 	RuleSafeSearchYouTubeStr = "|" + HostSafeSearchYouTube + "^$dnsrewrite=NOERROR;CNAME;" +
 		HostSafeSearchYouTubeRepl
+	RuleRespGeoStr = HostBlockedByRespGeo + "$respgeo=FR|AS12345"
 
 	RuleBlock              filter.RuleText = RuleBlockStr
 	RuleBlockForClientIP   filter.RuleText = RuleBlockForClientIPStr
 	RuleBlockForClientName filter.RuleText = RuleBlockForClientNameStr
+	RuleRespGeo            filter.RuleText = RuleRespGeoStr
 )
 
 // Common string representations of IP addresses.
@@ -55,6 +58,7 @@ const (
 	HostAdultContentRepl      = "adult-content-repl.example"
 	HostAdultContentSub       = "a.b.c." + HostAdultContent
 	HostBlocked               = "blocked.example"
+	HostBlockedByRespGeo      = "blocked-by-respgeo.example"
 	HostBlockedForClientIP    = "blocked-for-client-ip.example"
 	HostBlockedForClientName  = "blocked-for-client-name.example"
 	HostBlockedService1       = "service-1.example"
@@ -80,6 +84,7 @@ const (
 	FQDNAdultContent          = HostAdultContent + "."
 	FQDNAdultContentRepl      = HostAdultContentRepl + "."
 	FQDNBlocked               = HostBlocked + "."
+	FQDNBlockedByRespGeo      = HostBlockedByRespGeo + "."
 	FQDNBlockedForClientName  = HostBlockedForClientName + "."
 	FQDNCategory              = HostCategory + "."
 	FQDNCname                 = HostCNAME + "."
@@ -136,10 +141,12 @@ const (
 	RuleListID1Str      = "rule_list_1"
 	RuleListID2Str      = "rule_list_2"
 	RuleListIDDomainStr = "blocked-category"
+	RuleListIDCustomStr = "custom_rule_list"
 
 	RuleListID1      filter.ID = RuleListID1Str
 	RuleListID2      filter.ID = RuleListID2Str
 	RuleListIDDomain filter.ID = RuleListIDDomainStr
+	RuleListIDCustom filter.ID = RuleListIDCustomStr
 
 	CategoryIDStr                   = RuleListIDDomainStr
 	CategoryID    filter.CategoryID = CategoryIDStr
@@ -168,6 +175,12 @@ func NewCategoryIndex(downloadURL string) (b []byte) {
 		},
 	}))
 }
+
+// ASN is the common AS number for tests.
+const ASN geoip.ASN = 12345
+
+// Country is the common country for tests.
+const Country geoip.Country = geoip.CountryFR
 
 // CacheTTL is the common long cache-TTL for filtering tests.
 const CacheTTL = 1 * time.Hour

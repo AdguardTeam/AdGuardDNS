@@ -61,7 +61,8 @@ func New(c *Config) (svc *Service) {
 		c.GeneralBlocking,
 		c.Logger,
 		c.Metrics,
-		ServerGroupGeneralBlockingPage)
+		ServerGroupGeneralBlockingPage,
+	)
 	safeBrowsingBPS := newBlockPageServer(
 		c.SafeBrowsing,
 		c.Logger,

@@ -8,6 +8,7 @@ import (
 	"net/netip"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
+	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 )
@@ -61,6 +62,19 @@ type Response struct {
 
 	// ClientName is the client name for rule-list filtering.
 	ClientName string
+
+	// Host is the lowercased, non-FQDN version of the hostname from the
+	// question of the request.
+	Host string
+
+	// Country is the response country ISO code.
+	Country geoip.Country
+
+	// ASN is the response IP ASN value.
+	ASN geoip.ASN
+
+	// QType is the type of question for this request.
+	QType dnsmsg.RRType
 }
 
 // Empty is an [Interface] implementation that always returns nil.
@@ -104,12 +118,12 @@ const (
 	// indexes.
 	SubDirNameIndex = "index"
 
-	// SubDirNameIndex is the name of the subdirectory containing all cached
+	// SubDirNameRuleList is the name of the subdirectory containing all cached
 	// rulelist filters.
 	SubDirNameRuleList = "rulelist"
 
-	// SubDirNameIndex is the name of the subdirectory containing all cached
-	// safe search filters.
+	// SubDirNameSafeSearch is the name of the subdirectory containing all
+	// cached safe search filters.
 	SubDirNameSafeSearch = "safesearch"
 )
 

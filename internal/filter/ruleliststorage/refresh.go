@@ -8,16 +8,18 @@ import (
 	"log/slog"
 	"path"
 	"path/filepath"
-	"slices"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterindex"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/google/renameio/v2"
 )
 
 // Refresh implements the [Storage] interface for *Default.
@@ -114,18 +116,24 @@ func difference[
 // loadRuleLists loads the rule-lists from the storage.  If acceptStale is true,
 // the cache files are used regardless of their staleness.
 func (s *Default) loadRuleLists(ctx context.Context, acceptStale bool) (rls ruleLists, err error) {
-	resp, err := s.loadIndex(ctx, acceptStale)
-	if err != nil {
-		// Don't wrap the error, because it's informative enough as is.
-		return nil, err
+	ctx = agd.EnsureContextRequestID(ctx)
+
+	idx := s.idxCacheFromFile(ctx, acceptStale)
+	if idx == nil || len(idx.Filters) == 0 {
+		s.logger.InfoContext(ctx, "no data from file", "path", s.indexCachePath)
+
+		idx, err = s.indexFromStorage(ctx)
+		if err != nil {
+			// Don't wrap the error, because it's informative enough as is.
+			return nil, err
+		}
 	}
 
-	s.logger.InfoContext(ctx, "loaded index", "num_filters", len(resp.Filters))
+	if idx == nil || len(idx.Filters) == 0 {
+		return nil, errors.Error("found no index in cache or storage")
+	}
 
-	fls := resp.toInternal(ctx, s.logger, s.errColl)
-	s.logger.InfoContext(ctx, "validated lists", "num_lists", len(fls))
-
-	newRuleLists, err := s.refreshRuleLists(ctx, fls, acceptStale)
+	newRuleLists, err := s.refreshRuleLists(ctx, idx.Filters, acceptStale)
 	if err != nil {
 		return nil, fmt.Errorf("refreshing rule lists: %w", err)
 	}
@@ -135,23 +143,82 @@ func (s *Default) loadRuleLists(ctx context.Context, acceptStale bool) (rls rule
 	return newRuleLists, nil
 }
 
-// loadIndex fetches, decodes, and returns the filter list index data of the
-// storage.  resp.Filters are sorted.
-func (s *Default) loadIndex(ctx context.Context, acceptStale bool) (resp *indexResp, err error) {
-	b, err := s.refr.Refresh(ctx, acceptStale)
+// idxCacheFromFile returns the rule-list cache from the cache file, if any.
+// All errors are logged and collected.  idx may be nil.
+func (s *Default) idxCacheFromFile(
+	ctx context.Context,
+	acceptStale bool,
+) (idx *filterindex.Rulelist) {
+	cachedIdx, err := s.refreshFromCacheFile(s.clock.Now(), acceptStale)
 	if err != nil {
-		return nil, fmt.Errorf("loading index: %w", err)
+		errcoll.Collect(ctx, s.errColl, s.logger, "refreshing rule list index from cache", err)
+	} else if cachedIdx == nil {
+		return nil
 	}
 
-	resp = &indexResp{}
-	err = json.Unmarshal(b, resp)
+	s.logger.InfoContext(ctx, "converting cached data from file", "path", s.indexCachePath)
+
+	idx, err = cachedIdx.toInternal()
 	if err != nil {
-		return nil, fmt.Errorf("decoding index: %w", err)
+		errcoll.Collect(ctx, s.errColl, s.logger, "converting cached rule list index", err)
 	}
 
-	slices.SortStableFunc(resp.Filters, (*indexRespFilter).compare)
+	return idx
+}
 
-	return resp, nil
+// indexFromStorage retrieves the rule list filter index and caches it.  idx may
+// be nil even if err is nil.
+func (s *Default) indexFromStorage(ctx context.Context) (idx *filterindex.Rulelist, err error) {
+	s.logger.InfoContext(ctx, "refreshing from storage")
+
+	idx, err = s.indexStorage.Rulelist(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("getting index from storage: %w", err)
+	}
+
+	if idx == nil {
+		return nil, nil
+	}
+
+	cachedIdx := newIndexCache(idx)
+	b, err := json.Marshal(cachedIdx)
+	if err != nil {
+		errcoll.Collect(ctx, s.errColl, s.logger, "encoding new rule list index", err)
+
+		return idx, nil
+	}
+
+	err = renameio.WriteFile(s.indexCachePath, b, agd.PermFileDefault)
+	if err != nil {
+		errcoll.Collect(ctx, s.errColl, s.logger, "writing new rule list index", err)
+	}
+
+	return idx, nil
+}
+
+// refreshFromCacheFile loads the data from the cache path if the file's mtime
+// shows that it's still fresh relative to updTime.  If acceptStale is true, and
+// the file exists, the data is read from there regardless of its staleness.
+func (s *Default) refreshFromCacheFile(
+	updTime time.Time,
+	acceptStale bool,
+) (idx *indexCache, err error) {
+	b, err := refreshable.DataFromFile(s.indexCachePath, updTime, s.staleness, acceptStale)
+	if err != nil {
+		return nil, fmt.Errorf("refreshing from file %q: %w", s.indexCachePath, err)
+	}
+
+	if b == nil {
+		return nil, nil
+	}
+
+	idx = &indexCache{}
+	err = json.Unmarshal(b, idx)
+	if err != nil {
+		return nil, fmt.Errorf("decoding file %q: %w", s.indexCachePath, err)
+	}
+
+	return idx, nil
 }
 
 // refrResult is a result of refreshing a single rule list.
@@ -174,7 +241,7 @@ type refrResult struct {
 // of new initialized and refreshed rule lists.
 func (s *Default) refreshRuleLists(
 	ctx context.Context,
-	filtersData map[filter.ID]*indexData,
+	filtersData map[filter.ID]*filterindex.RulelistFilter,
 	acceptStale bool,
 ) (rls ruleLists, err error) {
 	lenFls := len(filtersData)
@@ -200,13 +267,16 @@ func (s *Default) refreshRuleLists(
 // needsUpdate returns true if the provided rule list should be refreshed,
 // returns false and the previous version of the rule list if it should not be
 // refreshed.  fl must not be nil.
-func (s *Default) needsUpdate(id filter.ID, fl *indexData) (ok bool, rl *ruleListData) {
+func (s *Default) needsUpdate(
+	id filter.ID,
+	fl *filterindex.RulelistFilter,
+) (ok bool, rl *ruleListData) {
 	prev := s.prevRuleList(id)
 	if prev == nil {
 		return true, nil
 	}
 
-	return fl.updTime.After(prev.updTime), prev
+	return fl.UpdateTime.After(prev.updTime), prev
 }
 
 // resultRuleList returns a result rule list data with the refreshable and it's
@@ -251,7 +321,7 @@ func (s *Default) prevRuleList(id filter.ID) (rl *ruleListData) {
 func (s *Default) refreshRuleList(
 	ctx context.Context,
 	id filter.ID,
-	fl *indexData,
+	fl *filterindex.RulelistFilter,
 	acceptStale bool,
 	resCh chan<- refrResult,
 ) {
@@ -260,17 +330,7 @@ func (s *Default) refreshRuleList(
 	}
 	defer func() { resCh <- res }()
 
-	defer func() {
-		err := errors.FromRecovered(recover())
-		if err == nil {
-			return
-		}
-
-		s.logger.ErrorContext(ctx, "recovered panic", slogutil.KeyError, err)
-		slogutil.PrintStack(ctx, s.logger, slog.LevelError)
-
-		res.err = err
-	}()
+	defer s.recoverAndSetResultErr(ctx, &res)
 
 	shouldUpdate, prev := s.needsUpdate(res.id, fl)
 	if !shouldUpdate && prev != nil {
@@ -308,16 +368,30 @@ func (s *Default) refreshRuleList(
 	})
 
 	res.refr = rl
-	res.updTime = fl.updTime
+	res.updTime = fl.UpdateTime
 
 	s.logger.DebugContext(ctx, "rule list refreshed successfully", "id", id)
+}
+
+// recoverAndSetResultErr is a deferred helper that recovers from panic, logs
+// the error, and sets it in res.  res must not be nil.
+func (s *Default) recoverAndSetResultErr(ctx context.Context, res *refrResult) {
+	err := errors.FromRecovered(recover())
+	if err == nil {
+		return
+	}
+
+	s.logger.ErrorContext(ctx, "recovered panic", slogutil.KeyError, err)
+	slogutil.PrintStack(ctx, s.logger, slog.LevelError)
+
+	res.err = err
 }
 
 // newRuleListRefreshable returns a new rule list for the given index data.  fl
 // must not be nil.
 func (s *Default) newRuleListRefreshable(
 	id filter.ID,
-	fl *indexData,
+	fl *filterindex.RulelistFilter,
 ) (f *rulelist.Refreshable, err error) {
 	fltIDStr := string(id)
 
@@ -332,7 +406,7 @@ func (s *Default) newRuleListRefreshable(
 	return rulelist.NewRefreshable(&refreshable.Config{
 		Clock:     s.clock,
 		Logger:    s.baseLogger.With(slogutil.KeyPrefix, cacheID),
-		URL:       fl.url,
+		URL:       fl.DownloadURL,
 		ID:        id,
 		CachePath: filepath.Join(s.cacheDir, fltIDStr),
 		Staleness: s.staleness,

@@ -32,6 +32,8 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`DNSCHECK_KV_TYPE`](#DNSCHECK_KV_TYPE)
 - [`DNSCHECK_REMOTEKV_API_KEY`](#DNSCHECK_REMOTEKV_API_KEY)
 - [`DNSCHECK_REMOTEKV_URL`](#DNSCHECK_REMOTEKV_URL)
+- [`DNSTAP_TYPE`](#DNSTAP_TYPE)
+- [`DNSTAP_SOCKET_URL`](#DNSTAP_SOCKET_URL)
 - [`FILTER_CACHE_PATH`](#FILTER_CACHE_PATH)
 - [`FILTER_INDEX_API_KEY`](#FILTER_INDEX_API_KEY)
 - [`FILTER_INDEX_API_REFRESH_INTERVAL`](#FILTER_INDEX_API_REFRESH_INTERVAL)
@@ -294,6 +296,18 @@ The base backend URL used as a key-value database for the DNS server checking. S
 
 **Default:** **Unset.**
 
+## <a href="#DNSTAP_TYPE" id="DNSTAP_TYPE" name="DNSTAP_TYPE">`DNSTAP_TYPE`</a>
+
+The type of the DNS tap output, allowed values are `off`, `log`, and `socket`.
+
+**Default:** **off.**
+
+## <a href="#DNSTAP_SOCKET_URL" id="DNSTAP_SOCKET_URL" name="DNSTAP_SOCKET_URL">`DNSTAP_SOCKET_URL`</a>
+
+The socket address to which the DNS tap output is sent. Only Unix-sockets in the `unix:///tmp/dnstap.sock` format are supported.
+
+**Default:** No default value, the variable is **required** if [`DNSTAP_TYPE`](#DNSTAP_TYPE) is set to `socket`.
+
 [ext-backend-dnscheck]: externalhttp.md#backend-dnscheck
 
 ## <a href="#FILTER_CACHE_PATH" id="FILTER_CACHE_PATH" name="FILTER_CACHE_PATH">`FILTER_CACHE_PATH`</a>
@@ -312,13 +326,13 @@ The API key to use when authenticating requests to the filter-index API. The API
 
 The interval between updates of the GRPC filter index, as a human-readable duration.
 
-**Default:** No default value, the variable is **required** if [`TYPOSQUATTING_ENABLED`] is set to `1`.
+**Default:** No default value, the variable is **required** if [`TYPOSQUATTING_ENABLED`](#TYPOSQUATTING_ENABLED) is set to `1`.
 
 ## <a href="#FILTER_INDEX_API_URL" id="FILTER_INDEX_API_URL" name="FILTER_INDEX_API_URL">`FILTER_INDEX_API_URL`</a>
 
 The backend URL for the filter-index API. Supports gRPC(S) (`grpc://` and `grpcs://`) URLs.
 
-**Default:** No default value, the variable is **required** if [`TYPOSQUATTING_ENABLED`] is set to `1`.
+**Default:** No default value, the variable is **required** if [`TYPOSQUATTING_ENABLED`](#TYPOSQUATTING_ENABLED) is set to `1`.
 
 ## <a href="#FILTER_CACHE_MAX_STALENESS" id="FILTER_CACHE_MAX_STALENESS" name="FILTER_CACHE_MAX_STALENESS">`FILTER_CACHE_MAX_STALENESS`</a>
 
@@ -329,6 +343,8 @@ The maximum duration of staleness for the filter cache.
 ## <a href="#FILTER_INDEX_URL" id="FILTER_INDEX_URL" name="FILTER_INDEX_URL">`FILTER_INDEX_URL`</a>
 
 The HTTP(S) URL or a hostless file URI (e.g. `file:///tmp/filters.json`) of the filtering rule index file server. See the [external HTTP API requirements section][ext-lists] on the expected format of the response.
+
+A file URI should not point to the same file as the one in `${FILTER_CACHE_PATH}/index/filters.json`.
 
 **Default:** No default value, the variable is **required.**
 

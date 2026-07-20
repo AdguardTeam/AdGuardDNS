@@ -274,7 +274,7 @@ func (h *dnsCryptHandler) ServeDNS(rw dnscrypt.ResponseWriter, req *dns.Msg) (er
 	ctx = ContextWithRequestInfo(ctx, &RequestInfo{StartTime: h.srv.clock.Now()})
 
 	nrw := NewNonWriterResponseWriter(rw.LocalAddr(), rw.RemoteAddr())
-	written := h.srv.serveDNSMsg(ctx, req, nrw)
+	written := h.srv.serveDNSMsg(ctx, req, nrw, nil)
 	if !written {
 		// If there was no response from the handler, return SERVFAIL.
 		return rw.WriteMsg(genErrorResponse(req, dns.RcodeServerFailure))

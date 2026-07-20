@@ -2,10 +2,7 @@ package ruleliststorage
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-	"net/url"
-	"path"
 	"path/filepath"
 	"sync"
 	"time"
@@ -13,9 +10,8 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
-	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/refreshable"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterindex"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/rulelist"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/c2h5oh/datasize"
 )
@@ -36,8 +32,8 @@ type Config struct {
 	// refresh errors.  It must not be nil.
 	ErrColl errcoll.Interface
 
-	// IndexConfig is the rule list index configuration.  It must not be nil.
-	IndexConfig *IndexConfig
+	// IndexStorage is used to get rule list index data.  It must not be nil.
+	IndexStorage filterindex.RulelistStorage
 
 	// Logger is used for logging the operation of the storage.  It must not be
 	// nil.
@@ -50,29 +46,10 @@ type Config struct {
 	// CacheDir is the path to the directory where the cached rule lists files
 	// are stored.  It must not be empty and the directory must exist.
 	CacheDir string
-}
 
-// IndexConfig is the rule list index configuration.
-type IndexConfig struct {
-	// IndexURL is the URL of the filter index.  It must not be modified after
-	// calling [New].  It must not be nil.
-	IndexURL *url.URL
-
-	// IndexMaxSize is the maximum size of the downloadable filter index
-	// content.  It must be positive.
-	IndexMaxSize datasize.ByteSize
-
-	// MaxSize is the maximum size of the content of a single filter index.  It
+	// MaxSize is the maximum size for the content of the single filter.  It
 	// must be positive.
 	MaxSize datasize.ByteSize
-
-	// IndexRefreshTimeout is the timeout for the update of the filter index.
-	// It must be positive.
-	IndexRefreshTimeout time.Duration
-
-	// IndexStaleness is the time after which the cached index file is
-	// considered stale.  It must be positive.
-	IndexStaleness time.Duration
 
 	// RefreshTimeout is the timeout for the update of a single filter.  It must
 	// be positive.
@@ -110,9 +87,9 @@ type Default struct {
 	cacheManager agdcache.Manager
 	clock        timeutil.Clock
 	errColl      errcoll.Interface
+	indexStorage filterindex.RulelistStorage
 	logger       *slog.Logger
 	metrics      filter.Metrics
-	refr         *refreshable.Refreshable
 
 	// ruleListsMu protects ruleLists.
 	//
@@ -122,7 +99,8 @@ type Default struct {
 
 	ruleLists ruleLists
 
-	cacheDir string
+	indexCachePath string
+	cacheDir       string
 
 	staleness      time.Duration
 	refreshTimeout time.Duration
@@ -137,43 +115,26 @@ type Default struct {
 // must not be nil.  The storage is not ready for use until
 // [Default.RefreshInitial].
 func New(c *Config) (s *Default, err error) {
-	idxConf := c.IndexConfig
-
-	idxRefr, err := refreshable.New(&refreshable.Config{
-		Clock: c.Clock,
-		Logger: c.BaseLogger.With(
-			slogutil.KeyPrefix, path.Join("filters", string(filterIDRuleListIndex)),
-		),
-		URL:       idxConf.IndexURL,
-		ID:        filterIDRuleListIndex,
-		CachePath: filepath.Join(c.CacheDir, filter.SubDirNameIndex, indexFileNameRuleLists),
-		Staleness: idxConf.IndexStaleness,
-		Timeout:   idxConf.IndexRefreshTimeout,
-		MaxSize:   idxConf.IndexMaxSize,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("initializing rule list refresher: %w", err)
-	}
-
 	return &Default{
 		baseLogger:   c.BaseLogger,
 		cacheManager: c.CacheManager,
 		clock:        c.Clock,
 		errColl:      c.ErrColl,
+		indexStorage: c.IndexStorage,
 		logger:       c.Logger,
 		metrics:      c.Metrics,
-		refr:         idxRefr,
 		ruleListsMu:  &sync.RWMutex{},
 
 		// Initialized with [Default.RefreshInitial].
 		ruleLists: nil,
 
+		indexCachePath: filepath.Join(c.CacheDir, filter.SubDirNameIndex, indexFileNameRuleLists),
 		cacheDir:       filepath.Join(c.CacheDir, filter.SubDirNameRuleList),
-		staleness:      idxConf.Staleness,
-		refreshTimeout: idxConf.RefreshTimeout,
-		maxSize:        idxConf.MaxSize,
-		resCacheCount:  idxConf.ResultCacheCount,
-		cacheEnabled:   idxConf.ResultCacheEnabled,
+		staleness:      c.Staleness,
+		refreshTimeout: c.RefreshTimeout,
+		maxSize:        c.MaxSize,
+		resCacheCount:  c.ResultCacheCount,
+		cacheEnabled:   c.ResultCacheEnabled,
 	}, nil
 }
 

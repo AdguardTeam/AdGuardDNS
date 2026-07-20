@@ -23,7 +23,7 @@ BRANCH = $${BRANCH:-$$(git rev-parse --abbrev-ref HEAD)}
 GOAMD64 = v1
 GOPROXY = https://proxy.golang.org|direct
 GOTELEMETRY = off
-GOTOOLCHAIN = go1.26.3
+GOTOOLCHAIN = go1.26.4
 RACE = 0
 REVISION = $${REVISION:-$$(git rev-parse --short HEAD)}
 

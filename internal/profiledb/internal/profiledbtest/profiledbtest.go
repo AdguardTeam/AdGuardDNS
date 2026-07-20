@@ -125,11 +125,11 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 		},
 		PauseSchedule: &filter.ConfigSchedule{
 			Week: &filter.WeeklySchedule{
-				time.Monday:    {Start: 0, End: schedEnd},
-				time.Tuesday:   {Start: 0, End: schedEnd},
-				time.Wednesday: {Start: 0, End: schedEnd},
-				time.Thursday:  {Start: 0, End: schedEnd},
-				time.Friday:    {Start: 0, End: schedEnd},
+				time.Monday:    filter.DayIntervals{{Start: 0, End: schedEnd}},
+				time.Tuesday:   filter.DayIntervals{{Start: 0, End: schedEnd}},
+				time.Wednesday: filter.DayIntervals{{Start: 0, End: schedEnd}},
+				time.Thursday:  filter.DayIntervals{{Start: 0, End: schedEnd}},
+				time.Friday:    filter.DayIntervals{{Start: 0, End: schedEnd}},
 				time.Saturday:  nil,
 				time.Sunday:    nil,
 			},

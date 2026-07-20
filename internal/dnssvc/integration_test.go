@@ -17,6 +17,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/messagetap"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
@@ -294,6 +295,7 @@ func newTestService(
 		Clock:                   testClock,
 		Cloner:                  agdtest.NewCloner(),
 		ErrColl:                 errColl,
+		MessageTap:              messagetap.Empty{},
 		NonDNS:                  http.NotFoundHandler(),
 		PrometheusRegisterer:    prometheus.NewRegistry(),
 		MetricsNamespace:        path.Base(t.Name()),

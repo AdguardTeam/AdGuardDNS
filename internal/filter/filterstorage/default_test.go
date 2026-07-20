@@ -10,7 +10,9 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/custom"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterindex"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/filterstorage"
+	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/composite"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/internal/filtertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter/ruleliststorage"
 	"github.com/AdguardTeam/golibs/container"
@@ -71,14 +73,19 @@ func TestNew(t *testing.T) {
 	}}
 
 	rlStorage, sErr := ruleliststorage.New(&ruleliststorage.Config{
-		BaseLogger:   filtertest.Logger,
-		CacheManager: agdcache.EmptyManager{},
-		Clock:        timeutil.SystemClock{},
-		ErrColl:      agdtest.NewErrorCollector(),
-		IndexConfig:  newRuleListIndexConfig(indexURL),
-		Logger:       filtertest.Logger,
-		Metrics:      filter.EmptyMetrics{},
-		CacheDir:     t.TempDir(),
+		BaseLogger:         filtertest.Logger,
+		CacheManager:       agdcache.EmptyManager{},
+		Clock:              timeutil.SystemClock{},
+		ErrColl:            agdtest.NewErrorCollector(),
+		IndexStorage:       filterindex.EmptyRulelistStorage{},
+		Logger:             filtertest.Logger,
+		Metrics:            filter.EmptyMetrics{},
+		CacheDir:           t.TempDir(),
+		MaxSize:            filtertest.FilterMaxSize,
+		RefreshTimeout:     filtertest.Timeout,
+		Staleness:          filtertest.Staleness,
+		ResultCacheCount:   filtertest.CacheCount,
+		ResultCacheEnabled: true,
 	})
 	require.NoError(t, sErr)
 
@@ -118,7 +125,7 @@ func TestDefault_ForConfig_client(t *testing.T) {
 		conf := newFltConfigCli(
 			newFltConfigParental(false, false, false, false),
 			newFltConfigRuleList(false),
-			newFltConfigSafeBrowsing(false, false),
+			newFltConfigSafeBrowsing(false, false, false, false),
 		)
 
 		conf.CustomFilter.Enabled = true
@@ -147,16 +154,14 @@ func TestDefault_ForConfig_client(t *testing.T) {
 		conf := newFltConfigCli(
 			newFltConfigParental(false, true, false, false),
 			newFltConfigRuleList(false),
-			newFltConfigSafeBrowsing(false, false),
+			newFltConfigSafeBrowsing(false, false, false, false),
 		)
 
 		now := time.Now()
 
-		// Use a slice, because array indexes must be constant.
-		week := make([]*filter.DayInterval, 7)
-		week[now.Weekday()] = &filter.DayInterval{
-			Start: 0,
-			End:   filter.MaxDayIntervalEndMinutes,
+		week := &[7]filter.DayIntervals{}
+		week[now.Weekday()] = filter.DayIntervals{
+			{Start: 0, End: filter.MaxDayIntervalEndMinutes},
 		}
 
 		conf.Parental.PauseSchedule = &filter.ConfigSchedule{
@@ -187,47 +192,57 @@ func TestDefault_ForConfig_common(t *testing.T) {
 	}{{
 		parental:     newFltConfigParental(false, false, false, false),
 		ruleList:     newFltConfigRuleList(false),
-		safeBrowsing: newFltConfigSafeBrowsing(false, false),
+		safeBrowsing: newFltConfigSafeBrowsing(false, false, false, false),
 		name:         "empty",
 	}, {
 		parental:     newFltConfigParental(true, false, false, false),
 		ruleList:     newFltConfigRuleList(false),
-		safeBrowsing: newFltConfigSafeBrowsing(false, false),
+		safeBrowsing: newFltConfigSafeBrowsing(false, false, false, false),
 		name:         "adult_content",
 	}, {
 		parental:     newFltConfigParental(false, true, false, false),
 		ruleList:     newFltConfigRuleList(false),
-		safeBrowsing: newFltConfigSafeBrowsing(false, false),
+		safeBrowsing: newFltConfigSafeBrowsing(false, false, false, false),
 		name:         "blocked_service",
 	}, {
 		parental:     newFltConfigParental(false, false, false, false),
 		ruleList:     newFltConfigRuleList(false),
-		safeBrowsing: newFltConfigSafeBrowsing(true, false),
+		safeBrowsing: newFltConfigSafeBrowsing(true, false, false, false),
 		name:         "dangerous",
 	}, {
 		parental:     newFltConfigParental(false, false, false, false),
 		ruleList:     newFltConfigRuleList(false),
-		safeBrowsing: newFltConfigSafeBrowsing(false, true),
+		safeBrowsing: newFltConfigSafeBrowsing(false, true, false, false),
 		name:         "newly_registered",
 	}, {
 		parental:     newFltConfigParental(false, false, false, false),
 		ruleList:     newFltConfigRuleList(true),
-		safeBrowsing: newFltConfigSafeBrowsing(false, false),
+		safeBrowsing: newFltConfigSafeBrowsing(false, false, false, false),
 		name:         "rule_list_blocked",
 	}, {
 		parental:     newFltConfigParental(false, false, true, false),
 		ruleList:     newFltConfigRuleList(false),
-		safeBrowsing: newFltConfigSafeBrowsing(false, false),
+		safeBrowsing: newFltConfigSafeBrowsing(false, false, false, false),
 		name:         "safe_search_general",
 	}, {
 		parental:     newFltConfigParental(false, false, false, true),
 		ruleList:     newFltConfigRuleList(false),
-		safeBrowsing: newFltConfigSafeBrowsing(false, false),
+		safeBrowsing: newFltConfigSafeBrowsing(false, false, false, false),
 		name:         "safe_search_youtube",
+	}, {
+		parental:     newFltConfigParental(false, false, false, false),
+		ruleList:     newFltConfigRuleList(false),
+		safeBrowsing: newFltConfigSafeBrowsing(false, false, true, false),
+		name:         "safe_browsing_typosquatting",
+	}, {
+		parental:     newFltConfigParental(false, false, false, false),
+		ruleList:     newFltConfigRuleList(false),
+		safeBrowsing: newFltConfigSafeBrowsing(false, false, false, true),
+		name:         "safe_browsing_homoglyph",
 	}, {
 		parental:     newFltConfigParental(true, true, true, true),
 		ruleList:     newFltConfigRuleList(true),
-		safeBrowsing: newFltConfigSafeBrowsing(true, false),
+		safeBrowsing: newFltConfigSafeBrowsing(true, true, true, true),
 		name:         "all",
 	}}
 
@@ -298,11 +313,20 @@ func newFltConfigRuleList(enabled bool) (c *filter.ConfigRuleList) {
 
 // newFltConfigSafeBrowsing returns a *filter.FilterConfigSafeBrowsing
 // with the features properly enabled or disabled.
-func newFltConfigSafeBrowsing(hpDanger, hpNew bool) (c *filter.ConfigSafeBrowsing) {
+func newFltConfigSafeBrowsing(
+	hpDanger bool,
+	hpNew bool,
+	typosquatting bool,
+	homoglyph bool,
+) (c *filter.ConfigSafeBrowsing) {
 	return &filter.ConfigSafeBrowsing{
-		Homoglyph:                     &filter.ConfigHomoglyph{},
-		Typosquatting:                 &filter.ConfigTyposquatting{},
-		Enabled:                       hpDanger || hpNew,
+		Homoglyph: &filter.ConfigHomoglyph{
+			Enabled: homoglyph,
+		},
+		Typosquatting: &filter.ConfigTyposquatting{
+			Enabled: typosquatting,
+		},
+		Enabled:                       hpDanger || hpNew || typosquatting || homoglyph,
 		DangerousDomainsEnabled:       hpDanger,
 		NewlyRegisteredDomainsEnabled: hpNew,
 	}
@@ -438,6 +462,34 @@ func assertFilterResultsSafeBrowsing(
 	filtertest.AssertEqualResult(tb, wantResNewReg, r)
 }
 
+func TestDefault_Dispose(t *testing.T) {
+	t.Parallel()
+
+	s := newDefault(t)
+
+	testCases := []struct {
+		filter filter.Interface
+		name   string
+	}{{
+		name:   "composite",
+		filter: &composite.Filter{},
+	}, {
+		name:   "non_composite",
+		filter: filter.Empty{},
+	}, {
+		name:   "nil",
+		filter: nil,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.NotPanics(t, func() { s.Dispose(tc.filter) })
+		})
+	}
+}
+
 func BenchmarkDefault_ForConfig(b *testing.B) {
 	s := newDefault(b)
 
@@ -445,7 +497,7 @@ func BenchmarkDefault_ForConfig(b *testing.B) {
 
 	parental := newFltConfigParental(true, true, true, true)
 	ruleList := newFltConfigRuleList(true)
-	safeBrowsing := newFltConfigSafeBrowsing(true, true)
+	safeBrowsing := newFltConfigSafeBrowsing(true, true, true, true)
 
 	b.Run("client", func(b *testing.B) {
 		conf := newFltConfigCli(parental, ruleList, safeBrowsing)

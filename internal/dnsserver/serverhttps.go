@@ -455,7 +455,13 @@ func (h *httpHandler) serveDoH(ctx context.Context, w http.ResponseWriter, r *ht
 		return
 	}
 
-	rw := NewNonWriterResponseWriter(h.localAddr, h.remoteAddr(r))
+	rAddr := h.remoteAddr(r)
+	rw := NewNonWriterResponseWriter(h.localAddr, rAddr)
+	lAddrPort := netutil.NetAddrToAddrPort(h.localAddr)
+	rAddrPort := netutil.NetAddrToAddrPort(rAddr)
+
+	h.srv.messageTap.TapRequest(ctx, lAddrPort, rAddrPort, buf)
+
 	ctx = h.srv.addRequestInfo(ctx, r)
 
 	req := &dns.Msg{}
@@ -477,7 +483,7 @@ func (h *httpHandler) serveDoH(ctx context.Context, w http.ResponseWriter, r *ht
 	}
 	defer h.srv.activeRequestsSema.Release()
 
-	written := h.srv.serveDNSMsg(ctx, req, rw)
+	written := h.srv.serveDNSMsg(ctx, req, rw, nil)
 	if !written {
 		http.Error(w, "No response", http.StatusInternalServerError)
 
@@ -485,7 +491,15 @@ func (h *httpHandler) serveDoH(ctx context.Context, w http.ResponseWriter, r *ht
 	}
 
 	resp := rw.Resp()
-	err = h.writeResponse(req, resp, r, w)
+	buf, ct, err := packResponse(req, resp, r)
+	if err != nil {
+		http.Error(w, "Bad response", http.StatusInternalServerError)
+
+		return
+	}
+
+	h.srv.messageTap.TapResponse(ctx, lAddrPort, rAddrPort, buf)
+	err = h.writeResponse(buf, ct, resp, w)
 	if err != nil {
 		// Try writing an error response just in case.
 		http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -496,37 +510,43 @@ func (h *httpHandler) serveDoH(ctx context.Context, w http.ResponseWriter, r *ht
 	h.srv.disposer.Dispose(resp)
 }
 
-// writeResponse writes the actual DNS response to the client and takes care of
-// the response serialization, i.e. writes different content depending on the
-// requested mime type (wireformat or JSON).
-func (h *httpHandler) writeResponse(
-	req *dns.Msg,
-	resp *dns.Msg,
-	r *http.Request,
-	w http.ResponseWriter,
-) (err error) {
-	// normalize the response
+// packResponse serializes DNS response, i.e. returns different content
+// depending on the requested MIME type (wireformat or JSON).  All arguments
+// must not be nil.
+func packResponse(req, resp *dns.Msg, r *http.Request) (buf []byte, ct string, err error) {
 	normalizeTCP(ProtoDoH, req, resp)
 
 	isDNS, _, ct := isDoH(r)
 	if !isDNS {
-		return fmt.Errorf("invalid request path: %s", r.URL.Path)
+		return nil, "", fmt.Errorf("invalid request path: %s", r.URL.Path)
 	}
 
-	var buf []byte
 	switch ct {
 	case MimeTypeDoH:
 		buf, err = resp.Pack()
-		w.Header().Set(httphdr.ContentType, MimeTypeDoH)
 	case MimeTypeJSON:
 		buf, err = dnsMsgToJSON(resp)
-		w.Header().Set(httphdr.ContentType, MimeTypeJSON)
 	default:
 		err = fmt.Errorf("invalid content type: %q", ct)
 	}
 	if err != nil {
-		return err
+		// Do not wrap the error, because it's informative enough as is.
+		return nil, "", err
 	}
+
+	return buf, ct, nil
+}
+
+// writeResponse writes the actual DNS response to the client and takes care of
+// the response serialization, i.e. writes different content depending on the
+// requested mime type (wireformat or JSON).  All arguments must not be nil.
+func (h *httpHandler) writeResponse(
+	buf []byte,
+	ct string,
+	resp *dns.Msg,
+	w http.ResponseWriter,
+) (err error) {
+	w.Header().Set(httphdr.ContentType, ct)
 
 	// From RFC8484, Section 5.1:
 	// DoH servers SHOULD assign an explicit HTTP freshness

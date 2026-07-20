@@ -55,7 +55,8 @@ func TestDefault_Refresh(t *testing.T) {
 		http.StatusOK,
 	)
 
-	rlStorage := newRuleListStorage(t, newRuleListIndexConfig(ruleListIdxURL))
+	idxStorage := newRuleListIdxStorage(t, ruleListIdxURL)
+	rlStorage := newRuleListStorage(t, idxStorage, filtertest.Staleness)
 	c := newDisabledConfig(t, rlStorage, newIndexConfig(catIdxURL))
 	c.BlockedServices = newConfigBlockedServices(svcIdxURL)
 	c.SafeSearchGeneral = newConfigSafeSearch(safeSearchGenURL, filter.IDGeneralSafeSearch)
@@ -95,28 +96,10 @@ func TestDefault_Refresh(t *testing.T) {
 func TestDefault_Refresh_usePrevious(t *testing.T) {
 	const (
 		blockRule   = filtertest.RuleBlockStr + "\n"
-		blockDomain = filtertest.Host + "\n"
+		blockDomain = filtertest.HostBlocked + "\n"
 	)
 
-	codeCh := make(chan int, 2)
-	codeCh <- http.StatusOK
-	codeCh <- http.StatusNotFound
-	ruleListURL := newCodeServer(t, blockRule, codeCh)
-
-	rlIdxData := filtertest.NewRuleListIndex(ruleListURL.String())
-	_, rlIdxURL := filtertest.PrepareRefreshable(t, nil, string(rlIdxData), http.StatusOK)
-
-	_, catURL := filtertest.PrepareRefreshable(t, nil, blockDomain, http.StatusOK)
-	catIdxData := filtertest.NewCategoryIndex(catURL.String())
-	_, catIdxURL := filtertest.PrepareRefreshable(t, nil, string(catIdxData), http.StatusOK)
-
-	// Use a smaller staleness value to make sure that the filter is refreshed.
-	ruleListsConf := newRuleListIndexConfig(rlIdxURL)
-	ruleListsConf.Staleness = 1 * time.Microsecond
-
-	rlStorage := newRuleListStorage(t, ruleListsConf)
-	c := newDisabledConfig(t, rlStorage, newIndexConfig(catIdxURL))
-	c.ErrColl = &agdtest.ErrorCollector{
+	collector := &agdtest.ErrorCollector{
 		OnCollect: func(_ context.Context, err error) {
 			errStatus := &agdhttp.StatusError{}
 			assert.ErrorAs(t, err, &errStatus)
@@ -126,52 +109,123 @@ func TestDefault_Refresh_usePrevious(t *testing.T) {
 		},
 	}
 
-	s, err := filterstorage.New(c)
-	require.NoError(t, err)
-
-	// The first refresh, success.
-	ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
-	err = s.RefreshInitial(ctx)
-	require.NoError(t, err)
-
 	fltConf := &filter.ConfigClient{
 		CustomFilter:   &filter.ConfigCustomFilter{},
 		CustomRuleList: &filter.ConfigCustomRuleList{},
 		Parental: &filter.ConfigParental{
 			Categories: &filter.ConfigCategories{},
 		},
-		RuleList: &filter.ConfigRuleList{
-			IDs:     []filter.ID{filtertest.RuleListID1},
-			Enabled: true,
-		},
+		RuleList: &filter.ConfigRuleList{},
 		SafeBrowsing: &filter.ConfigSafeBrowsing{
 			Homoglyph:     &filter.ConfigHomoglyph{},
 			Typosquatting: &filter.ConfigTyposquatting{},
 		},
 	}
 
+	require.True(t, t.Run("rule_list", func(t *testing.T) {
+		codeCh := make(chan int, 2)
+		codeCh <- http.StatusOK
+		codeCh <- http.StatusNotFound
+		ruleListURL := newCodeServer(t, blockRule, codeCh)
+
+		rlIdxData := filtertest.NewRuleListIndex(ruleListURL.String())
+		_, rlIdxURL := filtertest.PrepareRefreshable(t, nil, string(rlIdxData), http.StatusOK)
+
+		_, catURL := filtertest.PrepareRefreshable(t, nil, blockDomain, http.StatusOK)
+		catIdxData := filtertest.NewCategoryIndex(catURL.String())
+		_, catIdxURL := filtertest.PrepareRefreshable(t, nil, string(catIdxData), http.StatusOK)
+
+		indexStorage := newRuleListIdxStorage(t, rlIdxURL)
+		rlStorage := newRuleListStorage(t, indexStorage, 1*time.Microsecond)
+		c := newDisabledConfig(t, rlStorage, newIndexConfig(catIdxURL))
+		c.ErrColl = collector
+
+		s, err := filterstorage.New(c)
+		require.NoError(t, err)
+
+		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
+		err = s.RefreshInitial(ctx)
+		require.NoError(t, err)
+
+		fltConf.RuleList.Enabled = true
+		fltConf.RuleList.IDs = []filter.ID{filtertest.RuleListID1}
+
+		testUsePreviousFilter(t, s, fltConf, resultRuleList)
+	}))
+
+	fltConf.RuleList.Enabled = false
+
+	require.True(t, t.Run("category", func(t *testing.T) {
+		codeCh := make(chan int, 2)
+		codeCh <- http.StatusOK
+		codeCh <- http.StatusNotFound
+		catURL := newCodeServer(t, blockDomain, codeCh)
+
+		catIdxData := filtertest.NewCategoryIndex(catURL.String())
+		_, catIdxURL := filtertest.PrepareRefreshable(t, nil, string(catIdxData), http.StatusOK)
+
+		_, ruleListURL := filtertest.PrepareRefreshable(t, nil, blockRule, http.StatusOK)
+		rlIdxData := filtertest.NewRuleListIndex(ruleListURL.String())
+		_, rlIdxURL := filtertest.PrepareRefreshable(t, nil, string(rlIdxData), http.StatusOK)
+
+		idxConf := newIndexConfig(catIdxURL)
+		idxConf.Staleness = 1 * time.Microsecond
+
+		rlStorage := newRuleListStorage(t, newRuleListIdxStorage(t, rlIdxURL), filtertest.Staleness)
+		c := newDisabledConfig(t, rlStorage, idxConf)
+		c.ErrColl = collector
+
+		s, err := filterstorage.New(c)
+		require.NoError(t, err)
+
+		ctx := testutil.ContextWithTimeout(t, filtertest.Timeout)
+		err = s.RefreshInitial(ctx)
+		require.NoError(t, err)
+
+		resultCategory := &filter.ResultBlocked{
+			List: filter.IDCategory,
+			Rule: filter.RuleText(filtertest.CategoryIDStr),
+		}
+
+		fltConf.Parental.Enabled = true
+		fltConf.Parental.Categories.Enabled = true
+		fltConf.Parental.Categories.IDs = []filter.CategoryID{filtertest.CategoryID}
+
+		testUsePreviousFilter(t, s, fltConf, resultCategory)
+	}))
+}
+
+// testUsePreviousFilter is a helper that makes sure that a filter continues to
+// use the previous version when refresh fails.
+func testUsePreviousFilter(
+	tb testing.TB,
+	s *filterstorage.Default,
+	fltConf *filter.ConfigClient,
+	wantRes filter.Result,
+) {
+	tb.Helper()
+
+	ctx := testutil.ContextWithTimeout(tb, filtertest.Timeout)
 	f := s.ForConfig(ctx, fltConf)
-	require.NotNil(t, f)
+	require.NotNil(tb, f)
 
-	req := filtertest.NewARequest(t, filtertest.HostBlocked)
+	req := filtertest.NewARequest(tb, filtertest.HostBlocked)
 	r, err := f.FilterRequest(ctx, req)
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
-	filtertest.AssertEqualResult(t, resultRuleList, r)
+	filtertest.AssertEqualResult(tb, wantRes, r)
 
-	// The second refresh, not found.  The older version of the rule-list filter
-	// must still be used.
 	err = s.Refresh(ctx)
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
 	f = s.ForConfig(ctx, fltConf)
-	require.NotNil(t, f)
+	require.NotNil(tb, f)
 
 	r, err = f.FilterRequest(ctx, req)
-	require.NotNil(t, r)
-	require.NoError(t, err)
+	require.NotNil(tb, r)
+	require.NoError(tb, err)
 
-	filtertest.AssertEqualResult(t, resultRuleList, r)
+	filtertest.AssertEqualResult(tb, wantRes, r)
 }
 
 // newCodeServer is a helper that creates a server responding with text and

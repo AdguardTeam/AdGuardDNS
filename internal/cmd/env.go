@@ -17,13 +17,13 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv/consulkv"
 	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv/rediskv"
-	"github.com/AdguardTeam/AdGuardDNS/internal/version"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/AdguardTeam/golibs/validate"
+	"github.com/AdguardTeam/golibs/version"
 	"github.com/c2h5oh/datasize"
 	"github.com/caarlos0/env/v7"
 	"github.com/getsentry/sentry-go"
@@ -55,6 +55,7 @@ type environment struct {
 	ConsulDNSCheckSessionURL *urlutil.URL `env:"CONSUL_DNSCHECK_SESSION_URL"`
 	CustomDomainsURL         *urlutil.URL `env:"CUSTOM_DOMAINS_URL"`
 	DNSCheckRemoteKVURL      *urlutil.URL `env:"DNSCHECK_REMOTEKV_URL"`
+	DNSTapSocketURL          *urlutil.URL `env:"DNSTAP_SOCKET_URL"`
 	FilterIndexAPIURL        *urlutil.URL `env:"FILTER_INDEX_API_URL"`
 	FilterIndexURL           *urlutil.URL `env:"FILTER_INDEX_URL,notEmpty"`
 	GeneralSafeSearchURL     *urlutil.URL `env:"GENERAL_SAFE_SEARCH_URL"`
@@ -78,6 +79,7 @@ type environment struct {
 	CustomDomainsCachePath string `env:"CUSTOM_DOMAINS_CACHE_PATH"`
 	DNSCheckKVType         string `env:"DNSCHECK_KV_TYPE"`
 	DNSCheckRemoteKVAPIKey string `env:"DNSCHECK_REMOTEKV_API_KEY"`
+	DNSTapType             string `env:"DNSTAP_TYPE" envDefault:"off"`
 	// TODO(f.setrakov): Rename env.
 	FilterCacheDir         string `env:"FILTER_CACHE_PATH" envDefault:"./filters/"`
 	FilterIndexAPIKey      string `env:"FILTER_INDEX_API_KEY"`
@@ -196,6 +198,7 @@ func (envs *environment) Validate() (err error) {
 	errs = envs.validateCrashOutput(errs)
 	errs = envs.validateCustomDomains(errs)
 	errs = envs.validateDNSCheck(errs)
+	errs = envs.validateDNSTap(errs)
 	errs = envs.validateQueryLogSemaphore(errs)
 	errs = envs.validateRateLimit(errs)
 	errs = envs.validateRateLimitURLs(errs)
@@ -212,6 +215,8 @@ func (envs *environment) Validate() (err error) {
 func (envs *environment) validateFilters(orig []error) (errs []error) {
 	errs = orig
 
+	// TODO(a.garipov):  Validate that the path is not the same as the one used
+	// to cache the content of the index.
 	if s := envs.FilterIndexURL.Scheme; !strings.EqualFold(s, urlutil.SchemeFile) &&
 		!urlutil.IsValidHTTPURLScheme(s) {
 		errs = append(errs, fmt.Errorf(
@@ -370,7 +375,8 @@ func (envs *environment) validateCrashOutput(orig []error) (errs []error) {
 		}
 	}
 
-	return append(errs,
+	return append(
+		errs,
 		validate.NotEmpty("CRASH_OUTPUT_DIR", envs.CrashOutputDir),
 		validate.NotEmpty("CRASH_OUTPUT_PREFIX", envs.CrashOutputPrefix),
 	)
@@ -385,7 +391,8 @@ func (envs *environment) validateCustomDomains(errs []error) (res []error) {
 		return res
 	}
 
-	res = append(res,
+	res = append(
+		res,
 		validate.NotEmpty("env CUSTOM_DOMAINS_CACHE_PATH", envs.CustomDomainsCachePath),
 		validate.Positive("env CUSTOM_DOMAINS_REFRESH_INTERVAL", envs.CustomDomainsRefreshIvl),
 	)
@@ -428,7 +435,59 @@ func (envs *environment) validateDNSCheck(errs []error) (res []error) {
 	return res
 }
 
-// validateDNSCheck appends validation errors to errs if the environment
+// Possible values of the DNSTAP_TYPE environment variable.
+const (
+	dnsTapLog    = "log"
+	dnsTapOff    = "off"
+	dnsTapSocket = "socket"
+)
+
+// validateDNSTap appends validation errors to orig if the environment
+// variables for DNS tap contain errors.
+func (envs *environment) validateDNSTap(orig []error) (errs []error) {
+	errs = orig
+
+	var err error
+	switch typ := envs.DNSTapType; typ {
+	case dnsTapLog, dnsTapOff:
+		// Go on.
+	case dnsTapSocket:
+		err = validateSocketURL(envs.DNSTapSocketURL)
+		if err != nil {
+			err = fmt.Errorf("env DNSTAP_SOCKET_URL: %w", err)
+		}
+	default:
+		err = fmt.Errorf("env DNSTAP_TYPE: %w: %q", errors.ErrBadEnumValue, typ)
+	}
+
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	return errs
+}
+
+// schemeUnix is the scheme used in Unix socket URLs.
+const schemeUnix = "unix"
+
+// validateSocketURL returns nil if u is a valid Unix socket URL.
+//
+// TODO(a.garipov):  Consider moving to golibs.
+func validateSocketURL(u *urlutil.URL) (err error) {
+	if u == nil {
+		return fmt.Errorf("bad socket url: %w", errors.ErrNoValue)
+	}
+
+	defer func() { err = errors.Annotate(err, "bad socket url %q: %w", u) }()
+
+	if !strings.EqualFold(u.Scheme, schemeUnix) {
+		return fmt.Errorf("scheme: bad value: %q; want %q", u.Scheme, schemeUnix)
+	}
+
+	return nil
+}
+
+// validateRateLimit appends validation errors to errs if the environment
 // variables for rate limit contain errors.
 func (envs *environment) validateRateLimit(errs []error) (res []error) {
 	switch typ := envs.RateLimitAllowlistType; typ {

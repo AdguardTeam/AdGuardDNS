@@ -10,9 +10,6 @@ import (
 	"github.com/AdguardTeam/golibs/service"
 )
 
-// filterIDRuleListIndex is the identifier of the rule list index.
-const filterIDRuleListIndex filter.ID = "rule_list_index"
-
 // indexFileNameRuleLists is the name of the rule list index file.
 const indexFileNameRuleLists = "filters.json"
 

@@ -129,12 +129,7 @@ func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
 		defer mw.fltCtxPool.Put(fctx)
 
 		ri := agd.MustRequestInfoFromContext(ctx)
-		optslog.Trace1(
-			ctx,
-			mw.logger,
-			"processing request",
-			"remote_ip", ri.RemoteIP,
-		)
+		optslog.Trace1(ctx, mw.logger, "processing request", "remote_ip", ri.RemoteIP)
 		defer optslog.Trace1(
 			ctx,
 			mw.logger,
@@ -162,6 +157,10 @@ func (mw *Middleware) Wrap(next dnsserver.Handler) (wrapped dnsserver.Handler) {
 		}
 
 		fctx.originalResponse = nwrw.Resp()
+
+		rcode, respIP, _ := mw.responseData(ctx, fctx.originalResponse)
+		fctx.responseCtry, fctx.responseASN = mw.responseLocation(ctx, fctx, ri.Host, respIP, rcode)
+
 		mw.filterResponse(ctx, fctx, flt, ri)
 
 		mw.reportMetrics(ctx, fctx, ri)

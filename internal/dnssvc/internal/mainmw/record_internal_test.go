@@ -1,210 +1,72 @@
 package mainmw
 
 import (
-	"context"
 	"net/netip"
 	"testing"
-	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
-	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
-	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
-	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
-	"github.com/AdguardTeam/AdGuardDNS/internal/rulestat"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
-	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestMiddleware_recordQueryInfo_respCtry(t *testing.T) {
+func TestIPFromAnswer(t *testing.T) {
 	t.Parallel()
 
-	const (
-		fqdn   = dnssvctest.DomainFQDN
-		class  = dns.ClassINET
-		ttlSec = 10
+	var ttlSec uint32 = 10
 
-		testCtry = geoip.CountryAD
-	)
+	ipv4Answ := []dns.RR{dnsservertest.NewHTTPS(
+		dnsservertest.FQDN,
+		ttlSec,
+		[]netip.Addr{dnssvctest.DomainAddrIPv4},
+		nil,
+	)}
 
-	var (
-		reqA     = dnsservertest.NewReq(fqdn, dns.TypeA, class)
-		reqAAAA  = dnsservertest.NewReq(fqdn, dns.TypeAAAA, class)
-		reqTXT   = dnsservertest.NewReq(fqdn, dns.TypeTXT, class)
-		reqHTTPS = dnsservertest.NewReq(fqdn, dns.TypeHTTPS, class)
-	)
+	ipv6Answ := []dns.RR{dnsservertest.NewHTTPS(
+		dnsservertest.FQDN,
+		ttlSec,
+		nil,
+		[]netip.Addr{dnssvctest.DomainAddrIPv6},
+	)}
 
 	testCases := []struct {
-		req          *dns.Msg
-		name         string
-		wantRespCtry geoip.Country
-		respAns      []dns.RR
-		respRCode    dnsmsg.RCode
-		wantGeoIP    bool
+		wantIP netip.Addr
+		name   string
+		answer []dns.RR
 	}{{
-		req:          reqA,
-		name:         "empty",
-		wantRespCtry: geoip.CountryNotApplicable,
-		respAns:      nil,
-		respRCode:    dns.RcodeSuccess,
-		wantGeoIP:    false,
+		name:   "https_no_ips",
+		answer: []dns.RR{dnsservertest.NewHTTPS(dnsservertest.FQDN, ttlSec, nil, nil)},
+		wantIP: netip.Addr{},
 	}, {
-		req:          reqA,
-		name:         "refused",
-		wantRespCtry: geoip.CountryNotApplicable,
-		respAns:      nil,
-		respRCode:    dns.RcodeRefused,
-		wantGeoIP:    false,
-	}, {
-		req:          reqA,
-		name:         "a",
-		wantRespCtry: testCtry,
-		respAns: []dns.RR{
-			dnsservertest.NewA(fqdn, ttlSec, dnssvctest.DomainAddrIPv4),
+		name: "multiple_ips",
+		answer: []dns.RR{
+			dnsservertest.NewTXT(dnsservertest.FQDN, ttlSec),
+			dnsservertest.NewA(dnsservertest.FQDN, ttlSec, dnssvctest.DomainAddrIPv4),
 		},
-		respRCode: dns.RcodeSuccess,
-		wantGeoIP: true,
+		wantIP: dnssvctest.DomainAddrIPv4,
 	}, {
-		req:          reqA,
-		name:         "a_unspec",
-		wantRespCtry: geoip.CountryNotApplicable,
-		respAns: []dns.RR{
-			dnsservertest.NewA(fqdn, ttlSec, netip.IPv4Unspecified()),
-		},
-		respRCode: dns.RcodeSuccess,
-		wantGeoIP: false,
+		name:   "https_ipv4",
+		answer: ipv4Answ,
+		wantIP: dnssvctest.DomainAddrIPv4,
 	}, {
-		req:          reqAAAA,
-		name:         "aaaa",
-		wantRespCtry: testCtry,
-		respAns: []dns.RR{
-			dnsservertest.NewAAAA(fqdn, ttlSec, dnssvctest.DomainAddrIPv6),
-		},
-		respRCode: dns.RcodeSuccess,
-		wantGeoIP: true,
+		name:   "https_ipv6",
+		answer: ipv6Answ,
+		wantIP: dnssvctest.DomainAddrIPv6,
 	}, {
-		req:          reqTXT,
-		name:         "txt",
-		wantRespCtry: geoip.CountryNotApplicable,
-		respAns: []dns.RR{
-			dnsservertest.NewTXT(fqdn, ttlSec),
-		},
-		respRCode: dns.RcodeSuccess,
-		wantGeoIP: false,
-	}, {
-		req:          reqHTTPS,
-		name:         "https_no_ips",
-		wantRespCtry: geoip.CountryNotApplicable,
-		respAns: []dns.RR{
-			dnsservertest.NewHTTPS(fqdn, ttlSec, nil, nil),
-		},
-		respRCode: dns.RcodeSuccess,
-		wantGeoIP: false,
-	}, {
-		req:          reqHTTPS,
-		name:         "https_ipv4",
-		wantRespCtry: testCtry,
-		respAns: []dns.RR{
-			dnsservertest.NewHTTPS(fqdn, ttlSec, []netip.Addr{dnssvctest.DomainAddrIPv4}, nil),
-		},
-		respRCode: dns.RcodeSuccess,
-		wantGeoIP: true,
-	}, {
-		req:          reqHTTPS,
-		name:         "https_ipv6",
-		wantRespCtry: testCtry,
-		respAns: []dns.RR{
-			dnsservertest.NewHTTPS(fqdn, ttlSec, nil, []netip.Addr{dnssvctest.DomainAddrIPv6}),
-		},
-		respRCode: dns.RcodeSuccess,
-		wantGeoIP: true,
+		name:   "txt",
+		answer: []dns.RR{dnsservertest.NewTXT(dnsservertest.FQDN, ttlSec)},
+		wantIP: netip.Addr{},
 	}}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			loc := &geoip.Location{
-				Country: testCtry,
-			}
+			gotIP, err := ipFromAnswer(tc.answer)
+			require.NoError(t, err)
 
-			geoIP := agdtest.NewGeoIP()
-			geoIP.OnData = func(
-				_ context.Context,
-				_ string,
-				_ netip.Addr,
-			) (l *geoip.Location, err error) {
-				if !tc.wantGeoIP {
-					t.Error("unexpected call to geoip")
-				}
-
-				return loc, nil
-			}
-
-			queryLogCalled := false
-			var gotRespCtry geoip.Country
-			queryLog := &agdtest.QueryLog{
-				OnWrite: func(_ context.Context, e *querylog.Entry) (err error) {
-					queryLogCalled = true
-
-					require.NotNil(t, e)
-					gotRespCtry = e.ResponseCountry
-
-					return nil
-				},
-			}
-
-			mw := &Middleware{
-				clock:    timeutil.SystemClock{},
-				logger:   slogutil.NewDiscardLogger(),
-				billStat: billstat.EmptyRecorder{},
-				geoIP:    geoIP,
-				queryLog: queryLog,
-				ruleStat: rulestat.Empty{},
-			}
-
-			ctx := dnsserver.ContextWithRequestInfo(context.Background(), &dnsserver.RequestInfo{
-				StartTime: time.Now(),
-			})
-
-			fctx := &filteringContext{
-				originalRequest: tc.req,
-				filteredResponse: dnsservertest.NewResp(
-					int(tc.respRCode),
-					tc.req,
-					dnsservertest.SectionAnswer(tc.respAns),
-				),
-			}
-
-			ri := &agd.RequestInfo{
-				DeviceResult: &agd.DeviceResultOK{
-					Device: &agd.Device{},
-					Profile: &agd.Profile{
-						QueryLogEnabled: true,
-					},
-				},
-				ServerInfo: &agd.RequestServerInfo{
-					GroupName:       dnssvctest.ServerGroupName,
-					Name:            dnssvctest.ServerName,
-					DeviceDomains:   []string{dnssvctest.DomainForDevices},
-					Protocol:        agd.ProtoDoT,
-					ProfilesEnabled: true,
-				},
-				QType:  tc.req.Question[0].Qtype,
-				QClass: class,
-			}
-
-			mw.recordQueryInfo(ctx, fctx, ri)
-			require.True(t, queryLogCalled)
-
-			assert.Equal(t, gotRespCtry, tc.wantRespCtry)
+			assert.Equal(t, tc.wantIP, gotIP)
 		})
 	}
 }

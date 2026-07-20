@@ -25,10 +25,9 @@
 #    Docker daemon, which can invalidate the cache.
 #
 # 6. Add a CACHE_BUSTER argument to stages to be able to rerun the stages if
-#    needed.  Keep it in sync with bamboo-specs/bamboo.yaml.
+#    needed.  Keep it in sync with the files in .github/workflows/.
 
-# NOTE:  Keep in sync with bamboo-specs/bamboo.yaml.
-ARG BASE_IMAGE=adguard/go-builder:1.26.3--1
+ARG BASE_IMAGE=adguard/go-builder:1.26.4--1
 
 # The dependencies stage is needed to install packages and tool dependencies.
 # This is also where binaries like osslsigncode, which may be required for tests
@@ -47,7 +46,7 @@ RUN \
 	--mount=type=cache,id=gocache,target=/root/.cache/go-build \
 	--mount=type=cache,id=gopath,target=/go \
 <<-'EOF'
-set -e -f -u -x
+set -e -f -o 'pipefail' -u -x
 make \
 	BRANCH='master' \
 	REVISION='0000000000000000000000000000000000000000' \
@@ -70,19 +69,27 @@ RUN \
 	--mount=type=cache,id=gocache,target=/root/.cache/go-build \
 	--mount=type=cache,id=gopath,target=/go \
 <<-'EOF'
-set -e -f -u -x
+set -e -f -o 'pipefail' -u -x
 export GOMAXPROCS=2
 make \
 	BRANCH='master' \
 	IGNORE_NON_REPRODUCIBLE='1' \
 	REVISION='0000000000000000000000000000000000000000' \
 	VERBOSE=1 \
+	go-lint \
 	md-lint \
 	sh-lint \
 	txt-lint \
-	go-lint \
+	2>&1 \
+	| tee /lint-output.txt \
 	;
 EOF
+
+# linter-exporter exports the test result to the host machine so that it could
+# parse and analyze it.  This stage should only be used in a CI.
+FROM scratch AS linter-exporter
+ARG CACHE_BUSTER=0
+COPY --from=linter /lint-output.txt /lint-output.txt
 
 # The test stage.  TEST_REPORTS_DIR is set to create JUnit reports for the
 # tester-exporter stage; run with --build-arg TEST_REPORTS_DIR='' if you don't
@@ -99,12 +106,13 @@ EOF
 # well.
 FROM linter AS tester
 ARG CACHE_BUSTER=0
+ARG TEST_INTEGRATION=1
 ARG TEST_REPORTS_DIR=/test-reports
 RUN \
 	--mount=type=cache,id=gocache,target=/root/.cache/go-build \
 	--mount=type=cache,id=gopath,target=/go \
 <<-'EOF'
-set -e -f -u -x
+set -e -f -o 'pipefail' -u -x
 export GOMAXPROCS=2
 
 export TEST_REDIS_PORT=6379
@@ -113,10 +121,10 @@ readonly TEST_REDIS_PORT
 readonly redis_server_pidfile='redis-server.pid'
 
 redis-server \
-    --daemonize yes \
-    --pidfile "$redis_server_pidfile" \
-    --port "$TEST_REDIS_PORT" \
-    ;
+	--daemonize yes \
+	--pidfile "$redis_server_pidfile" \
+	--port "$TEST_REDIS_PORT" \
+	;
 
 make \
 	BRANCH='master' \
@@ -168,7 +176,7 @@ FROM dependencies AS builder
 ARG APP_VERSION=""
 ARG BRANCH=master
 ARG CACHE_BUSTER=0
-ARG OUTPUT=""
+ARG OUTPUT="agdns"
 ARG RACE=0
 ARG REVISION=0000000000000000000000000000000000000000
 ARG SOURCE_DATE_EPOCH=0
@@ -178,13 +186,12 @@ RUN \
 	--mount=type=cache,id=gocache,target=/root/.cache/go-build \
 	--mount=type=cache,id=gopath,target=/go \
 <<-'EOF'
-set -e -f -u -x
-
+set -e -f -o 'pipefail' -u -x
 make \
 	APP_VERSION="$APP_VERSION" \
 	BRANCH="$BRANCH" \
 	GOAMD64='v4' \
-	OUT="dist/$OUTPUT" \
+	OUT="dist/${OUTPUT}" \
 	RACE="$RACE" \
 	REVISION="$REVISION" \
 	SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
@@ -193,8 +200,33 @@ make \
 	;
 EOF
 
-# builder-exporter exports the build artifacts to the host machine so that they
-# could be published.  This stage should only be used in a CI.
-FROM scratch AS builder-exporter
-ARG CACHE_BUSTER=0
-COPY --from=builder /app/dist /dist
+# The deb-builder stage packs the binary into a .deb package.
+FROM alanfranz/fpm-within-docker:ubuntu-bionic AS deb-builder
+WORKDIR /app
+ARG COMMIT_SHA
+ARG NAME=agdns
+COPY --from=builder "/app/dist/${NAME}" "/app/${NAME}"
+RUN <<-'EOF'
+# TODO(a.garipov):  Use set -o 'pipefail' when the image supports it.
+set -e -f -u -x
+fpm \
+	--category 'non-free/web' \
+	--deb-user 'web' \
+	--license 'proprietary' \
+	--prefix '/usr/local/bin' \
+	--url 'https://adguard.com/' \
+	-a 'noarch' \
+	-m 'Adguard Go Team' \
+	-n "adguard-${NAME}-service" \
+	-s 'dir' \
+	-t 'deb' \
+	-v "1.${COMMIT_SHA}" \
+	"${NAME}" \
+	;
+EOF
+
+# The runtime stage.
+#
+# NOTE:  For .deb services this includes only the package.
+FROM scratch AS runtime
+COPY --from=deb-builder /app/*.deb /

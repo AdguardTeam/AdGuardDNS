@@ -115,13 +115,13 @@ message FilterConfig {
   }
 
   message WeeklySchedule {
-    DayInterval mon = 1;
-    DayInterval tue = 2;
-    DayInterval wed = 3;
-    DayInterval thu = 4;
-    DayInterval fri = 5;
-    DayInterval sat = 6;
-    DayInterval sun = 7;
+    repeated DayInterval mon = 1;
+    repeated DayInterval tue = 2;
+    repeated DayInterval wed = 3;
+    repeated DayInterval thu = 4;
+    repeated DayInterval fri = 5;
+    repeated DayInterval sat = 6;
+    repeated DayInterval sun = 7;
   }
 
   message CustomRuleList {

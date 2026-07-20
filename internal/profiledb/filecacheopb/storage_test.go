@@ -94,7 +94,8 @@ func TestStorage_Load_BadVersion(t *testing.T) {
 	fc, err = s.Load(ctx)
 	assert.Nil(t, fc)
 
-	testutil.AssertErrorMsg(t,
+	testutil.AssertErrorMsg(
+		t,
 		fmt.Sprintf(
 			"%v: version 1 is different from %d",
 			internal.CacheVersionError,

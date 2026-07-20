@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdslog"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/messagetap"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/contextutil"
 	"github.com/AdguardTeam/golibs/errors"
@@ -58,6 +59,10 @@ type ConfigBase struct {
 	// DNS server.  If nil, an appropriate default ListenConfig is used.
 	ListenConfig netext.ListenConfig
 
+	// MessageTap is used to tap raw DNS request and response bytes.  If not
+	// set, [messagetap.Empty] is used.
+	MessageTap messagetap.Interface
+
 	// Metrics is the object we use for collecting performance metrics.  If not
 	// set, [EmptyMetricsListener] is used.
 	Metrics MetricsListener
@@ -97,6 +102,11 @@ type ServerBase struct {
 
 	// reqCtx is a function that should return the base context.
 	reqCtx contextutil.Constructor
+
+	// messageTap is used to tap raw DNS request and response messages.
+	//
+	// TODO(d.kolyshev):  Use in dnscrypt server.
+	messageTap messagetap.Interface
 
 	// metrics is the object we use for collecting performance metrics.
 	metrics MetricsListener
@@ -171,8 +181,9 @@ func newServerBase(proto Protocol, c *ConfigBase) (s *ServerBase) {
 			c.RequestContext,
 			contextutil.EmptyConstructor{},
 		),
-		metrics:  cmp.Or[MetricsListener](c.Metrics, EmptyMetricsListener{}),
-		disposer: cmp.Or[Disposer](c.Disposer, EmptyDisposer{}),
+		messageTap: cmp.Or[messagetap.Interface](c.MessageTap, messagetap.Empty{}),
+		metrics:    cmp.Or[MetricsListener](c.Metrics, EmptyMetricsListener{}),
+		disposer:   cmp.Or[Disposer](c.Disposer, EmptyDisposer{}),
 		activeRequestsSema: cmp.Or[syncutil.Semaphore](
 			c.ActiveRequestsSemaphore,
 			syncutil.EmptySemaphore{},
@@ -236,11 +247,14 @@ func (s *ServerBase) LocalUDPAddr() (addr net.Addr) {
 }
 
 // serveDNSMsg processes the incoming DNS query and writes the response to rw.
-// req and rw must not be nil.
+// udpMsgErr is the message format error if the UDP request was invalid.  ctx
+// must contain request info (retrieved by
+// [dnsserver.MustRequestInfoFromContext]).  req and rw must not be nil.
 func (s *ServerBase) serveDNSMsg(
 	ctx context.Context,
 	req *dns.Msg,
 	rw ResponseWriter,
+	udpMsgErr *messageFormatError,
 ) (written bool) {
 	s.metrics.AdjustActiveRequests(ctx, 1)
 	defer s.metrics.AdjustActiveRequests(ctx, -1)
@@ -257,7 +271,7 @@ func (s *ServerBase) serveDNSMsg(
 	ctx = slogutil.ContextWithLogger(ctx, logger)
 
 	recW := NewRecorderResponseWriter(rw)
-	s.serveDNS(ctx, logger, req, recW)
+	s.serveDNS(ctx, logger, req, recW, udpMsgErr)
 
 	resp := recW.Resp
 	written = resp != nil
@@ -335,13 +349,16 @@ func (s *ServerBase) dispose(rw ResponseWriter, resp *dns.Msg) {
 	}
 }
 
-// serveDNS serves the DNS request and records the response to rw.  All
-// arguments must not be nil.
+// serveDNS serves the DNS request and records the response to rw.  udpMsgErr is
+// the message format error if the UDP request was invalid.  ctx must contain
+// request info (retrieved by [dnsserver.MustRequestInfoFromContext]).  l, req,
+// and rw must not be nil.
 func (s *ServerBase) serveDNS(
 	ctx context.Context,
 	l *slog.Logger,
 	req *dns.Msg,
 	rw *RecorderResponseWriter,
+	udpMsgErr *messageFormatError,
 ) {
 	var resp *dns.Msg
 
@@ -349,10 +366,11 @@ func (s *ServerBase) serveDNS(
 	//
 	// TODO(e.burkov):  Consider triggering an invalid message metric in all
 	// cases.
-	switch action, reason := s.acceptMsg(req); action {
+	switch action, reason := s.acceptMsg(ctx, req, udpMsgErr); action {
 	case dns.MsgReject:
 		l.DebugContext(ctx, "rejected", "reason", reason)
 		resp = genErrorResponse(req, dns.RcodeFormatError)
+		s.metrics.OnInvalidMsg(ctx)
 	case dns.MsgRejectNotImplemented:
 		l.DebugContext(ctx, "not implemented", "reason", reason)
 		resp = genErrorResponse(req, dns.RcodeNotImplemented)
@@ -444,9 +462,15 @@ func addEDE(req, resp *dns.Msg, code uint16, text string) {
 	})
 }
 
-// acceptMsg checks if we should process the incoming DNS query.  msg must not
-// be nil.
-func (s *ServerBase) acceptMsg(msg *dns.Msg) (action dns.MsgAcceptAction, reason string) {
+// acceptMsg checks if we should process the incoming DNS query.  udpMsgErr is
+// the message format error if the UDP request was invalid.  ctx must contain
+// request info (retrieved by [dnsserver.MustRequestInfoFromContext]).  msg must
+// not be nil.
+func (s *ServerBase) acceptMsg(
+	_ context.Context,
+	msg *dns.Msg,
+	udpMsgErr *messageFormatError,
+) (action dns.MsgAcceptAction, reason string) {
 	if msg.Response {
 		return dns.MsgIgnore, "message is a response"
 	}
@@ -471,6 +495,16 @@ func (s *ServerBase) acceptMsg(msg *dns.Msg) (action dns.MsgAcceptAction, reason
 	// section 3.
 	if len(msg.Ns) > 1 {
 		return dns.MsgReject, "bad number of ns records"
+	}
+
+	if udpMsgErr != nil && s.proto == ProtoDNS {
+		// Dropping a UDP request with a valid header is considered bad practice
+		// since it creates a denial-of-service (DoS) vulnerability for the
+		// client.  RFC generally recommends replying with FORMERR in such
+		// cases.
+		//
+		// See https://www.rfc-editor.org/rfc/rfc1035#section-4.1.1.
+		return dns.MsgReject, "malformed message"
 	}
 
 	return dns.MsgAccept, ""

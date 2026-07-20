@@ -382,7 +382,7 @@ func (s *ServerQUIC) serveQUICStream(
 	ctx, cancel := s.newContextForQUICReq(parent, conn)
 	defer func() { callOnError(cancel, recover(), err) }()
 
-	req, err := s.readQUICMsg(ctx, stream)
+	req, err := s.readQUICMsg(ctx, conn, stream)
 	if err != nil {
 		return DOQCodeProtocolError, fmt.Errorf("reading quic message: %w", err)
 	}
@@ -405,7 +405,7 @@ func (s *ServerQUIC) serveQUICStream(
 		// be sent on that stream.
 		defer slogutil.CloseAndLog(ctx, s.baseLogger, stream, slog.LevelDebug)
 
-		_ = s.serveDNSMsg(ctx, req, rw)
+		_ = s.serveDNSMsg(ctx, req, rw, nil)
 	})
 	if err != nil {
 		// Most likely the taskPool is closed.  Exit and make sure that the
@@ -460,6 +460,7 @@ func (err *quicReadError) Unwrap() (unwrapped error) {
 // All arguments must not be nil.
 func (s *ServerQUIC) readQUICMsg(
 	ctx context.Context,
+	conn *quic.Conn,
 	stream *quic.Stream,
 ) (req *dns.Msg, err error) {
 	defer func() {
@@ -505,6 +506,8 @@ func (s *ServerQUIC) readQUICMsg(
 	// #nosec G115 -- n has already been checked against DNSHeaderSize.
 	wantLen := uint16(n - 2)
 	if packetLen == wantLen {
+		tapRequest(ctx, s.messageTap, conn.LocalAddr(), conn.RemoteAddr(), buf[2:])
+
 		err = req.Unpack(buf[2:])
 	} else {
 		err = fmt.Errorf("bad buffer size %d, want %d", packetLen, wantLen)
@@ -555,9 +558,10 @@ func readAll(r io.Reader, buf []byte) (n int, err error) {
 // must not be nil.
 func (s *ServerQUIC) newQUICRW(conn *quic.Conn, stream *quic.Stream) (rw *quicResponseWriter) {
 	return &quicResponseWriter{
-		respPool: s.respPool,
-		conn:     conn,
-		stream:   stream,
+		messageTap: s.messageTap,
+		respPool:   s.respPool,
+		conn:       conn,
+		stream:     stream,
 		// TODO(a.garipov):  Configure.
 		writeTimeout: DefaultWriteTimeout,
 	}

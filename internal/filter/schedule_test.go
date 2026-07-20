@@ -1,6 +1,7 @@
 package filter_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 )
 
 func TestDayInterval_Validate(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		ivl        *filter.DayInterval
 		name       string
@@ -66,13 +69,86 @@ func TestDayInterval_Validate(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			err := tc.ivl.Validate()
 			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)
 		})
 	}
 }
 
+func TestDayIntervals_Validate(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name       string
+		wantErrMsg string
+		ivls       filter.DayIntervals
+	}{{
+		ivls: filter.DayIntervals{
+			{Start: 0, End: 13 * 60},
+			{Start: 13 * 60, End: 14*60 - 1},
+		},
+		name:       "ok",
+		wantErrMsg: "",
+	}, {
+		ivls: filter.DayIntervals{
+			{Start: 0, End: 0},
+			{Start: 0, End: 0},
+		},
+		name:       "ok_zeroes",
+		wantErrMsg: "",
+	}, {
+		ivls: filter.DayIntervals{
+			nil,
+			nil,
+		},
+		name:       "ok_nil",
+		wantErrMsg: "",
+	}, {
+		ivls: filter.DayIntervals{
+			nil,
+			{Start: 13 * 60, End: 14 * 60},
+		},
+		name:       "ok_partially_nil",
+		wantErrMsg: "",
+	}, {
+		ivls: filter.DayIntervals{
+			{Start: 12 * 60, End: 13*60 + 1},
+			{Start: 13 * 60, End: 14 * 60},
+		},
+		name:       "err_intervals_overlap",
+		wantErrMsg: "intervals overlap: first interval end: 13:01, second interval start: 13:00",
+	}, {
+		ivls: filter.DayIntervals{
+			{Start: 13 * 60, End: 15 * 60},
+			{Start: 13 * 60, End: 14 * 60},
+		},
+		name:       "err_intervals_start_overlap",
+		wantErrMsg: "intervals overlap: identical start time: 13:00",
+	}, {
+		ivls: filter.DayIntervals(make([]*filter.DayInterval, filter.MaxDayIntervalEndMinutes+1)),
+		name: "err_too_many_intervals",
+		wantErrMsg: fmt.Sprintf(
+			"day_intervals_len: out of range: must be no greater than %d, got %d",
+			filter.MaxDayIntervalEndMinutes,
+			filter.MaxDayIntervalEndMinutes+1,
+		),
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tc.ivls.Validate()
+			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)
+		})
+	}
+}
+
 func TestFilterConfigSchedule_Contains(t *testing.T) {
+	t.Parallel()
+
 	baseTime := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 	otherTime := baseTime.Add(1 * timeutil.Day)
 
@@ -80,13 +156,19 @@ func TestFilterConfigSchedule_Contains(t *testing.T) {
 	// is actually UTC+03:00.
 	otherTZ := time.FixedZone("Etc/GMT-3", 3*60*60)
 
-	// baseSchedule, 12:00:00 to 13:59:59.
+	// baseSchedule, 10:00:00 to 11:00:00 and 12:00:00 to 13:59:59.
 	baseSchedule := &filter.ConfigSchedule{
 		Week: &filter.WeeklySchedule{
 			// baseTime is on Friday.
-			time.Friday: &filter.DayInterval{
-				Start: 12 * 60,
-				End:   14 * 60,
+			time.Friday: filter.DayIntervals{
+				&filter.DayInterval{
+					Start: 8 * 60,
+					End:   10 * 60,
+				},
+				&filter.DayInterval{
+					Start: 12 * 60,
+					End:   14 * 60,
+				},
 			},
 		},
 		TimeZone: agdtime.UTC(),
@@ -96,9 +178,11 @@ func TestFilterConfigSchedule_Contains(t *testing.T) {
 	allDaySchedule := &filter.ConfigSchedule{
 		Week: &filter.WeeklySchedule{
 			// baseTime is on Friday.
-			time.Friday: &filter.DayInterval{
-				Start: 0,
-				End:   filter.MaxDayIntervalEndMinutes,
+			time.Friday: filter.DayIntervals{
+				&filter.DayInterval{
+					Start: 0,
+					End:   filter.MaxDayIntervalEndMinutes,
+				},
 			},
 		},
 		TimeZone: agdtime.UTC(),
@@ -138,7 +222,12 @@ func TestFilterConfigSchedule_Contains(t *testing.T) {
 		schedule: baseSchedule,
 		assert:   assert.False,
 		t:        baseTime.Add(11 * time.Hour),
-		name:     "same_day_outside",
+		name:     "same_day_outside_between",
+	}, {
+		schedule: baseSchedule,
+		assert:   assert.False,
+		t:        baseTime.Add(16 * time.Hour),
+		name:     "same_day_outside_after",
 	}, {
 		schedule: allDaySchedule,
 		assert:   assert.False,
@@ -168,6 +257,8 @@ func TestFilterConfigSchedule_Contains(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			tc.assert(t, tc.schedule.Contains(tc.t))
 		})
 	}

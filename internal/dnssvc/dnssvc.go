@@ -168,6 +168,7 @@ func newListeners(
 				c.ConnLimiter,
 				proto,
 			),
+			MessageTap:     c.MessageTap,
 			Metrics:        errCollListener,
 			RequestContext: newContextConstructor(c.HandleTimeout),
 			Network:        dnsserver.NetworkAny,
