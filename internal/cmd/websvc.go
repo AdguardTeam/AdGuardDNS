@@ -14,7 +14,9 @@ import (
 	"slices"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
@@ -22,7 +24,6 @@ import (
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
-	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/AdguardTeam/golibs/validate"
@@ -82,10 +83,11 @@ func (c *webConfig) toInternal(
 	}
 
 	conf = &websvc.Config{
-		Logger:  baseLogger.With(slogutil.KeyPrefix, "websvc"),
-		ErrColl: errColl,
-		Metrics: mtrc,
-		Timeout: time.Duration(c.Timeout),
+		Logger:       baseLogger.With(slogutil.KeyPrefix, "websvc"),
+		ErrColl:      errColl,
+		ListenConfig: netext.DefaultListenConfig(nil),
+		Metrics:      mtrc,
+		Timeout:      time.Duration(c.Timeout),
 	}
 
 	if dnsCkHdlr, ok := dnsCk.(http.Handler); ok {
@@ -93,7 +95,7 @@ func (c *webConfig) toInternal(
 	}
 
 	if c.RootRedirectURL != nil {
-		conf.RootRedirectURL = netutil.CloneURL(&c.RootRedirectURL.URL)
+		conf.RootRedirectURL = c.RootRedirectURL.Clone()
 	}
 
 	conf.LinkedIP, err = c.LinkedIP.toInternal(ctx, tlsMgr, envs.LinkedIPTargetURL)
@@ -249,7 +251,7 @@ func (s *linkedIPServer) toInternal(
 		return nil, fmt.Errorf("env variable LINKED_IP_TARGET_URL must be set for using linked_ip")
 	}
 
-	srv.TargetURL = netutil.CloneURL(&targetURL.URL)
+	srv.TargetURL = targetURL.Clone()
 
 	return srv, nil
 }
@@ -332,25 +334,25 @@ func (s *blockPageServer) validate(tlsConf *tlsConfig, ts *tlsState) (err error)
 // bindData are the data for binding HTTP servers to addresses.
 type bindData []*bindItem
 
-// toInternal converts bd to bind data for the AdGuard DNS web service.  bd must
-// be valid.
+// toInternal converts bd to bind configs for the AdGuard DNS web service.  bd
+// must be valid.
 func (bd bindData) toInternal(
 	ctx context.Context,
 	tlsMgr tlsconfig.Manager,
-) (data []*websvc.BindData, err error) {
+) (configs agdnet.BindConfigs, err error) {
 	var errs []error
-	data = make([]*websvc.BindData, 0, len(bd))
+	configs = make(agdnet.BindConfigs, 0, len(bd))
 
 	for i, d := range bd {
-		var datum *websvc.BindData
-		datum, err = d.toInternal(ctx, tlsMgr)
+		var bc *agdnet.BindConfig
+		bc, err = d.toInternal(ctx, tlsMgr)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("bind data: at index %d: %w", i, err))
+			errs = append(errs, fmt.Errorf("bind config: at index %d: %w", i, err))
 
 			continue
 		}
 
-		data = append(data, datum)
+		configs = append(configs, bc)
 	}
 
 	err = errors.Join(errs...)
@@ -358,7 +360,7 @@ func (bd bindData) toInternal(
 		return nil, err
 	}
 
-	return data, nil
+	return configs, nil
 }
 
 // type check
@@ -396,10 +398,10 @@ type bindItem struct {
 func (i *bindItem) toInternal(
 	ctx context.Context,
 	tlsMgr tlsconfig.Manager,
-) (data *websvc.BindData, err error) {
+) (data *agdnet.BindConfig, err error) {
 	if len(i.CertificateGroups) == 0 {
-		return &websvc.BindData{
-			Address: i.Address,
+		return &agdnet.BindConfig{
+			Addr: agdnet.BindConfigAddrDefault(i.Address),
 		}, nil
 	}
 
@@ -415,9 +417,9 @@ func (i *bindItem) toInternal(
 		return nil, fmt.Errorf("certificates: %w", err)
 	}
 
-	return &websvc.BindData{
-		TLS:     tlsMgr.Clone(),
-		Address: i.Address,
+	return &agdnet.BindConfig{
+		TLS:  (*agdnet.BindConfigTLSDefault)(tlsMgr.Clone()),
+		Addr: agdnet.BindConfigAddrDefault(i.Address),
 	}, nil
 }
 

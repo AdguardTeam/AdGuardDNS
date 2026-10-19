@@ -25,12 +25,12 @@ type Metrics interface {
 	SetUDPSessionsChanSize(ctx context.Context, subnet netip.Prefix, n uint)
 
 	// SetUDPWriteRequestsChanSize sets the current number of UDP write requests
-	// in the channel by interface name.
-	SetUDPWriteRequestsChanSize(ctx context.Context, name string, n uint)
+	// in the channel by interface-listener ID.
+	SetUDPWriteRequestsChanSize(ctx context.Context, id string, n uint)
 
 	// ObserveUDPWriteDuration observes the duration of a UDP write operation by
-	// interface name.
-	ObserveUDPWriteDuration(ctx context.Context, name string, dur time.Duration)
+	// interface-listener ID.
+	ObserveUDPWriteDuration(ctx context.Context, id string, dur time.Duration)
 }
 
 // EmptyMetrics is the implementation of the [Metrics] interface that does

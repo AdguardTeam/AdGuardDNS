@@ -77,6 +77,10 @@ func generateCert(n int64) (certDER []byte, key *rsa.PrivateKey, err error) {
 			"current-2.domain.example",
 			"pending-1.domain.example",
 			"pending-2.domain.example",
+			"current-ac-ip-1.domain.example",
+			"current-ac-ip-2.domain.example",
+			"pending-ac-ip-1.domain.example",
+			"pending-ac-ip-2.domain.example",
 		},
 	}
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,10 +39,10 @@ func TestChanPacketConn_ReadFromSession(t *testing.T) {
 	respOOB := []byte("not a real response oob")
 
 	ps := &packetSession{
-		laddr:    testLAddr,
-		raddr:    testRAddr,
-		readBody: body,
-		respOOB:  respOOB,
+		laddr:       testLAddr,
+		raddr:       testRAddr,
+		readBodyPtr: &body,
+		respOOB:     respOOB,
 	}
 
 	sessions <- ps
@@ -62,6 +63,7 @@ func TestChanPacketConn_ReadFromSession(t *testing.T) {
 	s := testutil.RequireTypeAssert[*packetSession](t, sess)
 	assert.Equal(t, respOOB, s.respOOB)
 
+	ps.readBodyPtr = &body
 	sessions <- ps
 
 	b = make([]byte, bodyLen)
@@ -73,7 +75,7 @@ func TestChanPacketConn_ReadFromSession(t *testing.T) {
 
 	require.NotNil(t, raddr)
 
-	assert.Equal(t, testRAddr, raddr)
+	assert.Equal(t, testRAddr.AddrPort(), netutil.NetAddrToAddrPort(raddr))
 }
 
 func TestChanPacketConn_WriteToSession(t *testing.T) {
@@ -88,24 +90,24 @@ func TestChanPacketConn_WriteToSession(t *testing.T) {
 	respOOB := []byte("not a real response oob")
 
 	ps := &packetSession{
-		laddr:    testLAddr,
-		raddr:    testRAddr,
-		readBody: nil,
-		respOOB:  respOOB,
+		laddr:       testLAddr,
+		raddr:       testRAddr,
+		readBodyPtr: &[]byte{},
+		respOOB:     respOOB,
 	}
 
 	deadline := time.Now().Add(testTimeout)
 	err := c.SetWriteDeadline(deadline)
 	require.NoError(t, err)
 
-	go checkWriteReqAndRespond(writes, nil, body, respOOB, deadline)
+	go checkWriteReqAndRespond(t, writes, nil, body, respOOB, deadline)
 
 	n, err := c.WriteToSession(body, ps)
 	require.NoError(t, err)
 
 	assert.Equal(t, bodyLen, n)
 
-	go checkWriteReqAndRespond(writes, testRAddr, body, nil, deadline)
+	go checkWriteReqAndRespond(t, writes, testRAddr, body, nil, deadline)
 
 	n, err = c.WriteTo(body, testRAddr)
 	require.NoError(t, err)
@@ -114,15 +116,19 @@ func TestChanPacketConn_WriteToSession(t *testing.T) {
 }
 
 // checkWriteReqAndRespond is a test helper that receives data from writes,
-// checks it against the required values, and sends back a response.
+// checks it against the required values, and sends back a response.  It's
+// intended to be run in a separate goroutine.
 func checkWriteReqAndRespond(
+	tb testing.TB,
 	writes chan *packetConnWriteReq,
 	wantRaddr *net.UDPAddr,
 	wantBody []byte,
 	wantRespOOB []byte,
 	wantDeadline time.Time,
 ) {
-	pt := testutil.PanicT{}
+	tb.Helper()
+
+	pt := testutil.NewPanicT(tb)
 
 	req, ok := testutil.RequireReceive(pt, writes, testTimeout)
 	require.NotNil(pt, req)
@@ -140,11 +146,11 @@ func checkWriteReqAndRespond(
 	}
 
 	assert.Equal(pt, wantDeadline, req.deadline)
-	assert.Equal(pt, wantBody, req.body)
+	assert.Equal(pt, wantBody, *req.bodyPtr)
 
 	testutil.RequireSend(pt, req.respCh, &packetConnWriteResp{
-		err:     nil,
-		written: len(wantBody),
+		err: nil,
+		n:   len(wantBody),
 	}, testTimeout)
 }
 
@@ -186,8 +192,8 @@ func TestChanPacketConn_deadlines(t *testing.T) {
 			err = tc.f(tc.deadline)
 			require.NoError(t, err)
 
-			assert.Equal(t, tc.wantReadDeadline, c.readDeadline)
-			assert.Equal(t, tc.wantWriteDeadline, c.writeDeadline)
+			assert.Equal(t, tc.wantReadDeadline, c.deadlineRead.value)
+			assert.Equal(t, tc.wantWriteDeadline, c.deadlineWrite.value)
 		})
 	}
 }

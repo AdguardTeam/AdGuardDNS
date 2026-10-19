@@ -5,7 +5,6 @@ import (
 	"net"
 	"sync"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/timeutil"
 )
 
@@ -64,26 +63,21 @@ func New(c *Config) (l *Limiter) {
 	}
 }
 
-// Limit wraps lsnr to control the number of active connections.  srvInfo is
-// used for logging and metrics.
-func (l *Limiter) Limit(lsnr net.Listener, srvInfo *dnsserver.ServerInfo) (limited net.Listener) {
-	name := srvInfo.Name
-
+// Limit wraps lsnr to control the number of active connections.  mtrcInfo is
+// used for logging and metrics.  All arguments must not be nil.  mtrcInfo must
+// not be modified after call to this method.
+func (l *Limiter) Limit(lsnr net.Listener, mtrcInfo *ConnMetricsData) (limited net.Listener) {
 	return &limitListener{
 		Listener: lsnr,
 
-		logger:  l.logger.With("name", name),
+		logger:  l.logger.With("addr", mtrcInfo.Addr),
 		clock:   l.clock,
 		metrics: l.metrics,
 
 		counterCond: l.counterCond,
 		counter:     l.counter,
 
-		connInfo: &ConnMetricsData{
-			Addr:  srvInfo.Addr,
-			Name:  name,
-			Proto: srvInfo.Proto.String(),
-		},
+		connInfo: mtrcInfo,
 
 		isClosed: false,
 	}

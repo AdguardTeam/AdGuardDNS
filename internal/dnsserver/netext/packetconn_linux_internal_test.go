@@ -10,16 +10,10 @@ import (
 	"golang.org/x/net/ipv6"
 )
 
-func TestUDPOOBSize(t *testing.T) {
-	// See https://github.com/miekg/dns/blob/v1.1.50/udp.go.
-
+func TestIPDstOOBSize(t *testing.T) {
+	// See https://github.com/miekg/dns/blob/v1.1.72/udp.go.
 	len4 := len(ipv4.NewControlMessage(ipv4.FlagDst | ipv4.FlagInterface))
 	len6 := len(ipv6.NewControlMessage(ipv6.FlagDst | ipv6.FlagInterface))
 
-	max := len4
-	if len6 > max {
-		max = len6
-	}
-
-	assert.Equal(t, max, IPDstOOBSize)
+	assert.Equal(t, max(len4, len6), IPDstOOBSize)
 }

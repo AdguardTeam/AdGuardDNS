@@ -54,6 +54,7 @@ const (
 
 // reqInfoSpecialHandler returns a handler that can handle a special-domain
 // query based on the request info, as well as the handler's name for debugging.
+// ri must not be nil.
 func (mw *Middleware) reqInfoSpecialHandler(
 	ri *agd.RequestInfo,
 ) (f reqInfoHandlerFunc, name string) {
@@ -67,22 +68,38 @@ func (mw *Middleware) reqInfoSpecialHandler(
 	//
 	// TODO(e.burkov):  Consider adding SOA records for these NODATA responses.
 	if mw.isDDRRequest(ri) {
-		if _, ok := ri.DeviceResult.(*agd.DeviceResultAuthenticationFailure); ok {
-			return mw.handleDDRNoData, "ddr_doh"
-		}
-
-		_, dev := ri.DeviceData()
-		if dev != nil && dev.Auth.Enabled && dev.Auth.DoHAuthOnly {
-			return mw.handleDDRNoData, "ddr_doh"
-		}
-
-		return mw.handleDDR, "ddr"
+		return mw.ddrHandler(ri)
 	} else if netutil.IsSubdomain(ri.Host, ResolverARPADomain) {
 		// A badly formed resolver.arpa subdomain query.
 		return mw.handleBadResolverARPA, "bad_resolver_arpa"
 	}
 
 	return mw.specialDomainHandler(ri)
+}
+
+// ddrHandler returns the appropriate DDR handler, as well as the handler's name
+// for debugging.  ri must not be nil.
+//
+// TODO(a.garipov):  Improve DDR tests in this entire package.
+func (mw *Middleware) ddrHandler(ri *agd.RequestInfo) (f reqInfoHandlerFunc, name string) {
+	switch r := ri.DeviceResult.(type) {
+	case *agd.DeviceResultAuthenticationFailure:
+		return mw.handleDDRNoData, "ddr_doh"
+	case *agd.DeviceResultOK:
+		if a := r.Device.Auth; a.Enabled && a.DoHAuthOnly {
+			return mw.handleDDRNoData, "ddr_doh"
+		}
+
+		// Go on and handle DDR in the usual way.
+	case *agd.DeviceResultPartialData:
+		if r.IsAccountIP {
+			return mw.handleDDRNoData, "ddr_acc_ip"
+		}
+
+		// Go on and handle DDR in the usual way.
+	}
+
+	return mw.handleDDR, "ddr"
 }
 
 // reqInfoHandlerFunc is an alias for handler functions that additionally accept
@@ -149,7 +166,7 @@ func (mw *Middleware) isDDRDomain(ri *agd.RequestInfo, host string) (ok bool) {
 }
 
 // handleDDR responds to Discovery of Designated Resolvers (DDR) queries with a
-// response containing the designated resolvers.
+// response containing the designated resolvers.  req and ri must not be nil.
 func (mw *Middleware) handleDDR(
 	ctx context.Context,
 	rw dnsserver.ResponseWriter,
@@ -161,7 +178,12 @@ func (mw *Middleware) handleDDR(
 	mw.metrics.IncrementRequestsTotal(ctx, MetricsRequestKindDDR)
 
 	if mw.ddr.Enabled {
-		return rw.WriteMsg(ctx, req, mw.newRespDDR(req, ri))
+		// TODO(a.garipov):  Optimize calls to ri.DeviceData.
+		prof, dev := ri.DeviceData()
+		accountIPEnabled := prof != nil && prof.AccountIPConfig.Enabled
+		if !accountIPEnabled {
+			return rw.WriteMsg(ctx, req, mw.newRespDDR(req, ri, dev))
+		}
 	}
 
 	return rw.WriteMsg(ctx, req, ri.Messages.NewRespRCode(req, dns.RcodeNameError))
@@ -188,13 +210,16 @@ func (mw *Middleware) handleDDRNoData(
 
 // newRespDDR returns a new Discovery of Designated Resolvers response copying
 // it from the prebuilt templates in srvGrp and modifying it in accordance with
-// the request data.  req must not be nil.
-func (mw *Middleware) newRespDDR(req *dns.Msg, ri *agd.RequestInfo) (resp *dns.Msg) {
+// the request data.  req and ri must not be nil.
+func (mw *Middleware) newRespDDR(
+	req *dns.Msg,
+	ri *agd.RequestInfo,
+	dev *agd.Device,
+) (resp *dns.Msg) {
 	resp = ri.Messages.NewResp(req)
 	name := req.Question[0].Name
 
-	// TODO(a.garipov):  Optimize calls to ri.DeviceData.
-	if _, dev := ri.DeviceData(); dev != nil {
+	if dev != nil {
 		for _, rr := range mw.ddr.DeviceRecordTemplates {
 			rr = dns.Copy(rr).(*dns.SVCB)
 			rr.Hdr.Name = name

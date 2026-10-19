@@ -17,6 +17,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
 	"github.com/AdguardTeam/AdGuardDNS/internal/querylog"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/golibs/timeutil"
@@ -57,9 +58,15 @@ var (
 	}
 
 	testProfile = &agd.Profile{
-		ID:              dnssvctest.ProfileID,
-		QueryLogEnabled: true,
-		IPLogEnabled:    true,
+		AccountIPConfig:          &agd.AccountIPConfig{},
+		CustomDomains:            &agd.AccountCustomDomains{},
+		ID:                       dnssvctest.ProfileID,
+		AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		BlockingMode:             &dnsmsg.BlockingModeNullIP{},
+		SafeBrowsingBlockingMode: &dnsmsg.BlockingModeNullIP{},
+		AccountID:                dnssvctest.AccountID,
+		DeviceIDs:                container.NewMapSet(dnssvctest.DeviceID),
+		Deleted:                  false,
 	}
 
 	testClock = timeutil.SystemClock{}

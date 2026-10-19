@@ -50,6 +50,9 @@ type Interface interface {
 		humanIDLower agd.HumanIDLower,
 	) (p *agd.Profile, d *agd.Device, err error)
 
+	// ProfileByID returns the profile by the profile ID.  id must be valid.
+	ProfileByID(ctx context.Context, id agd.ProfileID) (p *agd.Profile, err error)
+
 	// ProfileByLinkedIP returns the profile and the device identified by its
 	// linked IP address.  ip must be valid.
 	ProfileByLinkedIP(ctx context.Context, ip netip.Addr) (p *agd.Profile, d *agd.Device, err error)
@@ -98,6 +101,14 @@ func (d *Disabled) ProfileByHumanID(
 	_ agd.HumanIDLower,
 ) (_ *agd.Profile, _ *agd.Device, _ error) {
 	panic(fmt.Errorf(profilesDBUnexpectedCall, "ProfileByHumanID"))
+}
+
+// ProfileByID implements the [Interface] interface for *Disabled.
+func (d *Disabled) ProfileByID(
+	_ context.Context,
+	_ agd.ProfileID,
+) (_ *agd.Profile, _ error) {
+	panic(fmt.Errorf(profilesDBUnexpectedCall, "ProfileByID"))
 }
 
 // ProfileByLinkedIP implements the [Interface] interface for *Disabled.

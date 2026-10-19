@@ -24,7 +24,7 @@ func TestNewHumanID(t *testing.T) {
 	}, {
 		name:       "too_long",
 		in:         testLongStr,
-		wantErrMsg: `bad human id "` + testLongStr + `": too long: got 200 bytes, max 63`,
+		wantErrMsg: `bad human id "` + testLongStr + `": too long: got 200 bytes, max 50`,
 	}, {
 		name:       "too_small",
 		in:         "",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/netip"
+	"time"
 
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/miekg/dns"
@@ -38,8 +39,21 @@ func NewLog(c *LogConfig) (l *Log) {
 var _ Interface = (*Log)(nil)
 
 // TapRequest implements the [Interface] interface for *Log.
-func (l *Log) TapRequest(ctx context.Context, laddr, raddr netip.AddrPort, req []byte) {
-	l.logger.Log(ctx, l.lvl, "received dns request", "laddr", laddr, "raddr", raddr)
+func (l *Log) TapRequest(
+	ctx context.Context,
+	now time.Time,
+	laddr netip.AddrPort,
+	raddr netip.AddrPort,
+	req []byte,
+) {
+	l.logger.Log(
+		ctx,
+		l.lvl,
+		"received dns request",
+		"laddr", laddr,
+		"raddr", raddr,
+		"request_time", now,
+	)
 
 	msg := &dns.Msg{}
 	err := msg.Unpack(req)
@@ -53,8 +67,21 @@ func (l *Log) TapRequest(ctx context.Context, laddr, raddr netip.AddrPort, req [
 }
 
 // TapResponse implements the [Interface] interface for *Log.
-func (l *Log) TapResponse(ctx context.Context, laddr, raddr netip.AddrPort, resp []byte) {
-	l.logger.Log(ctx, l.lvl, "received dns response", "laddr", laddr, "raddr", raddr)
+func (l *Log) TapResponse(
+	ctx context.Context,
+	now time.Time,
+	laddr netip.AddrPort,
+	raddr netip.AddrPort,
+	resp []byte,
+) {
+	l.logger.Log(
+		ctx,
+		l.lvl,
+		"received dns response",
+		"laddr", laddr,
+		"raddr", raddr,
+		"response_time", now,
+	)
 
 	msg := &dns.Msg{}
 	err := msg.Unpack(resp)

@@ -25,8 +25,8 @@ type Allowlist struct {
 	updateTime prometheus.Gauge
 }
 
-// NewAllowlist registers the Consul allowlist metrics in reg and returns a
-// properly initialized [Allowlist].
+// NewAllowlist registers allowlist metrics in reg.  It returns a properly
+// initialized [Allowlist] only in case the allowlist is enabled.
 func NewAllowlist(
 	namespace string,
 	reg prometheus.Registerer,

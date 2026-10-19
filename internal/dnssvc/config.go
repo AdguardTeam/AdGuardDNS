@@ -8,6 +8,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnscheck"
@@ -59,7 +60,8 @@ type Config struct {
 	ControlConf *netext.ControlConfig
 
 	// ConnLimiter, if not nil, is used to limit the number of simultaneously
-	// active stream-connections.
+	// active stream-connections.  It's only applied to servers having nil
+	// [agd.ServerBindData.ListenConfig].
 	ConnLimiter *connlimiter.Limiter
 
 	// ErrColl is the error collector that is used to collect critical and
@@ -89,12 +91,15 @@ type Config struct {
 	HandleTimeout time.Duration
 }
 
-// NewListenerFunc is the type for DNS listener constructors.  All arguments
-// must not be nil.
+// NewListenerFunc is the type for DNS listener constructors.  srv and baseConf
+// must not be nil, nonDNS must not be nil if srv.Protocol is [agd.ProtoDoH],
+// bindConfig must not be nil if srv.Protocol is [agd.ProtoDoH], [agd.ProtoDoT]
+// or [agd.ProtoDoQ].
 type NewListenerFunc func(
 	srv *agd.Server,
 	baseConf *dnsserver.ConfigBase,
 	nonDNS http.Handler,
+	bindConfig *agdnet.BindConfig,
 ) (l Listener, err error)
 
 // Listener is a type alias for dnsserver.Server to make internal naming more

@@ -2,13 +2,14 @@ package websvc
 
 import (
 	"context"
-	"crypto/tls"
 	"log/slog"
 	"net/http"
 	"net/netip"
 	"net/url"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 )
 
@@ -29,6 +30,10 @@ type Config struct {
 
 	// LinkedIP is the optional linked IP web server.
 	LinkedIP *LinkedIPServer
+
+	// ListenConfig is used for setting options for TCP connections.  It must
+	// not be nil.
+	ListenConfig netext.ListenConfig
 
 	// RootRedirectURL is the optional URL to which root HTTP requests are
 	// redirected.  If not set, these requests are responded with a 404 page.
@@ -63,8 +68,9 @@ type Config struct {
 
 	// NonDoHBind are the bind addresses and optional TLS configuration for the
 	// web service in addition to the ones in the DNS-over-HTTPS handlers.  All
-	// items must not be nil.
-	NonDoHBind []*BindData
+	// items must not be nil.  Every item must have address of type
+	// [agdnet.BindConfigAddrDefault].
+	NonDoHBind agdnet.BindConfigs
 
 	// Timeout is the timeout for all server operations.  It must be positive.
 	Timeout time.Duration
@@ -77,17 +83,9 @@ type BlockPageServerConfig struct {
 	ContentFilePath string
 
 	// Bind are the addresses on which to serve the block page.  At least one
-	// must be provided.  All items must not be nil.
-	Bind []*BindData
-}
-
-// BindData is data for binding one HTTP server to an address.
-type BindData struct {
-	// TLS is the optional TLS configuration.
-	TLS *tls.Config
-
-	// Address is the binding address.  It must not be empty.
-	Address netip.AddrPort
+	// must be provided.  All items must not be nil.  Every item must have
+	// address of type [agdnet.BindConfigAddrDefault].
+	Bind agdnet.BindConfigs
 }
 
 // LinkedIPServer is the linked IP server configuration.
@@ -97,8 +95,9 @@ type LinkedIPServer struct {
 	TargetURL *url.URL
 
 	// Bind are the addresses on which to serve the linked IP API.  At least one
-	// must be provided.  All items must not be nil.
-	Bind []*BindData
+	// must be provided.  All items must not be nil.  Every item must have
+	// address of type [agdnet.BindConfigAddrDefault].
+	Bind agdnet.BindConfigs
 }
 
 // CertificateValidator checks if an HTTP request is a TLS-certificate
@@ -106,7 +105,11 @@ type LinkedIPServer struct {
 type CertificateValidator interface {
 	// IsValidWellKnownRequest returns true if r is a valid HTTP request for
 	// certificate validation.  r must not be nil.
-	IsValidWellKnownRequest(ctx context.Context, r *http.Request) (ok bool)
+	IsValidWellKnownRequest(
+		ctx context.Context,
+		r *http.Request,
+		destinationIP netip.Addr,
+	) (ok bool)
 }
 
 // RejectCertificateValidator is a [CertificateValidator] which rejects all HTTP
@@ -121,6 +124,7 @@ var _ CertificateValidator = RejectCertificateValidator{}
 func (RejectCertificateValidator) IsValidWellKnownRequest(
 	_ context.Context,
 	_ *http.Request,
+	_ netip.Addr,
 ) (ok bool) {
 	return false
 }

@@ -117,7 +117,7 @@ type locationKey struct {
 // See AGDNS-1622.
 func newLocationKey(asn ASN, ctry Country, subdiv string) (l locationKey) {
 	switch ctry {
-	case CountryRU, CountryUS, CountryCN, CountryIN:
+	case CountryRU, CountryUS, CountryCN, CountryIN, CountryPK:
 		return locationKey{
 			asn:            asn,
 			country:        ctry,

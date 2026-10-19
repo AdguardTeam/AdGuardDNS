@@ -14,10 +14,14 @@ type CustomDomainDB interface {
 	// "*.domain.example".  s must not be nil and must be valid.
 	AddCertificate(
 		ctx context.Context,
-		profID agd.ProfileID,
+		accID agd.AccountID,
 		domains []string,
 		state *agd.CustomDomainStateCurrent,
 	)
+
+	// AddAccountIPCertificates adds information about account IP certificates.
+	// All elements of ips must not be nil and must be valid.
+	AddAccountIPCertificates(ctx context.Context, accID agd.AccountID, ips []*agd.AccountIP)
 
 	// DeleteAllWellKnownPaths removes all data about well-known paths for
 	// certificate validation.
@@ -40,7 +44,7 @@ var _ CustomDomainDB = EmptyCustomDomainDB{}
 // EmptyCustomDomainDB
 func (EmptyCustomDomainDB) AddCertificate(
 	_ context.Context,
-	_ agd.ProfileID,
+	_ agd.AccountID,
 	_ []string,
 	_ *agd.CustomDomainStateCurrent,
 ) {
@@ -53,3 +57,12 @@ func (EmptyCustomDomainDB) DeleteAllWellKnownPaths(_ context.Context) {}
 // SetWellKnownPath implements the [CustomDomainDB] interface for
 // EmptyCustomDomainDB.
 func (EmptyCustomDomainDB) SetWellKnownPath(_ context.Context, _ *agd.CustomDomainStatePending) {}
+
+// AddAccountIPCertificates implements the [CustomDomainDB] interface for
+// EmptyCustomDomainDB.
+func (EmptyCustomDomainDB) AddAccountIPCertificates(
+	_ context.Context,
+	_ agd.AccountID,
+	_ []*agd.AccountIP,
+) {
+}

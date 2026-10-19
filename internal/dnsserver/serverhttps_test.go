@@ -234,16 +234,14 @@ func TestDNSMsgToJSONMsg(t *testing.T) {
 	}
 
 	m := &dns.Msg{
-		MsgHdr: dns.MsgHdr{
-			Id:                 dns.Id(),
-			Response:           true,
-			Authoritative:      true,
-			RecursionAvailable: true,
-			RecursionDesired:   true,
-			AuthenticatedData:  true,
-			CheckingDisabled:   true,
-			Rcode:              dns.RcodeSuccess,
-		},
+		Id:                 dns.Id(),
+		Response:           true,
+		Authoritative:      true,
+		RecursionAvailable: true,
+		RecursionDesired:   true,
+		AuthenticatedData:  true,
+		CheckingDisabled:   true,
+		Rcode:              dns.RcodeSuccess,
 		Question: []dns.Question{{
 			Name:   dnsservertest.FQDN,
 			Qtype:  dns.TypeA,
@@ -465,13 +463,14 @@ func createDoH2Client(httpsAddr net.Addr, tlsConfig *tls.Config) (client *http.C
 		DisableCompression: true,
 		DialContext:        dialContext,
 		ForceAttemptHTTP2:  true,
+		Protocols:          &http.Protocols{},
 	}
+
+	transport.Protocols.SetHTTP1(true)
 	if tlsConfig != nil {
-		err = http2.ConfigureTransport(transport)
-		if err != nil {
-			return nil, err
-		}
+		transport.Protocols.SetHTTP2(true)
 	}
+
 	return &http.Client{
 		Transport: transport,
 		Timeout:   5 * time.Second,
@@ -586,15 +585,13 @@ func unpackJSONMsg(b []byte) (m *dns.Msg, err error) {
 	}
 
 	m = &dns.Msg{
-		MsgHdr: dns.MsgHdr{
-			Response:           true,
-			Rcode:              jsonMsg.Status,
-			Truncated:          jsonMsg.Truncated,
-			RecursionDesired:   jsonMsg.RecursionDesired,
-			RecursionAvailable: jsonMsg.RecursionAvailable,
-			CheckingDisabled:   jsonMsg.CheckingDisabled,
-			AuthenticatedData:  jsonMsg.AuthenticatedData,
-		},
+		Response:           true,
+		Rcode:              jsonMsg.Status,
+		Truncated:          jsonMsg.Truncated,
+		RecursionDesired:   jsonMsg.RecursionDesired,
+		RecursionAvailable: jsonMsg.RecursionAvailable,
+		CheckingDisabled:   jsonMsg.CheckingDisabled,
+		AuthenticatedData:  jsonMsg.AuthenticatedData,
 	}
 
 	for _, q := range jsonMsg.Question {

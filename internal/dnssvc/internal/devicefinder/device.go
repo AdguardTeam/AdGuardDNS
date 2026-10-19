@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
-	"slices"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
@@ -110,7 +109,8 @@ func (f *Default) newDeviceResult(
 }
 
 // deviceResultByCustomDomain converts custom-domain device data into a device
-// result.  cd must not be nil and must be valid.
+// result.  cd must not be nil, must be valid, and cd.deviceData must not be
+// nil.
 func (f *Default) deviceResultByCustomDomain(
 	ctx context.Context,
 	cd *deviceDataCustomDomain,
@@ -118,7 +118,7 @@ func (f *Default) deviceResultByCustomDomain(
 	switch dd := cd.deviceData.(type) {
 	case *deviceDataID:
 		prof, dev, err := f.profileDB.ProfileByDeviceID(ctx, dd.id)
-		if err != nil || (prof != nil && slices.Contains(cd.profileIDs, prof.ID)) {
+		if err != nil || (prof != nil && cd.accountID == prof.AccountID) {
 			return f.newDeviceResult(ctx, prof, dev, "custom domain and device id", err)
 		}
 
@@ -127,17 +127,20 @@ func (f *Default) deviceResultByCustomDomain(
 		optslog.Debug4(
 			ctx,
 			f.logger,
-			"custom-domain device and required profile mismatch",
+			"custom-domain device and required account mismatch",
 			"domain", cd.domain,
-			"required_profile_ids", cd.profileIDs,
+			"required_account_id", cd.accountID,
 			"dev_id", dev.ID,
 			"dev_prof_id", prof.ID,
 		)
 
 		return nil
 	case *deviceDataExtHumanID:
-		// Assume that dd.ProfileID has already been validated and matches
-		// cd.ProfileID.
+		// Assume that dd.ProfileID has already been validated and belongs to
+		// account with cd.accountID.
+		//
+		// TODO(a.garipov):  Add test on this in combination with the Account IP
+		// feature.
 		prof, dev, err := f.deviceByExtID(ctx, dd)
 
 		return f.newDeviceResult(ctx, prof, dev, "custom domain and human id", err)
@@ -211,7 +214,7 @@ func (f *Default) deviceByAddrs(
 	laddr netip.AddrPort,
 	remoteIP netip.Addr,
 ) (r agd.DeviceResult) {
-	if f.srv.BindsToInterfaces() && !f.srv.HasAddr(laddr) {
+	if f.srv.BindsToInterfaces() && !f.srv.BindConfigs().HasAddr(laddr) {
 		return f.deviceByLocalAddr(ctx, laddr.Addr())
 	}
 

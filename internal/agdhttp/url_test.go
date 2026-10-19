@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
-	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
@@ -20,7 +19,7 @@ const (
 func TestParseHTTPURL(t *testing.T) {
 	goodURL := testURL(url.UserPassword(testUsername, testPassword))
 
-	badSchemeURL := netutil.CloneURL(goodURL)
+	badSchemeURL := goodURL.Clone()
 	badSchemeURL.Scheme = "ftp"
 
 	relativeURL := &url.URL{

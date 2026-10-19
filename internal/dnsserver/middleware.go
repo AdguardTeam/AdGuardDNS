@@ -1,5 +1,7 @@
 package dnsserver
 
+import "slices"
+
 // Middleware is a general interface for dnsserver.Server middlewares.
 type Middleware interface {
 	// Wrap wraps the specified Handler and returns a new handler.  This
@@ -15,8 +17,7 @@ func WithMiddlewares(h Handler, middlewares ...Middleware) (wrapped Handler) {
 
 	// Go through middlewares in the reverse order.  This way the middleware
 	// that was specified first will be called first.
-	for i := len(middlewares) - 1; i >= 0; i-- {
-		m := middlewares[i]
+	for _, m := range slices.Backward(middlewares) {
 		wrapped = m.Wrap(wrapped)
 	}
 

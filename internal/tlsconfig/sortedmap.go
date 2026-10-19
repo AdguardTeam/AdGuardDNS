@@ -48,19 +48,22 @@ func (m *sortedMap[K, V]) get(key K) (val V, ok bool) {
 	return val, ok
 }
 
-// del removes the value by key from the sorted map.
-func (m *sortedMap[K, V]) del(key K) {
+// del removes the value by key from the sorted map.  deleted is true if given
+// key was presented in the underlying map.
+func (m *sortedMap[K, V]) del(key K) (deleted bool) {
 	if m == nil {
-		return
+		return false
 	}
 
 	if _, has := m.vals[key]; !has {
-		return
+		return false
 	}
 
 	delete(m.vals, key)
 	i, _ := slices.BinarySearchFunc(m.keys, key, m.cmp)
 	m.keys = slices.Delete(m.keys, i, i+1)
+
+	return true
 }
 
 // clear removes all elements from the sorted map.

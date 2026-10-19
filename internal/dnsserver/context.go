@@ -70,6 +70,7 @@ func ServerInfoFromContext(ctx context.Context) (si *ServerInfo, found bool) {
 func MustServerInfoFromContext(ctx context.Context) (si *ServerInfo) {
 	si, found := ServerInfoFromContext(ctx)
 	if !found {
+		// TODO(f.setrakov): Replace plain strings with errors.
 		panic("server info not found in the context")
 	}
 

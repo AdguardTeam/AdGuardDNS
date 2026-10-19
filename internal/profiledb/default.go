@@ -287,22 +287,23 @@ func (db *Default) applyChanges(p *agd.Profile, devChg *StorageDeviceChange) {
 // be nil and must be valid.  db.mapsMu must be locked for writing.
 func (db *Default) setProfileCerts(ctx context.Context, p *agd.Profile) (err error) {
 	cd := p.CustomDomains
-	if !cd.Enabled {
-		// Assume that the expired pending paths are cleaned up either by
-		// [db.IsValidWellKnownRequest] or in a full sync.
-		return nil
-	}
 
 	var errs []error
-	for i, c := range cd.Domains {
-		switch s := c.State.(type) {
-		case *agd.CustomDomainStateCurrent:
-			db.customDomainDB.AddCertificate(ctx, p.ID, c.Domains, s)
-		case *agd.CustomDomainStatePending:
-			db.customDomainDB.SetWellKnownPath(ctx, s)
-		default:
-			errs = append(errs, fmt.Errorf("custom domains: at index %d: bad type %T(%[2]v)", i, s))
+	if cd.Enabled {
+		for i, c := range cd.Domains {
+			switch s := c.State.(type) {
+			case *agd.CustomDomainStateCurrent:
+				db.customDomainDB.AddCertificate(ctx, p.AccountID, c.Domains, s)
+			case *agd.CustomDomainStatePending:
+				db.customDomainDB.SetWellKnownPath(ctx, s)
+			default:
+				errs = append(errs, fmt.Errorf("custom domains: at index %d: bad type %T(%[2]v)", i, s))
+			}
 		}
+	}
+
+	if p.AccountIPConfig.Enabled {
+		db.customDomainDB.AddAccountIPCertificates(ctx, p.AccountID, p.AccountIPConfig.IPs)
 	}
 
 	return errors.Join(errs...)
@@ -832,6 +833,19 @@ func (db *Default) removeHumanID(ctx context.Context, k humanIDKey) {
 	defer db.mapsMu.Unlock()
 
 	delete(db.humanIDToDeviceID, k)
+}
+
+// ProfileByID implements the [Interface] for *Default.
+func (db *Default) ProfileByID(_ context.Context, id agd.ProfileID) (p *agd.Profile, err error) {
+	db.mapsMu.RLock()
+	defer db.mapsMu.RUnlock()
+
+	p, ok := db.profiles[id]
+	if !ok {
+		return nil, ErrProfileNotFound
+	}
+
+	return p, nil
 }
 
 // ProfileByLinkedIP implements the [Interface] interface for *Default.  ip must

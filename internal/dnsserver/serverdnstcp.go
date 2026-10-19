@@ -237,6 +237,7 @@ func (s *ServerDNS) acceptTCPMsg(
 // not be nil.
 func (s *ServerDNS) newTCPRW(writeMu *sync.Mutex, conn net.Conn) (rw *tcpResponseWriter) {
 	return &tcpResponseWriter{
+		clock:        s.clock,
 		messageTap:   s.messageTap,
 		respPool:     s.respPool,
 		writeMu:      writeMu,
@@ -301,7 +302,7 @@ func (s *ServerDNS) readTCPMsg(
 		return nil, fmt.Errorf("reading message: %w", err)
 	}
 
-	tapRequest(ctx, s.messageTap, conn.LocalAddr(), conn.RemoteAddr(), buf[:length])
+	tapRequest(ctx, s.clock.Now(), s.messageTap, conn.LocalAddr(), conn.RemoteAddr(), buf[:length])
 
 	req := &dns.Msg{}
 	err = req.Unpack(buf[:length])

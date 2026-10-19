@@ -88,6 +88,7 @@ lint_staged_changes() {
 			-- \
 			'*.json' \
 			'*.md' \
+			'*.proto' \
 			'*.yaml' \
 			'*.yml' \
 			'.dockerignore' \

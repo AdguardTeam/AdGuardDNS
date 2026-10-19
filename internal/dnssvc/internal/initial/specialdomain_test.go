@@ -23,17 +23,27 @@ import (
 func TestMiddleware_Wrap_specialDomain(t *testing.T) {
 	var (
 		profAllowed = &agd.Profile{
-			Access:              access.EmptyProfile{},
-			BlockChromePrefetch: false,
-			BlockFirefoxCanary:  false,
-			BlockPrivateRelay:   false,
+			AccountIPConfig:          &agd.AccountIPConfig{Enabled: true},
+			CustomDomains:            &agd.AccountCustomDomains{},
+			AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
+			BlockingMode:             &dnsmsg.BlockingModeNullIP{},
+			SafeBrowsingBlockingMode: &dnsmsg.BlockingModeNullIP{},
+			Access:                   access.EmptyProfile{},
+			BlockChromePrefetch:      false,
+			BlockFirefoxCanary:       false,
+			BlockPrivateRelay:        false,
 		}
 
 		profBlocked = &agd.Profile{
-			Access:              access.EmptyProfile{},
-			BlockChromePrefetch: true,
-			BlockFirefoxCanary:  true,
-			BlockPrivateRelay:   true,
+			AccountIPConfig:          &agd.AccountIPConfig{},
+			CustomDomains:            &agd.AccountCustomDomains{},
+			AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
+			BlockingMode:             &dnsmsg.BlockingModeNullIP{},
+			SafeBrowsingBlockingMode: &dnsmsg.BlockingModeNullIP{},
+			Access:                   access.EmptyProfile{},
+			BlockChromePrefetch:      true,
+			BlockFirefoxCanary:       true,
+			BlockPrivateRelay:        true,
 		}
 	)
 
@@ -58,73 +68,95 @@ func TestMiddleware_Wrap_specialDomain(t *testing.T) {
 	)
 
 	testCases := []struct {
-		reqInfo   *agd.RequestInfo
-		name      string
-		wantRCode dnsmsg.RCode
+		reqInfo    *agd.RequestInfo
+		name       string
+		wantRCode  dnsmsg.RCode
+		ddrEnabled bool
 	}{{
-		reqInfo:   newSpecDomReqInfo(t, nil, fltGrpBlocked, appleHost, dns.TypeA),
-		name:      "private_relay_blocked_by_fltgrp",
-		wantRCode: dns.RcodeNameError,
+		reqInfo:    newSpecDomReqInfo(t, nil, fltGrpBlocked, appleHost, dns.TypeA),
+		name:       "private_relay_blocked_by_fltgrp",
+		wantRCode:  dns.RcodeNameError,
+		ddrEnabled: false,
 	}, {
-		reqInfo:   newSpecDomReqInfo(t, nil, fltGrpBlocked, dnssvctest.DomainAllowed, dns.TypeA),
-		name:      "no_special_domain",
-		wantRCode: dns.RcodeSuccess,
+		reqInfo:    newSpecDomReqInfo(t, nil, fltGrpBlocked, dnssvctest.DomainAllowed, dns.TypeA),
+		name:       "no_special_domain",
+		wantRCode:  dns.RcodeSuccess,
+		ddrEnabled: false,
 	}, {
-		reqInfo:   newSpecDomReqInfo(t, nil, fltGrpBlocked, appleHost, dns.TypeTXT),
-		name:      "private_relay_blocked_txt",
-		wantRCode: dns.RcodeNameError,
+		reqInfo:    newSpecDomReqInfo(t, nil, fltGrpBlocked, appleHost, dns.TypeTXT),
+		name:       "private_relay_blocked_txt",
+		wantRCode:  dns.RcodeNameError,
+		ddrEnabled: false,
 	}, {
-		reqInfo:   newSpecDomReqInfo(t, nil, fltGrpBlocked, appleHost, dns.TypeCNAME),
-		name:      "private_relay_blocked_cname",
-		wantRCode: dns.RcodeNameError,
+		reqInfo:    newSpecDomReqInfo(t, nil, fltGrpBlocked, appleHost, dns.TypeCNAME),
+		name:       "private_relay_blocked_cname",
+		wantRCode:  dns.RcodeNameError,
+		ddrEnabled: false,
 	}, {
-		reqInfo:   newSpecDomReqInfo(t, nil, fltGrpBlocked, appleHost, dns.TypeHTTPS),
-		name:      "private_relay_blocked_https",
-		wantRCode: dns.RcodeNameError,
+		reqInfo:    newSpecDomReqInfo(t, nil, fltGrpBlocked, appleHost, dns.TypeHTTPS),
+		name:       "private_relay_blocked_https",
+		wantRCode:  dns.RcodeNameError,
+		ddrEnabled: false,
 	}, {
-		reqInfo:   newSpecDomReqInfo(t, profBlocked, fltGrpAllowed, appleHost, dns.TypeA),
-		name:      "private_relay_blocked_by_prof",
-		wantRCode: dns.RcodeNameError,
+		reqInfo:    newSpecDomReqInfo(t, profBlocked, fltGrpAllowed, appleHost, dns.TypeA),
+		name:       "private_relay_blocked_by_prof",
+		wantRCode:  dns.RcodeNameError,
+		ddrEnabled: false,
 	}, {
-		reqInfo:   newSpecDomReqInfo(t, profAllowed, fltGrpBlocked, appleHost, dns.TypeA),
-		name:      "private_relay_allowed_by_prof",
-		wantRCode: dns.RcodeSuccess,
+		reqInfo:    newSpecDomReqInfo(t, profAllowed, fltGrpBlocked, appleHost, dns.TypeA),
+		name:       "private_relay_allowed_by_prof",
+		wantRCode:  dns.RcodeSuccess,
+		ddrEnabled: false,
 	}, {
-		reqInfo:   newSpecDomReqInfo(t, profAllowed, fltGrpAllowed, appleHost, dns.TypeA),
-		name:      "private_relay_allowed_by_both",
-		wantRCode: dns.RcodeSuccess,
+		reqInfo:    newSpecDomReqInfo(t, profAllowed, fltGrpAllowed, appleHost, dns.TypeA),
+		name:       "private_relay_allowed_by_both",
+		wantRCode:  dns.RcodeSuccess,
+		ddrEnabled: false,
 	}, {
-		reqInfo:   newSpecDomReqInfo(t, profBlocked, fltGrpAllowed, appleHost, dns.TypeA),
-		name:      "private_relay_blocked_by_both",
-		wantRCode: dns.RcodeNameError,
+		reqInfo:    newSpecDomReqInfo(t, profBlocked, fltGrpAllowed, appleHost, dns.TypeA),
+		name:       "private_relay_blocked_by_both",
+		wantRCode:  dns.RcodeNameError,
+		ddrEnabled: false,
 	}, {
-		reqInfo:   newSpecDomReqInfo(t, profAllowed, fltGrpAllowed, firefoxHost, dns.TypeA),
-		name:      "firefox_canary_allowed_by_prof",
-		wantRCode: dns.RcodeSuccess,
+		reqInfo:    newSpecDomReqInfo(t, profAllowed, fltGrpAllowed, firefoxHost, dns.TypeA),
+		name:       "firefox_canary_allowed_by_prof",
+		wantRCode:  dns.RcodeSuccess,
+		ddrEnabled: false,
 	}, {
-		reqInfo:   newSpecDomReqInfo(t, nil, fltGrpAllowed, firefoxHost, dns.TypeA),
-		name:      "firefox_canary_allowed_by_fltgrp",
-		wantRCode: dns.RcodeSuccess,
+		reqInfo:    newSpecDomReqInfo(t, nil, fltGrpAllowed, firefoxHost, dns.TypeA),
+		name:       "firefox_canary_allowed_by_fltgrp",
+		wantRCode:  dns.RcodeSuccess,
+		ddrEnabled: false,
 	}, {
-		reqInfo:   newSpecDomReqInfo(t, profBlocked, fltGrpAllowed, firefoxHost, dns.TypeA),
-		name:      "firefox_canary_blocked_by_prof",
-		wantRCode: dns.RcodeRefused,
+		reqInfo:    newSpecDomReqInfo(t, profBlocked, fltGrpAllowed, firefoxHost, dns.TypeA),
+		name:       "firefox_canary_blocked_by_prof",
+		wantRCode:  dns.RcodeRefused,
+		ddrEnabled: false,
 	}, {
-		reqInfo:   newSpecDomReqInfo(t, nil, fltGrpBlocked, firefoxHost, dns.TypeA),
-		name:      "firefox_canary_blocked_by_fltgrp",
-		wantRCode: dns.RcodeRefused,
+		reqInfo:    newSpecDomReqInfo(t, nil, fltGrpBlocked, firefoxHost, dns.TypeA),
+		name:       "firefox_canary_blocked_by_fltgrp",
+		wantRCode:  dns.RcodeRefused,
+		ddrEnabled: false,
 	}, {
-		reqInfo:   newSpecDomReqInfo(t, profAllowed, fltGrpAllowed, chromeHost, dns.TypeA),
-		name:      "chrome_prefetch_allowed_by_both",
-		wantRCode: dns.RcodeSuccess,
+		reqInfo:    newSpecDomReqInfo(t, profAllowed, fltGrpAllowed, chromeHost, dns.TypeA),
+		name:       "chrome_prefetch_allowed_by_both",
+		wantRCode:  dns.RcodeSuccess,
+		ddrEnabled: false,
 	}, {
-		reqInfo:   newSpecDomReqInfo(t, profBlocked, fltGrpAllowed, chromeHost, dns.TypeA),
-		name:      "chrome_prefetch_blocked_by_prof",
-		wantRCode: dns.RcodeNameError,
+		reqInfo:    newSpecDomReqInfo(t, profBlocked, fltGrpAllowed, chromeHost, dns.TypeA),
+		name:       "chrome_prefetch_blocked_by_prof",
+		wantRCode:  dns.RcodeNameError,
+		ddrEnabled: false,
 	}, {
-		reqInfo:   newSpecDomReqInfo(t, nil, fltGrpBlocked, chromeHost, dns.TypeA),
-		name:      "chrome_prefetch_blocked_by_fltgrp",
-		wantRCode: dns.RcodeNameError,
+		reqInfo:    newSpecDomReqInfo(t, nil, fltGrpBlocked, chromeHost, dns.TypeA),
+		name:       "chrome_prefetch_blocked_by_fltgrp",
+		wantRCode:  dns.RcodeNameError,
+		ddrEnabled: false,
+	}, {
+		reqInfo:    newSpecDomReqInfo(t, profAllowed, nil, initial.DDRDomain, dns.TypeSVCB),
+		name:       "disable_ddr_with_account_ip",
+		wantRCode:  dns.RcodeNameError,
+		ddrEnabled: true,
 	}}
 
 	for _, tc := range testCases {
@@ -133,7 +165,7 @@ func TestMiddleware_Wrap_specialDomain(t *testing.T) {
 				Logger:  slogutil.NewDiscardLogger(),
 				Metrics: initial.EmptyMetrics{},
 				DDR: &initial.DDRConfig{
-					Enabled: false,
+					Enabled: tc.ddrEnabled,
 				},
 			})
 

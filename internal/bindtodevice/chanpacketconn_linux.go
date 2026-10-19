@@ -12,14 +12,15 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
+	"github.com/AdguardTeam/golibs/syncutil"
 )
 
 // chanPacketConn is a [netext.SessionPacketConn] that returns data sent to it
 // through the channel.
 //
 // Connections of this type are returned by [ListenConfig.ListenPacket] and are
-// used in module dnsserver to make the bind-to-device logic work in
-// DNS-over-UDP.
+// used in module dnsserver to make the bind-to-device logic work in UDP-based
+// protocols
 type chanPacketConn struct {
 	// mu protects sessions (against closure) and isClosed.
 	mu       *sync.Mutex
@@ -29,25 +30,41 @@ type chanPacketConn struct {
 
 	metrics Metrics
 
-	// deadlineMu protects readDeadline and writeDeadline.
-	deadlineMu    *sync.RWMutex
-	readDeadline  time.Time
-	writeDeadline time.Time
+	// respPool is the pool used to dispose packet conn write responses.  It
+	// must not be nil.
+	respPool *syncutil.Pool[packetConnWriteResp]
 
-	laddr     net.Addr
-	subnet    netip.Prefix
-	ifaceName string
-	isClosed  bool
+	// reqPool is the pool used to dispose packet conn write requests.  It must
+	// not be nil.
+	reqPool *syncutil.Pool[packetConnWriteReq]
+
+	// bodyPool is the pool used to dispose of read bodies after they've been
+	// copied.  It must not be nil.
+	bodyPool *syncutil.Pool[[]byte]
+
+	deadlineRead  *dynamicDeadline
+	deadlineWrite *dynamicDeadline
+
+	laddr    net.Addr
+	subnet   netip.Prefix
+	id       ID
+	isClosed bool
 }
 
-// newChanPacketConn returns a new properly initialized *chanPacketConn.  mtrc
-// must not be nil.
+// newChanPacketConn returns a new properly initialized *chanPacketConn.  mtrc,
+// sessions, respPool, reqPool, bodyPool, writeRequests, and laddr must not be
+// nil.
+//
+// TODO(a.garipov):  Consider adding a config structure.
 func newChanPacketConn(
 	mtrc Metrics,
 	sessions chan *packetSession,
+	respPool *syncutil.Pool[packetConnWriteResp],
+	reqPool *syncutil.Pool[packetConnWriteReq],
+	bodyPool *syncutil.Pool[[]byte],
 	subnet netip.Prefix,
 	writeRequests chan *packetConnWriteReq,
-	ifaceName string,
+	id ID,
 	laddr net.Addr,
 ) (c *chanPacketConn) {
 	return &chanPacketConn{
@@ -57,29 +74,44 @@ func newChanPacketConn(
 
 		metrics: mtrc,
 
-		deadlineMu: &sync.RWMutex{},
+		respPool: respPool,
+		reqPool:  reqPool,
+		bodyPool: bodyPool,
+
+		deadlineRead:  newDynamicDeadline(),
+		deadlineWrite: newDynamicDeadline(),
 
 		laddr:  laddr,
 		subnet: subnet,
 
-		ifaceName: ifaceName,
+		id: id,
 	}
 }
 
 // packetConnWriteReq is a request to write a piece of data to the original
-// packet connection.  respCh, body, and either raddr or session must be set.
+// packet connection.  respCh, bodyPtr, and either raddr or session must be set.
 type packetConnWriteReq struct {
 	respCh   chan *packetConnWriteResp
+	bodyPtr  *[]byte
 	session  *packetSession
 	raddr    net.Addr
 	deadline time.Time
-	body     []byte
+}
+
+// reset makes *packetConnWriteReq ready for reuse.
+func (r *packetConnWriteReq) reset() {
+	*r = packetConnWriteReq{}
 }
 
 // packetConnWriteResp is a response to a [packetConnWriteReq].
 type packetConnWriteResp struct {
-	err     error
-	written int
+	err error
+	n   int
+}
+
+// reset makes *packetConnWriteResp ready for reuse.
+func (r *packetConnWriteResp) reset() {
+	*r = packetConnWriteResp{}
 }
 
 // type check
@@ -108,122 +140,82 @@ func (c *chanPacketConn) LocalAddr() (addr net.Addr) { return c.laddr }
 // ReadFrom implements the [netext.SessionPacketConn] interface for
 // *chanPacketConn.
 func (c *chanPacketConn) ReadFrom(b []byte) (n int, raddr net.Addr, err error) {
-	n, sess, err := c.readFromSession(b, "ReadFrom")
-	if sess == nil {
-		return 0, nil, err
+	n, s, err := c.readFromSession(b, "ReadFrom")
+	if s == nil {
+		return n, nil, err
 	}
 
-	return n, sess.RemoteAddr(), err
+	raddr = &sessionAddr{
+		session: s,
+	}
+
+	return n, raddr, err
 }
 
 // ReadFromSession implements the [netext.SessionPacketConn] interface for
 // *chanPacketConn.
 func (c *chanPacketConn) ReadFromSession(b []byte) (n int, s netext.PacketSession, err error) {
-	return c.readFromSession(b, "ReadFromSession")
+	n, sess, err := c.readFromSession(b, "ReadFromSession")
+	if sess == nil {
+		// Shouldn't happen unless there is an error.  Also, return a literal
+		// nil to prevent netext.PacketSession((*packetSession)(nil)).
+		return n, nil, err
+	}
+
+	return n, sess, err
 }
 
-// readFromSession contains the common code of [ReadFrom] and [ReadFromSession].
+// readFromSession contains the common code of [chanPacketConn.ReadFrom] and
+// [chanPacketConn.ReadFromSession].
 func (c *chanPacketConn) readFromSession(
 	b []byte,
 	fnName string,
-) (n int, s netext.PacketSession, err error) {
-	var sess *packetSession
+) (n int, s *packetSession, err error) {
 	defer func() {
-		if sess != nil {
-			n = copy(b, sess.readBody)
+		if s == nil {
+			return
 		}
+
+		n = copy(b, *s.readBodyPtr)
+		c.bodyPool.Put(s.readBodyPtr)
+
+		// Remove this reference to prevent misuse.
+		s.readBodyPtr = nil
 	}()
 
-	var deadline time.Time
-	func() {
-		c.deadlineMu.RLock()
-		defer c.deadlineMu.RUnlock()
+	timerCh, _ := c.deadlineRead.wait()
 
-		deadline = c.readDeadline
-	}()
-
-	timerCh, stopTimer, err := timerFromDeadline(deadline)
-	if err != nil {
-		err = fmt.Errorf("setting deadline: %w", err)
-
-		return 0, nil, wrapConnError(tnChanPConn, fnName, c.laddr, err)
-	}
-	defer stopTimer()
-
-	sess, err = receiveWithTimer(c.sessions, timerCh)
+	s, err = receiveWithTimer(c.sessions, timerCh)
 	if err != nil {
 		err = fmt.Errorf("receiving: %w", err)
-
-		// Prevent netext.PacketSession((*packetSession)(nil)).
-		if sess != nil {
-			s = sess
-		}
 
 		return 0, s, wrapConnError(tnChanPConn, fnName, c.laddr, err)
 	}
 
-	return 0, sess, nil
-}
-
-// timerFromDeadline converts a deadline value into a timer channel.  stopTimer
-// must be deferred by the caller.
-func timerFromDeadline(deadline time.Time) (timerCh <-chan time.Time, stopTimer func(), err error) {
-	if deadline.IsZero() {
-		return nil, func() {}, nil
-	}
-
-	d := time.Until(deadline)
-	if d <= 0 {
-		return nil, func() {}, os.ErrDeadlineExceeded
-	}
-
-	timer := time.NewTimer(time.Until(deadline))
-	timerCh = timer.C
-	stopTimer = func() {
-		if !timer.Stop() {
-			// We don't know if the timer's value has been consumed yet or not,
-			// so use a select with default to make sure that this doesn't
-			// block.
-			select {
-			case <-timerCh:
-			default:
-			}
-		}
-	}
-
-	return timerCh, stopTimer, nil
+	return 0, s, nil
 }
 
 // SetDeadline implements the [netext.SessionPacketConn] interface for
-// *chanPacketConn.
+// *chanPacketConn.  It always returns nil.
 func (c *chanPacketConn) SetDeadline(t time.Time) (err error) {
-	c.deadlineMu.Lock()
-	defer c.deadlineMu.Unlock()
-
-	c.readDeadline = t
-	c.writeDeadline = t
+	c.deadlineRead.set(t)
+	c.deadlineWrite.set(t)
 
 	return nil
 }
 
 // SetReadDeadline implements the [netext.SessionPacketConn] interface for
-// *chanPacketConn.
+// *chanPacketConn.  It always returns nil.
 func (c *chanPacketConn) SetReadDeadline(t time.Time) (err error) {
-	c.deadlineMu.Lock()
-	defer c.deadlineMu.Unlock()
-
-	c.readDeadline = t
+	c.deadlineRead.set(t)
 
 	return nil
 }
 
 // SetWriteDeadline implements the [netext.SessionPacketConn] interface for
-// *chanPacketConn.
+// *chanPacketConn.  It always returns nil.
 func (c *chanPacketConn) SetWriteDeadline(t time.Time) (err error) {
-	c.deadlineMu.Lock()
-	defer c.deadlineMu.Unlock()
-
-	c.writeDeadline = t
+	c.deadlineWrite.set(t)
 
 	return nil
 }
@@ -231,72 +223,92 @@ func (c *chanPacketConn) SetWriteDeadline(t time.Time) (err error) {
 // WriteTo implements the [netext.SessionPacketConn] interface for
 // *chanPacketConn.  raddr must not be nil.
 func (c *chanPacketConn) WriteTo(b []byte, raddr net.Addr) (n int, err error) {
-	return c.writeToSession(b, nil, raddr, "WriteTo")
+	var s *packetSession
+	if a, ok := raddr.(*sessionAddr); ok {
+		s = a.session
+	}
+
+	// Don't wrap the error, because [chanPacketConn.writeToSession] is the
+	// common method containing all error handling.
+	return c.writeToSession(b, s, raddr, "WriteTo")
 }
 
 // WriteToSession implements the [netext.SessionPacketConn] interface for
 // *chanPacketConn.  s must not be nil.
 func (c *chanPacketConn) WriteToSession(b []byte, s netext.PacketSession) (n int, err error) {
+	// Don't wrap the error, because [chanPacketConn.writeToSession] is the
+	// common method containing all error handling.
 	return c.writeToSession(b, s.(*packetSession), nil, "WriteToSession")
 }
 
-// writeToSession contains the common code of [WriteTo] and [WriteToSession].
-// Either raddr or s must not be nil.
+// writeToSession contains the common code of [chanPacketConn.WriteTo] and
+// [chanPacketConn.WriteToSession].  Either raddr or s must not be nil.
 func (c *chanPacketConn) writeToSession(
 	b []byte,
 	s *packetSession,
 	raddr net.Addr,
 	fnName string,
 ) (n int, err error) {
-	var deadline time.Time
-	func() {
-		c.deadlineMu.RLock()
-		defer c.deadlineMu.RUnlock()
-
-		deadline = c.writeDeadline
-	}()
-
-	timerCh, stopTimer, err := timerFromDeadline(deadline)
-	if err != nil {
-		err = fmt.Errorf("setting deadline: %w", err)
-
-		return 0, wrapConnError(tnChanPConn, fnName, c.laddr, err)
-	}
-	defer stopTimer()
+	timerCh, dl := c.deadlineWrite.wait()
 
 	resp := make(chan *packetConnWriteResp, 1)
-	req := &packetConnWriteReq{
-		respCh:   resp,
-		session:  s,
-		raddr:    raddr,
-		deadline: deadline,
-		body:     b,
-	}
+
+	// NOTE: Request is returned to the pool in
+	// [interfaceListener.writeUDPResponses].
+	req := c.reqPool.Get()
+	req.reset()
+
+	req.respCh = resp
+	req.session = s
+	req.raddr = raddr
+
+	// TODO(a.garipov):  The deadline might change while the write is still
+	// in progress.  Consider if this is dangerous in practice and find ways
+	// of solving it.
+	req.deadline = dl
+
+	// Copy the body to prevent data races, since [io.Writer] implementations
+	// shouldn't retain the original slices.
+	bodyPtr := c.bodyPool.Get()
+	(*bodyPtr) = append((*bodyPtr)[:0], b...)
+
+	// Returned to the pool in [interfaceListener.writeUDPResponses].
+	req.bodyPtr = bodyPtr
+
 	err = sendWithTimer(c.writeRequests, req, timerCh)
 	if err != nil {
+		c.bodyPool.Put(bodyPtr)
+		c.reqPool.Put(req)
+
 		err = fmt.Errorf("sending write request: %w", err)
 
 		return 0, wrapConnError(tnChanPConn, fnName, c.laddr, err)
 	}
 
 	// TODO(s.chzhen):  Pass context.
-	c.metrics.SetUDPWriteRequestsChanSize(context.TODO(), c.ifaceName, uint(len(c.writeRequests)))
+	c.metrics.SetUDPWriteRequestsChanSize(context.TODO(), string(c.id), uint(len(c.writeRequests)))
 
+	// TODO(a.garipov):  Make this more robust to prevent this blocking forever
+	// during a shutdown.
 	r, err := receiveWithTimer(resp, timerCh)
 	if err != nil {
-		err = fmt.Errorf("receiving write response: %w", err)
-
 		return 0, wrapConnError(tnChanPConn, fnName, c.laddr, err)
 	}
+	defer c.respPool.Put(r)
 
-	return r.written, r.err
+	return r.n, r.err
 }
 
 // receiveWithTimer is a helper function that uses a timer channel to indicate
 // that a receive did not succeed in time.  If the channel is closed, err is
-// [net.ErrClosed].  If the receive from timerCh succeeded first, err is
+// [net.ErrClosed].  Otherwise, if the receive from timerCh succeeded, err is
 // [os.ErrDeadlineExceeded].
-func receiveWithTimer[T any](ch <-chan T, timerCh <-chan time.Time) (v T, err error) {
+func receiveWithTimer[T any](ch <-chan T, timerCh <-chan unit) (v T, err error) {
+	// TODO(a.garipov):  There could technically be a race here when both
+	// operations can proceed.  There is also a case where the channel has been
+	// closed but it still contains sent data.  Consider these cases rare and,
+	// if this proves to ever become problematic, use a select-within-select
+	// idiom to detect such situations and process in a stable manner.
 	var ok bool
 	select {
 	case v, ok = <-ch:
@@ -311,9 +323,13 @@ func receiveWithTimer[T any](ch <-chan T, timerCh <-chan time.Time) (v T, err er
 }
 
 // sendWithTimer is a helper function that uses a timer channel to indicate that
-// a send did not succeed in time.  If the receive from timerCh succeeded first,
-// err is [os.ErrDeadlineExceeded].
-func sendWithTimer[T any](ch chan<- T, v T, timerCh <-chan time.Time) (err error) {
+// a send did not succeed in time.  If the receive from timerCh succeeded, err
+// is [os.ErrDeadlineExceeded].
+func sendWithTimer[T any](ch chan<- T, v T, timerCh <-chan unit) (err error) {
+	// TODO(a.garipov):  There could technically be a race here when both
+	// operations can proceed.  Consider this a rare case and, if this proves to
+	// ever become problematic, use a select-within-select idiom to detect such
+	// situations and process in a stable manner.
 	select {
 	case ch <- v:
 		return nil
@@ -332,6 +348,8 @@ func (c *chanPacketConn) send(ctx context.Context, sess *packetSession) (ok bool
 		return false
 	}
 
+	// TODO(a.garipov):  Make this more robust so that a send to a full buffer
+	// and [chanPacketConn.Close] don't ever cause a deadlock.
 	c.sessions <- sess
 
 	c.metrics.SetUDPSessionsChanSize(ctx, c.subnet, uint(len(c.sessions)))

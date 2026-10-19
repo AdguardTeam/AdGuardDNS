@@ -239,17 +239,15 @@ var clonerTestCases = []clonerTestCase{{
 // parameter values.
 func newHTTPSResp(kv []dns.SVCBKeyValue) (resp *dns.Msg) {
 	ans := &dns.HTTPS{
-		SVCB: dns.SVCB{
-			Hdr: dns.RR_Header{
-				Name:   testFQDN,
-				Rrtype: dns.TypeHTTPS,
-				Class:  dns.ClassINET,
-				Ttl:    10,
-			},
-			Priority: 10,
-			Target:   testFQDN,
-			Value:    kv,
+		Hdr: dns.RR_Header{
+			Name:   testFQDN,
+			Rrtype: dns.TypeHTTPS,
+			Class:  dns.ClassINET,
+			Ttl:    10,
 		},
+		Priority: 10,
+		Target:   testFQDN,
+		Value:    kv,
 	}
 
 	return dnsservertest.NewResp(

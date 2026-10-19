@@ -48,20 +48,18 @@ func (mw *Middleware) writeDebugResponse(
 	debugReq.Question[0].Qclass = dns.ClassCHAOS
 	debugReq.Question[0].Qtype = dns.TypeTXT
 
-	rAddr := rw.RemoteAddr()
-	cliIP, _ := netutil.IPAndPortFromAddr(rAddr)
+	remoteAddrPort := netutil.NetAddrToAddrPort(rw.RemoteAddr())
 
 	setQuestionName(debugReq, "", hdrNameClientIP)
-	err = mw.messages.AppendDebugExtra(debugReq, resp, cliIP.String())
+	err = mw.messages.AppendDebugExtra(debugReq, resp, remoteAddrPort.Addr().String())
 	if err != nil {
 		return fmt.Errorf("adding %s extra: %w", hdrNameClientIP, err)
 	}
 
-	lAddr := rw.LocalAddr()
-	localIP, _ := netutil.IPAndPortFromAddr(lAddr)
+	localAddrPort := netutil.NetAddrToAddrPort(rw.LocalAddr())
 
 	setQuestionName(debugReq, "", hdrNameServerIP)
-	err = mw.messages.AppendDebugExtra(debugReq, resp, localIP.String())
+	err = mw.messages.AppendDebugExtra(debugReq, resp, localAddrPort.Addr().String())
 	if err != nil {
 		return fmt.Errorf("adding %s extra: %w", hdrNameServerIP, err)
 	}
@@ -194,7 +192,7 @@ func (mw *Middleware) debugResponse(
 		setQuestionName(req, applyTo, hdrNameResType)
 		err = mw.messages.AppendDebugExtra(req, resp, "normal")
 
-		return errors.Annotate(err, "adding %s extra: %w", hdrNameProfileID)
+		return errors.Annotate(err, "adding %s extra: %w", hdrNameResType)
 	}
 
 	fltID, rule := fltRes.MatchedRule()

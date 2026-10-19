@@ -29,9 +29,7 @@ import (
 const defaultTimeout = 10 * time.Second
 
 // defaultConfusablesURL is the default URL to get the confusables.txt file.
-//
-// TODO(e.burkov):  Update to 16.0.0 when the [unicode] package will use it.
-const defaultConfusablesURL = `https://www.unicode.org/Public/security/15.0.0/confusables.txt`
+const defaultConfusablesURL = `https://www.unicode.org/Public/17.0.0/security/confusables.txt`
 
 func main() {
 	ctx := context.Background()

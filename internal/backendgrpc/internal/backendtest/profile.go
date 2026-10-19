@@ -15,19 +15,35 @@ import (
 func NewDNSProfile(tb testing.TB) (p *dnspb.DNSProfile) {
 	tb.Helper()
 
-	dayRange := &dnspb.DayRange{
+	dayRanges := []*dnspb.DayRange{{
 		Start: durationpb.New(0),
 		End:   durationpb.New(59 * time.Minute),
+	}, {
+		Start: durationpb.New(12 * time.Hour),
+		End:   durationpb.New(12*time.Hour + 59*time.Minute),
+	}}
+
+	week := &dnspb.WeeklyRanges{
+		Sun: nil,
+		Mon: dayRanges,
+		Tue: dayRanges,
+		Wed: dayRanges,
+		Thu: dayRanges,
+		Fri: dayRanges,
+		Sat: nil,
 	}
 
-	week := &dnspb.WeeklyRange{
-		Sun: nil,
-		Mon: dayRange,
-		Tue: dayRange,
-		Wed: dayRange,
-		Thu: dayRange,
-		Fri: dayRange,
-		Sat: nil,
+	customDomain := newCustomDomain()
+
+	accountIP := &dnspb.AccountIPSettings{
+		Enabled: true,
+		Ips: []*dnspb.AccountIPSettings_IP{{
+			Enabled: true,
+			Ip:      []byte{192, 0, 2, 0},
+			Domain: &dnspb.AccountIPSettings_DomainSettings{
+				Domains: customDomain.Domains,
+			},
+		}},
 	}
 
 	return &dnspb.DNSProfile{
@@ -53,8 +69,8 @@ func NewDNSProfile(tb testing.TB) (p *dnspb.DNSProfile) {
 			YoutubeSafeSearch: false,
 			BlockedServices:   []string{"youtube"},
 			Schedule: &dnspb.ScheduleSettings{
-				Tmz:         "GMT",
-				WeeklyRange: week,
+				Tmz:          "GMT",
+				WeeklyRanges: week,
 			},
 		},
 		CustomRuleLists: &dnspb.CustomRuleListsSettings{
@@ -114,6 +130,7 @@ func NewDNSProfile(tb testing.TB) (p *dnspb.DNSProfile) {
 		},
 		BlockChromePrefetch: true,
 		CustomDomain:        newCustomDomain(),
+		AccountIp:           accountIP,
 		CategoryFilter: &dnspb.CategoryFilterSettings{
 			Ids:     []string{"games"},
 			Enabled: true,

@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
@@ -36,15 +38,24 @@ var testCertValidator = websvc.RejectCertificateValidator{}
 // localhostZeroPort is a common used default host and dynamic port.
 var localhostZeroPort = netip.AddrPortFrom(netutil.IPv4Localhost(), 0)
 
+// testBindConfigs is a common bind config slice for tests.  It has a single
+// config with nil TLS configuration and default addr set to
+// [localhostZeroPort].
+var testBindConfigs = agdnet.BindConfigs{{
+	TLS:  nil,
+	Addr: agdnet.BindConfigAddrDefault(localhostZeroPort),
+}}
+
 func TestNew(t *testing.T) {
 	t.Parallel()
 
 	c := &websvc.Config{
-		Logger:               testLogger,
 		CertificateValidator: testCertValidator,
-		StaticContent:        http.NotFoundHandler(),
 		DNSCheck:             http.NotFoundHandler(),
 		ErrColl:              agdtest.NewErrorCollector(),
+		ListenConfig:         netext.DefaultListenConfig(nil),
+		Logger:               testLogger,
+		StaticContent:        http.NotFoundHandler(),
 		Timeout:              testTimeout,
 	}
 
@@ -65,21 +76,17 @@ func TestService_NonDoH(t *testing.T) {
 		require.NoError(pt, err)
 	})
 
-	nonDoHBind := []*websvc.BindData{{
-		TLS:     nil,
-		Address: localhostZeroPort,
-	}}
-
 	notFoundContent := []byte("not found")
 	c := &websvc.Config{
-		Logger:               testLogger,
 		CertificateValidator: testCertValidator,
-		StaticContent:        http.NotFoundHandler(),
 		DNSCheck:             mockHandler,
-		NonDoHBind:           nonDoHBind,
 		ErrColl:              agdtest.NewErrorCollector(),
-		Metrics:              websvc.EmptyMetrics{},
 		Error404:             notFoundContent,
+		ListenConfig:         netext.DefaultListenConfig(nil),
+		Logger:               testLogger,
+		Metrics:              websvc.EmptyMetrics{},
+		NonDoHBind:           testBindConfigs,
+		StaticContent:        http.NotFoundHandler(),
 		Timeout:              testTimeout,
 	}
 

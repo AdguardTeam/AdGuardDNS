@@ -42,8 +42,10 @@ func TestNewSortedMap(t *testing.T) {
 	})
 
 	t.Run("clear", func(t *testing.T) {
+		assert.False(t, m.del("foo"))
+
 		lastLetter := letters[len(letters)-1]
-		m.del(lastLetter)
+		assert.True(t, m.del(lastLetter))
 
 		_, ok := m.get(lastLetter)
 		assert.False(t, ok)

@@ -31,10 +31,15 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
+// errPrefixProfile is the common prefix to expect in the error messages about
+// the test profile conversion.
+const errPrefixProfile = `profile "` + backendtest.ProfileIDStr + `": `
+
 // Common bind values for tests.
 var (
-	testBindAll   = backendtest.Bind
-	testBindOther = netip.MustParsePrefix("192.0.2.1/32")
+	testBindAll           = backendtest.Bind
+	testBindNoDedicatedIP = netip.MustParsePrefix("192.0.2.0/32")
+	testBindNoAccountIP   = netip.MustParsePrefix("1.1.1.0/24")
 
 	testClock = timeutil.SystemClock{}
 )
@@ -99,7 +104,7 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		got, err := profileToInternal(
 			ctx,
 			profile,
-			testBindOther,
+			testBindNoDedicatedIP,
 			errCollSave,
 		)
 		require.NoError(t, err)
@@ -118,6 +123,25 @@ func TestDNSProfile_ToInternal(t *testing.T) {
 		assert.NotEqual(t, newDevices(), got.Devices)
 		assert.Len(t, got.Devices, 3)
 		assert.Equal(t, wantDevChg, got.DeviceChange)
+	})
+
+	t.Run("invalid_profile_account_ip", func(t *testing.T) {
+		t.Parallel()
+
+		wantRes := &dnspb.ProfileResult{}
+		wantErrMsg := errPrefixProfile +
+			`account ip config: account ip settings: account ip: at index 0: ` +
+			`ip: "192.0.2.0" is not in bind data`
+
+		ctx := testutil.ContextWithTimeout(t, backendtest.Timeout)
+		prof, err := profileToInternal(
+			ctx,
+			profile,
+			testBindNoAccountIP,
+			backendtest.ErrColl,
+		)
+		testutil.AssertErrorMsg(t, wantErrMsg, err)
+		assert.Equal(t, wantRes, prof)
 	})
 
 	t.Run("empty", func(t *testing.T) {
@@ -236,14 +260,6 @@ func profileToInternal(
 func newProfile(tb testing.TB) (p *agd.Profile) {
 	tb.Helper()
 
-	wantLoc, err := agdtime.LoadLocation("GMT")
-	require.NoError(tb, err)
-
-	dayIvl := &filter.DayInterval{
-		Start: 0,
-		End:   60,
-	}
-
 	wantCustomFilter := &filter.ConfigCustomFilter{
 		Filter: custom.New(&custom.Config{
 			Logger: slogutil.NewDiscardLogger(),
@@ -258,19 +274,8 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 	}
 
 	wantParental := &filter.ConfigParental{
-		Categories: wantCategories,
-		PauseSchedule: &filter.ConfigSchedule{
-			Week: &filter.WeeklySchedule{
-				nil,
-				filter.DayIntervals{dayIvl},
-				filter.DayIntervals{dayIvl},
-				filter.DayIntervals{dayIvl},
-				filter.DayIntervals{dayIvl},
-				filter.DayIntervals{dayIvl},
-				nil,
-			},
-			TimeZone: wantLoc,
-		},
+		Categories:    wantCategories,
+		PauseSchedule: newSchedule(tb),
 		BlockedServices: []filter.BlockedServiceID{
 			"youtube",
 		},
@@ -326,7 +331,19 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 		Enabled:       true,
 	}, 1*datasize.KB, timeutil.SystemClock{})
 
+	customDomain := newCustomDomain()
+
+	accountIP := &agd.AccountIPConfig{
+		Enabled: true,
+		IPs: []*agd.AccountIP{{
+			Enabled: true,
+			Address: netip.MustParseAddr("192.0.2.0"),
+			Domains: customDomain.Domains,
+		}},
+	}
+
 	return &agd.Profile{
+		AccountIPConfig: accountIP,
 		FilterConfig: &filter.ConfigClient{
 			CustomFilter:   wantCustomFilter,
 			CustomRuleList: wantCustomRuleList,
@@ -356,6 +373,36 @@ func newProfile(tb testing.TB) (p *agd.Profile) {
 		QueryLogEnabled:     true,
 		CustomDomains:       newCustomDomain(),
 		AccountID:           backendtest.AccountID,
+	}
+}
+
+// newSchedule returns a new schedule config for tests.  Keep in sync with
+// [backendtest.NewDNSProfile].
+func newSchedule(tb testing.TB) (conf *filter.ConfigSchedule) {
+	tb.Helper()
+
+	wantLoc, err := agdtime.LoadLocation("GMT")
+	require.NoError(tb, err)
+
+	dayIvls := []*filter.DayInterval{{
+		Start: 0,
+		End:   60,
+	}, {
+		Start: 12 * 60,
+		End:   12*60 + 60,
+	}}
+
+	return &filter.ConfigSchedule{
+		Week: &filter.WeeklySchedule{
+			nil,
+			dayIvls,
+			dayIvls,
+			dayIvls,
+			dayIvls,
+			dayIvls,
+			nil,
+		},
+		TimeZone: wantLoc,
 	}
 }
 
@@ -604,7 +651,96 @@ func TestDNSProfile_ToInternal_blockingModeErrors(t *testing.T) {
 			require.Nil(t, got.Devices)
 			require.Nil(t, got.DeviceChange)
 
-			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)
+			testutil.AssertErrorMsg(t, errPrefixProfile+tc.wantErrMsg, err)
+		})
+	}
+}
+
+func TestDNSProfile_ToInternal_schedule(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		wantRanges       *filter.WeeklySchedule
+		pbSingleRange    *dnspb.WeeklyRange
+		pbMultipleRanges *dnspb.WeeklyRanges
+		name             string
+	}{{
+		name: "only_single_range",
+		wantRanges: &filter.WeeklySchedule{filter.DayIntervals{{
+			Start: 0,
+			End:   60,
+		}}},
+		pbSingleRange: &dnspb.WeeklyRange{
+			Sun: &dnspb.DayRange{
+				Start: durationpb.New(0),
+				End:   durationpb.New(59 * time.Minute),
+			},
+		},
+		pbMultipleRanges: nil,
+	}, {
+		name: "multiple_ranges_priority",
+		wantRanges: &filter.WeeklySchedule{filter.DayIntervals{{
+			Start: 0,
+			End:   60,
+		}, {
+			Start: 12 * 60,
+			End:   13 * 60,
+		}}},
+		pbSingleRange: &dnspb.WeeklyRange{
+			Sun: &dnspb.DayRange{
+				Start: durationpb.New(0),
+				End:   durationpb.New(59 * time.Minute),
+			},
+		},
+		pbMultipleRanges: &dnspb.WeeklyRanges{
+			Sun: []*dnspb.DayRange{{
+				Start: durationpb.New(0),
+				End:   durationpb.New(59 * time.Minute),
+			}, {
+				Start: durationpb.New(12 * time.Hour),
+				End:   durationpb.New(12*time.Hour + 59*time.Minute),
+			}},
+		},
+	}, {
+		name: "only_multiple_ranges",
+		wantRanges: &filter.WeeklySchedule{filter.DayIntervals{{
+			Start: 0,
+			End:   60,
+		}, {
+			Start: 12 * 60,
+			End:   13 * 60,
+		}}},
+		pbSingleRange: nil,
+		pbMultipleRanges: &dnspb.WeeklyRanges{
+			Sun: []*dnspb.DayRange{{
+				Start: durationpb.New(0),
+				End:   durationpb.New(59 * time.Minute),
+			}, {
+				Start: durationpb.New(12 * time.Hour),
+				End:   durationpb.New(12*time.Hour + 59*time.Minute),
+			}},
+		},
+	}, {
+		name:             "no_ranges",
+		wantRanges:       &filter.WeeklySchedule{},
+		pbSingleRange:    &dnspb.WeeklyRange{},
+		pbMultipleRanges: &dnspb.WeeklyRanges{},
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			pbProfile := backendtest.NewDNSProfile(t)
+			pbProfile.Parental.Schedule.WeeklyRanges = tc.pbMultipleRanges
+			pbProfile.Parental.Schedule.WeeklyRange = tc.pbSingleRange
+
+			ctx := testutil.ContextWithTimeout(t, backendtest.Timeout)
+			got, err := profileToInternal(ctx, pbProfile, testBindAll, backendtest.ErrColl)
+			require.NoError(t, err)
+
+			gotRanges := got.Profile.FilterConfig.Parental.PauseSchedule.Week
+			assert.Equal(t, tc.wantRanges, gotRanges)
 		})
 	}
 }
@@ -613,10 +749,22 @@ func TestDNSProfile_ToInternal_parentalErrors(t *testing.T) {
 	t.Parallel()
 
 	profBadDayRange := backendtest.NewDNSProfile(t)
-	profBadDayRange.Parental.Schedule.WeeklyRange.Sun = &dnspb.DayRange{
+	profBadDayRange.Parental.Schedule.WeeklyRanges.Sun = []*dnspb.DayRange{{
 		Start: durationpb.New(1000000000000),
 		End:   nil,
-	}
+	}}
+
+	profBadDayRangeStart := backendtest.NewDNSProfile(t)
+	profBadDayRangeStart.Parental.Schedule.WeeklyRanges.Sun = []*dnspb.DayRange{{
+		Start: durationpb.New((filter.MaxDayIntervalStartMinutes + 1) * time.Minute),
+		End:   nil,
+	}}
+
+	profBadDayRangeEnd := backendtest.NewDNSProfile(t)
+	profBadDayRangeEnd.Parental.Schedule.WeeklyRanges.Sun = []*dnspb.DayRange{{
+		Start: durationpb.New(0),
+		End:   durationpb.New(filter.MaxDayIntervalEndMinutes * time.Minute),
+	}}
 
 	profBadTimeZone := backendtest.NewDNSProfile(t)
 	profBadTimeZone.Parental.Schedule.Tmz = "invalid"
@@ -627,9 +775,22 @@ func TestDNSProfile_ToInternal_parentalErrors(t *testing.T) {
 		wantErrMsg string
 	}{{
 		in:   profBadDayRange,
-		name: "bad_day_range",
-		wantErrMsg: "filter config: parental: pause schedule: weekday Sunday: end: out of range: " +
-			"1 is less than start 16",
+		name: "bad_day_range_end_less_than_start",
+		wantErrMsg: "filter config: parental: pause schedule: weekday Sunday: " +
+			"converting interval: at index 0: end: out of range: 0s is less " +
+			"than start 16m40s",
+	}, {
+		in:   profBadDayRangeStart,
+		name: "bad_day_range_start",
+		wantErrMsg: "filter config: parental: pause schedule: weekday Sunday: " +
+			"converting interval: at index 0: start_duration: out of range: must " +
+			"be no greater than 23h59m59s, got 24h0m0s",
+	}, {
+		in:   profBadDayRangeEnd,
+		name: "bad_day_range_end",
+		wantErrMsg: "filter config: parental: pause schedule: weekday Sunday: " +
+			"converting interval: at index 0: end_duration: out of range: must " +
+			"be no greater than 23h59m59s, got 24h0m0s",
 	}, {
 		in:   profBadTimeZone,
 		name: "bad_time_zone",
@@ -643,7 +804,7 @@ func TestDNSProfile_ToInternal_parentalErrors(t *testing.T) {
 
 			ctx := testutil.ContextWithTimeout(t, backendtest.Timeout)
 			_, err := profileToInternal(ctx, tc.in, testBindAll, backendtest.ErrColl)
-			testutil.AssertErrorMsg(t, tc.wantErrMsg, err)
+			testutil.AssertErrorMsg(t, errPrefixProfile+tc.wantErrMsg, err)
 		})
 	}
 }
@@ -702,6 +863,6 @@ func BenchmarkDNSProfile_ToInternal(b *testing.B) {
 	//	goos: linux
 	//	goarch: amd64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/backendgrpc/dnspb
-	//	cpu: AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-	//	BenchmarkDNSProfile_ToInternal-24    	  177238	      5971 ns/op	    4632 B/op	      96 allocs/op
+	//	cpu: Apple M4 Pro
+	//	BenchmarkDNSProfile_ToInternal-14    	   83767	     12985 ns/op	    5312 B/op	     116 allocs/op
 }

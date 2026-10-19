@@ -233,10 +233,8 @@ func BenchmarkServeDNSCrypt(b *testing.B) {
 
 	for _, tc := range testCases {
 		req := (&dns.Msg{
-			MsgHdr: dns.MsgHdr{
-				Id:               dns.Id(),
-				RecursionDesired: true,
-			},
+			Id:               dns.Id(),
+			RecursionDesired: true,
 			Question: []dns.Question{{
 				Name:   "example.org.",
 				Qtype:  dns.TypeA,
@@ -288,10 +286,8 @@ func BenchmarkServeQUIC(b *testing.B) {
 	addr := dnsservertest.RunLocalQUICServer(b, dnsservertest.NewDefaultHandler(), tlsConfig)
 
 	req := (&dns.Msg{
-		MsgHdr: dns.MsgHdr{
-			Id:               dns.Id(),
-			RecursionDesired: true,
-		},
+		Id:               dns.Id(),
+		RecursionDesired: true,
 		Question: []dns.Question{{
 			Name:   "example.org.",
 			Qtype:  dns.TypeA,

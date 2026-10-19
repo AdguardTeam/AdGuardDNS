@@ -73,7 +73,7 @@ func NewDefaultManager(c *DefaultManagerConfig) (m *DefaultManager, err error) {
 		errColl:     c.ErrColl,
 		metrics:     c.Metrics,
 		tickDB:      c.TicketDB,
-		certStorage: newCertIndex(),
+		certStorage: newCertIndex(c.Logger),
 	}
 
 	m.original = &tls.Config{
@@ -92,6 +92,7 @@ var _ Manager = (*DefaultManager)(nil)
 // Add implements the [Manager] interface for *DefaultManager.
 func (m *DefaultManager) Add(ctx context.Context, params *AddParams) (err error) {
 	l := m.logger.With(
+		"name", params.Name,
 		"cert", params.CertPath,
 		"key", params.KeyPath,
 		"is_custom", params.IsCustom,
@@ -118,7 +119,13 @@ func (m *DefaultManager) Add(ctx context.Context, params *AddParams) (err error)
 		isCustom: params.IsCustom,
 	})
 
-	l.InfoContext(ctx, "added certificate")
+	leaf := cert.Leaf
+	l.InfoContext(
+		ctx,
+		"added certificate",
+		"dns_names", leaf.DNSNames,
+		"ip_addresses", leaf.IPAddresses,
+	)
 
 	return nil
 }
@@ -268,13 +275,13 @@ func (m *DefaultManager) Remove(
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.certStorage.remove(name)
+	removed := m.certStorage.remove(name)
+	level := slog.LevelDebug
+	if removed {
+		level = slog.LevelInfo
+	}
 
-	m.logger.InfoContext(
-		ctx,
-		"removed certificate",
-		"name", name,
-	)
+	m.logger.Log(ctx, level, "removed certificate", "name", name)
 
 	return nil
 }

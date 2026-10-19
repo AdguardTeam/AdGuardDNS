@@ -39,7 +39,7 @@ func TestDefault_Find_plainAddrs(t *testing.T) {
 	}, {
 		req:     reqNormal,
 		srv:     srvPlainWithLinkedIP,
-		wantRes: resNormal,
+		wantRes: testResNormal,
 		laddr:   dnssvctest.ServerAddrPort,
 		raddr:   dnssvctest.LinkedAddrPort,
 		name:    "linked_ip",
@@ -53,7 +53,7 @@ func TestDefault_Find_plainAddrs(t *testing.T) {
 	}, {
 		req:     reqNormal,
 		srv:     srvPlainWithBindData,
-		wantRes: resNormal,
+		wantRes: testResNormal,
 		laddr:   dnssvctest.DedicatedAddrPort,
 		raddr:   dnssvctest.ClientAddrPort,
 		name:    "dedicated",
@@ -125,7 +125,7 @@ func TestDefault_Find_plainEDNS(t *testing.T) {
 	}, {
 		req:     reqEDNSDevID,
 		srv:     srvPlain,
-		wantRes: resNormal,
+		wantRes: testResNormal,
 		laddr:   dnssvctest.ServerAddrPort,
 		raddr:   dnssvctest.ClientAddrPort,
 		name:    "edns_dev_id",
@@ -170,7 +170,7 @@ func TestDefault_Find_deleted(t *testing.T) {
 		_ context.Context,
 		_ netip.Addr,
 	) (p *agd.Profile, d *agd.Device, err error) {
-		return profDeleted, devNormal, nil
+		return testProfDeleted, testDevNormal, nil
 	}
 
 	df := newDefault(t, &devicefinder.Config{
@@ -199,7 +199,7 @@ func TestDefault_Find_byHumanID(t *testing.T) {
 		humanID agd.HumanID,
 		devType agd.DeviceType,
 	) (p *agd.Profile, d *agd.Device, err error) {
-		return profNormal, devAuto, nil
+		return testProfNormal, testDevAuto, nil
 	}
 	profDB.OnProfileByHumanID = func(
 		_ context.Context,

@@ -2,6 +2,7 @@ package dnssvc_test
 
 import (
 	"context"
+	"crypto/tls"
 	"net/netip"
 	"path"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc"
@@ -106,8 +108,9 @@ func TestNewHandlers(t *testing.T) {
 		},
 	}
 
-	srv := dnssvctest.NewServer(dnssvctest.ServerName, agd.ProtoDoT, &agd.ServerBindData{
-		AddrPort: dnssvctest.ServerAddrPort,
+	srv := dnssvctest.NewServer(dnssvctest.ServerName, agd.ProtoDoT, &agdnet.BindConfig{
+		Addr: agdnet.BindConfigAddrDefault(dnssvctest.ServerAddrPort),
+		TLS:  (*agdnet.BindConfigTLSDefault)(&tls.Config{}),
 	})
 
 	srvGrp := &dnssvc.ServerGroupConfig{

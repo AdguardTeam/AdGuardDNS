@@ -78,6 +78,12 @@ func (s *Storage) profileToInternal(
 		return nil, err
 	}
 
+	accountIP, err := accountIPConfigToInternal(pbProfile)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return nil, err
+	}
+
 	fltConf, err := configClientToInternal(pbProfile, s.baseCustomLogger)
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
@@ -87,8 +93,9 @@ func (s *Storage) profileToInternal(
 	rateLimiter := rateLimiterToInternal(s.clock, pbProfile.GetRatelimiter(), s.respSzEst)
 
 	return &agd.Profile{
-		CustomDomains: customDomains,
-		FilterConfig:  fltConf,
+		AccountIPConfig: accountIP,
+		CustomDomains:   customDomains,
+		FilterConfig:    fltConf,
 
 		Access:                   accessToInternal(pbProfile.GetAccess(), s.profAccessCons),
 		AdultBlockingMode:        bmAdult,
@@ -146,6 +153,63 @@ func customDomainsToInternal(
 	}
 
 	return customDomains, nil
+}
+
+// accountIPConfigToInternal converts a profile's protobuf account IP config
+// structure into an internal one.  pbProfile must not be nil.
+func accountIPConfigToInternal(
+	pbProfile *fcpb.Profile,
+) (accountIPs *agd.AccountIPConfig, err error) {
+	pbAccountIPs := pbProfile.GetAccountIps()
+	if pbAccountIPs == nil {
+		return &agd.AccountIPConfig{}, nil
+	}
+
+	pbIPs := pbAccountIPs.GetIps()
+	ips := make([]*agd.AccountIP, 0, len(pbIPs))
+	for i, pbIP := range pbIPs {
+		if pbIP == nil {
+			continue
+		}
+
+		var ip *agd.AccountIP
+		ip, err = accountIPToInternal(pbIP)
+		if err != nil {
+			return nil, fmt.Errorf("account ip: at index %d: %w", i, err)
+		}
+
+		ips = append(ips, ip)
+	}
+
+	return &agd.AccountIPConfig{
+		Enabled: pbAccountIPs.GetEnabled(),
+		IPs:     ips,
+	}, nil
+}
+
+// accountIPToInternal converts single protobuf account IP into an internal one.
+// pbIP must not be nil.
+func accountIPToInternal(pbIP *fcpb.AccountIPSettings_IP) (ip *agd.AccountIP, err error) {
+	if !pbIP.HasDomain() {
+		return nil, fmt.Errorf("domain: %w", errors.ErrNoValue)
+	}
+
+	ip = &agd.AccountIP{Enabled: pbIP.GetEnabled()}
+	err = ip.Address.UnmarshalBinary(pbIP.GetIp())
+	if err != nil {
+		return nil, fmt.Errorf("parsing ip: %w", err)
+	}
+
+	if !ip.Address.IsValid() {
+		return nil, fmt.Errorf("ip: invalid ip address")
+	}
+
+	ip.Domains, err = customDomainConfsToInternal(pbIP.GetDomain().GetDomains())
+	if err != nil {
+		return nil, fmt.Errorf("custom domains: %w", err)
+	}
+
+	return ip, nil
 }
 
 // configClientToInternal converts profile's protobuf config client structures
@@ -594,6 +658,7 @@ func profileToProtobuf(p *agd.Profile) (pbProf *fcpb.Profile) {
 	slices.Sort(deviceIDs)
 
 	pbProfBuilder := &fcpb.Profile_builder{
+		AccountIps:          accountIPConfigToProtobuf(p.AccountIPConfig),
 		CustomDomains:       customDomainsToProtobuf(p.CustomDomains),
 		FilterConfig:        filterConfigToProtobuf(p.FilterConfig),
 		Access:              accessToProtobuf(p.Access.Config()),
@@ -625,6 +690,33 @@ func customDomainsToProtobuf(acd *agd.AccountCustomDomains) (pbACD *fcpb.Account
 	return fcpb.AccountCustomDomains_builder{
 		Domains: customDomainConfigsToProtobuf(acd.Domains),
 		Enabled: acd.Enabled,
+	}.Build()
+}
+
+// accountIPConfigToProtobuf converts the account IP configuration to protobuf.
+// aip must not be nil and must be valid.
+func accountIPConfigToProtobuf(aip *agd.AccountIPConfig) (pbAIP *fcpb.AccountIPSettings) {
+	pbIPs := make([]*fcpb.AccountIPSettings_IP, 0, len(aip.IPs))
+	for i, ip := range aip.IPs {
+		pbIPBuilder := fcpb.AccountIPSettings_IP_builder{
+			Enabled: ip.Enabled,
+			Domain: fcpb.AccountIPSettings_DomainSettings_builder{
+				Domains: customDomainConfigsToProtobuf(ip.Domains),
+			}.Build(),
+		}
+
+		var err error
+		pbIPBuilder.Ip, err = ip.Address.MarshalBinary()
+		if err != nil {
+			panic(fmt.Errorf("marshalling account ip: at index %d: %w", i, err))
+		}
+
+		pbIPs = append(pbIPs, pbIPBuilder.Build())
+	}
+
+	return fcpb.AccountIPSettings_builder{
+		Ips:     pbIPs,
+		Enabled: aip.Enabled,
 	}.Build()
 }
 

@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
 	"github.com/AdguardTeam/golibs/testutil"
@@ -52,7 +51,8 @@ func assertCertSerialNumber(tb testing.TB, conf *tls.Config, wantSN int64, laddr
 
 	cert, err := conf.GetCertificate(&tls.ClientHelloInfo{
 		SupportedVersions: []uint16{tls.VersionTLS13},
-		Conn:              tlsconfig.NewLocalAddrConn(laddr),
+		Conn:              tlsconfig.NewAddrConn(laddr),
+		ServerName:        testDomain,
 	})
 	require.NoError(tb, err)
 
@@ -68,7 +68,7 @@ func newManager(tb testing.TB, c *tlsconfig.DefaultManagerConfig) (m *tlsconfig.
 
 	c.Logger = cmp.Or(c.Logger, testLogger)
 
-	c.ErrColl = cmp.Or[errcoll.Interface](c.ErrColl, agdtest.NewErrorCollector())
+	c.ErrColl = cmp.Or[errcoll.Interface](c.ErrColl, testErrColl)
 	c.Metrics = cmp.Or[tlsconfig.ManagerMetrics](c.Metrics, tlsconfig.EmptyManagerMetrics{})
 	c.TicketDB = cmp.Or[tlsconfig.TicketDB](c.TicketDB, tlsconfig.EmptyTicketDB{})
 
@@ -157,7 +157,8 @@ func TestDefaultManager_Remove(t *testing.T) {
 
 	chi := &tls.ClientHelloInfo{
 		SupportedVersions: []uint16{tls.VersionTLS13},
-		Conn:              tlsconfig.NewLocalAddrConn(addr),
+		Conn:              tlsconfig.NewAddrConn(addr),
+		ServerName:        testDomain,
 	}
 
 	c := m.Clone()

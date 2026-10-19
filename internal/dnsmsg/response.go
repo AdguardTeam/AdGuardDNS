@@ -11,10 +11,8 @@ import (
 // and fields.  resp contains no resource records.
 func (c *Constructor) NewResp(req *dns.Msg) (resp *dns.Msg) {
 	return (&dns.Msg{
-		MsgHdr: dns.MsgHdr{
-			RecursionAvailable: true,
-		},
-		Compress: true,
+		RecursionAvailable: true,
+		Compress:           true,
 	}).SetReply(req)
 }
 

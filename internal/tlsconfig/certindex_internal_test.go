@@ -3,10 +3,15 @@ package tlsconfig
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
 	"net/netip"
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,6 +21,7 @@ import (
 const (
 	testDomainName        = "a.test"
 	testDomainNameAlt     = "b.test"
+	testDomainNameIP      = "192.0.2.1"
 	testDomainNameUnknown = "unknown.test"
 )
 
@@ -23,6 +29,7 @@ const (
 const (
 	testCertName        agd.CertificateName = "cert-a"
 	testCertNameAlt     agd.CertificateName = "cert-b"
+	testCertNameIP      agd.CertificateName = "cert-ip"
 	testCertNameUnknown agd.CertificateName = "cert-unknown"
 )
 
@@ -38,6 +45,12 @@ var (
 		Leaf: &x509.Certificate{
 			DNSNames: []string{testDomainNameAlt},
 			Version:  tls.VersionTLS13,
+		},
+	}
+	testCertIP = &tls.Certificate{
+		Leaf: &x509.Certificate{
+			IPAddresses: []net.IP{testAddr.AsSlice()},
+			Version:     tls.VersionTLS13,
 		},
 	}
 )
@@ -56,7 +69,7 @@ func TestCertIndex(t *testing.T) {
 		},
 	}
 
-	idx := newCertIndex()
+	idx := newCertIndex(testLogger)
 	for name, cd := range certs {
 		idx.add(name, cd)
 	}
@@ -92,9 +105,18 @@ func TestCertIndex(t *testing.T) {
 	})
 }
 
+// Common network-related data used for tests.
+var (
+	testAddr       = netip.MustParseAddr(testDomainNameIP)
+	testInvalidCHI = &tls.ClientHelloInfo{
+		ServerName:        testDomainNameUnknown,
+		SupportedVersions: []uint16{tls.VersionTLS13},
+		Conn:              NewAddrConn(testAddr),
+	}
+)
+
 func TestCertIndex_CertFor(t *testing.T) {
 	var (
-		addr        = netip.MustParseAddr("192.0.2.1")
 		addrAlt     = netip.MustParseAddr("192.0.2.2")
 		addrUnknown = netip.MustParseAddr("192.0.2.3")
 	)
@@ -109,7 +131,7 @@ func TestCertIndex_CertFor(t *testing.T) {
 				certPath: testDomainName + "_path",
 				keyPath:  testDomainName + "_path",
 			},
-			pref: netip.PrefixFrom(addr, 32),
+			pref: netip.PrefixFrom(testAddr, 32),
 		},
 		testCertNameAlt: {
 			data: &certData{
@@ -119,9 +141,17 @@ func TestCertIndex_CertFor(t *testing.T) {
 			},
 			pref: netip.PrefixFrom(addrAlt, 32),
 		},
+		testCertNameIP: {
+			data: &certData{
+				cert:     testCertIP,
+				certPath: testDomainNameIP + "_path",
+				keyPath:  testDomainNameIP + "_path",
+			},
+			pref: netip.PrefixFrom(testAddr, 32),
+		},
 	}
 
-	idx := newCertIndex()
+	idx := newCertIndex(testLogger)
 	for name, cd := range certs {
 		idx.add(name, cd.data)
 
@@ -138,7 +168,7 @@ func TestCertIndex_CertFor(t *testing.T) {
 		chi: &tls.ClientHelloInfo{
 			ServerName:        testDomainName,
 			SupportedVersions: []uint16{tls.VersionTLS13},
-			Conn:              NewLocalAddrConn(addr),
+			Conn:              NewAddrConn(testAddr),
 		},
 		wantCert:   testCert,
 		wantErrMsg: "",
@@ -147,7 +177,7 @@ func TestCertIndex_CertFor(t *testing.T) {
 		chi: &tls.ClientHelloInfo{
 			ServerName:        testDomainNameAlt,
 			SupportedVersions: []uint16{tls.VersionTLS13},
-			Conn:              NewLocalAddrConn(addrAlt),
+			Conn:              NewAddrConn(addrAlt),
 		},
 		wantCert:   testCertAlt,
 		wantErrMsg: "",
@@ -156,22 +186,41 @@ func TestCertIndex_CertFor(t *testing.T) {
 		chi: &tls.ClientHelloInfo{
 			ServerName:        testDomainNameUnknown,
 			SupportedVersions: []uint16{tls.VersionTLS13},
-			Conn:              NewLocalAddrConn(addrUnknown),
+			Conn:              NewAddrConn(addrUnknown),
 		},
 		wantCert:   nil,
 		wantErrMsg: "no certificate found for " + addrUnknown.String(),
 		name:       "fail_unknown",
 	}, {
 		chi: &tls.ClientHelloInfo{
-			ServerName:        testDomainNameUnknown,
-			SupportedVersions: []uint16{tls.VersionTLS12},
-			Conn:              NewLocalAddrConn(addr),
+			ServerName:        testAddr.String(),
+			SupportedVersions: []uint16{tls.VersionTLS13},
+			Conn:              NewAddrConn(testAddr),
 		},
-		wantCert: nil,
-		wantErrMsg: "certificate is not valid for requested server name: " +
-			"x509: certificate is valid for " + testDomainName +
-			", not " + testDomainNameUnknown,
-		name: "fail_server_name",
+		wantCert:   testCertIP,
+		wantErrMsg: "",
+		name:       "success_ip",
+	}, {
+		chi: &tls.ClientHelloInfo{
+			SupportedVersions: []uint16{tls.VersionTLS13},
+			Conn:              NewAddrConn(testAddr),
+		},
+		wantCert:   testCertIP,
+		wantErrMsg: "",
+		name:       "success_ip_no_servername",
+	}, {
+		chi: &tls.ClientHelloInfo{
+			SupportedVersions: []uint16{tls.VersionTLS13},
+			Conn:              NewAddrConn(addrAlt),
+		},
+		wantCert:   nil,
+		wantErrMsg: errCertNotFound.Error(),
+		name:       "fail_cert_no_ip",
+	}, {
+		chi:        testInvalidCHI,
+		wantCert:   nil,
+		wantErrMsg: errCertNotFound.Error(),
+		name:       "fail_cert_not_found",
 	}}
 
 	t.Run("certFor", func(t *testing.T) {
@@ -185,4 +234,92 @@ func TestCertIndex_CertFor(t *testing.T) {
 			})
 		}
 	})
+}
+
+// testDebugLogger is a logger used for testing with debug level.
+var testDebugLogger = slogutil.New(&slogutil.Config{
+	Level:  slog.LevelDebug,
+	Output: io.Discard,
+})
+
+func BenchmarkCertIndex_CertFor(b *testing.B) {
+	idx := newCertIndex(testDebugLogger)
+	idx.add(testCertName, &certData{cert: testCert})
+	idx.bind(testCertName, netip.PrefixFrom(testAddr, testAddr.BitLen()))
+
+	chiOK := &tls.ClientHelloInfo{
+		ServerName:        testDomainName,
+		SupportedVersions: []uint16{tls.VersionTLS13},
+		Conn:              NewAddrConn(testAddr),
+	}
+
+	b.Run("success", func(b *testing.B) {
+		// Warmup to fill the pools and the slices.
+		_, err := idx.certFor(chiOK)
+		require.NoError(b, err)
+
+		var cert *tls.Certificate
+
+		b.ReportAllocs()
+		for b.Loop() {
+			cert, err = idx.certFor(chiOK)
+		}
+		require.NoError(b, err)
+
+		assert.Equal(b, testCert, cert)
+	})
+
+	b.Run("unsupported", func(b *testing.B) {
+		// Warmup to fill the pools and the slices.
+		_, err := idx.certFor(testInvalidCHI)
+		require.Error(b, err)
+
+		var cert *tls.Certificate
+
+		b.ReportAllocs()
+		for b.Loop() {
+			cert, err = idx.certFor(testInvalidCHI)
+		}
+		require.Nil(b, cert)
+		require.Error(b, err)
+	})
+
+	// Most recent results:
+	//	goos: linux
+	//	goarch: amd64
+	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig
+	//	cpu: AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+	//	BenchmarkCertIndex_CertFor/success-24            3426706               336.1 ns/op           288 B/op         10 allocs/op
+	//	BenchmarkCertIndex_CertFor/unsupported-24         652532              1800 ns/op             828 B/op         24 allocs/op
+}
+
+func BenchmarkCertIndex_CertFor_multiUnsupported(b *testing.B) {
+	// Create more certificates than the default error slice length to cause the
+	// error slice to grow.
+	const nCerts = defaultErrSliceLen + 1
+
+	idx := newCertIndex(testDebugLogger)
+	for i := range nCerts {
+		name := agd.CertificateName(fmt.Sprintf("bench-cert-%d", i))
+
+		idx.add(name, &certData{cert: testCert})
+		idx.bind(name, netip.PrefixFrom(testAddr, testAddr.BitLen()))
+	}
+
+	// Warmup to fill the pools and the slices.
+	_, err := idx.certFor(testInvalidCHI)
+	require.Error(b, err)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_, err = idx.certFor(testInvalidCHI)
+	}
+	require.Error(b, err)
+
+	// Most recent results:
+	//	goos: linux
+	//	goarch: amd64
+	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig
+	//	cpu: AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+	//	BenchmarkCertIndex_CertFor_multiUnsupported-24             78862             22298 ns/op           18460 B/op        239 allocs/op
 }

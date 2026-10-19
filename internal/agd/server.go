@@ -1,13 +1,10 @@
 package agd
 
 import (
-	"crypto/tls"
 	"fmt"
-	"net/netip"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/ameshkov/dnscrypt/v2"
 )
@@ -17,9 +14,6 @@ import (
 type Server struct {
 	// DNSCrypt are the DNSCrypt settings for this server, if any.
 	DNSCrypt *DNSCryptConfig
-
-	// TLS is the TLS configuration for this server, if any.
-	TLS *TLSConfig
 
 	// QUICConf is the QUIC configuration for this server.
 	QUICConf *QUICConfig
@@ -34,8 +28,8 @@ type Server struct {
 	// Server Name.
 	Name ServerName
 
-	// bindData are the socket binding data for this server.
-	bindData []*ServerBindData
+	// bindConfigs are the socket binding data for this server.
+	bindConfigs agdnet.BindConfigs
 
 	// ReadTimeout defines the timeout for any read from a UDP connection or the
 	// first read from a TCP/TLS connection.  It currently doesn't affect
@@ -58,103 +52,55 @@ type Server struct {
 	LinkedIPEnabled bool
 }
 
-// BindData returns the bind data of this server.  The elements of the slice
-// must not be mutated.
-func (s *Server) BindData() (data []*ServerBindData) {
-	return s.bindData
+// BindConfigs returns slice of bind configs of this server.  The elements of
+// the slice must not be mutated.
+func (s *Server) BindConfigs() (data agdnet.BindConfigs) {
+	return s.bindConfigs
 }
 
-// SetBindData sets the bind data of this server.  data must have at least one
-// element and all of its elements must be of the same underlying type.  The
-// elements of data must not be mutated after calling SetBindData.
-func (s *Server) SetBindData(data []*ServerBindData) {
-	switch len(data) {
+// SetBindConfigs sets the bind configs for this server.  configs must have at
+// least one element and all of its elements must be of the same underlying
+// type.  The elements of configs must not be mutated after calling
+// SetBindConfigs.
+func (s *Server) SetBindConfigs(configs agdnet.BindConfigs) {
+	switch len(configs) {
 	case 0:
-		panic(errors.Error("empty bind data"))
+		panic(fmt.Errorf("bind config: %w", errors.ErrEmptyValue))
 	case 1:
-		s.bindData = data
+		s.bindConfigs = configs
 	default:
-		firstIsAddrPort := data[0].PrefixAddr == nil
-		for i, bd := range data[1:] {
-			if (bd.PrefixAddr == nil) != firstIsAddrPort {
-				panic(fmt.Errorf("at index %d: inconsistent type of bind data", i+1))
+		_, firstIsDefault := configs[0].Addr.(agdnet.BindConfigAddrDefault)
+		for i, bd := range configs[1:] {
+			_, isDefault := bd.Addr.(agdnet.BindConfigAddrDefault)
+			if isDefault != firstIsDefault {
+				panic(newInconsistentBindAddressTypeError(i, bd.Addr))
 			}
 		}
 
-		s.bindData = data
+		s.bindConfigs = configs
 	}
 }
 
-// HasAddr returns true if addr is within the server's bind data.  HasAddr does
-// not check prefix addresses unless they are single-IP subnets.
-func (s *Server) HasAddr(addr netip.AddrPort) (ok bool) {
-	for _, bd := range s.bindData {
-		prefAddr := bd.PrefixAddr
-		if prefAddr == nil {
-			if bd.AddrPort == addr {
-				return true
-			}
-
-			continue
-		}
-
-		p := prefAddr.Prefix
-		if p.IsSingleIP() && p.Addr() == addr.Addr() && prefAddr.Port == addr.Port() {
-			return true
-		}
-	}
-
-	return false
-}
-
-// HasIPv6 returns true if the bind data of this server contains an IPv6
-// address.  For a server with no bind data, HasIPv6 returns false.
-func (s *Server) HasIPv6() (ok bool) {
-	for _, bd := range s.bindData {
-		if bd.AddrPort.Addr().Is6() {
-			return true
-		}
-	}
-
-	return false
+// newInconsistentBindAddressTypeError returns new bind address type
+// inconsistency error.
+func newInconsistentBindAddressTypeError(i int, addr agdnet.BindConfigAddr) (err error) {
+	return fmt.Errorf(
+		"setting bind configs: at index %d: inconsistent type of bind config address: %T",
+		i+1,
+		addr,
+	)
 }
 
 // BindsToInterfaces returns true if server binds to interfaces.  For a server
-// with no bind data, BindsToInterfaces returns false.
+// with no bind configs, BindsToInterfaces returns false.
 func (s *Server) BindsToInterfaces() (ok bool) {
-	return len(s.bindData) > 0 && s.bindData[0].PrefixAddr != nil
-}
-
-// BindDataPrefixes returns a slice of CIDR networks collected from the bind
-// data of this server.
-func (s *Server) BindDataPrefixes() (ps []netip.Prefix) {
-	for _, bd := range s.bindData {
-		var pref netip.Prefix
-		if bd.PrefixAddr == nil {
-			addr := bd.AddrPort.Addr()
-			pref = netip.PrefixFrom(addr, addr.BitLen())
-		} else {
-			pref = bd.PrefixAddr.Prefix
-		}
-
-		ps = append(ps, pref)
+	if len(s.bindConfigs) == 0 {
+		return false
 	}
 
-	return ps
-}
+	_, ok = s.bindConfigs[0].Addr.(*agdnet.BindConfigAddrPrefix)
 
-// ServerBindData are the socket binding data for a server.  Either AddrPort or
-// ListenConfig with PrefixAddr must be set.
-//
-// TODO(a.garipov): Consider turning this into a sum type.
-//
-// TODO(a.garipov): Consider renaming this and the one in websvc to something
-// like BindConfig.
-type ServerBindData struct {
-	ListenConfig netext.ListenConfig
-	PrefixAddr   *agdnet.PrefixNetAddr
-
-	AddrPort netip.AddrPort
+	return ok
 }
 
 // ServerName is the name of a server.
@@ -199,14 +145,4 @@ type QUICConfig struct {
 
 	// QUICLimitsEnabled, if true, enables QUIC limiting.
 	QUICLimitsEnabled bool
-}
-
-// TLSConfig is the TLS configuration of a DNS server.  Metrics and ALPs must be
-// set for saved configurations.
-type TLSConfig struct {
-	// Default is the default TLS configuration.  It must not be nil.
-	Default *tls.Config
-
-	// H3 is the TLS configuration for DoH3.
-	H3 *tls.Config
 }

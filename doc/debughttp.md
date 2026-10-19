@@ -147,6 +147,7 @@ Supported IDs:
 - `profiledb_full`
 - `profiledb`
 - `rulestat`
+- `runtime_thread_gc`
 - `standard_profile_access`
 - `ticket_rotator`
 - `tlsconfig`

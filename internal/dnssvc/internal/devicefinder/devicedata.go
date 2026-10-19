@@ -3,13 +3,14 @@ package devicefinder
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"path"
-	"slices"
 	"strings"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
+	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/optslog"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
@@ -34,16 +35,17 @@ type deviceData interface {
 //
 // TODO(a.garipov):  Optimize its allocation and freeing.
 type deviceDataExtHumanID struct {
-	// humanID is the human-readable ID part of an extended humanID.  It must
-	// not be empty.
+	// humanID is the human-readable ID part of an extended human-readable
+	// device identifier.  It must not be empty.
 	humanID agd.HumanID
 
-	// profileID is the profile ID part of an extended HumanID.  It must not be
-	// empty.
+	// profileID is the profile ID part of an extended human-readable device
+	// identifier.  It must not be empty.
 	profileID agd.ProfileID
 
-	// deviceType is the device type of an extended HumanID.  It must be a valid
-	// device type and must not be [agd.DeviceTypeNone].
+	// deviceType is the device type of an extended human-readable device
+	// identifier.  It must be a valid device type and must not be
+	// [agd.DeviceTypeNone].
 	deviceType agd.DeviceType
 }
 
@@ -73,18 +75,30 @@ func (*deviceDataID) isDeviceData() {}
 //
 // TODO(a.garipov):  Optimize its allocation and freeing.
 type deviceDataCustomDomain struct {
-	// deviceData is the underlying device data, which must be either a
-	// [deviceDataID] or a [deviceDataExtHumanID].  If it's the latter, the
-	// profile IDs must contain the profile ID of the device.
+	// deviceData is the data about the device belonging to the account for this
+	// custom domain.
+	//
+	// It must have one of the following underlying types:
+	// - nil
+	// - [*deviceDataID]
+	// - [*deviceDataExtHumanID]
+	//
+	// If it's the latter, the profile ID of the device must belong to an
+	// account with [deviceDataCustomDomain.accountID].
 	deviceData deviceData
 
-	// domain is the domain or wildcard that has matched the request.  It must
-	// not be empty and must be a valid domain name.
+	// accountIP is the account-wide IP address that is valid only if the device
+	// or the partial data belong to an account IP.
+	accountIP netip.Addr
+
+	// domain is the domain or wildcard that has matched the request.  Unless
+	// [deviceDataCustomDomain.deviceData] is nil, it must not be empty and must
+	// be a valid domain name.
 	domain string
 
-	// profileID is the ID of the profile owning the custom domain.  It must not
-	// be empty.
-	profileIDs []agd.ProfileID
+	// accountID is the ID of the account owning the custom domain.  It must not
+	// be zero.
+	accountID agd.AccountID
 }
 
 // type check
@@ -101,9 +115,10 @@ func (f *Default) deviceData(
 	ctx context.Context,
 	req *dns.Msg,
 	srvReqInfo *dnsserver.RequestInfo,
+	laddr netip.Addr,
 ) (dd deviceData, err error) {
 	if f.srv.Protocol.IsStdEncrypted() {
-		return f.deviceDataFromEncrypted(ctx, srvReqInfo)
+		return f.deviceDataFromEncrypted(ctx, srvReqInfo, laddr)
 	}
 
 	id, err := deviceIDFromEDNS(req)
@@ -124,20 +139,37 @@ func (f *Default) deviceData(
 func (f *Default) deviceDataFromEncrypted(
 	ctx context.Context,
 	srvReqInfo *dnsserver.RequestInfo,
+	laddr netip.Addr,
 ) (dd deviceData, err error) {
 	cliSrvName := ""
 	if srvReqInfo.TLS != nil {
 		cliSrvName = srvReqInfo.TLS.ServerName
 	}
 
-	customDomain := ""
-	var requiredProfileIDs []agd.ProfileID
+	var (
+		customDomain  string
+		requiredAccID agd.AccountID
+		requiredAccIP netip.Addr
+	)
 	if cliSrvName != "" {
-		customDomain, requiredProfileIDs = f.customDomainDB.Match(ctx, strings.ToLower(cliSrvName))
+		customDomain, requiredAccID, requiredAccIP = f.customDomainDB.Match(
+			ctx,
+			strings.ToLower(cliSrvName),
+		)
 	}
 
 	if customDomain != "" {
 		f.metrics.IncrementCustomDomainRequests(ctx, customDomain)
+	}
+
+	if requiredAccIP.IsValid() && requiredAccIP != laddr {
+		const msg = "custom domain destination ip mismatch"
+		optslog.Debug2(ctx, f.logger, msg, "got", laddr, "want", requiredAccIP)
+
+		const errMsg = msg + ": got %s, want %s"
+		err = fmt.Errorf(errMsg, laddr, requiredAccIP)
+
+		return nil, newDeviceDataError(err, "custom domain")
 	}
 
 	dd, err = f.deviceDataFromSrvReqInfo(ctx, srvReqInfo, customDomain, cliSrvName)
@@ -145,7 +177,7 @@ func (f *Default) deviceDataFromEncrypted(
 		return nil, fmt.Errorf("extracting device data: %w", err)
 	}
 
-	dd, err = f.wrapCustomDomain(ctx, dd, customDomain, requiredProfileIDs)
+	dd, err = f.wrapCustomDomain(ctx, dd, customDomain, requiredAccID, requiredAccIP)
 	if err != nil {
 		return nil, fmt.Errorf("wrapping custom domains: %w", err)
 	}
@@ -264,37 +296,23 @@ func (f *Default) wrapCustomDomain(
 	ctx context.Context,
 	dd deviceData,
 	matchedDomain string,
-	requiredProfileIDs []agd.ProfileID,
+	requiredAccID agd.AccountID,
+	requiredAccIP netip.Addr,
 ) (wrapped deviceData, err error) {
-	if requiredProfileIDs == nil {
+	if requiredAccID == 0 {
 		return dd, nil
 	}
 
 	switch dd := dd.(type) {
-	case nil:
-		return nil, nil
+	case nil, *deviceDataID:
+		return &deviceDataCustomDomain{
+			deviceData: dd,
+			accountIP:  requiredAccIP,
+			domain:     matchedDomain,
+			accountID:  requiredAccID,
+		}, nil
 	case *deviceDataExtHumanID:
-		if !slices.Contains(requiredProfileIDs, dd.profileID) {
-			const msg = "custom domain profiles and ext id mismatch"
-			optslog.Debug2(ctx, f.logger, msg, "got", dd.profileID, "want", requiredProfileIDs)
-
-			const errMsg = "profile id in ext id: %s: not contained by expected values"
-			err = fmt.Errorf(errMsg, dd.profileID)
-
-			return nil, newDeviceDataError(err, "custom domain")
-		}
-
-		return &deviceDataCustomDomain{
-			domain:     matchedDomain,
-			profileIDs: requiredProfileIDs,
-			deviceData: dd,
-		}, nil
-	case *deviceDataID:
-		return &deviceDataCustomDomain{
-			domain:     matchedDomain,
-			profileIDs: requiredProfileIDs,
-			deviceData: dd,
-		}, nil
+		return f.wrapCustomDomainExtHumanID(ctx, dd, requiredAccID, requiredAccIP, matchedDomain)
 	default:
 		panic(fmt.Errorf(
 			"wrapping custom domain: device data: %w: %T(%[2]v)",
@@ -302,6 +320,53 @@ func (f *Default) wrapCustomDomain(
 			dd,
 		))
 	}
+}
+
+// wrapCustomDomainExtHumanID wraps dd into a [*deviceDataCustomDomain] if
+// necessary.  dd must not be nil.
+func (f *Default) wrapCustomDomainExtHumanID(
+	ctx context.Context,
+	dd *deviceDataExtHumanID,
+	requiredAccID agd.AccountID,
+	requiredAccIP netip.Addr,
+	matchedDomain string,
+) (wrapped deviceData, err error) {
+	p, err := f.profileDB.ProfileByID(ctx, dd.profileID)
+	if errors.Is(err, profiledb.ErrProfileNotFound) {
+		if !requiredAccIP.IsValid() {
+			return nil, nil
+		}
+
+		// Return partial data, since the account-wide IP address has been
+		// recognized.
+		return &deviceDataCustomDomain{
+			deviceData: nil,
+			accountIP:  requiredAccIP,
+			domain:     matchedDomain,
+			accountID:  requiredAccID,
+		}, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("getting profile by id: %w", err)
+	}
+
+	if p.AccountID == requiredAccID {
+		return &deviceDataCustomDomain{
+			deviceData: dd,
+			accountIP:  requiredAccIP,
+			domain:     matchedDomain,
+			accountID:  requiredAccID,
+		}, nil
+	}
+
+	const msg = "custom domain account id and ext id mismatch"
+	optslog.Debug2(ctx, f.logger, msg, "got", p.AccountID, "want", requiredAccID)
+
+	const errMsg = msg + ": got %d, want %d"
+	err = fmt.Errorf(errMsg, p.AccountID, requiredAccID)
+
+	return nil, newDeviceDataError(err, "custom domain")
 }
 
 // pathElements splits and validates urlPath.  If err is nil, elems has either

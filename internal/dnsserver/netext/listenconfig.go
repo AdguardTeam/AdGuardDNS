@@ -52,10 +52,8 @@ func DefaultListenConfigWithOOB(conf *ControlConfig) (lc ListenConfig) {
 	}
 
 	return &listenConfigOOB{
-		ListenConfig: net.ListenConfig{
-			Control: func(_, _ string, c syscall.RawConn) (err error) {
-				return listenControlWithSO(conf, c)
-			},
+		Control: func(_, _ string, c syscall.RawConn) (err error) {
+			return listenControlWithSO(conf, c)
 		},
 	}
 }

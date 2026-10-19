@@ -8,7 +8,6 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/golibs/testutil/fakenet"
@@ -58,9 +57,9 @@ func TestListenConfig(t *testing.T) {
 		Resume:  1,
 	})
 
-	limited := connlimiter.NewListenConfig(c, l)
+	limited := connlimiter.NewListenConfig(c, l, "")
 
-	ctx := dnsserver.ContextWithServerInfo(context.Background(), testServerInfo)
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
 	gotLsnr, err := limited.Listen(ctx, "", "")
 	require.NoError(t, err)
 

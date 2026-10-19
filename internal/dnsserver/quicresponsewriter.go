@@ -9,6 +9,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/messagetap"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/syncutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/quic-go/quic-go"
 )
@@ -16,7 +17,10 @@ import (
 // quicResponseWriter is an implementation of the [ResponseWriter] interface for
 // the DNS-over-QUIC server.
 type quicResponseWriter struct {
+	clock        timeutil.Clock
 	messageTap   messagetap.Interface
+	laddr        net.Addr
+	raddr        net.Addr
 	respPool     *syncutil.Pool[[]byte]
 	conn         *quic.Conn
 	stream       *quic.Stream
@@ -28,12 +32,12 @@ var _ ResponseWriter = (*quicResponseWriter)(nil)
 
 // LocalAddr implements the [ResponseWriter] interface for *quicResponseWriter.
 func (r *quicResponseWriter) LocalAddr() (addr net.Addr) {
-	return r.conn.LocalAddr()
+	return r.laddr
 }
 
 // RemoteAddr implements the [ResponseWriter] interface for *quicResponseWriter.
 func (r *quicResponseWriter) RemoteAddr() (addr net.Addr) {
-	return r.conn.RemoteAddr()
+	return r.raddr
 }
 
 // WriteMsg implements the [ResponseWriter] interface for *quicResponseWriter.
@@ -54,7 +58,7 @@ func (r *quicResponseWriter) WriteMsg(ctx context.Context, req, resp *dns.Msg) (
 
 	*bufPtr = b
 
-	tapResponse(ctx, r.messageTap, r.LocalAddr(), r.RemoteAddr(), b[2:])
+	tapResponse(ctx, r.clock.Now(), r.messageTap, r.laddr, r.raddr, b[2:])
 
 	withWriteDeadline(ctx, r.writeTimeout, r.stream, func() {
 		_, err = r.stream.Write(b)

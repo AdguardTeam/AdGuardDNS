@@ -8,11 +8,13 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/messagetap"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 )
 
 // udpResponseWriter is a ResponseWriter implementation for DNS-over-UDP.
 type udpResponseWriter struct {
+	clock        timeutil.Clock
 	messageTap   messagetap.Interface
 	udpSession   netext.PacketSession
 	conn         net.PacketConn
@@ -53,7 +55,7 @@ func (r *udpResponseWriter) WriteMsg(ctx context.Context, req, resp *dns.Msg) (e
 		return fmt.Errorf("udp: packing response: %w", err)
 	}
 
-	tapResponse(ctx, r.messageTap, r.LocalAddr(), r.RemoteAddr(), b)
+	tapResponse(ctx, r.clock.Now(), r.messageTap, r.LocalAddr(), r.RemoteAddr(), b)
 
 	withWriteDeadline(ctx, r.writeTimeout, r.conn, func() {
 		_, err = netext.WriteToSession(r.conn, b, r.udpSession)

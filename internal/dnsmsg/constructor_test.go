@@ -162,9 +162,7 @@ func TestConstructor_AppendDebugExtra(t *testing.T) {
 			t.Parallel()
 
 			req := &dns.Msg{
-				MsgHdr: dns.MsgHdr{
-					Id: dns.Id(),
-				},
+				Id: dns.Id(),
 				Question: []dns.Question{{
 					Name:   fqdn,
 					Qtype:  tc.qt,
@@ -194,9 +192,7 @@ func BenchmarkConstructor_AppendDebugExtra(b *testing.B) {
 	longText := strings.Repeat("abc", 2*dnsmsg.MaxTXTStringLen)
 
 	req := &dns.Msg{
-		MsgHdr: dns.MsgHdr{
-			Id: dns.Id(),
-		},
+		Id: dns.Id(),
 		Question: []dns.Question{{
 			Name:   testFQDN,
 			Qtype:  dns.TypeTXT,

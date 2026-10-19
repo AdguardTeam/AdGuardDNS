@@ -99,9 +99,6 @@ func (c *configuration) Validate() (err error) {
 
 	// Keep this in the same order as the fields in the config.
 	validators := container.KeyValues[string, validate.Interface]{{
-		Key:   "ratelimit",
-		Value: c.RateLimit,
-	}, {
 		Key:   "upstream",
 		Value: c.Upstream,
 	}, {
@@ -189,6 +186,36 @@ func (c *configuration) isProfilesEnabled() (ok bool) {
 	}
 
 	return false
+}
+
+// validateWithEnvs validates the configuration taking into account the
+// environment settings.  envs must be valid.
+func (c *configuration) validateWithEnvs(envs *environment) (err error) {
+	defer func() { err = errors.Annotate(err, "ratelimit: %w") }()
+
+	if c.RateLimit == nil {
+		return errors.ErrNoValue
+	}
+
+	errs := []error{
+		validate.Positive("backoff_count", c.RateLimit.BackoffCount),
+		validate.Positive("backoff_duration", c.RateLimit.BackoffDuration),
+		validate.Positive("backoff_period", c.RateLimit.BackoffPeriod),
+		validate.Positive("response_size_estimate", c.RateLimit.ResponseSizeEstimate),
+	}
+
+	errs = validate.Append(errs, "active_request_limit", c.RateLimit.ActiveRequestLimit)
+	if envs.RateLimitAllowlistType != rlAllowlistTypeOff {
+		errs = validate.Append(errs, "allowlist", c.RateLimit.Allowlist)
+	}
+
+	errs = validate.Append(errs, "connection_limit", c.RateLimit.ConnectionLimit)
+	errs = validate.Append(errs, "ipv4", c.RateLimit.IPv4)
+	errs = validate.Append(errs, "ipv6", c.RateLimit.IPv6)
+	errs = validate.Append(errs, "quic", c.RateLimit.QUIC)
+	errs = validate.Append(errs, "tcp", c.RateLimit.TCP)
+
+	return errors.Join(errs...)
 }
 
 // parseConfig reads the configuration.

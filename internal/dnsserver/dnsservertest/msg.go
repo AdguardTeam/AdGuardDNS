@@ -97,9 +97,7 @@ func (rrs SectionExtra) appendTo(m *dns.Msg) { m.Extra = append(m.Extra, ([]dns.
 // qclass, and rrs added.
 func NewReq(name string, qtype, qclass uint16, rrs ...RRSection) (req *dns.Msg) {
 	req = &dns.Msg{
-		MsgHdr: dns.MsgHdr{
-			Id: dns.Id(),
-		},
+		Id: dns.Id(),
 		Question: []dns.Question{{
 			Name:   dns.Fqdn(name),
 			Qtype:  qtype,

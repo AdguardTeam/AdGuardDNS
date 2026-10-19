@@ -17,6 +17,7 @@ type ctxKey uint8
 // Context key values.
 const (
 	ctxKeyReqInfo ctxKey = iota
+	ctxKeyLocalAddr
 )
 
 // RequestInfo contains information about the current request.  A RequestInfo
@@ -135,4 +136,35 @@ func EnsureContextRequestID(parent context.Context) (ctx context.Context) {
 	}
 
 	return parent
+}
+
+// ContextWithLocalAddress attaches laddr to the specified context.
+func ContextWithLocalAddress(parent context.Context, laddr netip.Addr) (ctx context.Context) {
+	return context.WithValue(parent, ctxKeyLocalAddr, laddr)
+}
+
+// LocalAddressFromContext gets local address from the specified context.
+func LocalAddressFromContext(ctx context.Context) (laddr netip.Addr, found bool) {
+	v := ctx.Value(ctxKeyLocalAddr)
+	if v == nil {
+		return netip.Addr{}, false
+	}
+
+	laddr, ok := v.(netip.Addr)
+	if !ok {
+		panic(fmt.Errorf("bad type for ctxKeyLocalAddr: %T(%[1]v)", v))
+	}
+
+	return laddr, true
+}
+
+// MustLocalAddressFromContext gets local address attached to the context and
+// panics if it is not found.
+func MustLocalAddressFromContext(ctx context.Context) (laddr netip.Addr) {
+	laddr, found := LocalAddressFromContext(ctx)
+	if !found {
+		panic(errors.Error("local address not found in the context"))
+	}
+
+	return laddr
 }

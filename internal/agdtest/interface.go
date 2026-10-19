@@ -416,6 +416,11 @@ type ProfileDB struct {
 		humanID agd.HumanIDLower,
 	) (p *agd.Profile, d *agd.Device, err error)
 
+	OnProfileByID func(
+		ctx context.Context,
+		id agd.ProfileID,
+	) (p *agd.Profile, err error)
+
 	OnProfileByLinkedIP func(
 		ctx context.Context,
 		ip netip.Addr,
@@ -459,6 +464,14 @@ func (db *ProfileDB) ProfileByHumanID(
 	humanID agd.HumanIDLower,
 ) (p *agd.Profile, d *agd.Device, err error) {
 	return db.OnProfileByHumanID(ctx, id, humanID)
+}
+
+// ProfileByID implements the [profiledb.Interface] interface for *ProfileDB.
+func (db *ProfileDB) ProfileByID(
+	ctx context.Context,
+	id agd.ProfileID,
+) (p *agd.Profile, err error) {
+	return db.OnProfileByID(ctx, id)
 }
 
 // ProfileByLinkedIP implements the [profiledb.Interface] interface for

@@ -2,6 +2,7 @@ package dnssvc_test
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"net/netip"
@@ -12,6 +13,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdpasswd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
@@ -77,6 +79,8 @@ func newTestService(
 	}
 
 	prof := &agd.Profile{
+		CustomDomains:   &agd.AccountCustomDomains{},
+		AccountIPConfig: &agd.AccountIPConfig{},
 		FilterConfig: &filter.ConfigClient{
 			CustomFilter:   &filter.ConfigCustomFilter{},
 			CustomRuleList: &filter.ConfigCustomRuleList{},
@@ -171,8 +175,9 @@ func newTestService(
 	}
 
 	srvAddr = netip.MustParseAddrPort("94.149.14.14:853")
-	srv := dnssvctest.NewServer(dnssvctest.ServerName, agd.ProtoDoT, &agd.ServerBindData{
-		AddrPort: srvAddr,
+	srv := dnssvctest.NewServer(dnssvctest.ServerName, agd.ProtoDoT, &agdnet.BindConfig{
+		Addr: agdnet.BindConfigAddrDefault(srvAddr),
+		TLS:  (*agdnet.BindConfigTLSDefault)(&tls.Config{}),
 	})
 
 	tl := newTestListener()

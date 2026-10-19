@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdslog"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/miekg/dns"
@@ -95,10 +94,8 @@ func (h *Handler) healthcheck(ctx context.Context, mustReport bool) (err error) 
 // newProbeReq returns a new request message for given domain.
 func newProbeReq(domain string) (req *dns.Msg) {
 	return &dns.Msg{
-		MsgHdr: dns.MsgHdr{
-			Id:               dns.Id(),
-			RecursionDesired: true,
-		},
+		Id:               dns.Id(),
+		RecursionDesired: true,
 		Question: []dns.Question{{
 			Name:   dns.Fqdn(domain),
 			Qtype:  dns.TypeA,
@@ -122,7 +119,7 @@ func (h *Handler) healthcheckUpstream(
 
 	// TODO(a.garipov):  Augment our JSON log handler to use fmt.Stringer
 	// automatically?
-	upsLogger := h.logger.With("addr", agdslog.NewStringerValuer(ups))
+	upsLogger := h.logger.With("addr", slogutil.NewStringerLogValuer(ups))
 
 	if now.Sub(lastFailed) < h.hcBackoff {
 		// Make sure that this main upstream is not in the backoff mode.

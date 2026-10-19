@@ -6,11 +6,13 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
@@ -36,13 +38,14 @@ func TestService_ServeHTTP(t *testing.T) {
 	}
 
 	c := &websvc.Config{
-		Logger:               testLogger,
-		RootRedirectURL:      rootRedirectURL,
 		CertificateValidator: testCertValidator,
-		StaticContent:        http.NotFoundHandler(),
 		DNSCheck:             mockHandler,
 		ErrColl:              agdtest.NewErrorCollector(),
+		ListenConfig:         netext.DefaultListenConfig(nil),
+		Logger:               testLogger,
 		Metrics:              websvc.EmptyMetrics{},
+		RootRedirectURL:      rootRedirectURL,
+		StaticContent:        http.NotFoundHandler(),
 		Timeout:              testTimeout,
 	}
 
@@ -74,7 +77,11 @@ func TestService_ServeHTTP(t *testing.T) {
 
 // testCertificateValidator is a [websvc.CertificateValidator] for tests.
 type testCertificateValidator struct {
-	onIsValidWellKnownRequest func(ctx context.Context, r *http.Request) (ok bool)
+	onIsValidWellKnownRequest func(
+		ctx context.Context,
+		r *http.Request,
+		destinationIP netip.Addr,
+	) (ok bool)
 }
 
 // type check
@@ -85,8 +92,9 @@ var _ websvc.CertificateValidator = (*testCertificateValidator)(nil)
 func (v *testCertificateValidator) IsValidWellKnownRequest(
 	ctx context.Context,
 	r *http.Request,
+	destinationIP netip.Addr,
 ) (ok bool) {
-	return v.onIsValidWellKnownRequest(ctx, r)
+	return v.onIsValidWellKnownRequest(ctx, r, destinationIP)
 }
 
 func TestService_ServeHTTP_wellKnown(t *testing.T) {
@@ -129,7 +137,11 @@ func TestService_ServeHTTP_wellKnown(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	cv := &testCertificateValidator{
-		onIsValidWellKnownRequest: func(_ context.Context, r *http.Request) (ok bool) {
+		onIsValidWellKnownRequest: func(
+			_ context.Context,
+			r *http.Request,
+			_ netip.Addr,
+		) (ok bool) {
 			return r.URL.Path == wellKnownPathProxy
 		},
 	}
@@ -144,19 +156,18 @@ func TestService_ServeHTTP_wellKnown(t *testing.T) {
 	}
 
 	c := &websvc.Config{
-		Logger: testLogger,
+		CertificateValidator: cv,
+		DNSCheck:             http.NotFoundHandler(),
+		ErrColl:              agdtest.NewErrorCollector(),
 		LinkedIP: &websvc.LinkedIPServer{
 			TargetURL: targetURL,
 		},
-		CertificateValidator: cv,
-		StaticContent:        staticContent,
-		DNSCheck:             http.NotFoundHandler(),
-		ErrColl:              agdtest.NewErrorCollector(),
-		Metrics:              websvc.EmptyMetrics{},
-		NonDoHBind: []*websvc.BindData{{
-			Address: localhostZeroPort,
-		}},
-		Timeout: testTimeout,
+		ListenConfig:  netext.DefaultListenConfig(nil),
+		Logger:        testLogger,
+		Metrics:       websvc.EmptyMetrics{},
+		NonDoHBind:    testBindConfigs,
+		StaticContent: staticContent,
+		Timeout:       testTimeout,
 	}
 
 	svc := websvc.New(c)

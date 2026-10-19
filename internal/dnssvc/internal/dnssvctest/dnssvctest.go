@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/miekg/dns"
@@ -24,6 +25,7 @@ const (
 	HumanIDStr      = "My-Device-X--10"
 	HumanIDLowerStr = "my-device-x--10"
 
+	AccountID    agd.AccountID    = 123
 	DeviceID     agd.DeviceID     = DeviceIDStr
 	ProfileID    agd.ProfileID    = ProfileIDStr
 	HumanID      agd.HumanID      = HumanIDStr
@@ -135,20 +137,13 @@ var (
 func NewServer(
 	name agd.ServerName,
 	proto agd.Protocol,
-	bindData ...*agd.ServerBindData,
+	bindData ...*agdnet.BindConfig,
 ) (srv *agd.Server) {
 	srv = &agd.Server{
 		Name:         name,
 		Protocol:     proto,
 		ReadTimeout:  Timeout,
 		WriteTimeout: Timeout,
-	}
-
-	if proto.IsStdEncrypted() {
-		// #nosec G402 -- This is a test helper.
-		srv.TLS = &agd.TLSConfig{
-			Default: &tls.Config{},
-		}
 	}
 
 	switch proto {
@@ -166,7 +161,7 @@ func NewServer(
 		srv.DNSCrypt = &agd.DNSCryptConfig{}
 	}
 
-	srv.SetBindData(bindData)
+	srv.SetBindConfigs(bindData)
 
 	return srv
 }

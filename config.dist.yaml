@@ -420,8 +420,8 @@ server_groups:
         # See README for the list of protocol values.
         protocol: 'dns'
         linked_ip_enabled: true
-        # Either bind_interfaces or bind_addresses (see below) can be used for
-        # the plain-DNS servers.
+        # Either bind_interfaces or bind_addresses (see below).  bind_interfaces
+        # can be used for all protocols except DNSCrypt.
         bind_interfaces:
           - id: 'eth0_plain_dns'
             subnets:

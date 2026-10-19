@@ -2,6 +2,7 @@ package dnssvc_test
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"net/netip"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/dnsservertest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/messagetap"
@@ -110,6 +112,7 @@ func newTestListenerFunc(tl *testListener) (f dnssvc.NewListenerFunc) {
 		_ *agd.Server,
 		_ *dnsserver.ConfigBase,
 		_ http.Handler,
+		_ *agdnet.BindConfig,
 	) (l dnssvc.Listener, err error) {
 		return tl, nil
 	}
@@ -155,8 +158,8 @@ func TestService_Start(t *testing.T) {
 		return nil
 	}
 
-	srv := dnssvctest.NewServer(dnssvctest.ServerName, agd.ProtoDNS, &agd.ServerBindData{
-		AddrPort: netip.MustParseAddrPort("127.0.0.1:53"),
+	srv := dnssvctest.NewServer(dnssvctest.ServerName, agd.ProtoDNS, &agdnet.BindConfig{
+		Addr: agdnet.BindConfigAddrDefault(netip.MustParseAddrPort("127.0.0.1:53")),
 	})
 
 	srvGrp := &dnssvc.ServerGroupConfig{
@@ -200,20 +203,23 @@ func TestService_Start(t *testing.T) {
 
 func TestNew(t *testing.T) {
 	srvs := []*agd.Server{
-		dnssvctest.NewServer("test_server_dns", agd.ProtoDNS, &agd.ServerBindData{
-			AddrPort: netip.MustParseAddrPort("127.0.0.1:53"),
+		dnssvctest.NewServer("test_server_dns", agd.ProtoDNS, &agdnet.BindConfig{
+			Addr: agdnet.BindConfigAddrDefault(netip.MustParseAddrPort("127.0.0.1:53")),
 		}),
-		dnssvctest.NewServer("test_server_dnscrypt_tcp", agd.ProtoDNSCrypt, &agd.ServerBindData{
-			AddrPort: netip.MustParseAddrPort("127.0.0.1:8853"),
+		dnssvctest.NewServer("test_server_dnscrypt_tcp", agd.ProtoDNSCrypt, &agdnet.BindConfig{
+			Addr: agdnet.BindConfigAddrDefault(netip.MustParseAddrPort("127.0.0.1:8853")),
 		}),
-		dnssvctest.NewServer("test_server_doh", agd.ProtoDoH, &agd.ServerBindData{
-			AddrPort: netip.MustParseAddrPort("127.0.0.1:443"),
+		dnssvctest.NewServer("test_server_doh", agd.ProtoDoH, &agdnet.BindConfig{
+			Addr: agdnet.BindConfigAddrDefault(netip.MustParseAddrPort("127.0.0.1:443")),
+			TLS:  (*agdnet.BindConfigTLSDefault)(&tls.Config{}),
 		}),
-		dnssvctest.NewServer("test_server_doq", agd.ProtoDoQ, &agd.ServerBindData{
-			AddrPort: netip.MustParseAddrPort("127.0.0.1:853"),
+		dnssvctest.NewServer("test_server_doq", agd.ProtoDoQ, &agdnet.BindConfig{
+			Addr: agdnet.BindConfigAddrDefault(netip.MustParseAddrPort("127.0.0.1:853")),
+			TLS:  (*agdnet.BindConfigTLSDefault)(&tls.Config{}),
 		}),
-		dnssvctest.NewServer("test_server_dot", agd.ProtoDoT, &agd.ServerBindData{
-			AddrPort: netip.MustParseAddrPort("127.0.0.1:853"),
+		dnssvctest.NewServer("test_server_dot", agd.ProtoDoT, &agdnet.BindConfig{
+			Addr: agdnet.BindConfigAddrDefault(netip.MustParseAddrPort("127.0.0.1:853")),
+			TLS:  (*agdnet.BindConfigTLSDefault)(&tls.Config{}),
 		}),
 	}
 

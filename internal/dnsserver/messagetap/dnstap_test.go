@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/messagetap"
 	"github.com/AdguardTeam/golibs/errors"
@@ -88,7 +89,7 @@ func TestDNSTap(t *testing.T) {
 	// Retry until the listener-check goroutine detects the socket and sets
 	// hasListener to true, after which TapRequest will forward the message.
 	require.Eventually(t, func() (ok bool) {
-		d.TapRequest(ctx, laddr, raddr, []byte("hello"))
+		d.TapRequest(ctx, testDate, laddr, raddr, []byte("hello"))
 		select {
 		case <-tapCh:
 			return true
@@ -100,19 +101,28 @@ func TestDNSTap(t *testing.T) {
 	reqPayload := []byte("ping")
 	respPayload := []byte("pong")
 
-	d.TapRequest(ctx, laddr, raddr, reqPayload)
+	d.TapRequest(ctx, testDate, laddr, raddr, reqPayload)
 	gotReq, ok := testutil.RequireReceive(t, tapCh, testTimeout)
 	require.True(t, ok)
 	require.NotNil(t, gotReq)
 
-	assertDNSTap(t, gotReq, raddr, laddr, dnstap.Message_CLIENT_QUERY, reqPayload, nil)
+	assertDNSTap(t, gotReq, raddr, laddr, testDate, dnstap.Message_CLIENT_QUERY, reqPayload, nil)
 
-	d.TapResponse(ctx, laddr, raddr, respPayload)
+	d.TapResponse(ctx, testDate, laddr, raddr, respPayload)
 	gotResp, ok := testutil.RequireReceive(t, tapCh, testTimeout)
 	require.True(t, ok)
 	require.NotNil(t, gotResp)
 
-	assertDNSTap(t, gotResp, raddr, laddr, dnstap.Message_CLIENT_RESPONSE, nil, respPayload)
+	assertDNSTap(
+		t,
+		gotResp,
+		raddr,
+		laddr,
+		testDate,
+		dnstap.Message_CLIENT_RESPONSE,
+		nil,
+		respPayload,
+	)
 }
 
 // assertDNSTap is a helper function that asserts that the given data is a valid
@@ -122,6 +132,7 @@ func assertDNSTap(
 	data []byte,
 	raddr netip.AddrPort,
 	laddr netip.AddrPort,
+	date time.Time,
 	msgType dnstap.Message_Type,
 	req []byte,
 	resp []byte,
@@ -146,6 +157,16 @@ func assertDNSTap(
 	assert.Equal(tb, uint32(laddr.Port()), *dt.Message.ResponsePort)
 	assert.Equal(tb, req, dt.Message.QueryMessage)
 	assert.Equal(tb, resp, dt.Message.ResponseMessage)
+
+	if req != nil {
+		assert.Equal(tb, uint32(date.Nanosecond()), *dt.Message.QueryTimeNsec)
+		assert.Equal(tb, uint64(date.Unix()), *dt.Message.QueryTimeSec)
+	}
+
+	if resp != nil {
+		assert.Equal(tb, uint32(date.Nanosecond()), *dt.Message.ResponseTimeNsec)
+		assert.Equal(tb, uint64(date.Unix()), *dt.Message.ResponseTimeSec)
+	}
 }
 
 func BenchmarkDNSTap(b *testing.B) {
@@ -174,19 +195,19 @@ func BenchmarkDNSTap(b *testing.B) {
 	}, testTimeout, testTimeout/10)
 
 	// Warmup to fill the pools and the slices.
-	d.TapRequest(ctx, laddr, raddr, payload)
-	d.TapResponse(ctx, laddr, raddr, payload)
+	d.TapRequest(ctx, testDate, laddr, raddr, payload)
+	d.TapResponse(ctx, testDate, laddr, raddr, payload)
 
 	b.ReportAllocs()
 	for b.Loop() {
-		d.TapRequest(ctx, laddr, raddr, payload)
-		d.TapResponse(ctx, laddr, raddr, payload)
+		d.TapRequest(ctx, testDate, laddr, raddr, payload)
+		d.TapResponse(ctx, testDate, laddr, raddr, payload)
 	}
 
 	// Most recent results:
 	//	goos: darwin
 	//	goarch: arm64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/messagetap
-	//	cpu: Apple M1 Pro
-	//	BenchmarkDNSTap-8   	 2343468	       427.4 ns/op	      27 B/op	       6 allocs/op
+	//	cpu: Apple M4 Pro
+	//	BenchmarkDNSTap-14    	 2940337	       340.6 ns/op	       0 B/op	       0 allocs/op
 }

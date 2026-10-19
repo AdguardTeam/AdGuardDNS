@@ -67,6 +67,7 @@ func (s *ServerDNS) acceptUDP(ctx context.Context, conn net.PacketConn) (err err
 	}
 
 	rw := &udpResponseWriter{
+		clock:        s.clock,
 		messageTap:   s.messageTap,
 		udpSession:   sess,
 		conn:         conn,
@@ -129,6 +130,7 @@ func (s *ServerDNS) readUDPMsg(
 	bufPtr := s.udpPool.Get()
 	defer s.udpPool.Put(bufPtr)
 
+	// TODO(a.garipov):  Process n > 0 first?
 	n, sess, err := netext.ReadFromSession(conn, *bufPtr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading from session: %w", err)
@@ -140,7 +142,7 @@ func (s *ServerDNS) readUDPMsg(
 		return nil, nil, dns.ErrShortRead
 	}
 
-	tapRequest(ctx, s.messageTap, sess.LocalAddr(), sess.RemoteAddr(), (*bufPtr)[:n])
+	tapRequest(ctx, s.clock.Now(), s.messageTap, sess.LocalAddr(), sess.RemoteAddr(), (*bufPtr)[:n])
 
 	req = &dns.Msg{}
 	err = req.Unpack((*bufPtr)[:n])

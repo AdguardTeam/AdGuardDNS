@@ -7,6 +7,22 @@ The format is **not** based on [Keep a Changelog][kec], since the project **does
 [kec]: https://keepachangelog.com/en/1.0.0/
 [sem]: https://semver.org/spec/v2.0.0.html
 
+## AGDNS-4520 / Build 1244
+
+- The `RATELIMIT_ALLOWLIST_TYPE` environment variable now supports a new `off` value.
+
+## AGDNS-2992 / Build 1226
+
+- The new environment variable `CUSTOM_DOMAINS_MAX_CERT_STALENESS` has been added, recommended value: `90d`.
+
+## AGDNS-4191 / Build 1222
+
+- New environment variables have been added:
+
+    - `RUNTIME_THREAD_GC_ENABLED`: `1` enables thread garbage collection, the default value is `0`.
+    - `RUNTIME_THREAD_GC_INTERVAL`: defines thread garbage collection interval.
+    - `RUNTIME_THREAD_GC_MAX_THREADS`: defines max allowed threads number.
+
 ## AGDNS-1746 / Build 1207
 
 - New environment variables have been added:

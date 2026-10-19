@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
@@ -146,7 +147,8 @@ func (prx *linkedIPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var shouldProxy bool
 	if prx.certValidator != nil {
-		shouldProxy = prx.certValidator.IsValidWellKnownRequest(ctx, r)
+		// TODO(f.setrakov): Consider using real destination IP.
+		shouldProxy = prx.certValidator.IsValidWellKnownRequest(ctx, r, netip.Addr{})
 		l.DebugContext(ctx, "cert validation proxy", "should_proxy", shouldProxy)
 	} else {
 		shouldProxy = shouldProxyRequest(r)

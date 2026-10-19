@@ -11,7 +11,7 @@
 
 Development is supported on Linux and macOS (aka Darwin) systems.
 
-1. Install Go 1.26 or later.
+1. Install Go 1.27 or later.
 
 2. Call `make init` to set up the Git pre-commit hook.
 
@@ -305,7 +305,7 @@ A simple example:
     env USE_SUDO=1 sh ./scripts/test/bindtodevice.sh
     ```
 
-This will build the image and open a shell within the container. The container environment is defined by `scripts/test/bindtodevice.docker`, and has all utilities required to build the `AdGuardDNS` binary and test it. The working directory is also shared with the container through the `/test` directory inside it. The container also routes all IP connections to any address in the `172.17.0.0/16` subnet to the `eth0` network interface. So, calling `make go-test` or a similar command from within the container will actually test the `SO_BINDTODEVICE` features:
+This will build the image and open a shell within the container. The container environment is defined by `scripts/test/bindtodevice.Dockerfile`, and has all utilities required to build the `AdGuardDNS` binary and test it. The working directory is also shared with the container through the `/test` directory inside it. The container also routes all IP connections to any address in the `172.17.0.0/16` subnet to the `eth0` network interface. So, calling `make go-test` or a similar command from within the container will actually test the `SO_BINDTODEVICE` features:
 
 ```sh
 go test --cover -v ./internal/bindtodevice/
@@ -315,4 +315,10 @@ If you want to open an additional terminal (for example to launch `AdGuardDNS` i
 
 ```sh
 docker exec -i -t agdns_bindtodevice_test /bin/sh
+```
+
+You might need to add an exception for `172.17.0.1` inside the container for external DNS to work:
+
+```sh
+ip route add 172.17.0.1 dev eth0
 ```

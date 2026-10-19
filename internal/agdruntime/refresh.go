@@ -22,8 +22,6 @@ type RefresherConfig struct {
 
 // Refresher implements the [service.Refresher] interface that refreshes the
 // runtime by terminating the OS threads.
-//
-// TODO(d.kolyshev):  Use.
 type Refresher struct {
 	logger  *slog.Logger
 	manager Manager

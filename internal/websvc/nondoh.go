@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
@@ -91,7 +92,8 @@ func (svc *Service) serveDefaultNonDoH(
 	svc.staticContent.ServeHTTP(rec, r)
 	if rec.Code != http.StatusNotFound {
 		svc.metrics.IncrementReqCount(ctx, RequestTypeStaticContent)
-	} else if svc.certValidator.IsValidWellKnownRequest(ctx, r) {
+		// TODO(f.setrakov): Consider using real destination IP.
+	} else if svc.certValidator.IsValidWellKnownRequest(ctx, r, netip.Addr{}) {
 		// TODO(a.garipov):  Find a better way to reset the result?
 		*rec = *httptest.NewRecorder()
 		svc.wellKnownProxy.ServeHTTP(rec, r)

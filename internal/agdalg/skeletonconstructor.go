@@ -81,9 +81,7 @@ func (c *SkeletonConstructor) Skeleton(s string) (skel string) {
 // dicpTable is a merged table of all code points with the property
 // Default_Ignorable_Code_Point.
 //
-// See https://www.unicode.org/Public/15.0.0/ucd/DerivedCoreProperties.txt.
-//
-// TODO(e.burkov):  Update to 16.0.0 when the [unicode] package will use it.
+// See https://www.unicode.org/Public/17.0.0/ucd/DerivedCoreProperties.txt.
 var dicpTable = rangetable.Merge(
 	unicode.Other_Default_Ignorable_Code_Point,
 	// These are ranges of Default_Ignorable_Code_Point excluding the ones

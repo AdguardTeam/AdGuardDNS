@@ -12,8 +12,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/AdguardTeam/golibs/logutil/optslog"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 )
 
@@ -27,11 +31,12 @@ import (
 // merging debugsvc and websvc into a single httpsvc.
 type server struct {
 	// mu protects http, logger, listener, and url.
-	mu       *sync.Mutex
-	http     *http.Server
-	logger   *slog.Logger
-	listener net.Listener
-	url      *url.URL
+	mu           *sync.Mutex
+	http         *http.Server
+	logger       *slog.Logger
+	listener     net.Listener
+	url          *url.URL
+	listenConfig netext.ListenConfig
 
 	initialAddr netip.AddrPort
 }
@@ -47,6 +52,10 @@ type serverConfig struct {
 
 	// TLSConf is the optional TLS configuration.
 	TLSConf *tls.Config
+
+	// ListenConfig is used for setting options for TCP connections.  It must
+	// not be nil.
+	ListenConfig netext.ListenConfig
 
 	// BaseContext is an optional function that that returns the base context
 	// for incoming requests on this server.  See [http.Server.BaseContext].
@@ -80,7 +89,7 @@ func newServer(c *serverConfig) (s *server) {
 
 	logger := c.BaseLogger.With(loggerKeyServer, u)
 
-	return &server{
+	s = &server{
 		mu: &sync.Mutex{},
 		http: &http.Server{
 			Handler:           c.Handler,
@@ -92,11 +101,25 @@ func newServer(c *serverConfig) (s *server) {
 			ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelDebug),
 			BaseContext:       c.BaseContext,
 		},
-		logger: logger,
-		url:    u,
+		logger:       logger,
+		url:          u,
+		listenConfig: c.ListenConfig,
 
 		initialAddr: c.InitialAddress,
 	}
+
+	s.http.ConnContext = s.connContext
+
+	return s
+}
+
+// connContext modifies the context for a new server connection.  It is intended
+// to be used as a [http.Server.ConnContext].
+func (s *server) connContext(parent context.Context, c net.Conn) (ctx context.Context) {
+	laddr := netutil.NetAddrToAddrPort(c.LocalAddr())
+	optslog.Trace1(parent, s.logger, "put local address in context", "laddr", laddr)
+
+	return agd.ContextWithLocalAddress(parent, laddr.Addr())
 }
 
 // localAddr returns the local address of the server if the server has started
@@ -120,7 +143,7 @@ func (s *server) localAddr() (addr net.Addr) {
 func (s *server) serve(ctx context.Context, baseLogger *slog.Logger) {
 	defer slogutil.RecoverAndLog(ctx, s.logger)
 
-	tcpListener, err := net.ListenTCP("tcp", net.TCPAddrFromAddrPort(s.initialAddr))
+	tcpListener, err := s.listenConfig.Listen(ctx, "tcp", s.initialAddr.String())
 	if err != nil {
 		s.logger.ErrorContext(ctx, "listening tcp", slogutil.KeyError, err)
 
@@ -169,8 +192,8 @@ func (s *server) shutdown(ctx context.Context) (err error) {
 	// Close the listener separately, as it might not have been closed if the
 	// context has been canceled.
 	//
-	// NOTE:  The listener could remain uninitialized if [net.ListenTCP] failed
-	// in [s.serve].
+	// NOTE:  The listener could remain uninitialized if
+	// [netext.ListenConfig.Listen] failed in [s.serve].
 	if l := s.listener; l != nil {
 		err = l.Close()
 		if err != nil && !errors.Is(err, net.ErrClosed) {

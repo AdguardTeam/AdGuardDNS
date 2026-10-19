@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/netutil/httputil"
@@ -70,6 +72,10 @@ func New(c *Config) (svc *Service) {
 		ServerGroupSafeBrowsingPage,
 	)
 
+	adultBlocking := newBlockPageServers(c.Logger, adultBlockingBPS, c.Timeout, c.ListenConfig)
+	generalBlocking := newBlockPageServers(c.Logger, generalBlockingBPS, c.Timeout, c.ListenConfig)
+	safeBrowsing := newBlockPageServers(c.Logger, safeBrowsingBPS, c.Timeout, c.ListenConfig)
+
 	svc = &Service{
 		logger: c.Logger,
 
@@ -87,9 +93,9 @@ func New(c *Config) (svc *Service) {
 		error404: c.Error404,
 		error500: c.Error500,
 
-		adultBlocking:   newBlockPageServers(c.Logger, adultBlockingBPS, c.Timeout),
-		generalBlocking: newBlockPageServers(c.Logger, generalBlockingBPS, c.Timeout),
-		safeBrowsing:    newBlockPageServers(c.Logger, safeBrowsingBPS, c.Timeout),
+		adultBlocking:   adultBlocking,
+		generalBlocking: generalBlocking,
+		safeBrowsing:    safeBrowsing,
 	}
 
 	if c.RootRedirectURL != nil {
@@ -101,6 +107,7 @@ func New(c *Config) (svc *Service) {
 	svc.setLinkedIP(c)
 
 	for _, b := range c.NonDoHBind {
+		addr := b.Addr.(agdnet.BindConfigAddrDefault)
 		logger := svc.logger.With(loggerKeyGroup, ServerGroupNonDoH)
 		// TODO(f.setrakov): Create middlewares only once and reuse them.
 		h := httputil.Wrap(
@@ -110,12 +117,14 @@ func New(c *Config) (svc *Service) {
 			httputil.NewLogMiddleware(logger, slog.LevelDebug),
 		)
 
+		tlsConf, _ := agdnet.TLSConfigFromBindConfig(b.TLS)
 		svc.nonDoH = append(svc.nonDoH, newServer(&serverConfig{
 			BaseLogger:     logger,
-			TLSConf:        b.TLS,
+			TLSConf:        tlsConf,
 			Handler:        h,
-			InitialAddress: b.Address,
+			InitialAddress: netip.AddrPort(addr),
 			Timeout:        c.Timeout,
+			ListenConfig:   c.ListenConfig,
 		}))
 	}
 
@@ -133,7 +142,7 @@ func (svc *Service) setLinkedIP(c *Config) {
 
 	logger := svc.logger.With(loggerKeyGroup, ServerGroupLinkedIP)
 	for _, b := range l.Bind {
-		proxyLogger := logger.With("proxy_addr", b.Address)
+		proxyLogger := logger.With("proxy_addr", b.Addr)
 		h := httputil.Wrap(
 			newLinkedIPHandler(&linkedIPHandlerConfig{
 				targetURL:     l.TargetURL,
@@ -147,12 +156,16 @@ func (svc *Service) setLinkedIP(c *Config) {
 			httputil.NewLogMiddleware(logger, slog.LevelDebug),
 		)
 
+		tlsConf, _ := agdnet.TLSConfigFromBindConfig(b.TLS)
+
+		addr := b.Addr.(agdnet.BindConfigAddrDefault)
 		svc.linkedIP = append(svc.linkedIP, newServer(&serverConfig{
 			BaseLogger:     logger,
-			TLSConf:        b.TLS,
+			TLSConf:        tlsConf,
 			Handler:        h,
-			InitialAddress: b.Address,
+			InitialAddress: netip.AddrPort(addr),
 			Timeout:        c.Timeout,
+			ListenConfig:   c.ListenConfig,
 		}))
 	}
 

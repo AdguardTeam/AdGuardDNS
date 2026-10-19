@@ -110,15 +110,17 @@ type environment struct {
 
 	ProfilesAPIRespMaxInvalidRatio float64 `env:"PROFILES_API_RESPONSE_MAX_INVALID_RATIO" envDefault:"0"`
 
-	CustomDomainsRefreshIvl  timeutil.Duration `env:"CUSTOM_DOMAINS_REFRESH_INTERVAL"`
-	DNSCheckKVTTL            timeutil.Duration `env:"DNSCHECK_KV_TTL"`
-	FilterIndexAPIRefreshIvl timeutil.Duration `env:"FILTER_INDEX_API_REFRESH_INTERVAL"`
-	FilterRefreshIvl         timeutil.Duration `env:"FILTER_REFRESH_INTERVAL"`
-	ProfilesCacheIvl         timeutil.Duration `env:"PROFILES_CACHE_INTERVAL"`
-	SessionTicketRefreshIvl  timeutil.Duration `env:"SESSION_TICKET_REFRESH_INTERVAL"`
-	StandardAccessRefreshIvl timeutil.Duration `env:"STANDARD_ACCESS_REFRESH_INTERVAL"`
-	StandardAccessTimeout    timeutil.Duration `env:"STANDARD_ACCESS_TIMEOUT"`
-	FilterCacheMaxStaleness  timeutil.Duration `env:"FILTER_CACHE_MAX_STALENESS" envDefault:"720h"`
+	CustomDomainsRefreshIvl       timeutil.Duration `env:"CUSTOM_DOMAINS_REFRESH_INTERVAL"`
+	CustomDomainsMaxCertStaleness timeutil.Duration `env:"CUSTOM_DOMAINS_MAX_CERT_STALENESS"`
+	DNSCheckKVTTL                 timeutil.Duration `env:"DNSCHECK_KV_TTL"`
+	FilterCacheMaxStaleness       timeutil.Duration `env:"FILTER_CACHE_MAX_STALENESS" envDefault:"30d"`
+	FilterIndexAPIRefreshIvl      timeutil.Duration `env:"FILTER_INDEX_API_REFRESH_INTERVAL"`
+	FilterRefreshIvl              timeutil.Duration `env:"FILTER_REFRESH_INTERVAL"`
+	ProfilesCacheIvl              timeutil.Duration `env:"PROFILES_CACHE_INTERVAL"`
+	RuntimeThreadGCIvl            timeutil.Duration `env:"RUNTIME_THREAD_GC_INTERVAL"`
+	SessionTicketRefreshIvl       timeutil.Duration `env:"SESSION_TICKET_REFRESH_INTERVAL"`
+	StandardAccessRefreshIvl      timeutil.Duration `env:"STANDARD_ACCESS_REFRESH_INTERVAL"`
+	StandardAccessTimeout         timeutil.Duration `env:"STANDARD_ACCESS_TIMEOUT"`
 
 	BlockProfileRateDenominator int `env:"BLOCK_PROFILE_RATE_DENOM"`
 	// TODO(a.garipov):  Rename to DNSCHECK_CACHE_KV_COUNT?
@@ -129,7 +131,8 @@ type environment struct {
 	MaxThreads                  int `env:"MAX_THREADS"`
 	MutexProfileRateDenominator int `env:"MUTEX_PROFILE_RATE_DENOM"`
 
-	QueryLogSemaphoreLimit uint `env:"QUERYLOG_SEMAPHORE_LIMIT"`
+	RuntimeThreadGCMaxThreads uint `env:"RUNTIME_THREAD_GC_MAX_THREADS"`
+	QueryLogSemaphoreLimit    uint `env:"QUERYLOG_SEMAPHORE_LIMIT"`
 
 	ListenPort uint16 `env:"LISTEN_PORT" envDefault:"8181"`
 
@@ -146,6 +149,7 @@ type environment struct {
 	LogTimestamp             strictBool `env:"LOG_TIMESTAMP" envDefault:"1"`
 	NewRegDomainsEnabled     strictBool `env:"NEW_REG_DOMAINS_ENABLED" envDefault:"1"`
 	QueryLogSemaphoreEnabled strictBool `env:"QUERYLOG_SEMAPHORE_ENABLED"`
+	RuntimeThreadGCEnabled   strictBool `env:"RUNTIME_THREAD_GC_ENABLED" envDefault:"0"`
 	SafeBrowsingEnabled      strictBool `env:"SAFE_BROWSING_ENABLED" envDefault:"1"`
 	TyposquattingEnabled     strictBool `env:"TYPOSQUATTING_ENABLED" envDefault:"0"`
 	WebStaticDirEnabled      strictBool `env:"WEB_STATIC_DIR_ENABLED" envDefault:"0"`
@@ -202,6 +206,7 @@ func (envs *environment) Validate() (err error) {
 	errs = envs.validateQueryLogSemaphore(errs)
 	errs = envs.validateRateLimit(errs)
 	errs = envs.validateRateLimitURLs(errs)
+	errs = envs.validateRuntimeThreadGC(errs)
 	errs = envs.validateSessionTickets(errs)
 	errs = envs.validateStandardAccess(errs)
 	errs = envs.validateTyposquatting(errs)
@@ -395,6 +400,10 @@ func (envs *environment) validateCustomDomains(errs []error) (res []error) {
 		res,
 		validate.NotEmpty("env CUSTOM_DOMAINS_CACHE_PATH", envs.CustomDomainsCachePath),
 		validate.Positive("env CUSTOM_DOMAINS_REFRESH_INTERVAL", envs.CustomDomainsRefreshIvl),
+		validate.Positive(
+			"env CUSTOM_DOMAINS_MAX_CERT_STALENESS",
+			envs.CustomDomainsMaxCertStaleness,
+		),
 	)
 
 	if err := validate.NotNil("env CUSTOM_DOMAINS_URL", envs.CustomDomainsURL); err != nil {
@@ -491,7 +500,7 @@ func validateSocketURL(u *urlutil.URL) (err error) {
 // variables for rate limit contain errors.
 func (envs *environment) validateRateLimit(errs []error) (res []error) {
 	switch typ := envs.RateLimitAllowlistType; typ {
-	case rlAllowlistTypeBackend, rlAllowlistTypeConsul:
+	case rlAllowlistTypeBackend, rlAllowlistTypeConsul, rlAllowlistTypeOff:
 		// Go on.
 	default:
 		err := fmt.Errorf("env RATELIMIT_ALLOWLIST_TYPE: %w: %q", errors.ErrBadEnumValue, typ)
@@ -752,6 +761,10 @@ func (envs *environment) validateProfilesURLs(errs []error) (res []error) {
 // validateRateLimitURLs appends validation errors to the given errs if rate
 // limit URLs in environment variables are invalid.
 func (envs *environment) validateRateLimitURLs(errs []error) (withURLs []error) {
+	if envs.RateLimitAllowlistType == rlAllowlistTypeOff {
+		return errs
+	}
+
 	rlURL := envs.BackendRateLimitURL
 	rlEnv := "BACKEND_RATELIMIT_URL"
 	validateFunc := urlutil.ValidateGRPCURL
@@ -771,6 +784,24 @@ func (envs *environment) validateRateLimitURLs(errs []error) (withURLs []error) 
 	if err != nil {
 		return append(errs, fmt.Errorf("env %s: %w", rlEnv, err))
 	}
+
+	return errs
+}
+
+// validateRuntimeThreadGC appends validation errors to the given orig if
+// runtime thread garbage collector environment variables are invalid.
+func (envs *environment) validateRuntimeThreadGC(orig []error) (errs []error) {
+	errs = orig
+
+	if !envs.RuntimeThreadGCEnabled {
+		return errs
+	}
+
+	errs = append(
+		errs,
+		validate.Positive("RUNTIME_THREAD_GC_INTERVAL", envs.RuntimeThreadGCIvl),
+		validate.Positive("RUNTIME_THREAD_GC_MAX_THREADS", envs.RuntimeThreadGCMaxThreads),
+	)
 
 	return errs
 }

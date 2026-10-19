@@ -2,13 +2,13 @@ package cmd
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net/netip"
 	"slices"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
@@ -62,8 +62,7 @@ func (s *server) toInternal(
 	certNames []agd.CertificateName,
 	deviceDomains []string,
 ) (dnsSrv *agd.Server, err error) {
-	var bindData []*agd.ServerBindData
-	bindData, err = s.bindData(btdMgr)
+	bindConfigs, err := s.bindConfigs(btdMgr)
 	if err != nil {
 		// Don't wrap the error, since it's informative enough as is.
 		return nil, err
@@ -77,12 +76,23 @@ func (s *server) toInternal(
 		LinkedIPEnabled: s.LinkedIPEnabled,
 		Protocol:        s.Protocol.toInternal(),
 	}
-	dnsSrv.SetBindData(bindData)
 
-	err = setProtoConfig(ctx, dnsSrv, s, dnsConf, ratelimitConf, tlsMgr, certNames, deviceDomains)
+	err = setProtoConfig(
+		ctx,
+		dnsSrv,
+		s,
+		dnsConf,
+		ratelimitConf,
+		tlsMgr,
+		certNames,
+		deviceDomains,
+		bindConfigs,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("setting protocol-specific configuration: %w", err)
 	}
+
+	dnsSrv.SetBindConfigs(bindConfigs)
 
 	return dnsSrv, nil
 }
@@ -97,6 +107,7 @@ func setProtoConfig(
 	tlsMgr tlsconfig.Manager,
 	certNames []agd.CertificateName,
 	deviceDomains []string,
+	bindConfigs agdnet.BindConfigs,
 ) (err error) {
 	switch dnsSrv.Protocol {
 	case agd.ProtoDNS:
@@ -131,8 +142,8 @@ func setProtoConfig(
 			QUICLimitsEnabled: ratelimitConf.QUIC.Enabled,
 		}
 
-		dnsSrv.TLS = newTLSConfig(dnsSrv, tlsMgr, deviceDomains, s)
-		err = bindTLSNames(ctx, dnsSrv, tlsMgr, certNames)
+		setTLSConfigs(dnsSrv, tlsMgr, deviceDomains, s, bindConfigs)
+		err = bindTLSNames(ctx, bindConfigs, tlsMgr, certNames)
 		if err != nil {
 			// Don't wrap the error, since it's informative enough as is.
 			return err
@@ -142,16 +153,54 @@ func setProtoConfig(
 	return nil
 }
 
-// bindTLSNames binds the server to the specified certificate names in the TLS
-// manager.
+// setTLSConfigs initializes every bind config with the TLS configuration with
+// metrics and ALPs set.
+//
+// TODO(s.chzhen):  Consider moving to agd package as soon as the import cycle
+// is resolved.
+func setTLSConfigs(
+	dnsSrv *agd.Server,
+	tlsMgr tlsconfig.Manager,
+	deviceDomains []string,
+	srv *server,
+	bindConfigs agdnet.BindConfigs,
+) {
+	var bindConfigTLS agdnet.BindConfigTLS
+	tlsConf := tlsMgr.CloneWithMetrics(string(srv.Protocol), srv.Name, deviceDomains)
+
+	switch dnsSrv.Protocol {
+	case agd.ProtoDoH:
+		tlsConfH3 := tlsMgr.CloneWithMetrics(string(srv.Protocol), srv.Name, deviceDomains)
+		tlsConfH3.NextProtos = slices.Clone(dnsserver.NextProtoDoH3)
+
+		tlsConf.NextProtos = slices.Clone(dnsserver.NextProtoDoH)
+
+		bindConfigTLS = &agdnet.BindConfigTLSHTTPS{
+			Default: tlsConf,
+			HTTP3:   tlsConfH3,
+		}
+	case agd.ProtoDoQ:
+		tlsConf.NextProtos = slices.Clone(dnsserver.NextProtoDoQ)
+		bindConfigTLS = (*agdnet.BindConfigTLSDefault)(tlsConf)
+	case agd.ProtoDoT:
+		bindConfigTLS = (*agdnet.BindConfigTLSDefault)(tlsConf)
+	}
+
+	for _, bindConfig := range bindConfigs {
+		bindConfig.TLS = bindConfigTLS
+	}
+}
+
+// bindTLSNames binds the server bind configs prefixes to the specified
+// certificate names in the TLS manager.  tlsMgr must not be nil.
 func bindTLSNames(
 	ctx context.Context,
-	s *agd.Server,
+	bindConfigs agdnet.BindConfigs,
 	tlsMgr tlsconfig.Manager,
 	names []agd.CertificateName,
 ) (err error) {
 	var errs []error
-	for _, pref := range s.BindDataPrefixes() {
+	for _, pref := range bindConfigs.Prefixes() {
 		for _, name := range names {
 			err = tlsMgr.Bind(ctx, name, pref)
 			if err != nil {
@@ -161,35 +210,6 @@ func bindTLSNames(
 	}
 
 	return errors.Join(errs...)
-}
-
-// newTLSConfig returns the TLS configuration with metrics and ALPs set.
-//
-// TODO(s.chzhen):  Consider moving to agd package as soon as the import cycle
-// is resolved.
-func newTLSConfig(
-	dnsSrv *agd.Server,
-	tlsMgr tlsconfig.Manager,
-	deviceDomains []string,
-	srv *server,
-) (c *agd.TLSConfig) {
-	tlsConf := tlsMgr.CloneWithMetrics(string(srv.Protocol), srv.Name, deviceDomains)
-
-	var tlsConfH3 *tls.Config
-	switch dnsSrv.Protocol {
-	case agd.ProtoDoH:
-		tlsConfH3 = tlsMgr.CloneWithMetrics(string(srv.Protocol), srv.Name, deviceDomains)
-
-		tlsConf.NextProtos = slices.Clone(dnsserver.NextProtoDoH)
-		tlsConfH3.NextProtos = slices.Clone(dnsserver.NextProtoDoH3)
-	case agd.ProtoDoQ:
-		tlsConf.NextProtos = slices.Clone(dnsserver.NextProtoDoQ)
-	}
-
-	return &agd.TLSConfig{
-		Default: tlsConf,
-		H3:      tlsConfH3,
-	}
 }
 
 // servers is a slice of server settings.  A valid instance of servers has no
@@ -310,19 +330,19 @@ type server struct {
 	LinkedIPEnabled bool `yaml:"linked_ip_enabled"`
 }
 
-// bindData returns the socket binding data for this server.
-func (s *server) bindData(
+// bindConfigs returns the socket binding configs for this server.
+func (s *server) bindConfigs(
 	btdMgr *bindtodevice.Manager,
-) (bindData []*agd.ServerBindData, err error) {
+) (bindConfigs agdnet.BindConfigs, err error) {
 	if addrs := s.BindAddresses; len(addrs) > 0 {
-		bindData = make([]*agd.ServerBindData, 0, len(addrs))
+		bindConfigs = make(agdnet.BindConfigs, 0, len(addrs))
 		for _, addr := range addrs {
-			bindData = append(bindData, &agd.ServerBindData{
-				AddrPort: addr,
+			bindConfigs = append(bindConfigs, &agdnet.BindConfig{
+				Addr: agdnet.BindConfigAddrDefault(addr),
 			})
 		}
 
-		return bindData, nil
+		return bindConfigs, nil
 	}
 
 	if btdMgr == nil {
@@ -332,7 +352,7 @@ func (s *server) bindData(
 	}
 
 	ifaces := s.BindInterfaces
-	bindData = make([]*agd.ServerBindData, 0, len(ifaces))
+	bindConfigs = make(agdnet.BindConfigs, 0, len(ifaces))
 	for i, iface := range ifaces {
 		for j, subnet := range iface.Subnets {
 			var lc *bindtodevice.ListenConfig
@@ -343,14 +363,14 @@ func (s *server) bindData(
 				return nil, fmt.Errorf(errStr, i, j, err)
 			}
 
-			bindData = append(bindData, &agd.ServerBindData{
+			bindConfigs = append(bindConfigs, &agdnet.BindConfig{
 				ListenConfig: lc,
-				PrefixAddr:   lc.Addr(),
+				Addr:         (*agdnet.BindConfigAddrPrefix)(lc.Addr()),
 			})
 		}
 	}
 
-	return bindData, nil
+	return bindConfigs, nil
 }
 
 // type check
@@ -366,7 +386,7 @@ func (s *server) Validate() (err error) {
 		validate.NotEmpty("name", s.Name),
 	}
 
-	err = s.validateBindData()
+	err = s.validateBindConfigs()
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		errs = append(errs, err)
@@ -385,8 +405,8 @@ func (s *server) Validate() (err error) {
 	return errors.Join(errs...)
 }
 
-// validateBindData returns an error if the server's binding data aren't valid.
-func (s *server) validateBindData() (err error) {
+// validateBindConfigs returns an error if the server's binding data aren't valid.
+func (s *server) validateBindConfigs() (err error) {
 	bindAddrsSet, bindIfacesSet := len(s.BindAddresses) > 0, len(s.BindInterfaces) > 0
 	if bindAddrsSet {
 		if bindIfacesSet {
@@ -401,12 +421,11 @@ func (s *server) validateBindData() (err error) {
 		return errors.Error("neither bind_addresses nor bind_interfaces is set")
 	}
 
-	if s.Protocol != srvProtoDNS {
-		return fmt.Errorf(
-			"bind_interfaces: only supported for protocol %q, got %q",
-			srvProtoDNS,
-			s.Protocol,
-		)
+	switch s.Protocol {
+	case srvProtoDNS, srvProtoHTTPS, srvProtoQUIC, srvProtoTLS:
+		// Go on.
+	default:
+		return fmt.Errorf("bind_interfaces: not supported for %q protocol", s.Protocol)
 	}
 
 	return validate.Slice("bind_interfaces", s.BindInterfaces)

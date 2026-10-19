@@ -59,8 +59,10 @@ fi
 #
 #   *  internal/agdtest/profile.go: a test helper requiring the use of
 #      reflect.Type.
-#   *  internal/agdprotobuf/unsafe.go: a “safe” unsafe helper
-#      to prevent excessive allocations.
+#   *  internal/agdprotobuf/unsafe.go: a “safe” unsafe helper to prevent
+#      excessive allocations.
+#   *  internal/bindtodevice/socket_linux_internal_test.go: needs unsafe.Sizeof
+#      to check the size of a control message.
 blocklist_imports() {
 	import_or_tab="$(printf '^\\(import \\|\t\\)')"
 	readonly import_or_tab
@@ -72,6 +74,7 @@ blocklist_imports() {
 		'!' -name '*.pb.go' \
 		'!' -path './internal/agdtest/profile.go' \
 		'!' -path './internal/agdprotobuf/unsafe.go' \
+		'!' -path './internal/bindtodevice/socket_linux_internal_test.go' \
 		')' \
 		-exec \
 		'grep' \

@@ -6,12 +6,12 @@ import "google/protobuf/timestamp.proto";
 
 // TODO(a.garipov):  Expand the documentation and make it consistent.
 
-/**
+/*
  * Service DNSService defines methods for handing servers and devices bound to
  * users' accounts.
  */
 service DNSService {
-  /**
+  /*
    * Method getDNSProfiles returns DNS profiles based on the data in the
    * request.
    *
@@ -25,7 +25,7 @@ service DNSService {
    */
   rpc getDNSProfiles(DNSProfilesRequest) returns (stream DNSProfile);
 
-  /**
+  /*
    * Method saveDevicesBillingStat stores devices activity for billing.
    *
    * This method MAY return the following errors:
@@ -33,7 +33,7 @@ service DNSService {
    */
   rpc saveDevicesBillingStat(stream DeviceBillingStat) returns (google.protobuf.Empty);
 
-  /**
+  /*
    * Method createDeviceByHumanId creates a device by a profile ID, a human ID,
    * and a device type.
    *
@@ -62,43 +62,43 @@ service RateLimitService {
 }
 
 service RemoteKVService {
-  /**
-     Get the value for the specified key.
+  /*
+   Get the value for the specified key.
 
-     This method may return the following errors:
-     - AuthenticationFailedError: If the authentication failed.
+   This method may return the following errors:
+   - AuthenticationFailedError: If the authentication failed.
   */
   rpc get(RemoteKVGetRequest) returns (RemoteKVGetResponse);
 
-  /**
-     Set the value for the specified key.
+  /*
+   Set the value for the specified key.
 
-     This method may return the following errors:
-     - AuthenticationFailedError: If the authentication failed.
-     - BadRequestError: If the request is invalid: value size exceeds the 512kb.
+   This method may return the following errors:
+   - AuthenticationFailedError: If the authentication failed.
+   - BadRequestError: If the request is invalid: value size exceeds the 512kb.
   */
   rpc set(RemoteKVSetRequest) returns (RemoteKVSetResponse);
 }
 
 service CustomDomainService {
   /*
-     Get certificate for custom domain.
+   Get certificate for custom domain.
 
-     This method may return the following errors:
-     - AuthenticationFailedError: If the authentication failed.
-     - BadRequestError: If the request is invalid: cert_name is empty or no certificate found.
-     - NotFoundError: If the certificate was not found.
-     - RateLimitedError: If the request was made too frequently and the client must wait before retrying.
+   This method may return the following errors:
+   - AuthenticationFailedError: If the authentication failed.
+   - BadRequestError: If the request is invalid: cert_name is empty or no certificate found.
+   - NotFoundError: If the certificate was not found.
+   - RateLimitedError: If the request was made too frequently and the client must wait before retrying.
   */
   rpc getCustomDomainCertificate(CustomDomainCertificateRequest) returns (CustomDomainCertificateResponse);
 }
 
 service SessionTicketService {
   /*
-     Gets session ticket for the current date
+   Gets session ticket for the current date
 
-     This method may return the following errors:
-     - AuthenticationFailedError: If the authentication failed.
+   This method may return the following errors:
+   - AuthenticationFailedError: If the authentication failed.
   */
   rpc getSessionTickets(SessionTicketRequest) returns (SessionTicketResponse);
 }
@@ -115,19 +115,19 @@ message GlobalAccessSettingsResponse {
   AccessSettings standard = 1;
 }
 
-/**
+/*
  * Message DNSProfilesRequest contains the data that a DNSService uses to
  * return DNSProfile instances.
  */
 message DNSProfilesRequest {
-  /**
+  /*
    * Field sync_time is the start of the interval of required updates. If
    * sync_time is empty, the DNSService returns all data.
    */
   google.protobuf.Timestamp sync_time = 1;
 }
 
-/**
+/*
  * Message DNSProfile contains both the data of the account and the data of the
  * DNS server.
  *
@@ -139,21 +139,25 @@ message DNSProfilesRequest {
 message DNSProfile {
   // Message fields
 
-  /**
+  /*
    * Field safe_browsing contains settings for the safe-browsing filters.  If
    * absent, safe-browsing filters are disabled.
    */
   SafeBrowsingSettings safe_browsing = 5;
 
+  /*
+   * Field parental contains settings for the parental-control filters.  If
+   * absent, parental-control filters are disabled.
+   */
   ParentalSettings parental = 6;
 
-  /**
+  /*
    * Field rule_lists contains settings for the rule-list filters.  If absent,
    * the rule-list filtering is disabled.
    */
   RuleListsSettings rule_lists = 7;
 
-  /**
+  /*
    * Field custom_rule_lists contains settings for the custom rule-list
    * filters.  If absent, the custom rule-list feature is disabled.
    */
@@ -162,9 +166,24 @@ message DNSProfile {
   google.protobuf.Duration filtered_response_ttl = 10;
   AccessSettings access = 18;
   RateLimitSettings rate_limit = 20;
+
+  /*
+   * Field custom_domain, if present, is the configuration of the custom
+   * domains and certificates belonging to the account of this profile.  If
+   * absent, the custom-domain feature is disabled.
+   *
+   * TODO(a.garipov):  Document where these are used.
+   */
   CustomDomainSettings custom_domain = 22;
 
-  /**
+  /*
+   * Field account_ip, if present, contains settings for the account-wide IP
+   * address dedication.  If absent, the account IP address feature is
+   * disabled.
+   */
+  AccountIPSettings account_ip = 38;
+
+  /*
    * Field category_filter contains settings for the category filtering.  If
    * absent, the category filtering is disabled.
    */
@@ -172,7 +191,7 @@ message DNSProfile {
 
   // One-of fields
 
-  /**
+  /*
    * Field blocking_mode defines the blocking mode for general rule-list based
    * filtering.  If field deleted is false, field blocking_mode MUST be
    * present.
@@ -184,7 +203,7 @@ message DNSProfile {
     BlockingModeREFUSED blocking_mode_refused = 16;
   }
 
-  /**
+  /*
    * Field adult_blocking_mode defines the blocking mode for the adult-content
    * filter.  If absent, the default is used.
    */
@@ -195,7 +214,7 @@ message DNSProfile {
     BlockingModeREFUSED adult_blocking_mode_refused = 29;
   }
 
-  /**
+  /*
    * Field safe_browsing_blocking_mode defines the blocking mode for the
    * safe-browsing filter.  If absent, the default is used.
    */
@@ -208,13 +227,13 @@ message DNSProfile {
 
   // String fields
 
-  /**
+  /*
    * Field dns_id is the ID of the DNS server.  Not to be confused with the ID
    * of the account, see account_id below.  dns_id MUST be present.
    */
   string dns_id = 1;
 
-  /**
+  /*
    * Field account_id is a legacy field that should be replaced by
    * account_id_int.  The field's value MUST contain a valid positive integer
    * and MUST be the same as the one in account_id_int.  If field deleted is
@@ -226,14 +245,14 @@ message DNSProfile {
 
   // Repeated fields
 
-  /**
+  /*
    * Field devices contains the complete list of all devices in the profile, if
    * any.  Fields devices and device_changes MUST NOT be set at the same time,
    * but they MAY both be empty.  Field devices MUST NOT contain duplicates.
    */
   repeated DeviceSettings devices = 8;
 
-  /**
+  /*
    * Field device_changes contains only the list of changes that have happened
    * to the profile's devices since sync_time, if any.  Fields devices and
    * device_changes MUST NOT be set at the same time, but they MAY both be
@@ -242,7 +261,7 @@ message DNSProfile {
    */
   repeated DeviceSettingsChange device_changes = 24;
 
-  /**
+  /*
    * Field custom_rules contains custom filtering rules for this DNS server, if
    * any.  All items MUST contain only valid UTF-8 characters and have the size
    * less than or equal to UTF-8 10 000 characters (not bytes).
@@ -251,7 +270,7 @@ message DNSProfile {
 
   // Integer fields
 
-  /**
+  /*
    * Field account_id_int is the ID of the account to which this DNS server
    * belongs.  It should be used instead of account_id.  The field's value MUST
    * be positive and MUST be the same as in account_id.  If field deleted is
@@ -271,13 +290,13 @@ message DNSProfile {
 
   bool block_private_relay = 11;
 
-  /**
+  /*
    * Field deleted, if true, means that this DNS server has been deleted.  All
    * other fields except dns_id SHOULD be absent.
    */
   bool deleted = 4;
 
-  /**
+  /*
    * Field filtering_enabled defines whether queries from devices of this
    * profile are filtered in any way at all.
    *
@@ -286,19 +305,19 @@ message DNSProfile {
    */
   bool filtering_enabled = 2;
 
-  /**
+  /*
    * Field ip_log_enabled defines whether client IP addresses are logged in the
    * query log.
    */
   bool ip_log_enabled = 17;
 
-  /**
+  /*
    * Field query_log_enabled defines whether query logs are saved for the
    * devices of this profile.
    */
   bool query_log_enabled = 3;
 
-  /**
+  /*
    * Field query_log_stream defines whether query logs are streamed for the
    * devices of this profile.
    */
@@ -322,15 +341,28 @@ message DeviceSettingsChange {
   }
 }
 
+/*
+ * Message CustomDomainSettings represents the configuration of the custom
+ * domains and certificates belonging to an account.
+ */
 message CustomDomainSettings {
+  /*
+   * Field domains contains the configuration for domains and certificates.  If
+   * CustomDomainSettings.enabled is true, all items MUST be valid.
+   */
   repeated CustomDomain domains = 1;
+
+  /*
+   * Field enabled, if true, enables the custom-domain feature.
+   */
   bool enabled = 2;
 }
 
-/**
- * Custom domain.
+/*
+ * Message CustomDomain contains the configuration for a single set of domains
+ * and domain wildcards as well as the certificate to use.
  *
- * <p>Field <code>domains</code> must not be empty</p>
+ * TODO(a.garipov):  Expand the field and submessage documentation.
  */
 message CustomDomain {
   message Pending {
@@ -345,14 +377,78 @@ message CustomDomain {
     bool enabled = 4;
   }
 
+  /*
+   * Field domains contains domains and domain wildcards for this set of
+   * custom-domain settings.  It MUST NOT be empty and MUST contain only valid
+   * domains and domain wildcards.
+   */
   repeated string domains = 1;
+
+  /*
+   * Field state defines the current state of the certificate for this
+   * custom-domain set.
+   */
   oneof state {
     Pending pending = 2;
     Current current = 3;
   }
 }
 
-/**
+/*
+ * Message AccountIPSettings represents settings for the account-wide IP
+ * address dedication.
+ */
+message AccountIPSettings {
+  /*
+   * Message DomainSettings represents the configuration of the custom domains
+   * and certificates relevant to an account-wide IP address.
+   */
+  message DomainSettings {
+    /*
+     * Field domains contains the configuration for domains and certificates.
+     * All items MUST be valid.
+     */
+    repeated CustomDomain domains = 1;
+  }
+
+  /*
+   * Message IP represents settings for a single account-wide dedicated IP
+   * address.
+   */
+  message IP {
+    /*
+     * Field domain is the configuration of the custom domains and certificates
+     * to use for this account-wide dedicated IP address.  These settings are
+     * used to serve encrypted DNS (DoH, DoQ, and DoT) on this account-wide IP.
+     * It MUST be present and valid.
+     */
+    DomainSettings domain = 1;
+
+    /*
+     * Field ip defines the account-wide dedicated IP address for which these
+     * settings are applied.  It MUST be a valid IP address.
+     */
+    bytes ip = 2;
+
+    /*
+     * Field enabled, if true, enables this account-wide dedicated IP address.
+     */
+    bool enabled = 3;
+  }
+
+  /*
+   * Field ips contains the settings for all account-wide IP dedications
+   * belonging to one account.  All items MUST be valid.
+   */
+  repeated IP ips = 1;
+
+  /*
+   * Field enabled, if true, enables the account-wide IP dedication feature.
+   */
+  bool enabled = 2;
+}
+
+/*
  * Message SafeBrowsingSettings contains settings for the safe-browsing
  * filters.
  *
@@ -360,19 +456,19 @@ message CustomDomain {
  * layouts.
  */
 message SafeBrowsingSettings {
-  /**
+  /*
    * Field typosquatting contains settings for the typosquatting filter.  If
    * absent, the typosquatting filter is disabled.
    */
   TyposquattingFilterSettings typosquatting = 4;
 
-  /**
+  /*
    * Field homoglyph contains settings for the homoglyph filter.  If absent,
    * the homoglyph filter is disabled.
    */
   HomoglyphFilterSettings homoglyph = 5;
 
-  /**
+  /*
    * Field block_dangerous_domains, if true, enables the dangerous-domains filter.
    *
    * NOTE:  Fields DNSProfile.filtering_enabled,
@@ -381,7 +477,7 @@ message SafeBrowsingSettings {
    */
   bool block_dangerous_domains = 2;
 
-  /**
+  /*
    * Field block_nrd, if true, enabled the newly-registered domains filter.
    *
    * NOTE:  Fields DNSProfile.filtering_enabled,
@@ -390,7 +486,7 @@ message SafeBrowsingSettings {
    */
   bool block_nrd = 3;
 
-  /**
+  /*
    * Field enabled, if true, enables safe-browsing filters.
    *
    * NOTE:  Fields DNSProfile.filtering_enabled and
@@ -400,7 +496,7 @@ message SafeBrowsingSettings {
   bool enabled = 1;
 }
 
-/**
+/*
  * Message DeviceSettings contains the data of a device.
  *
  * The fields are ordered in a way that optimizes the generated structures'
@@ -415,18 +511,28 @@ message DeviceSettings {
 
   string name = 2;
 
-  /**
+  /*
    * Field human_id_lower contains the lowercased value of the Human ID used to
    * create the device, if any.  The field's value is empty for ordinary
    * devices and non-empty for automatically created devices.
    */
   string human_id_lower = 7;
 
+  /*
+   * Field linked_ip, if present, identifies a device by its source (client) IP
+   * address when it uses plain DNS.
+   */
   bytes linked_ip = 4;
 
+  /*
+   * Field dedicated_ips contains the destination (server) IP-addresses
+   * dedicated to this device, if any.  A device can use one of these addresses
+   * as the DNS server address to be recognized.  All items MUST be valid IP
+   * addresses.
+   */
   repeated bytes dedicated_ips = 5;
 
-  /**
+  /*
    * Field filtering_enabled defines whether queries from this device are
    * filtered in any way at all.
    *
@@ -436,21 +542,93 @@ message DeviceSettings {
   bool filtering_enabled = 3;
 }
 
+/*
+ * Message ParentalSettings is the configuration for parental-control filtering
+ * of a profile.
+ */
 message ParentalSettings {
-  bool enabled = 1;
-  bool block_adult = 2;
-  bool general_safe_search = 3;
-  bool youtube_safe_search = 4;
-  repeated string blocked_services = 5;
+  /*
+   * Field schedule is the schedule for the pausing of the parental-control
+   * filtering.  If it is null, the parental-control filtering is never paused.
+   */
   ScheduleSettings schedule = 6;
+
+  /*
+   * Field blocked_services contains the IDs of the services blocked for this
+   * profile.  Each string MUST be between 1 and 64 bytes and contain only
+   * printable, non-whitespace ASCII characters.
+   *
+   * NOTE:  Field ParentalSettings.enabled MUST also be true to enable service
+   * blocking for a particular profile.
+   */
+  repeated string blocked_services = 5;
+
+  /*
+   * Field enabled shows whether the parental-control feature is enabled.
+   */
+  bool enabled = 1;
+
+  /*
+   * Field block_adult shows whether the adult-blocking filtering should be
+   * enforced.
+   *
+   * NOTE:  Field ParentalSettings.enabled MUST also be true to enable
+   * adult-blocking filtering for a particular profile.
+   */
+  bool block_adult = 2;
+
+  /*
+   * Field general_safe_search shows whether the general safe-search filtering
+   * should be enforced.
+   *
+   * NOTE:  Field ParentalSettings.enabled MUST also be true to enable general
+   * safe-search filtering for a particular profile.
+   */
+  bool general_safe_search = 3;
+
+  /*
+   * Field youtube_safe_search shows whether the YouTube safe-search filtering
+   * should be enforced.
+   *
+   * NOTE:  Field ParentalSettings.enabled MUST also be true to enable YouTube
+   * safe-search filtering for a particular profile.
+   */
+  bool youtube_safe_search = 4;
 }
 
+/*
+ * Message ScheduleSettings is the schedule of a profile's parental protection.
+ */
 message ScheduleSettings {
+  /*
+   * Field weekly_range is the schedule for parental protection.
+   *
+   * Deprecated: Use ScheduleSettings.weekly_ranges instead.  This field SHOULD
+   * contain only the first interval from each day of the weekly ranges.
+   */
+  WeeklyRange weekly_range = 2 [deprecated = true];
+
+  /*
+   * Field weekly_ranges is the schedule for parental protection.
+   */
+  WeeklyRanges weekly_ranges = 3;
+
+  /*
+   * Field tmz is the timezone of the schedule as defined by the TZ Database.
+   * For example, "Asia/Nicosia".
+   */
   string tmz = 1;
-  WeeklyRange weekly_range = 2;
 }
 
+/*
+ * Message WeeklyRange is a schedule for one week.  A null DayRange means that
+ * there is no schedule for this day.
+ *
+ * Deprecated: Use WeeklyRanges instead.
+ */
 message WeeklyRange {
+  option deprecated = true;
+
   DayRange mon = 1;
   DayRange tue = 2;
   DayRange wed = 3;
@@ -460,32 +638,59 @@ message WeeklyRange {
   DayRange sun = 7;
 }
 
+/*
+ * Message WeeklyRanges is a schedule for one week.  Ranges MUST not intersect.
+ */
+message WeeklyRanges {
+  repeated DayRange mon = 1;
+  repeated DayRange tue = 2;
+  repeated DayRange wed = 3;
+  repeated DayRange thu = 4;
+  repeated DayRange fri = 5;
+  repeated DayRange sat = 6;
+  repeated DayRange sun = 7;
+}
+
+/*
+ * Message DayRange is an interval within a single day.  The interval is
+ * inclusive at the start and at the end.  A null DayRange is zero-length.
+ */
 message DayRange {
+  /*
+   * Field start is the inclusive start of the interval.  It MUST be within the
+   * range from 00:00:00 to 23:59:59 as a duration.
+   */
   google.protobuf.Duration start = 1;
+
+  /*
+   * Field end is the inclusive end of the interval.  It MUST be within the
+   * range from 00:00:00 to 23:59:59 as a duration and MUST not be less than
+   * DayRange.start.
+   */
   google.protobuf.Duration end = 2;
 }
 
-/**
+/*
  * Message RuleListsSettings contains settings for the rule-list filters.
  *
  * The fields are ordered in a way that optimizes the generated structures'
  * layouts.
  */
 message RuleListsSettings {
-  /**
+  /*
    * Field ids contains unique identifiers of the rule-list filters being used.
    * IDs MUST be unique, between 1 and 128 bytes long, and only contain ASCII
    * symbols with no slashes.
    */
   repeated string ids = 2;
 
-  /**
+  /*
    * Field enabled, if true, enables the rule-list filter feature.
    */
   bool enabled = 1;
 }
 
-/**
+/*
  * Message CustomRuleListsSettings contains settings for the custom rule-list
  * filters.
  *
@@ -493,7 +698,7 @@ message RuleListsSettings {
  * layouts.
  */
 message CustomRuleListsSettings {
-  /**
+  /*
    * Field ids contains unique identifiers of the rule-list filters being used.
    * IDs MUST be unique, between 1 and 128 bytes long, and only contain ASCII
    * symbols with no slashes.
@@ -503,25 +708,25 @@ message CustomRuleListsSettings {
    */
   repeated string ids = 2;
 
-  /**
+  /*
    * Field enabled, if true, enables the custom rule-list filter feature.
    */
   bool enabled = 1;
 }
 
-/**
+/*
  * Message BlockingModeCustomIP contains custom IP addresses typically leading
  * to a blocking page.
  */
 message BlockingModeCustomIP {
-  /**
+  /*
    * Field ipv4 defines the IPv4 address to use to respond to a blocked
    * request.  If absent, blocked A requests are responded with a NODATA
    * response.
    */
   bytes ipv4 = 1;
 
-  /**
+  /*
    * Field ipv6 defines the IPv6 address to use to respond to a blocked
    * request.  If absent, blocked AAAA requests are responded with a NODATA
    * response.
@@ -657,34 +862,34 @@ message SessionTicket {
   bytes data = 2;
 }
 
-/**
+/*
  * Message CategoryFilterSettings contains settings for the category filtering.
  *
  * The fields are ordered in a way that optimizes the generated structures'
  * layouts.
  */
 message CategoryFilterSettings {
-  /**
+  /*
    * Field ids contains unique identifiers of the categories being blocked.
    * IDs MUST be unique, between 1 and 128 bytes long, and only contain ASCII
    * symbols with no slashes.
    */
   repeated string ids = 2;
 
-  /**
+  /*
    * Field enabled, if true, enables the category filter feature.
    */
   bool enabled = 1;
 }
 
-/**
+/*
  * Service FilterIndexService defines methods for requesting indexes of filters
  * and their global settings.
  *
  * TODO(a.garipov):  Add RuleListFilterIndex.
  */
 service FilterIndexService {
-  /**
+  /*
    * Method getTyposquattingFilterIndex returns the global-domain filter
    * index and settings.
    *
@@ -692,7 +897,7 @@ service FilterIndexService {
    */
   rpc getTyposquattingFilterIndex(TyposquattingFilterIndexRequest) returns (TyposquattingFilterIndexResponse);
 
-  /**
+  /*
    * Method getHomoglyphFilterIndex returns the homoglyph filter index and
    * settings.
    *
@@ -701,7 +906,7 @@ service FilterIndexService {
   rpc getHomoglyphFilterIndex(HomoglyphFilterIndexRequest) returns (HomoglyphFilterIndexResponse);
 }
 
-/**
+/*
  * Message TyposquattingFilterIndexRequest contains the data to use to obtain
  * the typosquatting filter index.
  *
@@ -709,19 +914,19 @@ service FilterIndexService {
  */
 message TyposquattingFilterIndexRequest {}
 
-/**
+/*
  * Message TyposquattingFilterIndexResponse contains the data about the
  * typosquatting filter index.
  */
 message TyposquattingFilterIndexResponse {
-  /**
+  /*
    * Field index contains the current index of protected domains and other
    * settings for the typosquatting filter.
    */
   TyposquattingFilterIndex index = 1;
 }
 
-/**
+/*
  * Message TyposquattingFilterSettings contains settings for the typosquatting
  * filter.
  *
@@ -730,30 +935,30 @@ message TyposquattingFilterIndexResponse {
  * typosquatting filter for a particular device.
  */
 message TyposquattingFilterSettings {
-  /**
+  /*
    * Field enabled, if true, enables the typosquatting filter feature.
    */
   bool enabled = 1;
 }
 
-/**
+/*
  * Message TyposquattingFilterIndex contains domains that must be protected by
  * the typosquatting filter, exceptions, etc.
  */
 message TyposquattingFilterIndex {
-  /**
+  /*
    * Message TyposquattingFilterIndex.ProtectedDomain represents information
    * about a single domain protected by the typosquatting filter.
    */
   message ProtectedDomain {
-    /**
+    /*
      * Field domain is the protected domain name, for example "google.com".  It
      * MUST NOT be empty and the value MUST be a valid domain name.  It SHOULD
      * be an eTLD+1 domain in lowercase.
      */
     string domain = 1;
 
-    /**
+    /*
      * Field distance defines the minimal Damerau–Levenshtein distance to use
      * when matching against the domain.
      *
@@ -766,13 +971,13 @@ message TyposquattingFilterIndex {
     uint32 distance = 2;
   }
 
-  /**
+  /*
    * Message TyposquattingFilterIndex.Exception is a single exception to the
    * typosquatting filter.  For example, if TyposquattingFilterIndex.domains
    * contains "www.google.com", an exception might be "www.google.co".
    */
   message Exception {
-    /**
+    /*
      * Field domain is the domain name that isn't checked by the typosquatting
      * filter.  It MUST NOT be empty and the value MUST be a valid domain name.
      * It SHOULD be an eTLD+1 domain in lowercase.
@@ -780,20 +985,20 @@ message TyposquattingFilterIndex {
     string domain = 1;
   }
 
-  /**
+  /*
    * Field domains contains the data about domain names protected by the
    * typosquatting filter.
    */
   repeated ProtectedDomain domains = 1;
 
-  /**
+  /*
    * Field exceptions contains the data about exceptions to the typosquatting
    * filter.
    */
   repeated Exception exceptions = 2;
 }
 
-/**
+/*
  * Message HomoglyphFilterIndexRequest contains the data to use to obtain the
  * homoglyph filter index.
  *
@@ -801,19 +1006,19 @@ message TyposquattingFilterIndex {
  */
 message HomoglyphFilterIndexRequest {}
 
-/**
+/*
  * Message HomoglyphFilterIndexResponse contains the data about the homoglyph
  * filter index.
  */
 message HomoglyphFilterIndexResponse {
-  /**
+  /*
    * Field index contains the current index of protected domains and other
    * settings for the homoglyph filter.
    */
   HomoglyphFilterIndex index = 1;
 }
 
-/**
+/*
  * Message HomoglyphFilterSettings contains settings for the homoglyph filter.
  *
  * NOTE:  Fields DNSProfile.filtering_enabled, DNSProfile.safe_browsing.enabled
@@ -821,23 +1026,23 @@ message HomoglyphFilterIndexResponse {
  * homoglyph filter for a particular device.
  */
 message HomoglyphFilterSettings {
-  /**
+  /*
    * Field enabled, if true, enables the homoglyph filter feature.
    */
   bool enabled = 1;
 }
 
-/**
+/*
  * Message HomoglyphFilterIndex contains domains that must be protected by the
  * homoglyph filter, exceptions, etc.
  */
 message HomoglyphFilterIndex {
-  /**
+  /*
    * Message HomoglyphFilterIndex.ProtectedDomain represents information about a
    * single domain protected by the homoglyph filter.
    */
   message ProtectedDomain {
-    /**
+    /*
      * Field domain is the protected domain name, for example "google.com".  It
      * MUST NOT be empty and the value MUST be a valid domain name.  It SHOULD
      * be an eTLD+1 domain in lowercase.
@@ -845,14 +1050,14 @@ message HomoglyphFilterIndex {
     string domain = 1;
   }
 
-  /**
+  /*
    * Message HomoglyphFilterIndex.Exception is a single exception to the
    * homoglyph filter.  For example, if HomoglyphFilterIndex.domains contains
    * "google.com", an exception might be "gооgle.com", where the "о"s are
    * Cyrillic.
    */
   message Exception {
-    /**
+    /*
      * Field domain is the domain name that isn't checked by the homoglyph
      * filter.  It MUST NOT be empty and the value MUST be a valid domain name.
      * It SHOULD be an eTLD+1 domain in lowercase.
@@ -860,13 +1065,13 @@ message HomoglyphFilterIndex {
     string domain = 1;
   }
 
-  /**
+  /*
    * Field domains contains the data about domain names protected by the
    * homoglyph filter.
    */
   repeated ProtectedDomain domains = 1;
 
-  /**
+  /*
    * Field exceptions contains the data about exceptions to the homoglyph
    * filter.
    */

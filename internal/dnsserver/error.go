@@ -66,16 +66,13 @@ func (err *WriteError) Unwrap() (unwrapped error) {
 // case.  It seems like all places where this function is used should detect
 // precise error conditions for exiting a loop instead of this.
 func isNonCriticalNetError(err error) (ok bool) {
-	if errors.Is(os.ErrDeadlineExceeded, err) {
+	if errors.Is(err, os.ErrDeadlineExceeded) {
 		return true
 	}
 
-	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
-		return true
-	}
+	netErr, ok := errors.AsType[net.Error](err)
 
-	return false
+	return ok && netErr.Timeout()
 }
 
 // closeWithLog closes c and logs a debug message if c.Close returns an error

@@ -194,7 +194,7 @@ func BenchmarkStorage(b *testing.B) {
 	//	goos: darwin
 	//	goarch: arm64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/profiledb/filecacheopb
-	//	cpu: Apple M3
-	//	BenchmarkStorage/load-8          	   33537	     35932 ns/op	   14376 B/op	     166 allocs/op
-	//	BenchmarkStorage/store-8         	     246	   4819773 ns/op	    6932 B/op	     106 allocs/op
+	//	cpu: Apple M4 Pro
+	//	BenchmarkStorage/store-14         	     204	   5391698 ns/op	   10152 B/op	     149 allocs/op
+	//	BenchmarkStorage/load-14          	   39153	     28331 ns/op	   17064 B/op	     239 allocs/op
 }

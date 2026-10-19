@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/testutil/servicetest"
@@ -25,12 +26,13 @@ func TestService_ServeHTTP_static(t *testing.T) {
 	}
 
 	c := &websvc.Config{
-		Logger:               testLogger,
 		CertificateValidator: testCertValidator,
-		StaticContent:        staticContent,
 		DNSCheck:             http.NotFoundHandler(),
 		ErrColl:              agdtest.NewErrorCollector(),
+		ListenConfig:         netext.DefaultListenConfig(nil),
+		Logger:               testLogger,
 		Metrics:              websvc.EmptyMetrics{},
+		StaticContent:        staticContent,
 		Timeout:              testTimeout,
 	}
 

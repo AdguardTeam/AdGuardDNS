@@ -78,6 +78,9 @@ func Main(plugins *plugin.Registry) {
 	c := errors.Must(parseConfig(envs.ConfPath))
 
 	errors.Check(c.Validate())
+	// TODO(m.kazantsev):  Consider adding types for a deeper validation which
+	// takes additional entities into account.
+	errors.Check(c.validateWithEnvs(envs))
 
 	profilesEnabled := c.isProfilesEnabled()
 
@@ -103,7 +106,7 @@ func Main(plugins *plugin.Registry) {
 
 	b.startGeoIP(ctx)
 
-	errors.Check(сreateFilterCacheDirs(envs.FilterCacheDir))
+	errors.Check(createFilterCacheDirs(envs.FilterCacheDir))
 
 	cw := newWalker(&walkerConfig{
 		logger:   baseLogger,
@@ -114,6 +117,8 @@ func Main(plugins *plugin.Registry) {
 	cw.walk(ctx)
 
 	errors.Check(b.initMsgCloner(ctx))
+
+	errors.Check(b.initRuntimeThreadGC(ctx))
 
 	errors.Check(b.initSafeBrowsingReplacedConstructor())
 
@@ -134,6 +139,8 @@ func Main(plugins *plugin.Registry) {
 	errors.Check(b.initFilteringGroups(ctx))
 
 	errors.Check(b.initAccess(ctx))
+
+	errors.Check(b.initConnLimit(ctx))
 
 	errors.Check(b.initBindToDevice(ctx))
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"net"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 )
 
@@ -16,14 +15,17 @@ var _ netext.ListenConfig = (*ListenConfig)(nil)
 type ListenConfig struct {
 	listenConfig netext.ListenConfig
 	limiter      *Limiter
+	addr         string
 }
 
 // NewListenConfig returns a new netext.ListenConfig that uses l to limit the
-// number of active stream-connections.
-func NewListenConfig(c netext.ListenConfig, l *Limiter) (limited *ListenConfig) {
+// number of active stream-connections.  addr is used for metrics and logging.
+// c and l must not be nil.
+func NewListenConfig(c netext.ListenConfig, l *Limiter, addr string) (limited *ListenConfig) {
 	return &ListenConfig{
 		listenConfig: c,
 		limiter:      l,
+		addr:         addr,
 	}
 }
 
@@ -38,8 +40,7 @@ func (c *ListenConfig) ListenPacket(
 }
 
 // Listen implements the [netext.ListenConfig] interface for *ListenConfig.
-// Listen returns a net.Listener wrapped by c's limiter.  ctx must contain a
-// [dnsserver.ServerInfo].
+// Listen returns a net.Listener wrapped by c's limiter.
 func (c *ListenConfig) Listen(
 	ctx context.Context,
 	network string,
@@ -50,5 +51,9 @@ func (c *ListenConfig) Listen(
 		return nil, err
 	}
 
-	return c.limiter.Limit(l, dnsserver.MustServerInfoFromContext(ctx)), nil
+	return c.limiter.Limit(l, &ConnMetricsData{
+		// Use the configured address, which may differ from the one passed to
+		// this method, to keep label values stable.
+		Addr: c.addr,
+	}), nil
 }

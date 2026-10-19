@@ -130,9 +130,9 @@ func (c *fltRuleListCache) Validate() (err error) {
 	return errors.Join(errs...)
 }
 
-// сreateFilterCacheDirs creates all the necessary subdirectories within the
+// createFilterCacheDirs creates all the necessary subdirectories within the
 // filter cache directory.
-func сreateFilterCacheDirs(cachePath string) (err error) {
+func createFilterCacheDirs(cachePath string) (err error) {
 	for _, dir := range []string{
 		filter.SubDirNameCategory,
 		filter.SubDirNameHashPrefix,

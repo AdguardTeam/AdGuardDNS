@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
@@ -45,7 +48,7 @@ type blockPageServer struct {
 	group ServerGroup
 
 	// bind are the addresses on which to serve the block page.
-	bind []*BindData
+	bind agdnet.BindConfigs
 }
 
 // newBlockPageServer initializes a new instance of blockPageServer.  If conf is
@@ -102,11 +105,12 @@ func (srv *blockPageServer) Refresh(ctx context.Context) (err error) {
 }
 
 // newBlockPageServers is a helper function that converts a *blockPageServer
-// into HTTP servers.
+// into HTTP servers.  baseLogger and listenConfig must not be nil.
 func newBlockPageServers(
 	baseLogger *slog.Logger,
 	srv *blockPageServer,
 	timeout time.Duration,
+	listenConfig netext.ListenConfig,
 ) (srvs []*server) {
 	if srv == nil {
 		return nil
@@ -117,6 +121,7 @@ func newBlockPageServers(
 	handler := srv.blockPageHandler()
 
 	for _, b := range srv.bind {
+		addr := b.Addr.(agdnet.BindConfigAddrDefault)
 		logger := baseLogger.With(loggerKeyGroup, srv.group)
 		h := httputil.Wrap(
 			handler,
@@ -125,12 +130,14 @@ func newBlockPageServers(
 			httputil.NewLogMiddleware(logger, slog.LevelDebug),
 		)
 
+		tlsConf, _ := agdnet.TLSConfigFromBindConfig(b.TLS)
 		srvs = append(srvs, newServer(&serverConfig{
 			BaseLogger:     logger,
-			TLSConf:        b.TLS,
+			TLSConf:        tlsConf,
 			Handler:        h,
-			InitialAddress: b.Address,
+			InitialAddress: netip.AddrPort(addr),
 			Timeout:        timeout,
+			ListenConfig:   listenConfig,
 		}))
 	}
 

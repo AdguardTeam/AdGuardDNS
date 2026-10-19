@@ -12,12 +12,13 @@ import (
 	"github.com/AdguardTeam/golibs/syncutil"
 )
 
-// HumanID is a more human-readable identifier of a device.
+// HumanID is a human-readable identifier within an extended human-readable
+// device identifier.
 type HumanID string
 
 const (
 	// MaxHumanIDLen is the maximum length of a human-readable device ID.
-	MaxHumanIDLen = netutil.MaxDomainLabelLen
+	MaxHumanIDLen = netutil.MaxDomainLabelLen - DeviceTypeLen - MaxProfileIDLen - 2*len("-")
 
 	// MinHumanIDLen is the minimum length of a human-readable device ID.
 	MinHumanIDLen = 1

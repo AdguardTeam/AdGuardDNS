@@ -11,12 +11,18 @@ import (
 // packetSession is a [netext.PacketSession] that contains additional
 // information about the packet read from a UDP connection that has the
 // SO_BINDTODEVICE option set.  It is basically an extended version of
-// [netext.packetSession].
+// [netext.simplePacketSession].
 type packetSession struct {
-	laddr    *net.UDPAddr
-	raddr    *net.UDPAddr
-	readBody []byte
-	respOOB  []byte
+	laddr *net.UDPAddr
+	raddr *net.UDPAddr
+
+	// readBodyPtr is the pointer to the buffer holding the sliced read body.
+	// It must not be nil until [chanPacketConn.readFromSession] returns it to
+	// its pool.
+	readBodyPtr *[]byte
+
+	respOOB []byte
+	flags   int
 }
 
 // type check

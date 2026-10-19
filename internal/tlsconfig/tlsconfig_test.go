@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/stretchr/testify/require"
 )
@@ -18,8 +19,13 @@ import (
 // testTimeout is the common timeout for tests and contexts.
 const testTimeout = 1 * time.Second
 
-// testLogger is the common logger for tests.
-var testLogger = slogutil.NewDiscardLogger()
+var (
+	// testErrColl is a discard error collector for tests.
+	testErrColl = agdtest.NewErrorCollector()
+
+	// testLogger is the common logger for tests.
+	testLogger = slogutil.NewDiscardLogger()
+)
 
 // newCertAndKey is a helper function that generates certificate and key.
 func newCertAndKey(tb testing.TB, n int64) (certDER []byte, key *rsa.PrivateKey) {
@@ -30,6 +36,7 @@ func newCertAndKey(tb testing.TB, n int64) (certDER []byte, key *rsa.PrivateKey)
 
 	certTmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(n),
+		DNSNames:     []string{testDomain},
 	}
 
 	certDER, err = x509.CreateCertificate(rand.Reader, certTmpl, certTmpl, &key.PublicKey, key)

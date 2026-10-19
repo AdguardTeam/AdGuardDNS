@@ -24,9 +24,11 @@ readonly go
 run_linter -e "$go" tool shfmt --binary-next-line -d -p -s \
 	./scripts/hooks/* \
 	./scripts/make/*.sh \
+	./scripts/test/*.sh \
 	;
 
 shellcheck -e 'SC2250,SC3040' -f 'gcc' -o 'all' -x -- \
 	./scripts/hooks/* \
 	./scripts/make/*.sh \
+	./scripts/test/*.sh \
 	;

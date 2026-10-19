@@ -3,9 +3,10 @@ package devicefinder_test
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
+	"net/netip"
 	"net/url"
 	"path"
-	"slices"
 	"testing"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
@@ -34,7 +35,7 @@ func TestDefault_Find_DoHAuth(t *testing.T) {
 	}{{
 		wantRes: &agd.DeviceResultOK{
 			Device:  devAuthSuccess,
-			Profile: profNormal,
+			Profile: testProfNormal,
 		},
 		profDBDev: devAuthSuccess,
 		reqURL: &url.URL{
@@ -95,7 +96,7 @@ func TestDefault_Find_DoHAuth(t *testing.T) {
 				devID agd.DeviceID,
 			) (p *agd.Profile, d *agd.Device, err error) {
 				if tc.profDBDev != nil {
-					return profNormal, tc.profDBDev, nil
+					return testProfNormal, tc.profDBDev, nil
 				}
 
 				return nil, nil, profiledb.ErrDeviceNotFound
@@ -140,7 +141,7 @@ func TestDefault_Find_DoHAuthOnly(t *testing.T) {
 	}{{
 		wantRes: &agd.DeviceResultOK{
 			Device:  devAuthSuccess,
-			Profile: profNormal,
+			Profile: testProfNormal,
 		},
 		profDBDev: devAuthSuccess,
 		srv:       srvDoH,
@@ -194,7 +195,7 @@ func TestDefault_Find_DoHAuthOnly(t *testing.T) {
 				_ context.Context,
 				devID agd.DeviceID,
 			) (p *agd.Profile, d *agd.Device, err error) {
-				return profNormal, tc.profDBDev, nil
+				return testProfNormal, tc.profDBDev, nil
 			}
 
 			df := newDefault(t, &devicefinder.Config{
@@ -230,7 +231,7 @@ func TestDefault_Find_DoH(t *testing.T) {
 		reqURL  *url.URL
 		name    string
 	}{{
-		wantRes: resNormal,
+		wantRes: testResNormal,
 		reqURL: &url.URL{
 			Path: path.Join(dnsserver.PathDoH, dnssvctest.DeviceIDStr),
 		},
@@ -343,7 +344,7 @@ func TestDefault_Find_stdEncrypted(t *testing.T) {
 		name:          "no_cli_srvname",
 		deviceDomains: []string{dnssvctest.DomainForDevices},
 	}, {
-		wantRes:       resNormal,
+		wantRes:       testResNormal,
 		cliSrvName:    dnssvctest.DeviceIDSrvName,
 		name:          "id_match",
 		deviceDomains: []string{dnssvctest.DomainForDevices},
@@ -416,31 +417,39 @@ func TestDefault_Find_stdEncrypted(t *testing.T) {
 	}
 }
 
-// testCustomDomainDB is an [CustomDomainDB] for tests.
+// testCustomDomainDB is a [devicefinder.CustomDomainDB] for tests.
 type testCustomDomainDB struct {
 	onMatch func(
 		ctx context.Context,
 		cliSrvName string,
-	) (matchedDomain string, profIDs []agd.ProfileID)
+	) (matchedDomain string, accID agd.AccountID, accIP netip.Addr)
 }
 
 // type check
 var _ devicefinder.CustomDomainDB = (*testCustomDomainDB)(nil)
 
-// Match implements the [CustomDomainDB] interface for *testCustomDomainDB.
+// Match implements the [devicefinder.CustomDomainDB] interface for
+// *testCustomDomainDB.
 func (db *testCustomDomainDB) Match(
 	ctx context.Context,
 	cliSrvName string,
-) (matchedDomain string, profIDs []agd.ProfileID) {
+) (matchedDomain string, accID agd.AccountID, accIP netip.Addr) {
 	return db.onMatch(ctx, cliSrvName)
 }
 
 // newTestCustomDomainDB returns a *testCustomDomainDB that returns the given
 // data.
-func newTestCustomDomainDB(domain string, ids []agd.ProfileID) (db *testCustomDomainDB) {
+func newTestCustomDomainDB(
+	domain string,
+	accID agd.AccountID,
+	accIP netip.Addr,
+) (db *testCustomDomainDB) {
 	return &testCustomDomainDB{
-		onMatch: func(_ context.Context, _ string) (matchedDomain string, profIDs []agd.ProfileID) {
-			return domain, slices.Clone(ids)
+		onMatch: func(
+			_ context.Context,
+			_ string,
+		) (matchedDomain string, accountID agd.AccountID, accountIP netip.Addr) {
+			return domain, accID, accIP
 		},
 	}
 }
@@ -449,29 +458,14 @@ func newTestCustomDomainDB(domain string, ids []agd.ProfileID) (db *testCustomDo
 func TestDefault_Find_customDomainDoT(t *testing.T) {
 	t.Parallel()
 
-	const customDomain = "custom.example"
-
-	const profIDOtherStr = "prof5678"
-	profOther := &agd.Profile{}
-	*profOther = *profNormal
-	profOther.ID = agd.ProfileID(profIDOtherStr)
-
+	addr := netip.Addr{}
 	var (
-		customDBMatch = newTestCustomDomainDB(customDomain, []agd.ProfileID{
-			dnssvctest.ProfileID,
-		})
-		customDBMatchWkSeveral = newTestCustomDomainDB("*."+customDomain, []agd.ProfileID{
-			dnssvctest.ProfileID,
-			profIDOtherStr,
-		})
-		customDBMatchWk = newTestCustomDomainDB("*."+customDomain, []agd.ProfileID{
-			dnssvctest.ProfileID,
-		})
-		customDBNoMatch = newTestCustomDomainDB("", nil)
+		customDBMatch   = newTestCustomDomainDB(testCustomDomain, dnssvctest.AccountID, addr)
+		customDBMatchWk = newTestCustomDomainDB("*."+testCustomDomain, dnssvctest.AccountID, addr)
+		customDBNoMatch = newTestCustomDomainDB("", 0, addr)
 	)
 
 	profDBDefault := agdtest.NewProfileDB()
-
 	profDBFoundDevID := agdtest.NewProfileDB()
 	profDBFoundDevID.OnProfileByDeviceID = newOnProfileByDeviceID(dnssvctest.DeviceID)
 
@@ -480,24 +474,44 @@ func TestDefault_Find_customDomainDoT(t *testing.T) {
 		dnssvctest.ProfileID,
 		dnssvctest.HumanIDLower,
 	)
+	profDBFoundHumanID.OnProfileByID = newOnProfileByID(dnssvctest.ProfileID)
+
+	profDBFoundOtherHumanID := agdtest.NewProfileDB()
+	profDBFoundOtherHumanID.OnProfileByHumanID = func(
+		ctx context.Context,
+		id agd.ProfileID,
+		humanID agd.HumanIDLower,
+	) (p *agd.Profile, d *agd.Device, err error) {
+		return testProfOther, testDevNormal, err
+	}
+
+	profDBFoundOtherHumanID.OnProfileByID = func(
+		ctx context.Context,
+		id agd.ProfileID,
+	) (p *agd.Profile, err error) {
+		return testProfOther, err
+	}
 
 	profDBFoundOtherDevID := agdtest.NewProfileDB()
 	profDBFoundOtherDevID.OnProfileByDeviceID = func(
 		ctx context.Context,
 		id agd.DeviceID,
 	) (p *agd.Profile, d *agd.Device, err error) {
-		return profOther, devNormal, err
+		return testProfOther, testDevNormal, err
+	}
+
+	profDBFoundSameAccDevID := agdtest.NewProfileDB()
+	profDBFoundSameAccDevID.OnProfileByDeviceID = func(
+		ctx context.Context,
+		id agd.DeviceID,
+	) (p *agd.Profile, d *agd.Device, err error) {
+		return testProfSameAcc, testDevSameAcc, err
 	}
 
 	const devIDOtherStr = "dev5678"
 
 	profDBNotFoundDevID := agdtest.NewProfileDB()
 	profDBNotFoundDevID.OnProfileByDeviceID = newOnProfileByDeviceID(devIDOtherStr)
-
-	const cliSrvNameDev = dnssvctest.DeviceIDStr + "." + customDomain
-
-	const errStrMismatch errors.Error = `wrapping custom domains: custom domain device id check: ` +
-		`profile id in ext id: ` + profIDOtherStr + `: not contained by expected values`
 
 	testCases := []struct {
 		customDB   devicefinder.CustomDomainDB
@@ -508,76 +522,228 @@ func TestDefault_Find_customDomainDoT(t *testing.T) {
 	}{{
 		customDB:   customDBMatchWk,
 		profDB:     profDBFoundDevID,
-		wantRes:    resNormal,
-		cliSrvName: cliSrvNameDev,
-		name:       "custom_device_match",
-	}, {
-		customDB:   customDBMatchWkSeveral,
-		profDB:     profDBFoundDevID,
-		wantRes:    resNormal,
-		cliSrvName: cliSrvNameDev,
-		name:       "custom_device_match_several",
+		wantRes:    testResNormal,
+		cliSrvName: testCliSrvNameDev,
+		name:       "match",
 	}, {
 		customDB:   customDBNoMatch,
 		profDB:     profDBDefault,
 		wantRes:    nil,
-		cliSrvName: cliSrvNameDev,
-		name:       "custom_device_domain_mismatch",
+		cliSrvName: testCliSrvNameDev,
+		name:       "domain_mismatch",
 	}, {
 		customDB:   customDBMatch,
 		profDB:     profDBDefault,
-		wantRes:    nil,
-		cliSrvName: cliSrvNameDev,
-		name:       "custom_device_domain_not_wk",
+		wantRes:    &agd.DeviceResultPartialData{},
+		cliSrvName: testCliSrvNameDev,
+		name:       "domain_not_wk",
 	}, {
 		customDB:   customDBMatchWk,
 		profDB:     profDBFoundOtherDevID,
 		wantRes:    nil,
-		cliSrvName: cliSrvNameDev,
-		name:       "custom_device_device_mismatch",
+		cliSrvName: testCliSrvNameDev,
+		name:       "device_mismatch",
+	}, {
+		customDB: customDBMatchWk,
+		profDB:   profDBFoundSameAccDevID,
+		wantRes: &agd.DeviceResultOK{
+			Device:  testDevSameAcc,
+			Profile: testProfSameAcc,
+		},
+		cliSrvName: testDevIDSameAccStr + "." + testCustomDomain,
+		name:       "same_account_different_device",
 	}, {
 		customDB:   customDBMatchWk,
 		profDB:     profDBNotFoundDevID,
 		wantRes:    nil,
-		cliSrvName: cliSrvNameDev,
-		name:       "custom_device_not_found",
+		cliSrvName: testCliSrvNameDev,
+		name:       "not_found",
 	}, {
-		customDB:   customDBMatchWk,
-		profDB:     profDBFoundHumanID,
-		wantRes:    resAuto,
-		cliSrvName: dnssvctest.HumanIDPath + "." + customDomain,
-		name:       "custom_human_match",
-	}, {
-		customDB: customDBMatchWk,
-		profDB:   profDBFoundHumanID,
-		wantRes: &agd.DeviceResultError{
-			Err: errors.Error(errStrMismatch),
-		},
-		cliSrvName: "otr-" + profIDOtherStr + "-" + dnssvctest.HumanIDStr + "." + customDomain,
-		name:       "custom_human_profile_mismatch",
-	}, {
-		name:       "custom_empty",
-		cliSrvName: customDomain,
 		customDB:   customDBMatch,
 		profDB:     agdtest.NewProfileDB(),
-		wantRes:    nil,
+		wantRes:    &agd.DeviceResultPartialData{},
+		cliSrvName: testCustomDomain,
+		name:       "empty",
 	}}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			df := newDefault(t, &devicefinder.Config{
-				Server:         srvDoT,
-				CustomDomainDB: tc.customDB,
-				ProfileDB:      tc.profDB,
-			})
+			testFindCustomDomain(
+				t,
+				tc.customDB,
+				tc.profDB,
+				tc.cliSrvName,
+				tc.wantRes,
+				dnssvctest.ClientAddrPort,
+				dnssvctest.ServerAddrPort,
+			)
+		})
+	}
+}
 
-			ctx := testutil.ContextWithTimeout(t, dnssvctest.Timeout)
-			ctx = dnsserver.ContextWithRequestInfo(ctx, dnssvctest.NewRequestInfo(tc.cliSrvName))
+func TestDefault_Find_accountIP(t *testing.T) {
+	t.Parallel()
 
-			got := df.Find(ctx, reqNormal, dnssvctest.ClientAddrPort, dnssvctest.ServerAddrPort)
-			assertEqualResult(t, tc.wantRes, got)
+	addr := netip.MustParseAddr("192.0.2.0")
+
+	profDB := agdtest.NewProfileDB()
+	profDB.OnProfileByDeviceID = newOnProfileByDeviceID(dnssvctest.DeviceID)
+
+	customDomainDB := newTestCustomDomainDB("*."+testCustomDomain, dnssvctest.AccountID, addr)
+
+	t.Run("match", func(t *testing.T) {
+		t.Parallel()
+
+		laddr := netip.AddrPortFrom(addr, 853)
+		testFindCustomDomain(
+			t,
+			customDomainDB,
+			profDB,
+			testCliSrvNameDev,
+			testResNormal,
+			dnssvctest.ClientAddrPort,
+			laddr,
+		)
+	})
+
+	t.Run("mismatch", func(t *testing.T) {
+		t.Parallel()
+
+		laddr := netip.MustParseAddrPort("192.0.2.1:853")
+
+		errMsg := fmt.Sprintf(
+			"custom domain device id check: custom domain destination ip mismatch: got %s, want %s",
+			laddr.Addr(),
+			addr,
+		)
+		wantRes := &agd.DeviceResultError{
+			Err: errors.Error(errMsg),
+		}
+
+		testFindCustomDomain(
+			t,
+			customDomainDB,
+			profDB,
+			testCliSrvNameDev,
+			wantRes,
+			dnssvctest.ClientAddrPort,
+			laddr,
+		)
+	})
+}
+
+// testFindCustomDomain ensures that [devicefinder.Default.Find] works correctly
+// for custom domains.
+func testFindCustomDomain(
+	tb testing.TB,
+	customDB devicefinder.CustomDomainDB,
+	profDB profiledb.Interface,
+	cliSrvName string,
+	wantRes agd.DeviceResult,
+	raddr netip.AddrPort,
+	laddr netip.AddrPort,
+) {
+	df := newDefault(tb, &devicefinder.Config{
+		Server:         srvDoT,
+		CustomDomainDB: customDB,
+		ProfileDB:      profDB,
+	})
+
+	ctx := testutil.ContextWithTimeout(tb, dnssvctest.Timeout)
+	ctx = dnsserver.ContextWithRequestInfo(ctx, dnssvctest.NewRequestInfo(cliSrvName))
+
+	got := df.Find(ctx, reqNormal, raddr, laddr)
+	assertEqualResult(tb, wantRes, got)
+}
+
+func TestDefault_Find_customDomainDoTHumanID(t *testing.T) {
+	t.Parallel()
+
+	customDB := newTestCustomDomainDB("*."+testCustomDomain, dnssvctest.AccountID, netip.Addr{})
+
+	profDBFoundDevID := agdtest.NewProfileDB()
+	profDBFoundDevID.OnProfileByDeviceID = newOnProfileByDeviceID(dnssvctest.DeviceID)
+
+	profDBFoundHumanID := agdtest.NewProfileDB()
+	profDBFoundHumanID.OnProfileByHumanID = newOnProfileByHumanID(
+		dnssvctest.ProfileID,
+		dnssvctest.HumanIDLower,
+	)
+	profDBFoundHumanID.OnProfileByID = newOnProfileByID(dnssvctest.ProfileID)
+
+	profDBFoundOtherHumanID := agdtest.NewProfileDB()
+	profDBFoundOtherHumanID.OnProfileByHumanID = func(
+		ctx context.Context,
+		id agd.ProfileID,
+		humanID agd.HumanIDLower,
+	) (p *agd.Profile, d *agd.Device, err error) {
+		return testProfOther, testDevNormal, err
+	}
+
+	profDBFoundOtherHumanID.OnProfileByID = func(
+		ctx context.Context,
+		id agd.ProfileID,
+	) (p *agd.Profile, err error) {
+		return testProfOther, err
+	}
+
+	profDBFoundOtherDevID := agdtest.NewProfileDB()
+	profDBFoundOtherDevID.OnProfileByDeviceID = func(
+		ctx context.Context,
+		id agd.DeviceID,
+	) (p *agd.Profile, d *agd.Device, err error) {
+		return testProfOther, testDevNormal, err
+	}
+
+	const devIDOtherStr = "dev5678"
+
+	profDBNotFoundDevID := agdtest.NewProfileDB()
+	profDBNotFoundDevID.OnProfileByDeviceID = newOnProfileByDeviceID(devIDOtherStr)
+
+	deviceMismatchErr := errors.Error(
+		fmt.Sprintf(
+			"wrapping custom domains: custom domain device id check: "+
+				"custom domain account id and ext id mismatch: got %d, want %d",
+			testProfOther.AccountID,
+			testProfNormal.AccountID,
+		),
+	)
+
+	raddr, laddr := dnssvctest.ClientAddrPort, dnssvctest.ServerAddrPort
+
+	testCases := []struct {
+		profDB     profiledb.Interface
+		wantRes    agd.DeviceResult
+		cliSrvName string
+		name       string
+	}{{
+		profDB:     profDBFoundHumanID,
+		wantRes:    resAuto,
+		cliSrvName: dnssvctest.HumanIDPath + "." + testCustomDomain,
+		name:       "match",
+	}, {
+		profDB:  profDBFoundHumanID,
+		wantRes: nil,
+		cliSrvName: "otr-" + testProfIDOtherStr + "-" + dnssvctest.HumanIDStr +
+			"." + testCustomDomain,
+		name: "profile_device_not_found",
+	}, {
+		profDB: profDBFoundOtherHumanID,
+		wantRes: &agd.DeviceResultError{
+			Err: deviceMismatchErr,
+		},
+		cliSrvName: "otr-" + testProfIDOtherStr + "-" + dnssvctest.HumanIDStr +
+			"." + testCustomDomain,
+		name: "profile_mismatch",
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			testFindCustomDomain(t, customDB, tc.profDB, tc.cliSrvName, tc.wantRes, raddr, laddr)
 		})
 	}
 }

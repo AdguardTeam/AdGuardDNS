@@ -95,6 +95,17 @@ func TestDefault(t *testing.T) {
 		assert.Equal(t, profiledbtest.ProfileID, p.ID)
 		assert.Equal(t, d, devices[devIdxDefault])
 	})
+
+	t.Run("by_profile_id", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := profiledbtest.ContextWithTimeout(t)
+		p, err := db.ProfileByID(ctx, profiledbtest.ProfileID)
+		require.NoError(t, err)
+
+		assert.Equal(t, profiledbtest.ProfileID, p.ID)
+		assert.Equal(t, profiledbtest.AccountID, p.AccountID)
+	})
 }
 
 func TestDefault_ProfileByDedicatedIP_removedDevice(t *testing.T) {
@@ -583,6 +594,7 @@ func TestDefault_CreateAutoDevice(t *testing.T) {
 		HumanIDLower: profiledbtest.HumanIDLower,
 	}
 	wantProf := &agd.Profile{
+		AccountIPConfig:          &agd.AccountIPConfig{},
 		CustomDomains:            &agd.AccountCustomDomains{},
 		AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
 		BlockingMode:             &dnsmsg.BlockingModeNullIP{},
@@ -652,6 +664,7 @@ func TestDefault_deviceChanges(t *testing.T) {
 	)
 
 	profBefore := &agd.Profile{
+		AccountIPConfig:          &agd.AccountIPConfig{},
 		CustomDomains:            &agd.AccountCustomDomains{},
 		AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
 		BlockingMode:             &dnsmsg.BlockingModeNullIP{},
@@ -665,6 +678,7 @@ func TestDefault_deviceChanges(t *testing.T) {
 	}
 
 	profAfter := &agd.Profile{
+		AccountIPConfig:          &agd.AccountIPConfig{},
 		CustomDomains:            &agd.AccountCustomDomains{},
 		AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
 		BlockingMode:             &dnsmsg.BlockingModeNullIP{},
@@ -760,6 +774,7 @@ func TestDefault_noDeviceChanges(t *testing.T) {
 	}
 
 	profBefore := &agd.Profile{
+		AccountIPConfig:          &agd.AccountIPConfig{},
 		CustomDomains:            &agd.AccountCustomDomains{},
 		AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
 		BlockingMode:             &dnsmsg.BlockingModeNullIP{},
@@ -770,6 +785,7 @@ func TestDefault_noDeviceChanges(t *testing.T) {
 	}
 
 	profAfter := &agd.Profile{
+		AccountIPConfig:          &agd.AccountIPConfig{},
 		CustomDomains:            &agd.AccountCustomDomains{},
 		AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
 		BlockingMode:             &dnsmsg.BlockingModeNullIP{},

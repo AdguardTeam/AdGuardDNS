@@ -171,7 +171,10 @@ func TestMiddleware_setFilteredResponse(t *testing.T) {
 
 	device := &agd.Device{ID: dnssvctest.DeviceID}
 	profile := &agd.Profile{
-		ID: dnssvctest.ProfileID,
+		AccountIPConfig: &agd.AccountIPConfig{},
+		CustomDomains:   &agd.AccountCustomDomains{},
+		BlockingMode:    &dnsmsg.BlockingModeNullIP{},
+		ID:              dnssvctest.ProfileID,
 		AdultBlockingMode: &dnsmsg.BlockingModeCustomIP{
 			IPv4: []netip.Addr{blockIPAdult},
 		},

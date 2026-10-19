@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/messagetap"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
@@ -15,8 +16,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testLogger is the common logger for tests.
-var testLogger = slogutil.NewDiscardLogger()
+var (
+	// testLogger is the common logger for tests.
+	testLogger = slogutil.NewDiscardLogger()
+
+	// testDate is a common date for tests.
+	testDate = time.Date(2026, time.January, 1, 12, 0, 0, 0, time.Local)
+)
 
 func Benchmark_DNSTap_noListener(b *testing.B) {
 	socketPath := filepath.Join(b.TempDir(), "dt.sock")
@@ -38,8 +44,8 @@ func Benchmark_DNSTap_noListener(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		tapRequest(ctx, tap, addr, addr, payload)
-		tapResponse(ctx, tap, addr, addr, payload)
+		tapRequest(ctx, testDate, tap, addr, addr, payload)
+		tapResponse(ctx, testDate, tap, addr, addr, payload)
 	}
 
 	// Most recent results:
@@ -59,19 +65,19 @@ func Benchmark_TapRequest(b *testing.B) {
 	ctx := context.Background()
 
 	// Warmup to fill the pools and the slices.
-	tapRequest(ctx, tap, addr, addr, payload)
+	tapRequest(ctx, testDate, tap, addr, addr, payload)
 
 	b.ReportAllocs()
 	for b.Loop() {
-		tapRequest(ctx, tap, addr, addr, payload)
+		tapRequest(ctx, testDate, tap, addr, addr, payload)
 	}
 
 	// Most recent results:
 	//	goos: darwin
 	//	goarch: arm64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsserver
-	//	cpu: Apple M1 Pro
-	//	Benchmark_TapRequest-8   	 3146770	       319.8 ns/op	      27 B/op	       3 allocs/op
+	//	cpu: Apple M4 Pro
+	//	Benchmark_TapRequest-14    	 3835228	       262.4 ns/op	      20 B/op	       0 allocs/op
 }
 
 func Benchmark_TapResponse(b *testing.B) {
@@ -83,19 +89,19 @@ func Benchmark_TapResponse(b *testing.B) {
 	ctx := context.Background()
 
 	// Warmup to fill the pools and the slices.
-	tapResponse(ctx, tap, addr, addr, payload)
+	tapResponse(ctx, testDate, tap, addr, addr, payload)
 
 	b.ReportAllocs()
 	for b.Loop() {
-		tapResponse(ctx, tap, addr, addr, payload)
+		tapResponse(ctx, testDate, tap, addr, addr, payload)
 	}
 
 	// Most recent results:
 	//	goos: darwin
 	//	goarch: arm64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnsserver
-	//	cpu: Apple M1 Pro
-	//	Benchmark_TapResponse-8   	 2929508	       343.4 ns/op	      27 B/op	       3 allocs/op
+	//	cpu: Apple M4 Pro
+	//	Benchmark_TapResponse-14    	 3713395	       271.1 ns/op	      21 B/op	       0 allocs/op
 }
 
 // newTestPayload returns a new payload bytes for tests.
@@ -105,9 +111,7 @@ func newTestPayload(tb testing.TB) (payload []byte) {
 	const testDomainName = "test.example"
 
 	req := &dns.Msg{
-		MsgHdr: dns.MsgHdr{
-			Id: dns.Id(),
-		},
+		Id: dns.Id(),
 		Question: []dns.Question{{
 			Name:   dns.Fqdn(testDomainName),
 			Qtype:  dns.TypeA,

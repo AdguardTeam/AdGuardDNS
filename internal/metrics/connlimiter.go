@@ -15,14 +15,9 @@ import (
 //
 // See [connlimiter.ConnMetricsData].
 type ConnLimiterConnMetricsData = struct {
-	// Addr is the address that the server is configured to listen on.
+	// Addr is the address that the server is configured to listen on or a
+	// comparable unit of information for metrics.
 	Addr string
-
-	// Name is the name of the server.
-	Name string
-
-	// Proto is the protocol of the server.
-	Proto string
 }
 
 // ConnLimiter is a Prometheus-based implementation of the [connlimiter.Metrics]
@@ -60,14 +55,14 @@ func NewConnLimiter(namespace string, reg prometheus.Registerer) (m *ConnLimiter
 			Subsystem: subsystemConnLimiter,
 			Namespace: namespace,
 			Help:      `The number of currently active stream-connections.`,
-		}, []string{"name", "proto", "addr"}),
+		}, []string{"addr"}),
 		lifeDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:      lifeDuration,
 			Subsystem: subsystemConnLimiter,
 			Namespace: namespace,
 			Help:      "How long a stream connection lives, in seconds.",
 			Buckets:   []float64{0.1, 1, 5, 10, 30, 60},
-		}, []string{"name", "proto", "addr"}),
+		}, []string{"addr"}),
 		limits: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name:      limits,
 			Namespace: namespace,
@@ -81,7 +76,7 @@ func NewConnLimiter(namespace string, reg prometheus.Registerer) (m *ConnLimiter
 			Namespace: namespace,
 			Help:      "How long a stream connection waits for an accept, in seconds.",
 			Buckets:   []float64{0.00001, 0.01, 0.1, 1, 10, 30, 60},
-		}, []string{"name", "proto", "addr"}),
+		}, []string{"addr"}),
 	}
 
 	var errs []error
@@ -115,12 +110,12 @@ func NewConnLimiter(namespace string, reg prometheus.Registerer) (m *ConnLimiter
 
 // IncrementActive implements the [Metrics] interface for *ConnLimiter.
 func (c *ConnLimiter) IncrementActive(_ context.Context, m *ConnLimiterConnMetricsData) {
-	c.activeConnections.WithLabelValues(m.Name, m.Proto, m.Addr).Inc()
+	c.activeConnections.WithLabelValues(m.Addr).Inc()
 }
 
 // DecrementActive implements the [Metrics] interface for *ConnLimiter.
 func (c *ConnLimiter) DecrementActive(_ context.Context, m *ConnLimiterConnMetricsData) {
-	c.activeConnections.WithLabelValues(m.Name, m.Proto, m.Addr).Dec()
+	c.activeConnections.WithLabelValues(m.Addr).Dec()
 }
 
 // ObserveLifeDuration implements the [Metrics] interface for *ConnLimiter.
@@ -129,7 +124,7 @@ func (c *ConnLimiter) ObserveLifeDuration(
 	m *ConnLimiterConnMetricsData,
 	dur time.Duration,
 ) {
-	c.lifeDuration.WithLabelValues(m.Name, m.Proto, m.Addr).Observe(dur.Seconds())
+	c.lifeDuration.WithLabelValues(m.Addr).Observe(dur.Seconds())
 }
 
 // ObserveWaitingDuration implements the [Metrics] interface for *ConnLimiter.
@@ -138,7 +133,7 @@ func (c *ConnLimiter) ObserveWaitingDuration(
 	m *ConnLimiterConnMetricsData,
 	dur time.Duration,
 ) {
-	c.waitingDuration.WithLabelValues(m.Name, m.Proto, m.Addr).Observe(dur.Seconds())
+	c.waitingDuration.WithLabelValues(m.Addr).Observe(dur.Seconds())
 }
 
 // SetStopLimit implements the [Metrics] interface for *ConnLimiter.

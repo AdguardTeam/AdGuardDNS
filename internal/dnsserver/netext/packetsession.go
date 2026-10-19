@@ -68,3 +68,12 @@ func WriteToSession(c net.PacketConn, b []byte, s PacketSession) (n int, err err
 
 	return c.WriteTo(b, s.RemoteAddr())
 }
+
+// PacketSessionGetter is any entity that contains a packet session.  This kind
+// of original solution should only be applied when calling [ReadFromSession] or
+// [WriteToSession] directly is not possible.
+type PacketSessionGetter interface {
+	// PacketSession returns the packet session associated with the receiver
+	// entity.  s must not be nil.
+	PacketSession() (s PacketSession)
+}

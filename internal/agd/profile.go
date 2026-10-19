@@ -21,6 +21,10 @@ import (
 // TODO(a.garipov):  Extract the pre-filtering booleans and logic into a new
 // package.
 type Profile struct {
+	// AccountIPConfig is the configuration of the IP addresses belonging to the
+	// account of this profile.  It must not be nil.
+	AccountIPConfig *AccountIPConfig
+
 	// CustomDomains is the configuration of the custom domains belonging to the
 	// account of this profile.  It must not be nil.
 	CustomDomains *AccountCustomDomains

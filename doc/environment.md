@@ -25,6 +25,7 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`CUSTOM_DOMAINS_API_KEY`](#CUSTOM_DOMAINS_API_KEY)
 - [`CUSTOM_DOMAINS_CACHE_PATH`](#CUSTOM_DOMAINS_CACHE_PATH)
 - [`CUSTOM_DOMAINS_ENABLED`](#CUSTOM_DOMAINS_ENABLED)
+- [`CUSTOM_DOMAINS_MAX_CERT_STALENESS`](#CUSTOM_DOMAINS_MAX_CERT_STALENESS)
 - [`CUSTOM_DOMAINS_REFRESH_INTERVAL`](#CUSTOM_DOMAINS_REFRESH_INTERVAL)
 - [`CUSTOM_DOMAINS_URL`](#CUSTOM_DOMAINS_URL)
 - [`DNSCHECK_CACHE_KV_SIZE`](#DNSCHECK_CACHE_KV_SIZE)
@@ -77,6 +78,9 @@ AdGuard DNS uses [environment variables][wiki-env] to store some of the more sen
 - [`REDIS_PORT`](#REDIS_PORT)
 - [`REDIS_WAIT`](#REDIS_WAIT)
 - [`RULESTAT_URL`](#RULESTAT_URL)
+- [`RUNTIME_THREAD_GC_ENABLED`](#RUNTIME_THREAD_GC_ENABLED)
+- [`RUNTIME_THREAD_GC_INTERVAL`](#RUNTIME_THREAD_GC_INTERVAL)
+- [`RUNTIME_THREAD_GC_MAX_THREADS`](#RUNTIME_THREAD_GC_MAX_THREADS)
 - [`SAFE_BROWSING_ENABLED`](#SAFE_BROWSING_ENABLED)
 - [`SAFE_BROWSING_URL`](#SAFE_BROWSING_URL)
 - [`SENTRY_DSN`](#SENTRY_DSN)
@@ -247,6 +251,12 @@ The path to directory for storing the downloaded certificate and private-key dat
 When set to `1`, enable the custom-domains feature. When set to `0`, disable it.
 
 **Default:** `1`.
+
+## <a href="#CUSTOM_DOMAINS_MAX_CERT_STALENESS" id="CUSTOM_DOMAINS_MAX_CERT_STALENESS" name="CUSTOM_DOMAINS_MAX_CERT_STALENESS">`CUSTOM_DOMAINS_MAX_CERT_STALENESS`</a>
+
+The maximum duration of staleness for the custom-domain certificates, as a human-readable duration.
+
+**Default:** No default value, a positive value is required if `CUSTOM_DOMAINS_ENABLED` is set to `1`.
 
 ## <a href="#CUSTOM_DOMAINS_REFRESH_INTERVAL" id="CUSTOM_DOMAINS_REFRESH_INTERVAL" name="CUSTOM_DOMAINS_REFRESH_INTERVAL">`CUSTOM_DOMAINS_REFRESH_INTERVAL`</a>
 
@@ -618,7 +628,7 @@ The amount of writes to the querylog that can run in parallel.
 
 ## <a href="#RATELIMIT_ALLOWLIST_TYPE" id="RATELIMIT_ALLOWLIST_TYPE" name="RATELIMIT_ALLOWLIST_TYPE">`RATELIMIT_ALLOWLIST_TYPE`</a>
 
-Defines where the rate limit settings are received from. Allowed values are `backend` and `consul`.
+Defines where the rate limit settings are received from. Allowed values are `backend`, `consul`, and `off`.
 
 **Default:** **Unset.**
 
@@ -633,6 +643,24 @@ The HTTP(S) URL to send filtering rule list statistics to. If empty or unset, th
 **Example:** `https://stats.example.com/db`
 
 [ext-rulestat]: externalhttp.md#rulestat
+
+## <a href="#RUNTIME_THREAD_GC_ENABLED" id="RUNTIME_THREAD_GC_ENABLED" name="RUNTIME_THREAD_GC_ENABLED">`RUNTIME_THREAD_GC_ENABLED`</a>
+
+If `1`, enabled the runtime thread garbage collection used to limit the amount of OS threads.
+
+**Default:** `0`.
+
+## <a href="#RUNTIME_THREAD_GC_INTERVAL" id="RUNTIME_THREAD_GC_INTERVAL" name="RUNTIME_THREAD_GC_INTERVAL">`RUNTIME_THREAD_GC_INTERVAL`</a>
+
+The interval between runtime threads garbage collections, as a human-readable duration.
+
+**Default:** No default value, the variable is required if `RUNTIME_THREAD_GC_ENABLED` is set to `1`.
+
+## <a href="#RUNTIME_THREAD_GC_MAX_THREADS" id="RUNTIME_THREAD_GC_MAX_THREADS" name="RUNTIME_THREAD_GC_MAX_THREADS">`RUNTIME_THREAD_GC_MAX_THREADS`</a>
+
+The maximum number of OS threads that can be created by Go runtime.
+
+**Default:** No default value, the variable is required if `RUNTIME_THREAD_GC_ENABLED` is set to `1`.
 
 ## <a href="#SAFE_BROWSING_ENABLED" id="SAFE_BROWSING_ENABLED" name="SAFE_BROWSING_ENABLED">`SAFE_BROWSING_ENABLED`</a>
 

@@ -82,11 +82,25 @@ func (f *Default) Find(
 	}
 
 	srvReqInfo := dnsserver.MustRequestInfoFromContext(ctx)
-	dd, err := f.deviceData(ctx, req, srvReqInfo)
+	dd, err := f.deviceData(ctx, req, srvReqInfo, laddr.Addr())
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return &agd.DeviceResultError{
 			Err: err,
+		}
+	}
+
+	// Process the case when there is some data known about the request but not
+	// any device identifier.
+	//
+	// NOTE:  This currently assumes that partial data at this stage means that
+	// [Default.findDevice] below won't be able to recognize a device by its
+	// local or remote address.  This may change in the future.
+	//
+	// TODO(a.garipov):  Add tests for this case.
+	if cd, ok := dd.(*deviceDataCustomDomain); ok && cd.deviceData == nil {
+		return &agd.DeviceResultPartialData{
+			IsAccountIP: cd.accountIP.IsValid(),
 		}
 	}
 

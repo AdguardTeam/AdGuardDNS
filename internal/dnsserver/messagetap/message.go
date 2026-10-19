@@ -2,6 +2,7 @@ package messagetap
 
 import (
 	"net/netip"
+	"time"
 
 	dnstap "github.com/dnstap/golang-dnstap"
 )
@@ -35,27 +36,63 @@ func (d *DNSTap) newDNSTapMessage(
 	laddr netip.AddrPort,
 	raddr netip.AddrPort,
 	msgType *dnstap.Message_Type,
+	now time.Time,
 	queryMsg []byte,
 	respMsg []byte,
-) (msg *dnstap.Message) {
+) (msg *dnstap.Message, queryAddrPtr, respAddrPtr *[]byte) {
 	msg = d.msgPool.Get()
 
 	msg.Type = msgType
 
 	qAddr := raddr.Addr()
 	msg.SocketFamily = socketFamily(qAddr)
-	// Ignore the error, as it's always nil.
-	msg.QueryAddress, _ = qAddr.MarshalBinary()
-	msg.QueryPort = new(uint32(raddr.Port()))
 
+	queryAddrPtr = d.addrPool.Get()
 	// Ignore the error, as it's always nil.
-	msg.ResponseAddress, _ = laddr.Addr().MarshalBinary()
-	msg.ResponsePort = new(uint32(laddr.Port()))
+	*queryAddrPtr, _ = qAddr.WithZone("").AppendBinary((*queryAddrPtr)[:0])
+	msg.QueryAddress = *queryAddrPtr
+
+	queryPort := d.uint32Pool.Get()
+	*queryPort = uint32(raddr.Port())
+	msg.QueryPort = queryPort
+
+	var (
+		nowSec  *uint64
+		nowNsec *uint32
+	)
+
+	if queryMsg != nil || respMsg != nil {
+		nowSec = d.timeSecPool.Get()
+		*nowSec = uint64(now.Unix())
+
+		nowNsec = d.uint32Pool.Get()
+		*nowNsec = uint32(now.Nanosecond())
+	}
+
+	if queryMsg != nil {
+		msg.QueryTimeSec = nowSec
+		msg.QueryTimeNsec = nowNsec
+	}
+
+	if respMsg != nil {
+		msg.ResponseTimeSec = nowSec
+		msg.ResponseTimeNsec = nowNsec
+	}
+
+	respAddr := laddr.Addr().WithZone("")
+	respAddrPtr = d.addrPool.Get()
+	// Ignore the error, as it's always nil.
+	*respAddrPtr, _ = respAddr.AppendBinary((*respAddrPtr)[:0])
+	msg.ResponseAddress = *respAddrPtr
+
+	respPort := d.uint32Pool.Get()
+	*respPort = uint32(laddr.Port())
+	msg.ResponsePort = respPort
 
 	msg.QueryMessage = queryMsg
 	msg.ResponseMessage = respMsg
 
-	return msg
+	return msg, queryAddrPtr, respAddrPtr
 }
 
 // socketFamily returns the DNSTap socket family for the given IP address.

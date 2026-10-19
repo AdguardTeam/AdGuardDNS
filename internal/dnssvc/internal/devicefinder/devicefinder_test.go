@@ -27,9 +27,9 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	srvPlainWithBindData.SetBindData([]*agd.ServerBindData{{
+	srvPlainWithBindData.SetBindConfigs(agdnet.BindConfigs{{
 		ListenConfig: &agdtest.ListenConfig{},
-		PrefixAddr: &agdnet.PrefixNetAddr{
+		Addr: &agdnet.BindConfigAddrPrefix{
 			// TODO(a.garipov): Move to dnssvctest?
 			Prefix: netip.MustParsePrefix("192.0.2.0/30"),
 			Net:    "udp",
@@ -122,27 +122,66 @@ var (
 	}
 )
 
+// Common test data for custom domain tests.
+const (
+	testCustomDomain = "custom.example"
+
+	testProfIDOtherStr   = "prof5678"
+	testProfIDSameAccStr = "prof9999"
+
+	testDevIDOtherStr   = "dev5678"
+	testDevIDSameAccStr = "dev9999"
+
+	testCliSrvNameDev = dnssvctest.DeviceIDStr + "." + testCustomDomain
+)
+
 // Common profiles, devices, and results for tests.
 var (
-	profNormal = &agd.Profile{
+	testProfNormal = &agd.Profile{
+		AccountIPConfig:          &agd.AccountIPConfig{},
 		AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
 		BlockingMode:             &dnsmsg.BlockingModeNullIP{},
 		SafeBrowsingBlockingMode: &dnsmsg.BlockingModeNullIP{},
 		ID:                       dnssvctest.ProfileID,
+		AccountID:                dnssvctest.AccountID,
 		DeviceIDs:                container.NewMapSet(dnssvctest.DeviceID),
 		Deleted:                  false,
 	}
 
-	profDeleted = &agd.Profile{
+	testProfOther = &agd.Profile{
+		AccountIPConfig:          &agd.AccountIPConfig{},
+		AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		BlockingMode:             &dnsmsg.BlockingModeNullIP{},
+		SafeBrowsingBlockingMode: &dnsmsg.BlockingModeNullIP{},
+		ID:                       testProfIDOtherStr,
+		AccountID:                dnssvctest.AccountID + 1,
+		DeviceIDs:                container.NewMapSet(dnssvctest.DeviceID),
+		Deleted:                  false,
+	}
+
+	testProfSameAcc = &agd.Profile{
+		AccountIPConfig:          &agd.AccountIPConfig{},
+		AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		BlockingMode:             &dnsmsg.BlockingModeNullIP{},
+		SafeBrowsingBlockingMode: &dnsmsg.BlockingModeNullIP{},
+		ID:                       testProfIDSameAccStr,
+		AccountID:                dnssvctest.AccountID,
+		DeviceIDs:                container.NewMapSet(agd.DeviceID(testDevIDSameAccStr)),
+		Deleted:                  false,
+	}
+
+	testProfDeleted = &agd.Profile{
+		AccountIPConfig:          &agd.AccountIPConfig{},
 		AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
 		BlockingMode:             &dnsmsg.BlockingModeNullIP{},
 		SafeBrowsingBlockingMode: &dnsmsg.BlockingModeNullIP{},
 		ID:                       dnssvctest.ProfileID,
+		AccountID:                dnssvctest.AccountID,
 		DeviceIDs:                container.NewMapSet(dnssvctest.DeviceID),
 		Deleted:                  true,
 	}
 
-	devNormal = &agd.Device{
+	testDevNormal = &agd.Device{
 		Auth: &agd.AuthSettings{
 			Enabled: false,
 		},
@@ -150,7 +189,7 @@ var (
 		LinkedIP: dnssvctest.LinkedAddr,
 	}
 
-	devAuto = &agd.Device{
+	testDevAuto = &agd.Device{
 		Auth: &agd.AuthSettings{
 			Enabled: false,
 		},
@@ -158,14 +197,22 @@ var (
 		HumanIDLower: dnssvctest.HumanIDLower,
 	}
 
-	resNormal = &agd.DeviceResultOK{
-		Device:  devNormal,
-		Profile: profNormal,
+	testDevSameAcc = &agd.Device{
+		Auth: &agd.AuthSettings{
+			Enabled: false,
+		},
+		ID:       testDevIDSameAccStr,
+		LinkedIP: dnssvctest.LinkedAddr,
+	}
+
+	testResNormal = &agd.DeviceResultOK{
+		Device:  testDevNormal,
+		Profile: testProfNormal,
 	}
 
 	resAuto = &agd.DeviceResultOK{
-		Device:  devAuto,
-		Profile: profNormal,
+		Device:  testDevAuto,
+		Profile: testProfNormal,
 	}
 )
 
@@ -193,7 +240,7 @@ func newOnProfileByDedicatedIP(
 ) (f func(_ context.Context, localIP netip.Addr) (p *agd.Profile, d *agd.Device, err error)) {
 	return func(_ context.Context, localIP netip.Addr) (p *agd.Profile, d *agd.Device, err error) {
 		if localIP == wantLocalIP {
-			return profNormal, devNormal, nil
+			return testProfNormal, testDevNormal, nil
 		}
 
 		return nil, nil, profiledb.ErrDeviceNotFound
@@ -208,7 +255,7 @@ func newOnProfileByDeviceID(
 ) (f func(_ context.Context, devID agd.DeviceID) (p *agd.Profile, d *agd.Device, err error)) {
 	return func(_ context.Context, devID agd.DeviceID) (p *agd.Profile, d *agd.Device, err error) {
 		if devID == wantDevID {
-			return profNormal, devNormal, nil
+			return testProfNormal, testDevNormal, nil
 		}
 
 		return nil, nil, profiledb.ErrDeviceNotFound
@@ -234,10 +281,33 @@ func newOnProfileByHumanID(
 		humanID agd.HumanIDLower,
 	) (p *agd.Profile, d *agd.Device, err error) {
 		if id == wantProfID && humanID == wantHumanID {
-			return profNormal, devAuto, nil
+			return testProfNormal, testDevAuto, nil
 		}
 
 		return nil, nil, profiledb.ErrDeviceNotFound
+	}
+}
+
+// newOnProfileByID returns a function with the type of
+// [agdtest.ProfileDB.OnProfileByID] that returns p only when id is equal to the
+// given one.
+func newOnProfileByID(
+	wantProfID agd.ProfileID,
+) (
+	f func(
+		_ context.Context,
+		id agd.ProfileID,
+	) (p *agd.Profile, err error),
+) {
+	return func(
+		_ context.Context,
+		id agd.ProfileID,
+	) (p *agd.Profile, err error) {
+		if id == wantProfID {
+			return testProfNormal, nil
+		}
+
+		return nil, profiledb.ErrProfileNotFound
 	}
 }
 
@@ -249,7 +319,7 @@ func newOnProfileByLinkedIP(
 ) (f func(_ context.Context, remoteIP netip.Addr) (p *agd.Profile, d *agd.Device, err error)) {
 	return func(_ context.Context, remoteIP netip.Addr) (p *agd.Profile, d *agd.Device, err error) {
 		if remoteIP == wantRemoteIP {
-			return profNormal, devNormal, nil
+			return testProfNormal, testDevNormal, nil
 		}
 
 		return nil, nil, profiledb.ErrDeviceNotFound
@@ -320,14 +390,14 @@ func BenchmarkDefault(b *testing.B) {
 			_ context.Context,
 			_ netip.Addr,
 		) (p *agd.Profile, d *agd.Device, err error) {
-			return profNormal, devNormal, nil
+			return testProfNormal, testDevNormal, nil
 		},
 
 		OnProfileByDeviceID: func(
 			_ context.Context,
 			_ agd.DeviceID,
 		) (p *agd.Profile, d *agd.Device, err error) {
-			return profNormal, devNormal, nil
+			return testProfNormal, testDevNormal, nil
 		},
 
 		OnProfileByHumanID: func(
@@ -335,14 +405,14 @@ func BenchmarkDefault(b *testing.B) {
 			_ agd.ProfileID,
 			_ agd.HumanIDLower,
 		) (p *agd.Profile, d *agd.Device, err error) {
-			return profNormal, devNormal, nil
+			return testProfNormal, testDevNormal, nil
 		},
 
 		OnProfileByLinkedIP: func(
 			_ context.Context,
 			_ netip.Addr,
 		) (p *agd.Profile, d *agd.Device, err error) {
-			return profNormal, devNormal, nil
+			return testProfNormal, testDevNormal, nil
 		},
 	}
 
@@ -447,11 +517,11 @@ func BenchmarkDefault(b *testing.B) {
 	//	goos: darwin
 	//	goarch: arm64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/devicefinder
-	//	cpu: Apple M1 Pro
-	//	BenchmarkDefault/dot-8         	 6804558	       164.8 ns/op	      32 B/op	       2 allocs/op
-	//	BenchmarkDefault/doh_domain-8  	 5155173	       233.5 ns/op	      80 B/op	       4 allocs/op
-	//	BenchmarkDefault/doh_path-8    	 6002018	       197.6 ns/op	      96 B/op	       4 allocs/op
-	//	BenchmarkDefault/dns_edns-8    	12959406	        91.83 ns/op	      40 B/op	       3 allocs/op
-	//	BenchmarkDefault/dns_laddr-8   	26600607	        44.65 ns/op	      16 B/op	       1 allocs/op
-	//	BenchmarkDefault/dns_raddr-8   	28741998	        42.14 ns/op	      16 B/op	       1 allocs/op
+	//	cpu: Apple M4 Pro
+	//	BenchmarkDefault/dot-14         	10459483	        97.02 ns/op	      32 B/op	       2 allocs/op
+	//	BenchmarkDefault/doh_domain-14  	 8476426	       137.6 ns/op	      80 B/op	       4 allocs/op
+	//	BenchmarkDefault/doh_path-14    	10407285	       115.0 ns/op	      96 B/op	       4 allocs/op
+	//	BenchmarkDefault/dns_edns-14    	20500117	        59.30 ns/op	      40 B/op	       3 allocs/op
+	//	BenchmarkDefault/dns_laddr-14   	38525283	        31.96 ns/op	      16 B/op	       1 allocs/op
+	//	BenchmarkDefault/dns_raddr-14   	40452277	        29.88 ns/op	      16 B/op	       1 allocs/op
 }

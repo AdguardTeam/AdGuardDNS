@@ -80,6 +80,14 @@ func (idx *connIndex) addListener(l *chanListener) (err error) {
 	return nil
 }
 
+// delListener removes the channel listener from the index.  lsnr must not be
+// nil.
+func (idx *connIndex) delListener(lsnr *chanListener) {
+	idx.listeners = slices.DeleteFunc(idx.listeners, func(l *chanListener) (ok bool) {
+		return l == lsnr
+	})
+}
+
 // packetConn returns a channel packet connection which accepts connections to
 // local address laddr or nil if there is no such channel
 func (idx *connIndex) packetConn(laddr netip.Addr) (c *chanPacketConn) {

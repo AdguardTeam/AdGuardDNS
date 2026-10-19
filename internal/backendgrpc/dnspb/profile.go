@@ -62,6 +62,12 @@ func (x *DNSProfile) ToInternal(
 	respSzEst datasize.ByteSize,
 	isFullSync bool,
 ) (res *ProfileResult, err error) {
+	defer func() {
+		if id := x.GetDnsId(); id != "" {
+			err = errors.Annotate(err, "profile %q: %w", id)
+		}
+	}()
+
 	res = &ProfileResult{}
 	if x == nil {
 		return res, errors.ErrNoValue
@@ -92,6 +98,11 @@ func (x *DNSProfile) ToInternal(
 	p.AccountID, err = agd.NewAccountID(x.AccountIdInt)
 	if err != nil {
 		return res, fmt.Errorf("account id: %w", err)
+	}
+
+	p.AccountIPConfig, err = x.AccountIp.toInternal(ctx, l, errColl, bindSet)
+	if err != nil {
+		return res, fmt.Errorf("account ip config: %w", err)
 	}
 
 	x.set(ctx, l, clock, p, cons, deviceIDs, respSzEst, errColl)
@@ -558,45 +569,185 @@ func (x *ScheduleSettings) toInternal() (c *filter.ConfigSchedule, err error) {
 		return nil, nil
 	}
 
-	c = &filter.ConfigSchedule{
-		Week: &filter.WeeklySchedule{},
-	}
-
+	c = &filter.ConfigSchedule{}
 	c.TimeZone, err = agdtime.LoadLocation(x.Tmz)
 	if err != nil {
 		return nil, fmt.Errorf("loading timezone: %w", err)
 	}
 
-	w := x.WeeklyRange
-	err = validate.NotNil("weekly_range", w)
+	c.Week, err = x.WeeklyRanges.toInternal()
 	if err != nil {
 		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
 	}
 
-	days := []*DayRange{w.Sun, w.Mon, w.Tue, w.Wed, w.Thu, w.Fri, w.Sat}
+	if c.Week != nil {
+		return c, nil
+	}
+
+	err = validate.NotNil("weekly_range", x.WeeklyRange)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return nil, err
+	}
+
+	c.Week, err = x.WeeklyRange.toInternal()
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return nil, err
+	}
+
+	return c, nil
+}
+
+// toInternal converts a protobuf week schedule structure to an internal one.
+// If x is nil, toInternal returns nil.
+//
+// NOTE: Unlike [WeeklyRanges], this function does not support multiple
+// intervals per day.
+//
+// TODO(f.setrakov): Remove, after migration to [WeeklyRanges] is complete.
+func (x *WeeklyRange) toInternal() (res *filter.WeeklySchedule, err error) {
+	res = &filter.WeeklySchedule{}
+	days := []*DayRange{x.Sun, x.Mon, x.Tue, x.Wed, x.Thu, x.Fri, x.Sat}
 	for i, d := range days {
-		if d == nil {
+		var ivl *filter.DayInterval
+		ivl, err = d.toInternal()
+		if err != nil {
+			return nil, fmt.Errorf("weekday %s: interval: %w", time.Weekday(i), err)
+		}
+
+		if ivl == nil {
 			continue
 		}
 
-		ivl := &filter.DayInterval{
-			Start: uint16(d.Start.AsDuration().Minutes()),
-			End:   uint16(d.End.AsDuration().Minutes() + 1),
-		}
-
-		// TODO(m.kazantsev):  Support multiple intervals per day.
 		ivls := filter.DayIntervals{ivl}
 
 		err = ivls.Validate()
 		if err != nil {
+			return nil, fmt.Errorf("weekday %s: intervals: %w", time.Weekday(i), err)
+		}
+
+		res[i] = ivls
+	}
+
+	return res, nil
+}
+
+// toInternal converts a protobuf week schedule structure to an internal one.
+// If x is nil, toInternal returns nil.
+//
+// NOTE: Unlike [WeeklyRange] this function supports multiple intervals per day.
+func (x *WeeklyRanges) toInternal() (res *filter.WeeklySchedule, err error) {
+	if x == nil {
+		return nil, nil
+	}
+
+	week := &filter.WeeklySchedule{}
+	days := [][]*DayRange{x.Sun, x.Mon, x.Tue, x.Wed, x.Thu, x.Fri, x.Sat}
+	for i, d := range days {
+		var ivls filter.DayIntervals
+		ivls, err = dayRangesToInternal(d)
+		if err != nil {
 			return nil, fmt.Errorf("weekday %s: %w", time.Weekday(i), err)
 		}
 
-		c.Week[i] = ivls
+		week[i] = ivls
 	}
 
-	return c, nil
+	return week, nil
+}
+
+// dayRangesToInternal converts a slice of protobuf schedule intervals to a
+// slice of internal ones.  If pbIvls is nil, dayRangesToInternal returns nil.
+func dayRangesToInternal(pbIvls []*DayRange) (ivls filter.DayIntervals, err error) {
+	if pbIvls == nil {
+		return nil, nil
+	}
+
+	ivls = make(filter.DayIntervals, 0, len(pbIvls))
+	for i, pbIvl := range pbIvls {
+		var ivl *filter.DayInterval
+		ivl, err = pbIvl.toInternal()
+		if err != nil {
+			return nil, fmt.Errorf("converting interval: at index %d: %w", i, err)
+		}
+
+		if ivl == nil {
+			continue
+		}
+
+		ivls = append(ivls, ivl)
+	}
+
+	err = ivls.Validate()
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return nil, err
+	}
+
+	return ivls, nil
+}
+
+// toInternal converts a protobuf time interval structure to an internal one.
+// If x is nil, toInternal returns nil.
+func (x *DayRange) toInternal() (ivl *filter.DayInterval, err error) {
+	if x == nil {
+		return nil, nil
+	}
+
+	err = x.validate()
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return nil, err
+	}
+
+	startDur := x.Start.AsDuration()
+	endDur := x.End.AsDuration()
+
+	ivl = &filter.DayInterval{
+		Start: uint16(startDur.Minutes()),
+		End:   uint16(endDur.Minutes()) + 1,
+	}
+
+	err = ivl.Validate()
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return nil, err
+	}
+
+	return ivl, nil
+}
+
+// maxDayRangeDur is the maximum valid DayRange duration: 23:59:59.
+const maxDayRangeDur = 23*time.Hour + 59*time.Minute + 59*time.Second
+
+// validate returns whether the DayRange is valid.
+func (x *DayRange) validate() (err error) {
+	startDur := x.Start.AsDuration()
+	err = validate.InRange("start_duration", startDur, 0, maxDayRangeDur)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return err
+	}
+
+	endDur := x.End.AsDuration()
+	err = validate.InRange("end_duration", endDur, 0, maxDayRangeDur)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return err
+	}
+
+	if endDur < startDur {
+		return fmt.Errorf(
+			"end: %w: %s is less than start %s",
+			errors.ErrOutOfRange,
+			endDur,
+			startDur,
+		)
+	}
+
+	return nil
 }
 
 // toInternal converts protobuf custom-domain settings to an internal structure.
@@ -720,6 +871,96 @@ func (x *RateLimitSettings) toInternal(
 		RPS:           x.Rps,
 		Enabled:       x.Enabled,
 	}, respSzEst, clock)
+}
+
+// toInternal converts protobuf account IP settings to an internal structure.
+// if x is nil, it returns empty config.  l, errColl and bindSet must not be
+// nil.
+func (x *AccountIPSettings) toInternal(
+	ctx context.Context,
+	l *slog.Logger,
+	errColl errcoll.Interface,
+	bindSet netutil.SubnetSet,
+) (c *agd.AccountIPConfig, err error) {
+	if x == nil {
+		return &agd.AccountIPConfig{}, nil
+	}
+
+	c = &agd.AccountIPConfig{
+		Enabled: x.Enabled,
+	}
+
+	c.IPs, err = accountIPSettingsToInternal(ctx, l, x.Ips, errColl, bindSet)
+	if err != nil {
+		return nil, fmt.Errorf("account ip settings: %w", err)
+	}
+
+	return c, nil
+}
+
+// accountIPSettingsToInternal converts a slice of protobuf account IP settings
+// to a slice of internal structures.  If empty or nil slice is given, it
+// returns nil.  l, errColl and bindSet must not be nil.
+func accountIPSettingsToInternal(
+	ctx context.Context,
+	l *slog.Logger,
+	pbIPs []*AccountIPSettings_IP,
+	errColl errcoll.Interface,
+	bindSet netutil.SubnetSet,
+) (ips []*agd.AccountIP, err error) {
+	if len(pbIPs) == 0 {
+		return nil, nil
+	}
+
+	ips = make([]*agd.AccountIP, 0, len(pbIPs))
+	for i, pbIP := range pbIPs {
+		if pbIP == nil {
+			continue
+		}
+
+		var ip *agd.AccountIP
+		ip, err = pbIP.toInternal(ctx, l, errColl, bindSet)
+		if err != nil {
+			return nil, fmt.Errorf("account ip: at index %d: %w", i, err)
+		}
+
+		ips = append(ips, ip)
+	}
+
+	return ips, nil
+}
+
+// toInternal converts protobuf account IP structure to internal one.  All
+// arguments must not be nil.
+func (x *AccountIPSettings_IP) toInternal(
+	ctx context.Context,
+	l *slog.Logger,
+	errColl errcoll.Interface,
+	bindSet netutil.SubnetSet,
+) (ip *agd.AccountIP, err error) {
+	if x.Domain == nil {
+		return nil, fmt.Errorf("domain settings: %w", errors.ErrNoValue)
+	}
+
+	var addr netip.Addr
+	err = addr.UnmarshalBinary(x.Ip)
+	if err != nil {
+		return nil, fmt.Errorf("ip: %w", err)
+	}
+
+	if !addr.IsValid() {
+		return nil, fmt.Errorf("ip: invalid ip address")
+	}
+
+	if !bindSet.Contains(addr) {
+		return nil, fmt.Errorf("ip: %q is not in bind data", addr)
+	}
+
+	return &agd.AccountIP{
+		Address: addr,
+		Domains: customDomainsToInternal(ctx, l, x.Domain.Domains, errColl),
+		Enabled: x.Enabled,
+	}, nil
 }
 
 // set assigns p's fields that can be assigned relatively easily.  l, clock, p,

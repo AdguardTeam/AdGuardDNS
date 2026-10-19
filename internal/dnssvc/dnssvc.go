@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
 	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
@@ -128,7 +129,8 @@ func newServers(
 	return servers, nil
 }
 
-// newListeners creates a slice of listeners for a server.
+// newListeners creates a slice of listeners for a server.  All arguments must
+// not be nil.  c must be valid.
 func newListeners(
 	c *Config,
 	srv *agd.Server,
@@ -136,19 +138,14 @@ func newListeners(
 	errCollListener *errCollMetricsListener,
 	newListener NewListenerFunc,
 ) (listeners []*listener, err error) {
-	bindData := srv.BindData()
-	listeners = make([]*listener, 0, len(bindData))
-	for i, bindData := range bindData {
-		var addr string
-		if bindData.PrefixAddr == nil {
-			addr = bindData.AddrPort.String()
-		} else {
-			addr = bindData.PrefixAddr.String()
-		}
-
+	bindConfigs := srv.BindConfigs()
+	listeners = make([]*listener, 0, len(bindConfigs))
+	for i, bindConfig := range bindConfigs {
+		addr := bindConfig.Addr.String()
 		proto := srv.Protocol
 
 		name := listenerName(srv.Name, addr, proto)
+
 		baseConf := &dnsserver.ConfigBase{
 			// TODO(a.garipov):  Consider making servers add the address instead
 			// of module users doing that.  Including the correct handling of
@@ -163,9 +160,10 @@ func newListeners(
 			Disposer:                c.Cloner,
 			Handler:                 handler,
 			ListenConfig: newListenConfig(
-				bindData.ListenConfig,
+				bindConfig.ListenConfig,
 				c.ControlConf,
 				c.ConnLimiter,
+				addr,
 				proto,
 			),
 			MessageTap:     c.MessageTap,
@@ -180,9 +178,9 @@ func newListeners(
 			name: name,
 		}
 
-		l.Listener, err = newListener(srv, baseConf, c.NonDNS)
+		l.Listener, err = newListener(srv, baseConf, c.NonDNS, bindConfig)
 		if err != nil {
-			return nil, fmt.Errorf("bind data at index %d: %w", i, err)
+			return nil, fmt.Errorf("bind config at index %d: %w", i, err)
 		}
 
 		listeners = append(listeners, l)
@@ -196,23 +194,22 @@ func listenerName(srvName agd.ServerName, addr string, proto agd.Protocol) (name
 	return fmt.Sprintf("%s/%s/%s", srvName, proto, addr)
 }
 
-// newListenConfig returns the netext.ListenConfig used by the plain-DNS
-// servers.  The resulting ListenConfig sets additional socket flags and
-// processes the control messages of connections created with ListenPacket.
-// Additionally, if l is not nil, it is used to limit the number of
-// simultaneously active stream-connections.
+// newListenConfig returns the netext.ListenConfig used by DNS servers.  The
+// resulting ListenConfig sets additional socket flags and processes the control
+// messages of connections created with ListenPacket.  Additionally, if l is not
+// nil, it may be used to limit the number of simultaneously active
+// stream-connections.
 func newListenConfig(
 	original netext.ListenConfig,
 	ctrlConf *netext.ControlConfig,
 	l *connlimiter.Limiter,
+	addr string,
 	p agd.Protocol,
 ) (lc netext.ListenConfig) {
 	if original != nil {
-		if l == nil {
-			return original
-		}
-
-		return connlimiter.NewListenConfig(original, l)
+		// Assume that an existing original config is a bindtodevice one that
+		// already has the connection-limiting logic in it.
+		return original
 	}
 
 	if p == agd.ProtoDNS {
@@ -222,7 +219,7 @@ func newListenConfig(
 	}
 
 	if l != nil {
-		lc = connlimiter.NewListenConfig(lc, l)
+		lc = connlimiter.NewListenConfig(lc, l, addr)
 	}
 
 	return lc
@@ -333,13 +330,16 @@ func (svc *Service) Handle(
 }
 
 // NewListener returns a new Listener.  It is the default DNS listener
-// constructor.
+// constructor.  s and baseConf must not be nil, nonDNS must not be nil if
+// s.Protocol is [agd.ProtoDoH], bindConfig must not be nil if s.Protocol is
+// [agd.ProtoDoH], [agd.ProtoDoT] or [agd.ProtoDoQ].
 //
 // TODO(a.garipov):  Replace this in tests with [netext.ListenConfig].
 func NewListener(
 	s *agd.Server,
 	baseConf *dnsserver.ConfigBase,
 	nonDNS http.Handler,
+	bindConfig *agdnet.BindConfig,
 ) (l Listener, err error) {
 	defer func() { err = errors.Annotate(err, "listener %q: %w", baseConf.Name) }()
 
@@ -365,22 +365,25 @@ func NewListener(
 			ResolverCert: dcConf.Cert,
 		})
 	case agd.ProtoDoH:
+		tlsDefault, tlsH3 := agdnet.TLSConfigFromBindConfig(bindConfig.TLS)
 		l = dnsserver.NewServerHTTPS(&dnsserver.ConfigHTTPS{
 			Base:              baseConf,
-			TLSConfDefault:    s.TLS.Default,
-			TLSConfH3:         s.TLS.H3,
+			TLSConfDefault:    tlsDefault,
+			TLSConfH3:         tlsH3,
 			NonDNSHandler:     nonDNS,
 			MaxStreamsPerPeer: quicConf.MaxStreamsPerPeer,
 			QUICLimitsEnabled: quicConf.QUICLimitsEnabled,
 		})
 	case agd.ProtoDoQ:
+		tlsConfig, _ := agdnet.TLSConfigFromBindConfig(bindConfig.TLS)
 		l = dnsserver.NewServerQUIC(&dnsserver.ConfigQUIC{
-			TLSConfig:         s.TLS.Default,
+			TLSConfig:         tlsConfig,
 			Base:              baseConf,
 			MaxStreamsPerPeer: quicConf.MaxStreamsPerPeer,
 			QUICLimitsEnabled: quicConf.QUICLimitsEnabled,
 		})
 	case agd.ProtoDoT:
+		tlsConfig, _ := agdnet.TLSConfigFromBindConfig(bindConfig.TLS)
 		l = dnsserver.NewServerTLS(&dnsserver.ConfigTLS{
 			DNS: &dnsserver.ConfigDNS{
 				Base:               baseConf,
@@ -390,7 +393,7 @@ func NewListener(
 				MaxPipelineCount:   tcpConf.MaxPipelineCount,
 				TCPIdleTimeout:     tcpConf.IdleTimeout,
 			},
-			TLSConfig: s.TLS.Default,
+			TLSConfig: tlsConfig,
 		})
 	default:
 		return nil, fmt.Errorf("protocol: %w: %d", errors.ErrBadEnumValue, p)

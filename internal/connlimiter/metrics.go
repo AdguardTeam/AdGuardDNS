@@ -38,15 +38,12 @@ type Metrics interface {
 // NOTE:  This is an alias to reduce the amount of dependencies required of
 // implementations.  This is also the reason why only built-in or stdlib types
 // are used.
+//
+// TODO(a.garipov):  Consider adding more properties.
 type ConnMetricsData = struct {
-	// Addr is the address that the server is configured to listen on.
+	// Addr is the address that the server is configured to listen on or a
+	// comparable unit of information for metrics.
 	Addr string
-
-	// Name is the name of the server.
-	Name string
-
-	// Proto is the protocol of the server.
-	Proto string
 }
 
 // EmptyMetrics is the implementation of the [Metrics] interface that does

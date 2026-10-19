@@ -1,7 +1,3 @@
-// NOTE: Keep in sync with the filecachepb/filecache.proto
-//
-// TODO(f.setrakov): Remove filecachepb/filecache.proto when migration to opaque
-// api will be finished.
 syntax = "proto3";
 
 package fcpb;
@@ -17,6 +13,8 @@ message FileCache {
 }
 
 message Profile {
+  AccountIPSettings account_ips = 31;
+
   AccountCustomDomains custom_domains = 20;
 
   FilterConfig filter_config = 1;
@@ -215,3 +213,19 @@ message Ratelimiter {
   uint32 rps = 2;
   bool enabled = 3;
 }
+
+message AccountIPSettings {
+  message DomainSettings {
+    repeated CustomDomainConfig domains = 1;
+  }
+
+  message IP {
+    DomainSettings domain = 1;
+    bytes ip = 2;
+    bool enabled = 3;
+  }
+
+  repeated IP ips = 1;
+  bool enabled = 2;
+}
+

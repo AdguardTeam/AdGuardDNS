@@ -5,9 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/testutil"
@@ -20,11 +18,9 @@ import (
 // testTimeout is the common timeout for tests.
 const testTimeout = 1 * time.Second
 
-// testServerInfo is the common server information for tests.
-var testServerInfo = &dnsserver.ServerInfo{
-	Name:  "test_server",
-	Addr:  "127.0.0.1:0",
-	Proto: agd.ProtoDoT,
+// testMtrcInfo is the common metrics information for tests.
+var testMtrcInfo = &connlimiter.ConnMetricsData{
+	Addr: "127.0.0.1:0",
 }
 
 func TestLimiter(t *testing.T) {
@@ -64,7 +60,7 @@ func TestLimiter(t *testing.T) {
 		OnClose: func() (err error) { return nil },
 	}
 
-	limited := l.Limit(lsnr, testServerInfo)
+	limited := l.Limit(lsnr, testMtrcInfo)
 
 	// Accept one connection.
 	gotConn, err := limited.Accept()

@@ -19,6 +19,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/AdguardTeam/golibs/testutil/faketime"
@@ -27,14 +28,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testProfileID is the common profile ID for tests.
-const testProfileID agd.ProfileID = "prof1234"
+const (
+	// testAccountID is the common account ID for tests.
+	testAccountID agd.AccountID = 123
 
-// testWellKnownPath is the well-known certificate validation path for tests.
-const testWellKnownPath = "/.well-known/pki-validation/abcd1234"
+	// testWellKnownPath is the well-known certificate validation path for tests.
+	testWellKnownPath = "/.well-known/pki-validation/abcd1234"
 
-// testRetryIvl is the retry interval for tests.
-const testRetryIvl = 1 * time.Minute
+	testAccountIPDomain = "account.ip.example"
+
+	// testRetryIvl is the retry interval for tests.
+	testRetryIvl = 1 * time.Minute
+)
+
+// testAccountIP is a common account IP value for tests.
+var testAccountIP = netip.MustParseAddr("192.0.2.0")
 
 // Domains for tests.
 const (
@@ -109,7 +117,7 @@ func newCustomDomainDB(
 	c.Logger = cmp.Or(c.Logger, testLogger)
 
 	c.Clock = cmp.Or[timeutil.Clock](c.Clock, timeutil.SystemClock{})
-	c.ErrColl = cmp.Or[errcoll.Interface](c.ErrColl, agdtest.NewErrorCollector())
+	c.ErrColl = cmp.Or[errcoll.Interface](c.ErrColl, testErrColl)
 	c.Manager = cmp.Or[tlsconfig.Manager](c.Manager, tlsconfig.EmptyManager{})
 	c.Metrics = cmp.Or[tlsconfig.CustomDomainDBMetrics](
 		c.Metrics,
@@ -140,7 +148,7 @@ func TestCustomDomainDB_IsValidWellKnownRequest(t *testing.T) {
 
 	require.True(t, t.Run("initial", func(t *testing.T) {
 		ctx := testutil.ContextWithTimeout(t, testTimeout)
-		ok := db.IsValidWellKnownRequest(ctx, httpReq)
+		ok := db.IsValidWellKnownRequest(ctx, httpReq, netip.Addr{})
 		assert.False(t, ok)
 	}))
 
@@ -154,7 +162,7 @@ func TestCustomDomainDB_IsValidWellKnownRequest(t *testing.T) {
 		db.SetWellKnownPath(ctx, s)
 
 		ctx = testutil.ContextWithTimeout(t, testTimeout)
-		ok := db.IsValidWellKnownRequest(ctx, httpReq)
+		ok := db.IsValidWellKnownRequest(ctx, httpReq, netip.Addr{})
 		assert.True(t, ok)
 
 		// Now expire it.
@@ -167,7 +175,7 @@ func TestCustomDomainDB_IsValidWellKnownRequest(t *testing.T) {
 		db.SetWellKnownPath(ctx, s)
 
 		ctx = testutil.ContextWithTimeout(t, testTimeout)
-		ok = db.IsValidWellKnownRequest(ctx, httpReq)
+		ok = db.IsValidWellKnownRequest(ctx, httpReq, netip.Addr{})
 		assert.False(t, ok)
 	}))
 
@@ -181,7 +189,7 @@ func TestCustomDomainDB_IsValidWellKnownRequest(t *testing.T) {
 		db.SetWellKnownPath(ctx, s)
 
 		ctx = testutil.ContextWithTimeout(t, testTimeout)
-		ok := db.IsValidWellKnownRequest(ctx, httpReq)
+		ok := db.IsValidWellKnownRequest(ctx, httpReq, netip.Addr{})
 		require.True(t, ok)
 
 		ctx = testutil.ContextWithTimeout(t, testTimeout)
@@ -189,7 +197,7 @@ func TestCustomDomainDB_IsValidWellKnownRequest(t *testing.T) {
 		postReq.Method = http.MethodPost
 
 		ctx = testutil.ContextWithTimeout(t, testTimeout)
-		ok = db.IsValidWellKnownRequest(ctx, postReq)
+		ok = db.IsValidWellKnownRequest(ctx, postReq, netip.Addr{})
 		assert.False(t, ok)
 
 		ctx = testutil.ContextWithTimeout(t, testTimeout)
@@ -197,7 +205,7 @@ func TestCustomDomainDB_IsValidWellKnownRequest(t *testing.T) {
 		tlsReq.TLS = &tls.ConnectionState{}
 
 		ctx = testutil.ContextWithTimeout(t, testTimeout)
-		ok = db.IsValidWellKnownRequest(ctx, tlsReq)
+		ok = db.IsValidWellKnownRequest(ctx, tlsReq, netip.Addr{})
 		assert.False(t, ok)
 	}))
 
@@ -211,7 +219,7 @@ func TestCustomDomainDB_IsValidWellKnownRequest(t *testing.T) {
 		db.SetWellKnownPath(ctx, s)
 
 		ctx = testutil.ContextWithTimeout(t, testTimeout)
-		ok := db.IsValidWellKnownRequest(ctx, httpReq)
+		ok := db.IsValidWellKnownRequest(ctx, httpReq, netip.Addr{})
 		require.True(t, ok)
 
 		// Now delete all.
@@ -219,9 +227,59 @@ func TestCustomDomainDB_IsValidWellKnownRequest(t *testing.T) {
 		db.DeleteAllWellKnownPaths(ctx)
 
 		ctx = testutil.ContextWithTimeout(t, testTimeout)
-		ok = db.IsValidWellKnownRequest(ctx, httpReq)
+		ok = db.IsValidWellKnownRequest(ctx, httpReq, netip.Addr{})
 		assert.False(t, ok)
 	}))
+}
+
+func TestCustomDomainDB_IsValidWellKnownRequest_accountIP(t *testing.T) {
+	t.Parallel()
+
+	clock := &faketime.Clock{
+		OnNow: func() (now time.Time) { return testTimeNow },
+	}
+
+	db := newCustomDomainDB(t, &tlsconfig.CustomDomainDBConfig{
+		Clock: clock,
+	})
+
+	accountIPs := []*agd.AccountIP{{
+		Enabled: true,
+		Address: testAccountIP,
+		Domains: []*agd.CustomDomainConfig{{
+			State: &agd.CustomDomainStatePending{
+				Expire:        testTimeNow.Add(1 * time.Hour),
+				WellKnownPath: testWellKnownPath,
+			},
+			Domains: []string{testAccountIPDomain},
+		}},
+	}}
+
+	addCtx := testutil.ContextWithTimeout(t, testTimeout)
+	db.AddAccountIPCertificates(addCtx, testAccountID, accountIPs)
+
+	t.Run("matching_laddr", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := testutil.ContextWithTimeout(t, testTimeout)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, testWellKnownPath, nil)
+		require.NoError(t, err)
+
+		got := db.IsValidWellKnownRequest(ctx, req, testAccountIP)
+		require.True(t, got)
+	})
+
+	t.Run("not_matching_laddr", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := testutil.ContextWithTimeout(t, testTimeout)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, testWellKnownPath, nil)
+		require.NoError(t, err)
+
+		addr := netip.MustParseAddr("192.0.2.1")
+		got := db.IsValidWellKnownRequest(ctx, req, addr)
+		require.False(t, got)
+	})
 }
 
 func TestCustomDomainDB_IsValidWellKnownRequest_expiredLater(t *testing.T) {
@@ -260,12 +318,12 @@ func TestCustomDomainDB_IsValidWellKnownRequest_expiredLater(t *testing.T) {
 
 	nowCh <- nowEarlier
 	ctx = testutil.ContextWithTimeout(t, testTimeout)
-	ok := db.IsValidWellKnownRequest(ctx, httpReq)
+	ok := db.IsValidWellKnownRequest(ctx, httpReq, netip.Addr{})
 	require.True(t, ok)
 
 	nowCh <- nowLater
 	ctx = testutil.ContextWithTimeout(t, testTimeout)
-	ok = db.IsValidWellKnownRequest(ctx, httpReq)
+	ok = db.IsValidWellKnownRequest(ctx, httpReq, netip.Addr{})
 	assert.False(t, ok)
 }
 
@@ -304,9 +362,9 @@ func TestCustomDomainDB_AddCertificate(t *testing.T) {
 			})
 
 			ctx := testutil.ContextWithTimeout(t, testTimeout)
-			db.AddCertificate(ctx, testProfileID, testDomains, tc.state)
+			db.AddCertificate(ctx, testAccountID, testDomains, tc.state)
 
-			assertCustomDomainMatch(t, db, testDomain, tc.wantMatch)
+			assertCustomDomainMatch(t, db, testDomain, netip.Addr{}, tc.wantMatch)
 		})
 	}
 }
@@ -317,18 +375,84 @@ func assertCustomDomainMatch(
 	tb testing.TB,
 	db *tlsconfig.CustomDomainDB,
 	cliSrvName string,
+	wantAccIP netip.Addr,
 	wantMatch bool,
 ) {
 	tb.Helper()
 
 	ctx := testutil.ContextWithTimeout(tb, testTimeout)
-	matched, profIDs := db.Match(ctx, cliSrvName)
+	matched, accID, accIP := db.Match(ctx, cliSrvName)
 	if wantMatch {
-		assert.Equal(tb, testDomain, matched)
-		assert.Contains(tb, profIDs, testProfileID)
+		assert.Equal(tb, cliSrvName, matched)
+		assert.Equal(tb, testAccountID, accID)
+		assert.Equal(tb, wantAccIP, accIP)
 	} else {
 		assert.Empty(tb, matched)
-		assert.Nil(tb, profIDs)
+		assert.Zero(tb, accID)
+		assert.Zero(tb, accIP)
+	}
+}
+
+func TestCustomDomainDB_AddAccountIPCertificates(t *testing.T) {
+	t.Parallel()
+
+	clock := &faketime.Clock{
+		OnNow: func() (now time.Time) { return testTimeNow },
+	}
+
+	testCases := []struct {
+		ip        *agd.AccountIP
+		name      string
+		wantMatch bool
+	}{{
+		ip: &agd.AccountIP{
+			Address: testAccountIP,
+			Enabled: true,
+			Domains: []*agd.CustomDomainConfig{{
+				State:   testStateOK,
+				Domains: testDomains,
+			}},
+		},
+		name:      "good",
+		wantMatch: true,
+	}, {
+		ip: &agd.AccountIP{
+			Address: testAccountIP,
+			Enabled: true,
+			Domains: []*agd.CustomDomainConfig{{
+				State:   testStateExpired,
+				Domains: testDomains,
+			}},
+		},
+		name:      "expired",
+		wantMatch: false,
+	}, {
+		ip: &agd.AccountIP{
+			Address: testAccountIP,
+			Enabled: false,
+			Domains: []*agd.CustomDomainConfig{{
+				State:   testStateOK,
+				Domains: testDomains,
+			}},
+		},
+		name:      "disabled",
+		wantMatch: false,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := newCustomDomainDB(t, &tlsconfig.CustomDomainDBConfig{
+				Clock:        clock,
+				BindPrefixes: testBindPrefixes,
+			})
+
+			ctx := testutil.ContextWithTimeout(t, testTimeout)
+			db.AddAccountIPCertificates(ctx, testAccountID, []*agd.AccountIP{tc.ip})
+
+			assertCustomDomainMatch(t, db, testDomain, testAccountIP, tc.wantMatch)
+		})
 	}
 }
 
@@ -347,12 +471,12 @@ func TestCustomDomainDB_AddCertificate_specialCases(t *testing.T) {
 		})
 
 		ctx := testutil.ContextWithTimeout(t, testTimeout)
-		db.AddCertificate(ctx, testProfileID, testDomains, testStateOK)
+		db.AddCertificate(ctx, testAccountID, testDomains, testStateOK)
 
 		ctx = testutil.ContextWithTimeout(t, testTimeout)
-		db.AddCertificate(ctx, testProfileID, testDomains, testStateOK)
+		db.AddCertificate(ctx, testAccountID, testDomains, testStateOK)
 
-		assertCustomDomainMatch(t, db, testDomain, true)
+		assertCustomDomainMatch(t, db, testDomain, netip.Addr{}, true)
 	})
 
 	t.Run("disabled", func(t *testing.T) {
@@ -363,14 +487,14 @@ func TestCustomDomainDB_AddCertificate_specialCases(t *testing.T) {
 		})
 
 		ctx := testutil.ContextWithTimeout(t, testTimeout)
-		db.AddCertificate(ctx, testProfileID, testDomains, testStateOK)
+		db.AddCertificate(ctx, testAccountID, testDomains, testStateOK)
 
-		assertCustomDomainMatch(t, db, testDomain, true)
+		assertCustomDomainMatch(t, db, testDomain, netip.Addr{}, true)
 
 		ctx = testutil.ContextWithTimeout(t, testTimeout)
-		db.AddCertificate(ctx, testProfileID, testDomains, testStateDisabled)
+		db.AddCertificate(ctx, testAccountID, testDomains, testStateDisabled)
 
-		assertCustomDomainMatch(t, db, testDomain, false)
+		assertCustomDomainMatch(t, db, testDomain, netip.Addr{}, false)
 	})
 
 	t.Run("expired", func(t *testing.T) {
@@ -384,16 +508,68 @@ func TestCustomDomainDB_AddCertificate_specialCases(t *testing.T) {
 		})
 
 		ctx := testutil.ContextWithTimeout(t, testTimeout)
-		db.AddCertificate(ctx, testProfileID, testDomains, testStateExpired)
+		db.AddCertificate(ctx, testAccountID, testDomains, testStateExpired)
 
-		assertCustomDomainMatch(t, db, testDomain, true)
+		assertCustomDomainMatch(t, db, testDomain, netip.Addr{}, true)
 
 		now = testTimeNow
 
 		ctx = testutil.ContextWithTimeout(t, testTimeout)
-		db.AddCertificate(ctx, testProfileID, testDomains, testStateExpired)
+		db.AddCertificate(ctx, testAccountID, testDomains, testStateExpired)
 
-		assertCustomDomainMatch(t, db, testDomain, false)
+		assertCustomDomainMatch(t, db, testDomain, netip.Addr{}, false)
+	})
+}
+
+func TestCustomDomainDB_CertFiles(t *testing.T) {
+	t.Parallel()
+
+	clock := &faketime.Clock{
+		OnNow: func() (now time.Time) { return testTimeNow },
+	}
+
+	t.Run("empty", func(t *testing.T) {
+		t.Parallel()
+
+		db := newCustomDomainDB(t, &tlsconfig.CustomDomainDBConfig{
+			Clock: clock,
+		})
+
+		certFiles := db.CertFiles()
+		assert.NotNil(t, certFiles)
+		assert.Equal(t, 0, certFiles.Len())
+	})
+
+	t.Run("list", func(t *testing.T) {
+		t.Parallel()
+
+		const otherCertName = "other"
+
+		cacheDir := t.TempDir()
+
+		db := newCustomDomainDB(t, &tlsconfig.CustomDomainDBConfig{
+			Clock:        clock,
+			CacheDirPath: cacheDir,
+		})
+
+		ctx := testutil.ContextWithTimeout(t, testTimeout)
+		db.AddCertificate(ctx, testAccountID, testDomains, testStateOK)
+
+		ctx = testutil.ContextWithTimeout(t, testTimeout)
+		db.AddCertificate(ctx, testAccountID, testDomains, &agd.CustomDomainStateCurrent{
+			NotBefore: testTimeNow.Add(-1 * timeutil.Day),
+			NotAfter:  testTimeNow.Add(1 * timeutil.Day),
+			CertName:  otherCertName,
+			Enabled:   true,
+		})
+
+		certFiles := db.CertFiles()
+		assert.Equal(t, container.NewSortedSliceSet(
+			string(testCustomCertName)+tlsconfig.CustomDomainCertExt,
+			string(testCustomCertName)+tlsconfig.CustomDomainKeyExt,
+			string(otherCertName)+tlsconfig.CustomDomainCertExt,
+			string(otherCertName)+tlsconfig.CustomDomainKeyExt,
+		), certFiles)
 	})
 }
 
@@ -402,34 +578,58 @@ func TestCustomDomainDB_Match(t *testing.T) {
 
 	db := newCustomDomainDB(t, nil)
 
+	accountIPState := *testStateOK
+	accountIPState.CertName = agd.CertificateName(testAccountIPDomain)
+
+	accountIPs := []*agd.AccountIP{{
+		Enabled: true,
+		Address: testAccountIP,
+		Domains: []*agd.CustomDomainConfig{{
+			State:   &accountIPState,
+			Domains: []string{testAccountIPDomain},
+		}},
+	}}
+
 	addCtx := testutil.ContextWithTimeout(t, testTimeout)
-	db.AddCertificate(addCtx, testProfileID, testDomains, testStateOK)
+	db.AddCertificate(addCtx, testAccountID, testDomains, testStateOK)
+	db.AddAccountIPCertificates(addCtx, testAccountID, accountIPs)
 
 	testCases := []struct {
+		wantAccIP   netip.Addr
 		name        string
 		cliSrvName  string
 		wantMatched string
-		wantProfIDs []agd.ProfileID
+		wantAccID   agd.AccountID
 	}{{
 		name:        "match_domain",
 		cliSrvName:  testDomain,
 		wantMatched: testDomain,
-		wantProfIDs: []agd.ProfileID{testProfileID},
+		wantAccID:   testAccountID,
+		wantAccIP:   netip.Addr{},
 	}, {
 		name:        "match_wildcard",
 		cliSrvName:  testDomainWildcard,
 		wantMatched: testWildcard,
-		wantProfIDs: []agd.ProfileID{testProfileID},
+		wantAccID:   testAccountID,
+		wantAccIP:   netip.Addr{},
 	}, {
 		name:        "no_match",
 		cliSrvName:  "other.example",
 		wantMatched: "",
-		wantProfIDs: nil,
+		wantAccID:   0,
+		wantAccIP:   netip.Addr{},
 	}, {
 		name:        "no_match_wildcard_suf",
 		cliSrvName:  testDomainWildcardTop,
 		wantMatched: "",
-		wantProfIDs: nil,
+		wantAccID:   0,
+		wantAccIP:   netip.Addr{},
+	}, {
+		name:        "account_ip",
+		cliSrvName:  testAccountIPDomain,
+		wantMatched: testAccountIPDomain,
+		wantAccID:   testAccountID,
+		wantAccIP:   testAccountIP,
 	}}
 
 	for _, tc := range testCases {
@@ -437,9 +637,10 @@ func TestCustomDomainDB_Match(t *testing.T) {
 			t.Parallel()
 
 			ctx := testutil.ContextWithTimeout(t, testTimeout)
-			matched, profID := db.Match(ctx, tc.cliSrvName)
+			matched, accID, accIP := db.Match(ctx, tc.cliSrvName)
 			assert.Equal(t, tc.wantMatched, matched)
-			assert.Equal(t, tc.wantProfIDs, profID)
+			assert.Equal(t, tc.wantAccID, accID)
+			assert.Equal(t, tc.wantAccIP, accIP)
 		})
 	}
 }
@@ -455,20 +656,20 @@ func TestCustomDomainDB_Match_futureCert(t *testing.T) {
 	})
 
 	addCtx := testutil.ContextWithTimeout(t, testTimeout)
-	db.AddCertificate(addCtx, testProfileID, testDomains, testStateOK)
+	db.AddCertificate(addCtx, testAccountID, testDomains, testStateOK)
 
 	futureState := &agd.CustomDomainStateCurrent{}
 	*futureState = *testStateFuture
 	futureState.CertName = futureState.CertName + "_future"
 
 	addCtx = testutil.ContextWithTimeout(t, testTimeout)
-	db.AddCertificate(addCtx, testProfileID, testDomains, futureState)
+	db.AddCertificate(addCtx, testAccountID, testDomains, futureState)
 
-	assertCustomDomainMatch(t, db, testDomain, true)
+	assertCustomDomainMatch(t, db, testDomain, netip.Addr{}, true)
 
 	now = testTimeFuture
 
-	assertCustomDomainMatch(t, db, testDomain, true)
+	assertCustomDomainMatch(t, db, testDomain, netip.Addr{}, true)
 }
 
 // testCustomDomainStorage is the [tlsconfig.CustomDomainStorage] for tests.
@@ -611,7 +812,7 @@ func TestCustomDomainDB_Refresh(t *testing.T) {
 	}
 
 	cacheDir := t.TempDir()
-	wantCertPath, wantKeyPath := newCertAndKeyPaths(cacheDir)
+	wantCertPath, wantKeyPath := newCertAndKeyPaths(cacheDir, testCustomCertName)
 
 	mgrWithAdd := newTestManager()
 	mgrWithAdd.onAdd = func(ctx context.Context, params *tlsconfig.AddParams) (err error) {
@@ -622,7 +823,7 @@ func TestCustomDomainDB_Refresh(t *testing.T) {
 		return nil
 	}
 	mgrWithAdd.onBind = func(
-		ctx context.Context,
+		_ context.Context,
 		n agd.CertificateName,
 		p netip.Prefix,
 	) (err error) {
@@ -648,13 +849,13 @@ func TestCustomDomainDB_Refresh(t *testing.T) {
 		})
 
 		ctx := testutil.ContextWithTimeout(t, testTimeout)
-		db.AddCertificate(ctx, testProfileID, testDomains, testStateOK)
+		db.AddCertificate(ctx, testAccountID, testDomains, testStateOK)
 
 		ctx = testutil.ContextWithTimeout(t, testTimeout)
 		err := db.Refresh(ctx)
 		require.NoError(t, err)
 
-		assertCustomDomainMatch(t, db, testDomain, true)
+		assertCustomDomainMatch(t, db, testDomain, netip.Addr{}, true)
 		assertCertificatePair(t, wantCertPath, wantKeyPath)
 	}))
 
@@ -667,13 +868,13 @@ func TestCustomDomainDB_Refresh(t *testing.T) {
 		})
 
 		ctx := testutil.ContextWithTimeout(t, testTimeout)
-		db.AddCertificate(ctx, testProfileID, testDomains, testStateOK)
+		db.AddCertificate(ctx, testAccountID, testDomains, testStateOK)
 
 		ctx = testutil.ContextWithTimeout(t, testTimeout)
 		err := db.Refresh(ctx)
 		require.NoError(t, err)
 
-		assertCustomDomainMatch(t, db, testDomain, true)
+		assertCustomDomainMatch(t, db, testDomain, netip.Addr{}, true)
 		assertCertificatePair(t, wantCertPath, wantKeyPath)
 	}))
 
@@ -686,30 +887,30 @@ func TestCustomDomainDB_Refresh(t *testing.T) {
 		})
 
 		ctx := testutil.ContextWithTimeout(t, testTimeout)
-		db.AddCertificate(ctx, testProfileID, testDomains, testStateExpired)
+		db.AddCertificate(ctx, testAccountID, testDomains, testStateExpired)
 
 		ctx = testutil.ContextWithTimeout(t, testTimeout)
 		err := db.Refresh(ctx)
 		require.NoError(t, err)
 
-		assertCustomDomainMatch(t, db, testDomain, false)
+		assertCustomDomainMatch(t, db, testDomain, netip.Addr{}, false)
 		assert.NoFileExists(t, wantCertPath)
 		assert.NoFileExists(t, wantKeyPath)
 	}))
 }
 
-// newCertAndKeyPaths is a helper that returns paths for the certificate and
-// the key using the test's temporary directory.
-func newCertAndKeyPaths(cacheDir string) (certPath, keyPath string) {
-	return filepath.Join(cacheDir, string(testCustomCertName)+tlsconfig.CustomDomainCertExt),
-		filepath.Join(cacheDir, string(testCustomCertName)+tlsconfig.CustomDomainKeyExt)
+// newCertAndKeyPaths is a helper that returns paths for the certificate and the
+// key using the test's temporary directory.
+func newCertAndKeyPaths(cacheDir string, certName agd.CertificateName) (certPath, keyPath string) {
+	return filepath.Join(cacheDir, string(certName)+tlsconfig.CustomDomainCertExt),
+		filepath.Join(cacheDir, string(certName)+tlsconfig.CustomDomainKeyExt)
 }
 
 func TestCustomDomainDB_Refresh_retry(t *testing.T) {
 	t.Parallel()
 
 	cacheDir := t.TempDir()
-	wantCertPath, wantKeyPath := newCertAndKeyPaths(cacheDir)
+	wantCertPath, wantKeyPath := newCertAndKeyPaths(cacheDir, testCustomCertName)
 
 	mgr := newTestManager()
 	mgr.onAdd = func(ctx context.Context, params *tlsconfig.AddParams) (err error) {
@@ -773,7 +974,7 @@ func TestCustomDomainDB_Refresh_retry(t *testing.T) {
 		rlErr := &profiledb.RateLimitedError{}
 
 		ctx := testutil.ContextWithTimeout(t, testTimeout)
-		db.AddCertificate(ctx, testProfileID, testDomains, testStateOK)
+		db.AddCertificate(ctx, testAccountID, testDomains, testStateOK)
 
 		strgErr = rlErr
 		ctx = testutil.ContextWithTimeout(t, testTimeout)
@@ -799,13 +1000,13 @@ func TestCustomDomainDB_Refresh_retry(t *testing.T) {
 	}))
 
 	disableCtx := testutil.ContextWithTimeout(t, testTimeout)
-	db.AddCertificate(disableCtx, testProfileID, testDomains, testStateDisabled)
+	db.AddCertificate(disableCtx, testAccountID, testDomains, testStateDisabled)
 	require.NoFileExists(t, wantCertPath)
 	require.NoFileExists(t, wantKeyPath)
 
 	require.True(t, t.Run("not_found", func(t *testing.T) {
 		ctx := testutil.ContextWithTimeout(t, testTimeout)
-		db.AddCertificate(ctx, testProfileID, testDomains, testStateOK)
+		db.AddCertificate(ctx, testAccountID, testDomains, testStateOK)
 
 		shouldCall = true
 		strgErr = tlsconfig.ErrCertificateNotFound
@@ -851,13 +1052,13 @@ func TestCustomDomainDB_Refresh_stale(t *testing.T) {
 	})
 
 	ctx := testutil.ContextWithTimeout(t, testTimeout)
-	db.AddCertificate(ctx, testProfileID, testDomains, testStateOK)
+	db.AddCertificate(ctx, testAccountID, testDomains, testStateOK)
 
 	ctx = testutil.ContextWithTimeout(t, testTimeout)
 	err := db.Refresh(ctx)
 	require.NoError(t, err)
 
-	wantCertPath, wantKeyPath := newCertAndKeyPaths(cacheDir)
+	wantCertPath, wantKeyPath := newCertAndKeyPaths(cacheDir, testCustomCertName)
 	require.FileExists(t, wantCertPath)
 	require.FileExists(t, wantKeyPath)
 
@@ -875,7 +1076,7 @@ func TestCustomDomainDB_Refresh_present(t *testing.T) {
 	t.Parallel()
 
 	cacheDir := t.TempDir()
-	wantCertPath, wantKeyPath := newCertAndKeyPaths(cacheDir)
+	wantCertPath, wantKeyPath := newCertAndKeyPaths(cacheDir, testCustomCertName)
 
 	certDER, rsaKey := newCertAndKey(t, 1)
 	writeCertAndKey(t, certDER, wantCertPath, rsaKey, wantKeyPath)
@@ -899,13 +1100,13 @@ func TestCustomDomainDB_Refresh_present(t *testing.T) {
 		db := newCustomDomainDB(t, conf)
 
 		ctx := testutil.ContextWithTimeout(t, testTimeout)
-		db.AddCertificate(ctx, testProfileID, testDomains, testStateOK)
+		db.AddCertificate(ctx, testAccountID, testDomains, testStateOK)
 
 		ctx = testutil.ContextWithTimeout(t, testTimeout)
 		err := db.Refresh(ctx)
 		require.NoError(t, err)
 
-		assertCustomDomainMatch(t, db, testDomain, true)
+		assertCustomDomainMatch(t, db, testDomain, netip.Addr{}, true)
 		assertCertificatePair(t, wantCertPath, wantKeyPath)
 	}))
 
@@ -916,14 +1117,111 @@ func TestCustomDomainDB_Refresh_present(t *testing.T) {
 		db := newCustomDomainDB(t, conf)
 
 		ctx := testutil.ContextWithTimeout(t, testTimeout)
-		db.AddCertificate(ctx, testProfileID, testDomains, testStateOK)
+		db.AddCertificate(ctx, testAccountID, testDomains, testStateOK)
 
 		ctx = testutil.ContextWithTimeout(t, testTimeout)
 		err = db.Refresh(ctx)
 		require.NoError(t, err)
 
-		assertCustomDomainMatch(t, db, testDomain, true)
+		assertCustomDomainMatch(t, db, testDomain, netip.Addr{}, true)
 		assertCertificatePair(t, wantCertPath, wantKeyPath)
+	}))
+}
+
+func TestCustomDomainDB_Refresh_accountIPCertificates(t *testing.T) {
+	t.Parallel()
+
+	const accountIPCertName agd.CertificateName = "account-ip-cert"
+	var (
+		wantCertName agd.CertificateName
+		wantPrefix   netip.Prefix
+		wantCertPath string
+		wantKeyPath  string
+	)
+	mgr := newTestManager()
+	mgr.onAdd = func(ctx context.Context, params *tlsconfig.AddParams) (err error) {
+		assert.Equal(t, wantCertPath, params.CertPath)
+		assert.Equal(t, wantKeyPath, params.KeyPath)
+		assert.True(t, params.IsCustom)
+
+		return nil
+	}
+	mgr.onBind = func(ctx context.Context, name agd.CertificateName, pref netip.Prefix) (err error) {
+		assert.Equal(t, wantCertName, name)
+		assert.Equal(t, wantPrefix, pref)
+
+		return nil
+	}
+
+	strg := &testCustomDomainStorage{
+		onCertificateData: func(
+			ctx context.Context,
+			certName agd.CertificateName,
+		) (cert, key []byte, err error) {
+			assert.Equal(t, wantCertName, certName)
+
+			certDER, rsaKey := newCertAndKey(t, 1)
+
+			return certDER, x509.MarshalPKCS1PrivateKey(rsaKey), nil
+		},
+	}
+
+	cacheDir := t.TempDir()
+	defaultBindPrefix := netip.MustParsePrefix("192.0.2.1/32")
+	db := newCustomDomainDB(t, &tlsconfig.CustomDomainDBConfig{
+		Storage:      strg,
+		Manager:      mgr,
+		CacheDirPath: cacheDir,
+		BindPrefixes: []netip.Prefix{defaultBindPrefix},
+	})
+
+	require.True(t, t.Run("account_ip_cert", func(t *testing.T) {
+		state := *testStateOK
+		state.CertName = accountIPCertName
+
+		accountIPDomain := "account-ip.domain.example"
+		accountIPConf := []*agd.AccountIP{{
+			Enabled: true,
+			Address: testAccountIP,
+			Domains: []*agd.CustomDomainConfig{{
+				State:   &state,
+				Domains: []string{accountIPDomain},
+			}},
+		}}
+
+		wantCertName = accountIPCertName
+		wantPrefix = netip.PrefixFrom(testAccountIP, testAccountIP.BitLen())
+		wantCertPath, wantKeyPath = newCertAndKeyPaths(cacheDir, accountIPCertName)
+
+		ctx := testutil.ContextWithTimeout(t, testTimeout)
+		db.AddAccountIPCertificates(ctx, testAccountID, accountIPConf)
+
+		ctx = testutil.ContextWithTimeout(t, testTimeout)
+		err := db.Refresh(ctx)
+		require.NoError(t, err)
+
+		assertCertificatePair(t, wantCertPath, wantKeyPath)
+		assertCustomDomainMatch(t, db, accountIPDomain, testAccountIP, true)
+		require.FileExists(t, wantCertPath)
+		require.FileExists(t, wantKeyPath)
+	}))
+
+	require.True(t, t.Run("custom_cert", func(t *testing.T) {
+		wantCertName = testCustomCertName
+		wantPrefix = defaultBindPrefix
+		wantCertPath, wantKeyPath = newCertAndKeyPaths(cacheDir, testCustomCertName)
+
+		ctx := testutil.ContextWithTimeout(t, testTimeout)
+		db.AddCertificate(ctx, testAccountID, testDomains, testStateOK)
+
+		ctx = testutil.ContextWithTimeout(t, testTimeout)
+		err := db.Refresh(ctx)
+		require.NoError(t, err)
+
+		assertCertificatePair(t, wantCertPath, wantKeyPath)
+		assertCustomDomainMatch(t, db, testDomain, netip.Addr{}, true)
+		require.FileExists(t, wantCertPath)
+		require.FileExists(t, wantKeyPath)
 	}))
 }
 
@@ -935,19 +1233,19 @@ func BenchmarkCustomDomainDB_Match(b *testing.B) {
 		"*.domain.examples",
 		"*.wildcard.examples",
 	}
-	profIDs := []agd.ProfileID{
-		errors.Must(agd.NewProfileID("example1")),
-		errors.Must(agd.NewProfileID("example2")),
-		errors.Must(agd.NewProfileID("example3")),
-		errors.Must(agd.NewProfileID("example4")),
-		errors.Must(agd.NewProfileID("example5")),
+	accIDs := []agd.AccountID{
+		errors.Must(agd.NewAccountID(1)),
+		errors.Must(agd.NewAccountID(2)),
+		errors.Must(agd.NewAccountID(3)),
+		errors.Must(agd.NewAccountID(4)),
+		errors.Must(agd.NewAccountID(5)),
 	}
 
 	addCtx := testutil.ContextWithTimeout(b, testTimeout)
-	db.AddCertificate(addCtx, testProfileID, testDomains, testStateOK)
+	db.AddCertificate(addCtx, testAccountID, testDomains, testStateOK)
 
-	for _, profID := range profIDs {
-		db.AddCertificate(addCtx, profID, severalTestDomains, testStateOK)
+	for _, accID := range accIDs {
+		db.AddCertificate(addCtx, accID, severalTestDomains, testStateOK)
 	}
 
 	ctx := context.Background()
@@ -957,7 +1255,7 @@ func BenchmarkCustomDomainDB_Match(b *testing.B) {
 
 		b.ReportAllocs()
 		for b.Loop() {
-			matched, _ = db.Match(ctx, testDomain)
+			matched, _, _ = db.Match(ctx, testDomain)
 		}
 
 		require.Equal(b, testDomain, matched)
@@ -968,7 +1266,7 @@ func BenchmarkCustomDomainDB_Match(b *testing.B) {
 
 		b.ReportAllocs()
 		for b.Loop() {
-			matched, _ = db.Match(ctx, severalTestDomains[0])
+			matched, _, _ = db.Match(ctx, severalTestDomains[0])
 		}
 
 		require.Equal(b, severalTestDomains[0], matched)
@@ -979,7 +1277,7 @@ func BenchmarkCustomDomainDB_Match(b *testing.B) {
 
 		b.ReportAllocs()
 		for b.Loop() {
-			matched, _ = db.Match(ctx, testDomainWildcard)
+			matched, _, _ = db.Match(ctx, testDomainWildcard)
 		}
 
 		require.Equal(b, testWildcard, matched)
@@ -990,7 +1288,7 @@ func BenchmarkCustomDomainDB_Match(b *testing.B) {
 	//	goarch: arm64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/tlsconfig
 	//	cpu: Apple M4 Pro
-	//  BenchmarkCustomDomainDB_Match/domain-14             11747257    92.90 ns/op 	16 B/op     1 allocs/op
-	//	BenchmarkCustomDomainDB_Match/several_domains-14	5873468		203.9 ns/op		240 B/op	4 allocs/op
-	//  BenchmarkCustomDomainDB_Match/wildcard-14           12270618    98.75 ns/op 	16 B/op     1 allocs/op
+	//	BenchmarkCustomDomainDB_Match/domain-14         	13683159	        73.28 ns/op	       0 B/op	       0 allocs/op
+	//	BenchmarkCustomDomainDB_Match/several_domains-14         	16964437	        72.20 ns/op	       0 B/op	       0 allocs/op
+	//	BenchmarkCustomDomainDB_Match/wildcard-14                	14731984	        78.37 ns/op	       0 B/op	       0 allocs/op
 }

@@ -11,6 +11,9 @@ import (
 // DeviceType is a type of a device as used in the Backend API.
 type DeviceType uint8
 
+// DeviceTypeLen is the length of DeviceType.
+const DeviceTypeLen = 3
+
 // DeviceType values.
 //
 // Do not change the order.  Keep in sync with the Backend API.

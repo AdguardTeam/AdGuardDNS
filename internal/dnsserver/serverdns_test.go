@@ -139,10 +139,8 @@ func TestServerDNS_integration_query(t *testing.T) {
 		name:    "reject_msg",
 		network: dnsserver.NetworkUDP,
 		req: &dns.Msg{
-			MsgHdr: dns.MsgHdr{
-				Id:               dns.Id(),
-				RecursionDesired: true,
-			},
+			Id:               dns.Id(),
+			RecursionDesired: true,
 			Question: []dns.Question{{
 				Name:   dnsservertest.FQDN,
 				Qtype:  dns.TypeA,
@@ -175,11 +173,9 @@ func TestServerDNS_integration_query(t *testing.T) {
 		name:    "not_implemented_msg",
 		network: dnsserver.NetworkUDP,
 		req: &dns.Msg{
-			MsgHdr: dns.MsgHdr{
-				Id:               dns.Id(),
-				RecursionDesired: true,
-				Opcode:           dns.OpcodeStatus,
-			},
+			Id:               dns.Id(),
+			RecursionDesired: true,
+			Opcode:           dns.OpcodeStatus,
 			Question: []dns.Question{{
 				Name:   dnsservertest.FQDN,
 				Qtype:  dns.TypeA,
@@ -214,11 +210,9 @@ func TestServerDNS_integration_query(t *testing.T) {
 		name:    "msg_with_zflag",
 		network: dnsserver.NetworkUDP,
 		req: &dns.Msg{
-			MsgHdr: dns.MsgHdr{
-				Id:               dns.Id(),
-				RecursionDesired: true,
-				Zero:             true,
-			},
+			Id:               dns.Id(),
+			RecursionDesired: true,
+			Zero:             true,
 			Question: []dns.Question{{
 				Name:   dnsservertest.FQDN,
 				Qtype:  dns.TypeA,
@@ -233,7 +227,8 @@ func TestServerDNS_integration_query(t *testing.T) {
 		name:    "udp_truncate_response",
 		network: dnsserver.NetworkUDP,
 		req: &dns.Msg{
-			MsgHdr: dns.MsgHdr{Id: dns.Id(), RecursionDesired: true},
+			Id:               dns.Id(),
+			RecursionDesired: true,
 			Question: []dns.Question{
 				{Name: "example.org.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
 			},

@@ -499,8 +499,8 @@ func BenchmarkProfileStorage_Profiles(b *testing.B) {
 	//	goos: darwin
 	//	goarch: arm64
 	//	pkg: github.com/AdguardTeam/AdGuardDNS/internal/backendgrpc
-	//	cpu: Apple M1 Pro
-	//	BenchmarkProfileStorage_Profiles-8   	    9096	    131193 ns/op	   22339 B/op	     379 allocs/op
+	//	cpu: Apple M4 Pro
+	//	BenchmarkProfileStorage_Profiles-14    	   14383	     82745 ns/op	   26690 B/op	     457 allocs/op
 }
 
 // newTestDNSServer creates a new instance of [dnspb.DNSServiceServer] with the

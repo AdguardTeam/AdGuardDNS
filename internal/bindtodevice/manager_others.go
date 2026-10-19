@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/netip"
 
+	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/service"
 )
@@ -26,7 +27,13 @@ func NewManager(c *ManagerConfig) (m *Manager) {
 // Add creates a new interface-listener record in m.
 //
 // It is only supported on Linux.
-func (m *Manager) Add(id ID, ifaceName string, port uint16, cc *ControlConfig) (err error) {
+func (m *Manager) Add(
+	id ID,
+	ifaceName string,
+	port uint16,
+	ctrlConf *ControlConfig,
+	limiter *connlimiter.Limiter,
+) (err error) {
 	return fmt.Errorf("bindtodevice: add: %w; only supported on linux", errors.ErrUnsupported)
 }
 

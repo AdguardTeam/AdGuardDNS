@@ -121,10 +121,13 @@ func (s *mockDNSServiceServer) SaveDevicesBillingStat(
 // newDNSProfile returns a mock instance of [*dnspb.DNSProfile].  If isFullSync
 // is true, it returns a full profile; otherwise, it returns device changes.
 func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *dnspb.DNSProfile) {
-	dayRange := &dnspb.DayRange{
+	dayRanges := []*dnspb.DayRange{{
 		Start: durationpb.New(0),
 		End:   durationpb.New(59 * time.Minute),
-	}
+	}, {
+		Start: durationpb.New(12 * time.Hour),
+		End:   durationpb.New(12*time.Hour + 59*time.Minute),
+	}}
 
 	const (
 		devIDAuto = "didauto1"
@@ -164,13 +167,13 @@ func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *dnspb.DNSProf
 		}}
 	}
 
-	week := &dnspb.WeeklyRange{
+	week := &dnspb.WeeklyRanges{
 		Sun: nil,
-		Mon: dayRange,
-		Tue: dayRange,
-		Wed: dayRange,
-		Thu: dayRange,
-		Fri: dayRange,
+		Mon: dayRanges,
+		Tue: dayRanges,
+		Wed: dayRanges,
+		Thu: dayRanges,
+		Fri: dayRanges,
 		Sat: nil,
 	}
 
@@ -181,7 +184,7 @@ func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *dnspb.DNSProf
 		},
 		State: &dnspb.CustomDomain_Current_{
 			Current: &dnspb.CustomDomain_Current{
-				CertName:  "abcdefgh",
+				CertName:  "custom-domain-cert",
 				NotBefore: timestamppb.New(time.Now().Add(-24 * time.Hour)),
 				NotAfter:  timestamppb.New(time.Now().Add(24 * time.Hour)),
 				Enabled:   true,
@@ -196,7 +199,7 @@ func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *dnspb.DNSProf
 		},
 		State: &dnspb.CustomDomain_Pending_{
 			Pending: &dnspb.CustomDomain_Pending{
-				WellKnownPath: "/.well-known/abc/def",
+				WellKnownPath: "/.well-known/custom/domain",
 				Expire:        timestamppb.New(time.Now().Add(24 * time.Hour)),
 			},
 		},
@@ -208,6 +211,50 @@ func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *dnspb.DNSProf
 			customDomainPending,
 		},
 		Enabled: true,
+	}
+
+	accountIPDomainCurrent := &dnspb.CustomDomain{
+		Domains: []string{
+			"current-ac-ip-1.domain.example",
+			"current-ac-ip-2.domain.example",
+		},
+		State: &dnspb.CustomDomain_Current_{
+			Current: &dnspb.CustomDomain_Current{
+				CertName:  "account-ip-cert",
+				NotBefore: timestamppb.New(time.Now().Add(-24 * time.Hour)),
+				NotAfter:  timestamppb.New(time.Now().Add(24 * time.Hour)),
+				Enabled:   true,
+			},
+		},
+	}
+
+	accountIPDomainPending := &dnspb.CustomDomain{
+		Domains: []string{
+			"pending-ac-ip-1.domain.example",
+			"pending-ac-ip-2.domain.example",
+		},
+		State: &dnspb.CustomDomain_Pending_{
+			Pending: &dnspb.CustomDomain_Pending{
+				WellKnownPath: "/.well-known/account/ip",
+				Expire:        timestamppb.New(time.Now().Add(24 * time.Hour)),
+			},
+		},
+	}
+
+	accountIPDomains := []*dnspb.CustomDomain{
+		accountIPDomainCurrent,
+		accountIPDomainPending,
+	}
+
+	accountIPSettings := &dnspb.AccountIPSettings{
+		Enabled: true,
+		Ips: []*dnspb.AccountIPSettings_IP{{
+			Enabled: true,
+			Ip:      []byte{127, 0, 0, 1},
+			Domain: &dnspb.AccountIPSettings_DomainSettings{
+				Domains: accountIPDomains,
+			},
+		}},
 	}
 
 	return &dnspb.DNSProfile{
@@ -235,8 +282,8 @@ func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *dnspb.DNSProf
 			YoutubeSafeSearch: false,
 			BlockedServices:   []string{"youtube"},
 			Schedule: &dnspb.ScheduleSettings{
-				Tmz:         "GMT",
-				WeeklyRange: week,
+				Tmz:          "GMT",
+				WeeklyRanges: week,
 			},
 		},
 		Access: &dnspb.AccessSettings{
@@ -290,6 +337,7 @@ func (s *mockDNSServiceServer) newDNSProfile(isFullSync bool) (dp *dnspb.DNSProf
 			Rps:     100,
 			Enabled: true,
 		},
+		AccountIp:    accountIPSettings,
 		CustomDomain: customDomain,
 		CategoryFilter: &dnspb.CategoryFilterSettings{
 			Ids:     []string{"games"},

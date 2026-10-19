@@ -6,6 +6,7 @@ import (
 	"net"
 	"testing"
 
+	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,9 +28,21 @@ func newTestChanPacketConn(
 ) (c *chanPacketConn) {
 	tb.Helper()
 
+	respPool := syncutil.NewPool(func() (v *packetConnWriteResp) {
+		return &packetConnWriteResp{}
+	})
+
+	reqPool := syncutil.NewPool(func() (v *packetConnWriteReq) {
+		return &packetConnWriteReq{}
+	})
+
+	bodyPool := syncutil.NewSlicePool[byte](0)
 	c = newChanPacketConn(
 		EmptyMetrics{},
 		sessions,
+		respPool,
+		reqPool,
+		bodyPool,
 		testSubnetIPv4,
 		writeReqs,
 		"",

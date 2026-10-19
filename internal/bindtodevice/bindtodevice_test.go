@@ -10,10 +10,11 @@ import (
 // testTimeout is a common timeout for tests.
 const testTimeout = 1 * time.Second
 
-// Common interface listener IDs for tests
+// Common interface listener IDs for tests.
 const (
 	testID1 bindtodevice.ID = "id1"
 	testID2 bindtodevice.ID = "id2"
+	testID3 bindtodevice.ID = "id3"
 )
 
 // Common port numbers for tests.
@@ -22,6 +23,8 @@ const (
 const (
 	testPort1 uint16 = 12345
 	testPort2 uint16 = 12346
+	testPort3 uint16 = 12347
+	testPort4 uint16 = 12348
 )
 
 // testIfaceName is the common network interface name for tests.

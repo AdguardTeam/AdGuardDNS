@@ -122,7 +122,7 @@ type ConfigCustomRuleList struct {
 	// false.
 	IDs []ID
 
-	// Enabled shows whether the cusotm rule-list based filtering is enabled.
+	// Enabled shows whether the custom rule-list based filtering is enabled.
 	Enabled bool
 }
 

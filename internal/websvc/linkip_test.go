@@ -10,6 +10,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
@@ -61,20 +62,18 @@ func TestLinkedIPProxy_ServeHTTP(t *testing.T) {
 	require.NoError(t, errParse)
 
 	c := &websvc.Config{
-		Logger:               testLogger,
 		CertificateValidator: testCertValidator,
-		StaticContent:        http.NotFoundHandler(),
 		DNSCheck:             http.NotFoundHandler(),
 		ErrColl:              agdtest.NewErrorCollector(),
-		Metrics:              websvc.EmptyMetrics{},
-		Timeout:              testTimeout,
 		LinkedIP: &websvc.LinkedIPServer{
 			TargetURL: targetURL,
-			Bind: []*websvc.BindData{{
-				Address: localhostZeroPort,
-				TLS:     nil,
-			}},
+			Bind:      testBindConfigs,
 		},
+		ListenConfig:  netext.DefaultListenConfig(nil),
+		Logger:        testLogger,
+		Metrics:       websvc.EmptyMetrics{},
+		StaticContent: http.NotFoundHandler(),
+		Timeout:       testTimeout,
 	}
 
 	svc := websvc.New(c)

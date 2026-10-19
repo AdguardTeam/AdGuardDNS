@@ -82,7 +82,7 @@ func connectivityCheck(
 func requireIPv6ConnCheck(serverGroups []*dnssvc.ServerGroupConfig) (ok bool) {
 	for _, srvGrp := range serverGroups {
 		for _, s := range srvGrp.Servers {
-			if s.HasIPv6() {
+			if s.BindConfigs().HasIPv6() {
 				return true
 			}
 		}

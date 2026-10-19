@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
+	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
@@ -34,6 +35,7 @@ func (c *interfaceListenersConfig) toInternal(
 	mtrc bindtodevice.Metrics,
 	ctrlConf *bindtodevice.ControlConfig,
 	clock timeutil.Clock,
+	limiter *connlimiter.Limiter,
 ) (m *bindtodevice.Manager, err error) {
 	if c == nil {
 		return nil, nil
@@ -50,7 +52,7 @@ func (c *interfaceListenersConfig) toInternal(
 
 	for _, id := range slices.Sorted(maps.Keys(c.List)) {
 		l := c.List[id]
-		err = m.Add(id, l.Interface, l.Port, ctrlConf)
+		err = m.Add(id, l.Interface, l.Port, ctrlConf, limiter)
 		if err != nil {
 			return nil, fmt.Errorf("adding listener %q: %w", id, err)
 		}

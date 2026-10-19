@@ -11,6 +11,13 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// IPDstOOBSize is the minimum required size of the control-message buffer for
+// [net.UDPConn.ReadMsgUDP] to read the original destination address on Linux
+// when [unix.IP_RECVORIGDSTADDR] or [unix.IPV6_RECVORIGDSTADDR] are set.
+//
+// See socket_linux_internal_test.go.
+const IPDstOOBSize = 48
+
 // setSockOptFunc is a function that sets a socket option on fd.
 type setSockOptFunc func(fd int) (err error)
 
@@ -62,24 +69,10 @@ func listenControlWithSO(
 		newIntSetSockOptFunc("SO_REUSEPORT", unix.SOL_SOCKET, unix.SO_REUSEPORT, 1),
 	}
 
-	switch network {
-	case "tcp", "tcp4", "tcp6":
-		// Socket options for TCP connection already set.  Go on.
-	case "udp", "udp4", "udp6":
-		opts = append(
-			opts,
-			newIntSetSockOptFunc("IP_RECVORIGDSTADDR", unix.IPPROTO_IP, unix.IP_RECVORIGDSTADDR, 1),
-			newIntSetSockOptFunc("IP_FREEBIND", unix.IPPROTO_IP, unix.IP_FREEBIND, 1),
-			newIntSetSockOptFunc(
-				"IPV6_RECVORIGDSTADDR",
-				unix.IPPROTO_IPV6,
-				unix.IPV6_RECVORIGDSTADDR,
-				1,
-			),
-			newIntSetSockOptFunc("IPV6_FREEBIND", unix.IPPROTO_IPV6, unix.IPV6_FREEBIND, 1),
-		)
-	default:
-		return fmt.Errorf("bad network %q", network)
+	opts, err = appendOptsForNetwork(opts, network)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
+		return err
 	}
 
 	if ctrlConf.SndBufSize > 0 {
@@ -110,6 +103,34 @@ func listenControlWithSO(
 	return errors.WithDeferred(opErr, err)
 }
 
+// appendOptsForNetwork appends the necessary socket option functions to orig
+// and returns them.  n should be a valid TCP or UDP network.
+func appendOptsForNetwork(orig []setSockOptFunc, n string) (opts []setSockOptFunc, err error) {
+	opts = orig
+
+	switch n {
+	case "tcp", "tcp4", "tcp6":
+		return opts, nil
+	case "udp", "udp4", "udp6":
+		opts = append(
+			opts,
+			newIntSetSockOptFunc("IP_RECVORIGDSTADDR", unix.IPPROTO_IP, unix.IP_RECVORIGDSTADDR, 1),
+			newIntSetSockOptFunc("IP_FREEBIND", unix.IPPROTO_IP, unix.IP_FREEBIND, 1),
+			newIntSetSockOptFunc(
+				"IPV6_RECVORIGDSTADDR",
+				unix.IPPROTO_IPV6,
+				unix.IPV6_RECVORIGDSTADDR,
+				1,
+			),
+			newIntSetSockOptFunc("IPV6_FREEBIND", unix.IPPROTO_IPV6, unix.IPV6_FREEBIND, 1),
+		)
+
+		return opts, nil
+	default:
+		return opts, fmt.Errorf("bad network %q", n)
+	}
+}
+
 // msgUDPReader is an interface for types of connections that can read UDP
 // messages.  See [*net.UDPConn].
 type msgUDPReader interface {
@@ -117,42 +138,64 @@ type msgUDPReader interface {
 }
 
 // readPacketSession is a helper that reads a packet-session data from a UDP
-// connection.
-func readPacketSession(c msgUDPReader, body, oob []byte) (sess *packetSession, err error) {
-	n, oobn, _, raddr, err := c.ReadMsgUDP(body, oob)
+// connection.  c and bodyPtr must not be nil.
+func readPacketSession(c msgUDPReader, bodyPtr *[]byte, oob []byte) (sess *packetSession, err error) {
+	n, oobn, flags, raddr, err := c.ReadMsgUDP((*bodyPtr), oob)
 	if err != nil {
 		return nil, fmt.Errorf("reading: %w", err)
 	}
 
-	var ctrlMsgs []unix.SocketControlMessage
-	ctrlMsgs, err = unix.ParseSocketControlMessage(oob[:oobn])
+	ctrlMsgs, err := unix.ParseSocketControlMessage(oob[:oobn])
 	if err != nil {
 		return nil, fmt.Errorf("parsing ctrl messages: %w", err)
 	}
 
-	if l := len(ctrlMsgs); l != 1 {
-		return nil, fmt.Errorf("expected 1 ctrl message, got %d", l)
+	if len(ctrlMsgs) == 0 {
+		return nil, errors.Error("expected at least 1 ctrl message, got 0")
 	}
 
-	ctrlMsg := ctrlMsgs[0]
-	origDstSockAddr, err := unix.ParseOrigDstAddr(&ctrlMsg)
-	if err != nil {
-		return nil, fmt.Errorf("parsing orig dst: %w", err)
+	var origDstSockAddr unix.Sockaddr
+	for i, m := range ctrlMsgs {
+		if !isOrigAddrCtrlMsgHdr(m.Header) {
+			continue
+		}
+
+		origDstSockAddr, err = unix.ParseOrigDstAddr(&m)
+		if err != nil {
+			return nil, fmt.Errorf("parsing orig dst from ctrl message at index %d: %w", i, err)
+		}
+
+		break
+	}
+
+	if origDstSockAddr == nil {
+		return nil, errors.Error("no original address in ctrl messages")
 	}
 
 	origDstAddr, respOOB, err := sockAddrData(origDstSockAddr)
 	if err != nil {
+		// Don't wrap the error, because it's informative enough as is.
 		return nil, err
 	}
 
+	(*bodyPtr) = (*bodyPtr)[:n]
+
 	sess = &packetSession{
-		laddr:    origDstAddr,
-		raddr:    raddr,
-		readBody: body[:n],
-		respOOB:  respOOB,
+		laddr:       origDstAddr,
+		raddr:       raddr,
+		readBodyPtr: bodyPtr,
+		respOOB:     respOOB,
+		flags:       flags,
 	}
 
 	return sess, nil
+}
+
+// isOrigAddrCtrlMsgHdr returns true if h is a control message header with an
+// original address.
+func isOrigAddrCtrlMsgHdr(h unix.Cmsghdr) (ok bool) {
+	return (h.Level == unix.SOL_IP && h.Type == unix.IP_ORIGDSTADDR) ||
+		(h.Level == unix.SOL_IPV6 && h.Type == unix.IPV6_ORIGDSTADDR)
 }
 
 // sockAddrData converts the provided socket address into a UDP address as well

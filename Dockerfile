@@ -27,7 +27,7 @@
 # 6. Add a CACHE_BUSTER argument to stages to be able to rerun the stages if
 #    needed.  Keep it in sync with the files in .github/workflows/.
 
-ARG BASE_IMAGE=adguard/go-builder:1.26.4--1
+ARG BASE_IMAGE=adguard/go-builder:1.27.2--1
 
 # The dependencies stage is needed to install packages and tool dependencies.
 # This is also where binaries like osslsigncode, which may be required for tests
@@ -62,6 +62,11 @@ EOF
 # Use fake BRANCH and REVISION values to both prevent git calls and also not
 # ruin the caching with ARGs.  IGNORE_NON_REPRODUCIBLE is set to 1 to make this
 # stage reproducible even when linters that query external sources fail.
+#
+# NOTE:  go-deps is necessary to download the modules of the linter tool
+# dependencies, so that the "go: downloading" messages are not treated as linter
+# output by the "run_linter -e" checks in ./scripts/make/go-lint.sh.  This may
+# happen in CI, where builds may receive a fresh cache mount.
 FROM dependencies AS linter
 ADD . /app
 WORKDIR /app
@@ -76,6 +81,7 @@ make \
 	IGNORE_NON_REPRODUCIBLE='1' \
 	REVISION='0000000000000000000000000000000000000000' \
 	VERBOSE=1 \
+	go-deps \
 	go-lint \
 	md-lint \
 	sh-lint \

@@ -10,6 +10,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdhttp"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
 	"github.com/AdguardTeam/golibs/httphdr"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
@@ -39,23 +40,21 @@ func TestBlockPageServers(t *testing.T) {
 
 	bps := &websvc.BlockPageServerConfig{
 		ContentFilePath: filepath.Join("testdata", blockPageFileName),
-		Bind: []*websvc.BindData{{
-			TLS:     nil,
-			Address: localhostZeroPort,
-		}},
+		Bind:            testBindConfigs,
 	}
 
 	conf := &websvc.Config{
-		Logger:               testLogger,
+		AdultBlocking:        bps,
 		CertificateValidator: testCertValidator,
-		StaticContent:        http.NotFoundHandler(),
 		DNSCheck:             http.NotFoundHandler(),
 		ErrColl:              agdtest.NewErrorCollector(),
-		Metrics:              websvc.EmptyMetrics{},
-		Timeout:              testTimeout,
-		AdultBlocking:        bps,
 		GeneralBlocking:      bps,
+		ListenConfig:         netext.DefaultListenConfig(nil),
+		Logger:               testLogger,
+		Metrics:              websvc.EmptyMetrics{},
 		SafeBrowsing:         bps,
+		StaticContent:        http.NotFoundHandler(),
+		Timeout:              testTimeout,
 	}
 
 	svc := websvc.New(conf)
@@ -93,12 +92,13 @@ func TestBlockPageServers_noBlockPages(t *testing.T) {
 	t.Parallel()
 
 	conf := &websvc.Config{
-		Logger:               testLogger,
 		CertificateValidator: testCertValidator,
-		StaticContent:        http.NotFoundHandler(),
 		DNSCheck:             http.NotFoundHandler(),
 		ErrColl:              agdtest.NewErrorCollector(),
+		ListenConfig:         netext.DefaultListenConfig(nil),
+		Logger:               testLogger,
 		Metrics:              websvc.EmptyMetrics{},
+		StaticContent:        http.NotFoundHandler(),
 		Timeout:              testTimeout,
 	}
 
@@ -116,20 +116,18 @@ func TestBlockPageServers_gzip(t *testing.T) {
 
 	bps := &websvc.BlockPageServerConfig{
 		ContentFilePath: filepath.Join("testdata", blockPageFileName),
-		Bind: []*websvc.BindData{{
-			TLS:     nil,
-			Address: localhostZeroPort,
-		}},
+		Bind:            testBindConfigs,
 	}
 
 	conf := &websvc.Config{
-		Logger:               testLogger,
-		GeneralBlocking:      bps,
 		CertificateValidator: testCertValidator,
-		StaticContent:        http.NotFoundHandler(),
 		DNSCheck:             http.NotFoundHandler(),
 		ErrColl:              agdtest.NewErrorCollector(),
+		GeneralBlocking:      bps,
+		ListenConfig:         netext.DefaultListenConfig(nil),
+		Logger:               testLogger,
 		Metrics:              websvc.EmptyMetrics{},
+		StaticContent:        http.NotFoundHandler(),
 		Timeout:              testTimeout,
 	}
 

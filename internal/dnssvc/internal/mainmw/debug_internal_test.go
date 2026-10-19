@@ -12,6 +12,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnssvc/internal/dnssvctest"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/geoip"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,6 +73,21 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 
 	defaultReqInfo := &agd.RequestInfo{
 		Messages: msgs,
+	}
+
+	deviceResult := &agd.DeviceResultOK{
+		Device: &agd.Device{ID: dnssvctest.DeviceID},
+		Profile: &agd.Profile{
+			AccountIPConfig:          &agd.AccountIPConfig{},
+			CustomDomains:            &agd.AccountCustomDomains{},
+			ID:                       dnssvctest.ProfileID,
+			AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
+			BlockingMode:             &dnsmsg.BlockingModeNullIP{},
+			SafeBrowsingBlockingMode: &dnsmsg.BlockingModeNullIP{},
+			AccountID:                dnssvctest.AccountID,
+			DeviceIDs:                container.NewMapSet(dnssvctest.DeviceID),
+			Deleted:                  false,
+		},
 	}
 
 	testCases := []struct {
@@ -178,11 +194,8 @@ func TestMiddleware_writeDebugResponse(t *testing.T) {
 		name:   "device",
 		domain: dnssvctest.DomainFQDN,
 		reqInfo: &agd.RequestInfo{
-			DeviceResult: &agd.DeviceResultOK{
-				Device:  &agd.Device{ID: dnssvctest.DeviceID},
-				Profile: &agd.Profile{ID: dnssvctest.ProfileID},
-			},
-			Messages: agdtest.NewConstructor(t),
+			DeviceResult: deviceResult,
+			Messages:     agdtest.NewConstructor(t),
 		},
 		reqRes:  nil,
 		respRes: nil,

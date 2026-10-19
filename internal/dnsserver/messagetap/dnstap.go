@@ -62,6 +62,9 @@ type DNSTap struct {
 	bytesPool     *syncutil.Pool[[]byte]
 	dtPool        *syncutil.Pool[dnstap.Dnstap]
 	msgPool       *syncutil.Pool[dnstap.Message]
+	timeSecPool   *syncutil.Pool[uint64]
+	uint32Pool    *syncutil.Pool[uint32]
+	addrPool      *syncutil.Pool[[]byte]
 	done          chan struct{}
 	socketPath    string
 	checkInterval time.Duration
@@ -74,12 +77,19 @@ func NewDNSTap(c *DNSTapConfig) (d *DNSTap) {
 		dialer:    &net.Dialer{Timeout: cmp.Or(c.CheckConnectTimeout, DefaultCheckConnectTimeout)},
 		logger:    c.Logger,
 		tapper:    c.Tapper,
+		addrPool:  syncutil.NewSlicePool[byte](net.IPv6len),
 		bytesPool: syncutil.NewSlicePool[byte](defaultBufSize),
 		dtPool: syncutil.NewPool(func() (v *dnstap.Dnstap) {
 			return &dnstap.Dnstap{}
 		}),
 		msgPool: syncutil.NewPool(func() (v *dnstap.Message) {
 			return &dnstap.Message{}
+		}),
+		timeSecPool: syncutil.NewPool(func() (v *uint64) {
+			return new(uint64)
+		}),
+		uint32Pool: syncutil.NewPool(func() (v *uint32) {
+			return new(uint32)
 		}),
 		done:          make(chan struct{}),
 		socketPath:    c.SocketPath,
@@ -91,42 +101,63 @@ func NewDNSTap(c *DNSTapConfig) (d *DNSTap) {
 var _ Interface = (*DNSTap)(nil)
 
 // TapRequest implements the [Interface] interface for *DNSTap.
-func (d *DNSTap) TapRequest(ctx context.Context, laddr, raddr netip.AddrPort, req []byte) {
+func (d *DNSTap) TapRequest(
+	ctx context.Context,
+	now time.Time,
+	laddr netip.AddrPort,
+	raddr netip.AddrPort,
+	req []byte,
+) {
 	if !d.hasListener.Load() {
 		return
 	}
 
-	msg := d.newDNSTapMessage(laddr, raddr, &messageTypeRequest, req, nil)
+	msg, queryAddrPtr, respAddrPtr := d.newDNSTapMessage(
+		laddr,
+		raddr,
+		&messageTypeRequest,
+		now,
+		req,
+		nil,
+	)
 	dt := d.newDNSTap(msg)
-	d.send(ctx, dt)
+	d.send(ctx, dt, queryAddrPtr, respAddrPtr)
 }
 
 // TapResponse implements the [Interface] interface for *DNSTap.
-func (d *DNSTap) TapResponse(ctx context.Context, laddr, raddr netip.AddrPort, resp []byte) {
+func (d *DNSTap) TapResponse(
+	ctx context.Context,
+	now time.Time,
+	laddr netip.AddrPort,
+	raddr netip.AddrPort,
+	resp []byte,
+) {
 	if !d.hasListener.Load() {
 		return
 	}
 
-	msg := d.newDNSTapMessage(laddr, raddr, &messageTypeResponse, nil, resp)
+	msg, queryAddrPtr, respAddrPtr := d.newDNSTapMessage(
+		laddr,
+		raddr,
+		&messageTypeResponse,
+		now,
+		nil,
+		resp,
+	)
 	dt := d.newDNSTap(msg)
-	d.send(ctx, dt)
+	d.send(ctx, dt, queryAddrPtr, respAddrPtr)
 }
 
-// send marshals dt and sends it to the output channel.  If the channel is
-// full, the message is dropped.  After sending, dt and its message are reset
-// and returned to the corresponding pools.
-func (d *DNSTap) send(ctx context.Context, dt *dnstap.Dnstap) {
-	defer func() {
-		msg := dt.Message
-
-		dt.Reset()
-		d.dtPool.Put(dt)
-
-		if msg != nil {
-			msg.Reset()
-			d.msgPool.Put(msg)
-		}
-	}()
+// send marshals dt and sends it to the output channel.  If the channel is full,
+// the message is dropped.  After sending [DNSTap.dispose] is called on dt,
+// queryAddrPtr, and respAddrPtr.  dt must not be nil.
+func (d *DNSTap) send(
+	ctx context.Context,
+	dt *dnstap.Dnstap,
+	queryAddrPtr *[]byte,
+	respAddrPtr *[]byte,
+) {
+	defer d.dispose(dt, queryAddrPtr, respAddrPtr)
 
 	opts := proto.MarshalOptions{
 		Deterministic: true,
@@ -148,6 +179,38 @@ func (d *DNSTap) send(ctx context.Context, dt *dnstap.Dnstap) {
 	}
 
 	d.tapper.Tap(ctx, buf)
+}
+
+// dispose resets dt, returns dt and dt.Message with its fields to corresponding
+// pools, as well as queryAddrPtr and respAddrPtr.  dt must not be nil.
+func (d *DNSTap) dispose(dt *dnstap.Dnstap, queryAddrPtr, respAddrPtr *[]byte) {
+	msg := dt.Message
+
+	dt.Reset()
+	d.dtPool.Put(dt)
+
+	d.addrPool.Put(queryAddrPtr)
+	d.addrPool.Put(respAddrPtr)
+
+	if msg == nil {
+		return
+	}
+
+	d.uint32Pool.Put(msg.QueryPort)
+	d.uint32Pool.Put(msg.ResponsePort)
+
+	if msg.QueryTimeSec != nil {
+		d.timeSecPool.Put(msg.QueryTimeSec)
+		d.uint32Pool.Put(msg.QueryTimeNsec)
+	}
+
+	if msg.ResponseTimeSec != nil {
+		d.timeSecPool.Put(msg.ResponseTimeSec)
+		d.uint32Pool.Put(msg.ResponseTimeNsec)
+	}
+
+	msg.Reset()
+	d.msgPool.Put(msg)
 }
 
 // type check

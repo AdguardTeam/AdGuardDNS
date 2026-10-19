@@ -18,6 +18,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/access"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdcache"
+	"github.com/AdguardTeam/AdGuardDNS/internal/agdruntime"
 	"github.com/AdguardTeam/AdGuardDNS/internal/backendgrpc"
 	"github.com/AdguardTeam/AdGuardDNS/internal/billstat"
 	"github.com/AdguardTeam/AdGuardDNS/internal/bindtodevice"
@@ -75,6 +76,7 @@ const (
 	debugIDProfileDBFull         = "profiledb_full"
 	debugIDRuleStat              = "rulestat"
 	debugIDStandardProfileAccess = "standard_profile_access"
+	debugIDRuntimeThreadGC       = "runtime_thread_gc"
 	debugIDTLSConfig             = "tlsconfig"
 	debugIDTicketRotator         = "ticket_rotator"
 	debugIDWebSvc                = "websvc"
@@ -320,9 +322,9 @@ func (b *builder) initMsgCloner(ctx context.Context) (err error) {
 	return nil
 }
 
-// initSafeBrowsingReplacedConstructor initialises a new
+// initSafeBrowsingReplacedConstructor initializes a new
 // [*filter.ReplacedResultConstructor] with all the required filters checked.
-// If initialisation of the constructor is not required, it is nil.
+// If initialization of the constructor is not required, it is nil.
 //
 // TODO(a.garipov):  Consider adding an env for all safe-browsing related
 // functions, including dangerous domains, newly-registered domains, and
@@ -729,6 +731,39 @@ func (b *builder) initSafeBrowsing(
 	}
 
 	return refr, nil
+}
+
+// initRuntimeThreadGC initializes the runtime thread garbage collector.
+func (b *builder) initRuntimeThreadGC(ctx context.Context) (err error) {
+	if !b.env.RuntimeThreadGCEnabled {
+		return nil
+	}
+
+	refr := agdruntime.NewRefresher(&agdruntime.RefresherConfig{
+		Logger:  b.baseLogger.With(slogutil.KeyPrefix, "runtime_thread_gc"),
+		Manager: agdruntime.System{},
+		Limit:   b.env.RuntimeThreadGCMaxThreads,
+	})
+
+	refrWorker := service.NewRefreshWorker(&service.RefreshWorkerConfig{
+		ContextConstructor: contextutil.NewTimeoutConstructor(defaultTimeout),
+		ErrorHandler:       newSlogErrorHandler(b.baseLogger, "runtime_thread_gc"),
+		Refresher:          refr,
+		Schedule:           timeutil.NewConstSchedule(time.Duration(b.env.RuntimeThreadGCIvl)),
+		RefreshOnShutdown:  false,
+	})
+	err = refrWorker.Start(context.WithoutCancel(ctx))
+	if err != nil {
+		return fmt.Errorf("starting runtime thread gc refresher: %w", err)
+	}
+
+	b.sigHdlr.AddService(refrWorker)
+
+	b.debugRefrs[debugIDRuntimeThreadGC] = refr
+
+	b.logger.DebugContext(ctx, "initialized runtime thread gc")
+
+	return nil
 }
 
 // initStandardAccess initializes the standard access settings.
@@ -1239,6 +1274,9 @@ func (b *builder) initAccess(ctx context.Context) (err error) {
 }
 
 // initBindToDevice initializes the bindtodevice feature manager.
+//
+// The following methods must be called before this one:
+//   - [builder.initConnLimit]
 func (b *builder) initBindToDevice(ctx context.Context) (err error) {
 	c := b.conf
 
@@ -1255,6 +1293,7 @@ func (b *builder) initBindToDevice(ctx context.Context) (err error) {
 		mtrc,
 		btdCtrlConf,
 		b.clock,
+		b.connLimit,
 	)
 	if err != nil {
 		return fmt.Errorf("converting interface listeners: %w", err)
@@ -1550,7 +1589,7 @@ func (b *builder) customDomainPrefixes() (prefixes []netip.Prefix) {
 		}
 
 		for _, s := range g.Servers {
-			prefixes = append(prefixes, s.BindDataPrefixes()...)
+			prefixes = append(prefixes, s.BindConfigs().Prefixes()...)
 		}
 
 	}
@@ -1628,7 +1667,7 @@ func (b *builder) setServerGroupProperties(ctx context.Context) {
 	allSingleIP := true
 	for _, grp := range b.serverGroups {
 		for _, srv := range grp.Servers {
-			for _, p := range srv.BindDataPrefixes() {
+			for _, p := range srv.BindConfigs().Prefixes() {
 				allSingleIP = allSingleIP && p.IsSingleIP()
 				serverPrefixes = append(serverPrefixes, p)
 			}
@@ -1773,7 +1812,7 @@ func (b *builder) initBillStat(ctx context.Context) (err error) {
 // newBillStatUploader creates and returns a billstat uploader depending on the
 // provided API URL.
 func (b *builder) newBillStatUploader() (s billstat.Uploader, err error) {
-	apiURL := netutil.CloneURL(&b.env.BillStatURL.URL)
+	apiURL := b.env.BillStatURL.Clone()
 	err = urlutil.ValidateGRPCURL(apiURL)
 	if err != nil {
 		return nil, fmt.Errorf("billstat api url: %w", err)
@@ -1802,7 +1841,7 @@ func (b *builder) initProfileDB(ctx context.Context) (err error) {
 		return nil
 	}
 
-	apiURL := netutil.CloneURL(&b.env.ProfilesURL.URL)
+	apiURL := b.env.ProfilesURL.Clone()
 	err = urlutil.ValidateGRPCURL(apiURL)
 	if err != nil {
 		return fmt.Errorf("profile api url: %w", err)
@@ -1954,6 +1993,16 @@ func (b *builder) refreshCustomDomainDB(ctx context.Context) (err error) {
 		return fmt.Errorf("custom domain db: initial refresh: %w", err)
 	}
 
+	gc := tlsconfig.NewStaleFileGC(&tlsconfig.StaleFileGCConfig{
+		Clock:      b.clock,
+		ErrColl:    b.errColl,
+		Logger:     b.baseLogger.With(slogutil.KeyPrefix, "custom_domain_gc"),
+		TargetDir:  b.env.CustomDomainsCachePath,
+		Exclusions: b.customDomainDB.CertFiles(),
+		MaxAge:     time.Duration(b.env.CustomDomainsMaxCertStaleness),
+	})
+	gc.Clean(ctx)
+
 	refr := service.NewRefreshWorker(&service.RefreshWorkerConfig{
 		// TODO(a.garipov):  Consider making configurable.
 		ContextConstructor: contextutil.NewTimeoutConstructor(defaultTimeout),
@@ -2066,48 +2115,31 @@ func (b *builder) initRuleStat(ctx context.Context) (err error) {
 	return nil
 }
 
-// initRateLimiter initializes the rate limiter and the connection limiter as
-// well as starts and registers the rate-limiter refresher in the signal
-// handler.  It also adds the refresher with ID [debugIDAllowlist] to the debug
-// refreshers.
+// initRateLimiter initializes the rate limiter.  If allowlist is not disabled,
+// it starts and registers the rate-limiter refresher in the signal handler and
+// also adds the refresher with ID [debugIDAllowlist] to the debug refreshers.
 //
 // The following methods must be called before this one:
 //   - [builder.initGRPCMetrics]
 func (b *builder) initRateLimiter(ctx context.Context) (err error) {
 	c := b.conf.RateLimit
+	typ := b.env.RateLimitAllowlistType
+
+	if typ == rlAllowlistTypeOff {
+		b.logger.DebugContext(ctx, "ratelimit allowlist is disabled")
+
+		b.initBackoffRatelimiter(ctx, c, ratelimit.EmptyAllowlist{})
+
+		return nil
+	}
+
 	allowSubnets := netutil.UnembedPrefixes(c.Allowlist.List)
 	allowlist := ratelimit.NewDynamicAllowlist(allowSubnets, nil)
 
-	typ := b.env.RateLimitAllowlistType
-	mtrc, err := metrics.NewAllowlist(b.mtrcNamespace, b.promRegisterer, typ)
+	updater, err := b.newRatelimitAllowlistRefresher(typ, allowlist)
 	if err != nil {
-		return fmt.Errorf("ratelimit metrics: %w", err)
-	}
-
-	var updater service.Refresher
-	if typ == rlAllowlistTypeBackend {
-		updater, err = backendgrpc.NewRateLimiter(&backendgrpc.RateLimiterConfig{
-			Logger:      b.baseLogger.With(slogutil.KeyPrefix, "backend_ratelimiter"),
-			Metrics:     mtrc,
-			GRPCMetrics: b.backendGRPCMtrc,
-			Allowlist:   allowlist,
-			Endpoint:    &b.env.BackendRateLimitURL.URL,
-			ErrColl:     b.errColl,
-			APIKey:      b.env.BackendRateLimitAPIKey,
-		})
-		if err != nil {
-			return fmt.Errorf("ratelimit: %w", err)
-		}
-	} else {
-		updater = consul.NewAllowlistUpdater(&consul.AllowlistUpdaterConfig{
-			Logger:    b.baseLogger.With(slogutil.KeyPrefix, "ratelimit_allowlist_updater"),
-			Allowlist: allowlist,
-			ConsulURL: &b.env.ConsulAllowlistURL.URL,
-			ErrColl:   b.errColl,
-			Metrics:   mtrc,
-			// TODO(a.garipov):  Make configurable.
-			Timeout: 15 * time.Second,
-		})
+		// Don't wrap the error, because it's informative enough as is.
+		return err
 	}
 
 	err = updater.Refresh(ctx)
@@ -2128,21 +2160,65 @@ func (b *builder) initRateLimiter(ctx context.Context) (err error) {
 	}
 
 	b.sigHdlr.AddService(refr)
-
-	b.initActiveReqSema(c.ActiveRequestLimit)
-
-	err = b.initConnLimit(ctx, c.ConnectionLimit)
-	if err != nil {
-		return fmt.Errorf("connlimit: %w", err)
-	}
-
-	b.rateLimit = ratelimit.NewBackoff(c.toInternal(allowlist, b.clock))
-
 	b.debugRefrs[debugIDAllowlist] = updater
 
-	b.logger.DebugContext(ctx, "initialized ratelimit")
+	b.initBackoffRatelimiter(ctx, c, allowlist)
 
 	return nil
+}
+
+// initBackoffRatelimiter initializes the backoff rate limiter with the given
+// configuration and allowlist.  It also initializes the active-request
+// semaphore.
+func (b *builder) initBackoffRatelimiter(
+	ctx context.Context,
+	c *rateLimitConfig,
+	allowlist ratelimit.Allowlist,
+) {
+	b.initActiveReqSema(c.ActiveRequestLimit)
+	b.rateLimit = ratelimit.NewBackoff(c.toInternal(allowlist, b.clock))
+
+	b.logger.DebugContext(ctx, "initialized ratelimit")
+}
+
+// newRatelimitAllowlistRefresher creates a refresher for the ratelimit
+// allowlist.  typ must be either [rlAllowlistTypeBackend] or
+// [rlAllowlistTypeConsul].  allowlist must not be nil.
+func (b *builder) newRatelimitAllowlistRefresher(
+	typ string,
+	allowlist *ratelimit.DynamicAllowlist,
+) (r service.Refresher, err error) {
+	mtrc, err := metrics.NewAllowlist(b.mtrcNamespace, b.promRegisterer, typ)
+	if err != nil {
+		return nil, fmt.Errorf("ratelimit metrics: %w", err)
+	}
+
+	if typ == rlAllowlistTypeConsul {
+		return consul.NewAllowlistUpdater(&consul.AllowlistUpdaterConfig{
+			Logger:    b.baseLogger.With(slogutil.KeyPrefix, "ratelimit_allowlist_updater"),
+			Allowlist: allowlist,
+			ConsulURL: &b.env.ConsulAllowlistURL.URL,
+			ErrColl:   b.errColl,
+			Metrics:   mtrc,
+			// TODO(a.garipov):  Make configurable.
+			Timeout: 15 * time.Second,
+		}), nil
+	}
+
+	r, err = backendgrpc.NewRateLimiter(&backendgrpc.RateLimiterConfig{
+		Logger:      b.baseLogger.With(slogutil.KeyPrefix, "backend_ratelimiter"),
+		Metrics:     mtrc,
+		GRPCMetrics: b.backendGRPCMtrc,
+		Allowlist:   allowlist,
+		Endpoint:    &b.env.BackendRateLimitURL.URL,
+		ErrColl:     b.errColl,
+		APIKey:      b.env.BackendRateLimitAPIKey,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("backend ratelimit allowlist: %w", err)
+	}
+
+	return r, nil
 }
 
 // initActiveReqSema initializes the active-request semaphore from the given
@@ -2155,19 +2231,22 @@ func (b *builder) initActiveReqSema(conf *activeReqLimitConfig) {
 	}
 }
 
-// initConnLimit initializes the connection limiter from the given conf.  conf
-// must not be nil.
-func (b *builder) initConnLimit(ctx context.Context, conf *connLimitConfig) (err error) {
+// initConnLimit initializes the connection limiter from the ratelimiting
+// configuration.
+func (b *builder) initConnLimit(ctx context.Context) (err error) {
+	conf := b.conf.RateLimit.ConnectionLimit
 	if !conf.Enabled {
 		return nil
 	}
 
 	mtrc, err := metrics.NewConnLimiter(b.mtrcNamespace, b.promRegisterer)
 	if err != nil {
-		return fmt.Errorf("metrics: %w", err)
+		return fmt.Errorf("connlimiter metrics: %w", err)
 	}
 
 	b.connLimit = connlimiter.New(conf.toInternal(ctx, b.baseLogger, mtrc, b.clock))
+
+	b.logger.DebugContext(ctx, "initialized connection limiter")
 
 	return nil
 }
@@ -2511,6 +2590,7 @@ func (b *builder) mustStartDNS(ctx context.Context) {
 //   - [builder.initRateLimiter]
 //   - [builder.initRuleListStorage]
 //   - [builder.initRuleStat]
+//   - [builder.initRuntimeThreadGC]
 //   - [builder.initWeb]
 func (b *builder) mustInitDebugSvc(ctx context.Context) {
 	debugSvcConf := b.env.debugConf(b.dnsDB, b.baseLogger, b.geoIP, b.clock)

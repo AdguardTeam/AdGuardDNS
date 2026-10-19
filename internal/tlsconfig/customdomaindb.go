@@ -23,6 +23,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/profiledb"
 	"github.com/AdguardTeam/AdGuardDNS/internal/websvc"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/osutil"
@@ -31,13 +32,23 @@ import (
 	"github.com/google/renameio/v2"
 )
 
+// wellKnownPathKey is a composite key for storing well-known path data.
+type wellKnownPathKey struct {
+	// ip is the optional account IP associated with the well-known path.  It is
+	// zero for certificates not bound to a specific destination IP.
+	ip netip.Addr
+
+	// path is a URL path part of the key.
+	path string
+}
+
 // CustomDomainDB is the default local database of custom-domain data.
 type CustomDomainDB struct {
 	logger *slog.Logger
 
 	// wellKnownPathsMu protects wellKnownPathToExpire.
 	wellKnownPathsMu      *sync.RWMutex
-	wellKnownPathToExpire map[string]time.Time
+	wellKnownPathToExpire map[wellKnownPathKey]time.Time
 
 	// customCertsMu protects customCerts.
 	customCertsMu *sync.RWMutex
@@ -84,6 +95,8 @@ type CustomDomainDBConfig struct {
 	// CacheDirPath is the directory where the certificates are cached.  It must
 	// be a valid, non-empty path to a directory.  If the directory doesn't
 	// exist, it is created.
+	//
+	// TODO(d.kolyshev):  Use [os.Root].
 	CacheDirPath string
 
 	// BindPrefixes are the IP prefixes to bound to the custom-domain
@@ -111,7 +124,7 @@ func NewCustomDomainDB(c *CustomDomainDBConfig) (db *CustomDomainDB, err error) 
 		logger: c.Logger,
 
 		wellKnownPathsMu:      &sync.RWMutex{},
-		wellKnownPathToExpire: map[string]time.Time{},
+		wellKnownPathToExpire: map[wellKnownPathKey]time.Time{},
 
 		customCertsMu: &sync.RWMutex{},
 		customCerts:   newCustomDomainIndex(),
@@ -138,9 +151,21 @@ var _ profiledb.CustomDomainDB = (*CustomDomainDB)(nil)
 // for *CustomDomainDB.
 func (db *CustomDomainDB) AddCertificate(
 	ctx context.Context,
-	profID agd.ProfileID,
+	accID agd.AccountID,
 	domains []string,
 	state *agd.CustomDomainStateCurrent,
+) {
+	db.addCertificate(ctx, accID, domains, state, netip.Addr{})
+}
+
+// addCertificate saves information about current certificate to index.  state
+// must not be nil and must be valid.
+func (db *CustomDomainDB) addCertificate(
+	ctx context.Context,
+	accID agd.AccountID,
+	domains []string,
+	state *agd.CustomDomainStateCurrent,
+	accountIP netip.Addr,
 ) {
 	startTime := db.clock.Now()
 	defer func() {
@@ -150,16 +175,17 @@ func (db *CustomDomainDB) AddCertificate(
 		db.customCertsMu.RLock()
 		defer db.customCertsMu.RUnlock()
 
-		db.metrics.SetCurrentCustomDomainsCount(ctx, uint(db.customCerts.currentCount()))
+		// TODO(f.setrakov): Consider using separate counter here.
+		db.metrics.SetCurrentCustomDomainsCount(ctx, db.customCerts.currentCount())
 	}()
 
 	certName := state.CertName
-	l := db.logger.With("cert_name", certName, "prof_id", profID)
+	l := db.logger.With("cert_name", certName, "acc_id", accID)
 
 	if !state.Enabled {
 		l.DebugContext(ctx, "certificate is disabled")
 
-		db.removeCertData(ctx, l, certName, profID, domains, "disabled")
+		db.removeCertData(ctx, l, certName, accID, accountIP, domains, "disabled")
 
 		return
 	}
@@ -167,7 +193,7 @@ func (db *CustomDomainDB) AddCertificate(
 	if startTime.After(state.NotAfter) {
 		l.DebugContext(ctx, "certificate is stale", "not_after", state.NotAfter)
 
-		db.removeCertData(ctx, l, certName, profID, domains, "stale")
+		db.removeCertData(ctx, l, certName, accID, accountIP, domains, "stale")
 
 		return
 	}
@@ -177,16 +203,63 @@ func (db *CustomDomainDB) AddCertificate(
 	db.customCertsMu.Lock()
 	defer db.customCertsMu.Unlock()
 
-	db.customCerts.add(ctx, l, profID, domains, state)
+	db.customCerts.add(ctx, l, accID, domains, state, accountIP)
+}
+
+// AddAccountIPCertificates implements the [profiledb.CustomDomainDB] interface
+// for *CustomDomainDB.
+func (db *CustomDomainDB) AddAccountIPCertificates(
+	ctx context.Context,
+	accID agd.AccountID,
+	ips []*agd.AccountIP,
+) {
+	for _, ip := range ips {
+		for _, domain := range ip.Domains {
+			db.addAccountIPCertificate(ctx, accID, domain, ip)
+		}
+	}
+}
+
+// addAccountIPCertificate adds information about current account IP
+// certificate.  ip and domain must be valid.
+func (db *CustomDomainDB) addAccountIPCertificate(
+	ctx context.Context,
+	accID agd.AccountID,
+	domain *agd.CustomDomainConfig,
+	ip *agd.AccountIP,
+) {
+	switch state := domain.State.(type) {
+	case *agd.CustomDomainStateCurrent:
+		if !ip.Enabled {
+			db.removeCertData(
+				ctx,
+				db.logger,
+				state.CertName,
+				accID,
+				ip.Address,
+				domain.Domains,
+				"disabled",
+			)
+
+			return
+		}
+
+		db.addCertificate(ctx, accID, domain.Domains, state, ip.Address)
+	case *agd.CustomDomainStatePending:
+		db.setWellKnownPath(ctx, state, ip.Address)
+	default:
+		panic(fmt.Errorf("custom domain state: %w: %T(%[2]v)", errors.ErrBadEnumValue, state))
+	}
 }
 
 // removeCertData deletes the certificate data from the index, the manager, and
-// from the filesystem.  Errors are logged and reported to Sentry.
+// from the filesystem.  Errors are logged and reported to db.errColl.
 func (db *CustomDomainDB) removeCertData(
 	ctx context.Context,
 	l *slog.Logger,
 	certName agd.CertificateName,
-	profID agd.ProfileID,
+	accID agd.AccountID,
+	accIP netip.Addr,
 	domains []string,
 	reason string,
 ) {
@@ -194,7 +267,7 @@ func (db *CustomDomainDB) removeCertData(
 		db.customCertsMu.Lock()
 		defer db.customCertsMu.Unlock()
 
-		db.customCerts.remove(ctx, l, certName, profID, domains)
+		db.customCerts.remove(ctx, l, certName, accID, accIP, domains)
 	}()
 
 	var errs []error
@@ -203,8 +276,6 @@ func (db *CustomDomainDB) removeCertData(
 	if err != nil {
 		errs = append(errs, fmt.Errorf("removing from manager: %w", err))
 	}
-
-	l.InfoContext(ctx, "removed from index and manager")
 
 	err = os.Remove(certPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -260,6 +331,15 @@ func (db *CustomDomainDB) DeleteAllWellKnownPaths(ctx context.Context) {
 // SetWellKnownPath implements the [profiledb.CustomDomainDB] interface for
 // *CustomDomainDB.
 func (db *CustomDomainDB) SetWellKnownPath(ctx context.Context, s *agd.CustomDomainStatePending) {
+	db.setWellKnownPath(ctx, s, netip.Addr{})
+}
+
+// setWellKnownPath adds well-known path to index.  s must not be nil.
+func (db *CustomDomainDB) setWellKnownPath(
+	ctx context.Context,
+	s *agd.CustomDomainStatePending,
+	ip netip.Addr,
+) {
 	db.wellKnownPathsMu.Lock()
 	defer db.wellKnownPathsMu.Unlock()
 
@@ -268,16 +348,20 @@ func (db *CustomDomainDB) SetWellKnownPath(ctx context.Context, s *agd.CustomDom
 	}()
 
 	exp, wkPath := s.Expire, s.WellKnownPath
+	key := wellKnownPathKey{
+		ip:   ip,
+		path: wkPath,
+	}
 	if exp.Before(db.clock.Now()) {
 		db.logger.DebugContext(ctx, "well-known path expired", "path", wkPath, "exp", exp)
 
 		// There could be a well-known path before, so remove it.
-		delete(db.wellKnownPathToExpire, wkPath)
+		delete(db.wellKnownPathToExpire, key)
 
 		return
 	}
 
-	db.wellKnownPathToExpire[wkPath] = exp
+	db.wellKnownPathToExpire[key] = exp
 
 	db.logger.DebugContext(ctx, "set well-known path", "path", wkPath, "exp", exp)
 }
@@ -287,7 +371,11 @@ var _ websvc.CertificateValidator = (*CustomDomainDB)(nil)
 
 // IsValidWellKnownRequest implements the [websvc.CertificateValidator]
 // interface for *CustomDomainDB.
-func (db *CustomDomainDB) IsValidWellKnownRequest(ctx context.Context, r *http.Request) (ok bool) {
+func (db *CustomDomainDB) IsValidWellKnownRequest(
+	ctx context.Context,
+	r *http.Request,
+	destinationIP netip.Addr,
+) (ok bool) {
 	if r.TLS != nil || r.Method != http.MethodGet {
 		return false
 	}
@@ -295,14 +383,17 @@ func (db *CustomDomainDB) IsValidWellKnownRequest(ctx context.Context, r *http.R
 	db.wellKnownPathsMu.RLock()
 	defer db.wellKnownPathsMu.RUnlock()
 
-	p := r.URL.Path
-	exp, ok := db.wellKnownPathToExpire[p]
+	key := wellKnownPathKey{
+		ip:   destinationIP,
+		path: r.URL.Path,
+	}
+	exp, ok := db.wellKnownPathToExpire[key]
 	if !ok {
 		return false
 	}
 
 	if exp.Before(db.clock.Now()) {
-		go db.removeWellKnownPath(ctx, p)
+		go db.removeWellKnownPath(ctx, key)
 
 		return false
 	}
@@ -317,15 +408,15 @@ func (db *CustomDomainDB) IsValidWellKnownRequest(ctx context.Context, r *http.R
 // theoretically remove a path after another refresh has added them, but in
 // practice that rarely happens, because refreshes are far apart.  Find a way to
 // properly serialize these events.
-func (db *CustomDomainDB) removeWellKnownPath(ctx context.Context, wkPath string) {
+func (db *CustomDomainDB) removeWellKnownPath(ctx context.Context, key wellKnownPathKey) {
 	defer slogutil.RecoverAndExit(ctx, db.logger, osutil.ExitCodeFailure)
 
 	db.wellKnownPathsMu.Lock()
 	defer db.wellKnownPathsMu.Unlock()
 
-	delete(db.wellKnownPathToExpire, wkPath)
+	delete(db.wellKnownPathToExpire, key)
 
-	db.logger.DebugContext(ctx, "deleted well-known path", "path", wkPath)
+	db.logger.DebugContext(ctx, "deleted well-known path", "path", key.path)
 }
 
 // type check
@@ -335,7 +426,7 @@ var _ dnssvc.CustomDomainDB = (*CustomDomainDB)(nil)
 func (db *CustomDomainDB) Match(
 	ctx context.Context,
 	cliSrvName string,
-) (matchedDomain string, profIDs []agd.ProfileID) {
+) (matchedDomain string, accID agd.AccountID, accIP netip.Addr) {
 	startTime := db.clock.Now()
 	defer func() {
 		const op = CustomDomainDBMetricsOpMatch
@@ -559,8 +650,9 @@ func (db *CustomDomainDB) certDataToPEM(
 	return certsPEM, keyPEM, nil
 }
 
-// needsRefresh returns true if the certificate data is already on the
-// filesystem.  Errors are logged and reported to Sentry.
+// needsRefresh returns true if the certificate data is not already on the
+// filesystem and thus needs a refresh.  Errors are logged and reported to
+// db.errColl.
 func (db *CustomDomainDB) needsRefresh(
 	ctx context.Context,
 	certName agd.CertificateName,
@@ -626,9 +718,9 @@ func (db *CustomDomainDB) addRetry(
 func (db *CustomDomainDB) removeStaleCerts(ctx context.Context, now time.Time) {
 	staleItems := db.staleIndexItems(now)
 	for _, it := range staleItems {
-		l := db.logger.With("cert_name", it.certName, "prof_id", it.profileID)
+		l := db.logger.With("cert_name", it.certName, "acc_id", it.accountID)
 		domains := []string{it.domain}
-		db.removeCertData(ctx, l, it.certName, it.profileID, domains, "refresh_gc")
+		db.removeCertData(ctx, l, it.certName, it.accountID, it.accountIP, domains, "refresh_gc")
 	}
 }
 
@@ -693,8 +785,20 @@ func (db *CustomDomainDB) performRetries(
 
 // bind binds the certificate with certName name to the configured prefixes.
 func (db *CustomDomainDB) bind(ctx context.Context, certName agd.CertificateName) (err error) {
+	var bindPrefixes []netip.Prefix
+	func() {
+		db.customCertsMu.RLock()
+		defer db.customCertsMu.RUnlock()
+
+		bindPrefixes = db.customCerts.accountIPPrefixes[certName].values()
+	}()
+
+	if len(bindPrefixes) == 0 {
+		bindPrefixes = db.bindPrefixes
+	}
+
 	var errs []error
-	for _, pref := range db.bindPrefixes {
+	for _, pref := range bindPrefixes {
 		err = db.manager.Bind(ctx, certName, pref)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("binding cert %q: %w", certName, err))
@@ -707,4 +811,23 @@ func (db *CustomDomainDB) bind(ctx context.Context, certName agd.CertificateName
 	}
 
 	return nil
+}
+
+// CertFiles returns all certificates and keys file names of db.
+func (db *CustomDomainDB) CertFiles() (fileNames *container.SortedSliceSet[string]) {
+	db.customCertsMu.RLock()
+	defer db.customCertsMu.RUnlock()
+
+	certs := db.customCerts.collectCertNames()
+	names := make([]string, 0, 2*certs.Len())
+
+	for certName := range certs.Range {
+		names = append(
+			names,
+			string(certName+CustomDomainCertExt),
+			string(certName+CustomDomainKeyExt),
+		)
+	}
+
+	return container.NewSortedSliceSet(names...)
 }

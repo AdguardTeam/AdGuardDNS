@@ -9,7 +9,9 @@ import (
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agd"
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdtest"
+	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/testutil/sentrytest"
@@ -52,8 +54,18 @@ func TestSentryErrorCollector(t *testing.T) {
 	ctx := context.Background()
 	ctx = agd.ContextWithRequestInfo(ctx, &agd.RequestInfo{
 		DeviceResult: &agd.DeviceResultOK{
-			Device:  &agd.Device{ID: devID},
-			Profile: &agd.Profile{ID: profID},
+			Device: &agd.Device{ID: devID},
+			Profile: &agd.Profile{
+				ID:                       profID,
+				AccountIPConfig:          &agd.AccountIPConfig{},
+				CustomDomains:            &agd.AccountCustomDomains{},
+				AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
+				BlockingMode:             &dnsmsg.BlockingModeNullIP{},
+				SafeBrowsingBlockingMode: &dnsmsg.BlockingModeNullIP{},
+				AccountID:                123,
+				DeviceIDs:                container.NewMapSet(agd.DeviceID(devID)),
+				Deleted:                  false,
+			},
 		},
 		FilteringGroup: &agd.FilteringGroup{ID: fltGrpID},
 		Messages:       agdtest.NewConstructor(t),

@@ -22,5 +22,5 @@ var _ Metrics = EmptyMetrics{}
 // SetSize implements the [Metrics] interface for EmptyMetrics.
 func (EmptyMetrics) SetSize(_ context.Context, _ int) {}
 
-// SetStatus plements the [Metrics] interface for EmptyMetrics.
+// SetStatus implements the [Metrics] interface for EmptyMetrics.
 func (EmptyMetrics) SetStatus(_ context.Context, _ error) {}

@@ -79,6 +79,12 @@ type ConfigHTTPS struct {
 	// must be valid.
 	Base *ConfigBase
 
+	// ListenConfigUDP is the listen configuration for UDP.  If it is nil, then
+	// [ConfigBase.ListenConfig] is used.
+	//
+	// TODO(a.garipov):  Remove if proven unnecessary.
+	ListenConfigUDP netext.ListenConfig
+
 	// MaxStreamsPerPeer is the maximum number of concurrent streams that a peer
 	// is allowed to open.  If not set, 100 is used.
 	MaxStreamsPerPeer int
@@ -115,6 +121,8 @@ type ServerHTTPS struct {
 
 	nonDNSHandler http.Handler
 
+	listenConfigUDP netext.ListenConfig
+
 	maxStreamsPerPeer int
 
 	quicLimitsEnabled bool
@@ -128,10 +136,11 @@ func NewServerHTTPS(c *ConfigHTTPS) (s *ServerHTTPS) {
 	c.Base.ListenConfig = cmp.Or(c.Base.ListenConfig, netext.DefaultListenConfig(nil))
 
 	return &ServerHTTPS{
-		ServerBase:     newServerBase(ProtoDoH, c.Base),
-		tlsConfDefault: c.TLSConfDefault,
-		tlsConfH3:      c.TLSConfH3,
-		nonDNSHandler:  c.NonDNSHandler,
+		ServerBase:      newServerBase(ProtoDoH, c.Base),
+		tlsConfDefault:  c.TLSConfDefault,
+		tlsConfH3:       c.TLSConfH3,
+		nonDNSHandler:   c.NonDNSHandler,
+		listenConfigUDP: c.ListenConfigUDP,
 		// NOTE:  100 is the current default in package quic, but set it
 		// explicitly in case that changes in the future.
 		maxStreamsPerPeer: cmp.Or(c.MaxStreamsPerPeer, 100),
@@ -216,8 +225,7 @@ func (s *ServerHTTPS) startHTTPSServer(ctx context.Context) (err error) {
 
 	// Prepare and run the HTTP server.
 	handler := &httpHandler{
-		srv:       s,
-		localAddr: s.tcpListener.Addr(),
+		srv: s,
 	}
 
 	// Create an instance of the HTTP server.
@@ -256,8 +264,7 @@ func (s *ServerHTTPS) startH3Server(ctx context.Context) (err error) {
 
 	// Prepare and run the HTTP/3 server.
 	handler := &httpHandler{
-		srv:       s,
-		localAddr: s.quicListener.Addr(),
+		srv: s,
 	}
 
 	// Create an instance of the HTTP/3 server.
@@ -302,10 +309,12 @@ func (s *ServerHTTPS) shutdown(ctx context.Context) (err error) {
 		}
 	}
 
-	// Second, shutdown the HTTP server.
-	err = s.httpServer.Shutdown(ctx)
-	if err != nil {
-		s.baseLogger.WarnContext(ctx, "shutting down http server", slogutil.KeyError, err)
+	// Second, shutdown the HTTP server, if any.
+	if s.httpServer != nil {
+		err = s.httpServer.Shutdown(ctx)
+		if err != nil {
+			s.baseLogger.WarnContext(ctx, "shutting down http server", slogutil.KeyError, err)
+		}
 	}
 
 	// Finally, shutdown the HTTP/3 server.
@@ -377,13 +386,12 @@ func (s *ServerHTTPS) serveH3(ctx context.Context, hs *http3.Server, ql *quic.Ea
 	}
 }
 
-// httpHandler is a helper structure that implements [http.Handler] and holds
-// pointers to ServerHTTPS and net.Addr.
+// httpHandler is a helper structure that implements [http.Handler] and holds a
+// pointer to ServerHTTPS.
 //
 // TODO(a.garipov):  Think of ways of using [httputil.LogMiddleware] with this.
 type httpHandler struct {
-	srv       *ServerHTTPS
-	localAddr net.Addr
+	srv *ServerHTTPS
 }
 
 // type check
@@ -394,7 +402,12 @@ var _ http.Handler = (*httpHandler)(nil)
 // TODO(a.garipov): Add trusted proxies and real IP extraction logic.  Perhaps
 // just copy from module dnsproxy if that one fits.  Also, perhaps make that
 // logic pluggable and put it into a new package in module golibs.
-func (h *httpHandler) remoteAddr(r *http.Request) (addr net.Addr) {
+func (h *httpHandler) remoteAddr(ctx context.Context, r *http.Request) (addr net.Addr) {
+	rAddrVal := ctx.Value(http3.RemoteAddrContextKey)
+	if rAddrVal != nil {
+		return rAddrVal.(net.Addr)
+	}
+
 	// Consider that the http.Request.RemoteAddr documentation is correct and
 	// that it is always a valid ip:port value.  Panic if it isn't so.
 	ipStr, port, err := netutil.SplitHostPort(r.RemoteAddr)
@@ -405,11 +418,6 @@ func (h *httpHandler) remoteAddr(r *http.Request) (addr net.Addr) {
 	ip, err := netutil.ParseIP(ipStr)
 	if err != nil {
 		panic(fmt.Sprintf("failed to parse IP %s: %v", ipStr, err))
-	}
-
-	if NetworkFromAddr(h.localAddr) == NetworkUDP {
-		// This means that we're extracting remoteAddr from an HTTP/3 request.
-		return &net.UDPAddr{IP: ip, Port: int(port)}
 	}
 
 	return &net.TCPAddr{IP: ip, Port: int(port)}
@@ -455,12 +463,19 @@ func (h *httpHandler) serveDoH(ctx context.Context, w http.ResponseWriter, r *ht
 		return
 	}
 
-	rAddr := h.remoteAddr(r)
-	rw := NewNonWriterResponseWriter(h.localAddr, rAddr)
-	lAddrPort := netutil.NetAddrToAddrPort(h.localAddr)
+	var lAddr net.Addr
+	rAddr := h.remoteAddr(ctx, r)
+	if g, ok := rAddr.(netext.PacketSessionGetter); ok {
+		lAddr = g.PacketSession().LocalAddr()
+	} else {
+		lAddr = ctx.Value(http.LocalAddrContextKey).(net.Addr)
+	}
+
+	rw := NewNonWriterResponseWriter(lAddr, rAddr)
+	lAddrPort := netutil.NetAddrToAddrPort(lAddr)
 	rAddrPort := netutil.NetAddrToAddrPort(rAddr)
 
-	h.srv.messageTap.TapRequest(ctx, lAddrPort, rAddrPort, buf)
+	h.srv.messageTap.TapRequest(ctx, h.srv.clock.Now(), lAddrPort, rAddrPort, buf)
 
 	ctx = h.srv.addRequestInfo(ctx, r)
 
@@ -498,7 +513,7 @@ func (h *httpHandler) serveDoH(ctx context.Context, w http.ResponseWriter, r *ht
 		return
 	}
 
-	h.srv.messageTap.TapResponse(ctx, lAddrPort, rAddrPort, buf)
+	h.srv.messageTap.TapResponse(ctx, h.srv.clock.Now(), lAddrPort, rAddrPort, buf)
 	err = h.writeResponse(buf, ct, resp, w)
 	if err != nil {
 		// Try writing an error response just in case.
@@ -587,7 +602,8 @@ func (s *ServerHTTPS) listenQUIC(ctx context.Context) (err error) {
 	// Prepare the TLS configuration of the server.
 	tlsConf := s.tlsConfH3
 
-	conn, err := s.listenConfig.ListenPacket(ctx, "udp", s.addr)
+	lc := cmp.Or(s.listenConfigUDP, s.listenConfig)
+	conn, err := lc.ListenPacket(ctx, "udp", s.addr)
 	if err != nil {
 		return fmt.Errorf("listening udp for quic: %w", err)
 	}
@@ -620,7 +636,7 @@ func (s *ServerHTTPS) addRequestInfo(
 
 	ri := &RequestInfo{
 		TLS:       r.TLS,
-		URL:       netutil.CloneURL(r.URL),
+		URL:       r.URL.Clone(),
 		StartTime: s.clock.Now(),
 	}
 

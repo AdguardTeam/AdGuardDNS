@@ -157,11 +157,9 @@ func httpRequestToMsgJSON(httpReq *http.Request) (b []byte, err error) {
 
 	// Now build a DNS message with all those parameters
 	req := &dns.Msg{
-		MsgHdr: dns.MsgHdr{
-			Id:               dns.Id(),
-			CheckingDisabled: cd,
-			RecursionDesired: true,
-		},
+		Id:               dns.Id(),
+		CheckingDisabled: cd,
+		RecursionDesired: true,
 		Question: []dns.Question{{
 			Name:   dns.Fqdn(name),
 			Qtype:  qt,

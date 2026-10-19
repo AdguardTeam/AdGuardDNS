@@ -22,14 +22,19 @@ var _ net.Addr = (*PrefixNetAddr)(nil)
 // is done to make using the IP:port part easier to split off using functions
 // like [strings.Cut].
 func (addr *PrefixNetAddr) String() (n string) {
-	p := addr.Prefix
-	addrPort := netip.AddrPortFrom(p.Addr(), addr.Port)
-	if p.IsSingleIP() {
+	addrPort := addr.AddrPort()
+	if addr.Prefix.IsSingleIP() {
 		return addrPort.String()
 	}
 
-	return fmt.Sprintf("%s/%d", addrPort, p.Bits())
+	return fmt.Sprintf("%s/%d", addrPort, addr.Prefix.Bits())
 }
 
 // Network implements the [net.Addr] interface for *PrefixNetAddr.
 func (addr *PrefixNetAddr) Network() (n string) { return addr.Net }
+
+// AddrPort returns the PrefixNetAddr as a [netip.AddrPort] with Addr equal to
+// [PrefixNetAddr.Prefix] addr and port equal to [PrefixNetAddr.Port].
+func (addr *PrefixNetAddr) AddrPort() (addrPort netip.AddrPort) {
+	return netip.AddrPortFrom(addr.Prefix.Addr(), addr.Port)
+}

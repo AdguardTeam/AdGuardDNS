@@ -9,7 +9,6 @@ import (
 	"os"
 	"sync"
 
-	"github.com/AdguardTeam/AdGuardDNS/internal/agdslog"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/messagetap"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/contextutil"
@@ -309,7 +308,7 @@ func (s *ServerBase) newAttrsSlicePtr(req *dns.Msg, raddr fmt.Stringer) (attrsPt
 	qName, qType := questionData(req)
 	attrs[0] = slog.String("qname", qName)
 	attrs[1] = slog.String("qtype", qType)
-	attrs[2] = slog.Any("raddr", agdslog.NewStringerValuer(raddr))
+	attrs[2] = slog.Any("raddr", slogutil.NewStringerLogValuer(raddr))
 	attrs[3] = slog.Uint64("req_id", uint64(req.Id))
 
 	return attrsPtr

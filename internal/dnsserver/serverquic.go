@@ -9,12 +9,14 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/syncutil"
 	"github.com/bluele/gcache"
 	"github.com/miekg/dns"
@@ -382,12 +384,13 @@ func (s *ServerQUIC) serveQUICStream(
 	ctx, cancel := s.newContextForQUICReq(parent, conn)
 	defer func() { callOnError(cancel, recover(), err) }()
 
-	req, err := s.readQUICMsg(ctx, conn, stream)
+	laddr, raddr := addressesFromQUICConn(conn)
+	req, err := s.readQUICMsg(ctx, stream, laddr, raddr)
 	if err != nil {
 		return DOQCodeProtocolError, fmt.Errorf("reading quic message: %w", err)
 	}
 
-	rw := s.newQUICRW(conn, stream)
+	rw := s.newQUICRW(conn, stream, laddr, raddr)
 	err = s.acquireSema(ctx, s.activeRequestsSema, req, rw, errMsgActiveReqSema)
 	if err != nil {
 		// Don't return the error to not close the connection.
@@ -432,6 +435,23 @@ func (s *ServerQUIC) newContextForQUICReq(
 	return ctx, cancel
 }
 
+// addressesFromQUICConn returns the local and remote addresses either from the
+// packet session, if one can be obtained from the remote address, or from the
+// connection itself.
+//
+// This kind of original solution is necessary when working with
+// SO_BINDTODEVICE.
+func addressesFromQUICConn(c *quic.Conn) (laddr, raddr net.Addr) {
+	g, ok := c.RemoteAddr().(netext.PacketSessionGetter)
+	if !ok {
+		return c.LocalAddr(), c.RemoteAddr()
+	}
+
+	s := g.PacketSession()
+
+	return s.LocalAddr(), s.RemoteAddr()
+}
+
 // quicReadError is returned from [ServerQUIC.readQUICMsg].
 //
 // TODO(a.garipov):  Improve error handling and consider removing this.
@@ -460,8 +480,9 @@ func (err *quicReadError) Unwrap() (unwrapped error) {
 // All arguments must not be nil.
 func (s *ServerQUIC) readQUICMsg(
 	ctx context.Context,
-	conn *quic.Conn,
 	stream *quic.Stream,
+	laddr net.Addr,
+	raddr net.Addr,
 ) (req *dns.Msg, err error) {
 	defer func() {
 		if err != nil {
@@ -506,7 +527,7 @@ func (s *ServerQUIC) readQUICMsg(
 	// #nosec G115 -- n has already been checked against DNSHeaderSize.
 	wantLen := uint16(n - 2)
 	if packetLen == wantLen {
-		tapRequest(ctx, s.messageTap, conn.LocalAddr(), conn.RemoteAddr(), buf[2:])
+		tapRequest(ctx, s.clock.Now(), s.messageTap, laddr, raddr, buf[2:])
 
 		err = req.Unpack(buf[2:])
 	} else {
@@ -556,9 +577,17 @@ func readAll(r io.Reader, buf []byte) (n int, err error) {
 
 // newQUICRW returns a new QUIC response writer for a request.  All arguments
 // must not be nil.
-func (s *ServerQUIC) newQUICRW(conn *quic.Conn, stream *quic.Stream) (rw *quicResponseWriter) {
+func (s *ServerQUIC) newQUICRW(
+	conn *quic.Conn,
+	stream *quic.Stream,
+	laddr net.Addr,
+	raddr net.Addr,
+) (rw *quicResponseWriter) {
 	return &quicResponseWriter{
+		clock:      s.clock,
 		messageTap: s.messageTap,
+		laddr:      laddr,
+		raddr:      raddr,
 		respPool:   s.respPool,
 		conn:       conn,
 		stream:     stream,
@@ -741,18 +770,15 @@ func newQUICAddrValidator(
 //
 // TODO(ameshkov): consider caddy-like implementation here.
 func (v *quicAddrValidator) requiresValidation(addr net.Addr) (ok bool) {
-	udpAddr, ok := addr.(*net.UDPAddr)
-	if !ok {
+	addrPort := netutil.NetAddrToAddrPort(addr)
+	if addrPort == (netip.AddrPort{}) {
 		// Report this as an error as this is not the expected behavior here.
-		v.metrics.OnError(
-			context.Background(),
-			fmt.Errorf("not a udp address: %v", addr),
-		)
+		v.metrics.OnError(context.Background(), fmt.Errorf("unexpected address: %T(%[1]v)", addr))
 
 		return false
 	}
 
-	key := udpAddr.IP.String()
+	key := addrPort.Addr().String()
 	if v.cache.Has(key) {
 		v.metrics.OnQUICAddressValidation(true)
 

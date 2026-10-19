@@ -113,33 +113,6 @@ func (c *rateLimitConfig) toInternal(
 	}
 }
 
-// type check
-var _ validate.Interface = (*rateLimitConfig)(nil)
-
-// Validate implements the [validate.Interface] interface for *rateLimitConfig.
-func (c *rateLimitConfig) Validate() (err error) {
-	if c == nil {
-		return errors.ErrNoValue
-	}
-
-	errs := []error{
-		validate.Positive("backoff_count", c.BackoffCount),
-		validate.Positive("backoff_duration", c.BackoffDuration),
-		validate.Positive("backoff_period", c.BackoffPeriod),
-		validate.Positive("response_size_estimate", c.ResponseSizeEstimate),
-	}
-
-	errs = validate.Append(errs, "active_request_limit", c.ActiveRequestLimit)
-	errs = validate.Append(errs, "allowlist", c.Allowlist)
-	errs = validate.Append(errs, "connection_limit", c.ConnectionLimit)
-	errs = validate.Append(errs, "ipv4", c.IPv4)
-	errs = validate.Append(errs, "ipv6", c.IPv6)
-	errs = validate.Append(errs, "quic", c.QUIC)
-	errs = validate.Append(errs, "tcp", c.TCP)
-
-	return errors.Join(errs...)
-}
-
 // allowListConfig is the consul allow list configuration.
 type allowListConfig struct {
 	// List contains IPs and CIDRs.
@@ -153,6 +126,7 @@ type allowListConfig struct {
 const (
 	rlAllowlistTypeBackend = "backend"
 	rlAllowlistTypeConsul  = "consul"
+	rlAllowlistTypeOff     = "off"
 )
 
 // type check

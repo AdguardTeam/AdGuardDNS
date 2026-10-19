@@ -116,7 +116,13 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 	loc, err := agdtime.LoadLocation("Europe/Brussels")
 	require.NoError(tb, err)
 
-	const schedEnd = 701
+	ivls := filter.DayIntervals{{
+		Start: 0,
+		End:   60,
+	}, {
+		Start: 12 * 60,
+		End:   13 * 60,
+	}}
 
 	parental := &filter.ConfigParental{
 		Categories: &filter.ConfigCategories{
@@ -125,11 +131,11 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 		},
 		PauseSchedule: &filter.ConfigSchedule{
 			Week: &filter.WeeklySchedule{
-				time.Monday:    filter.DayIntervals{{Start: 0, End: schedEnd}},
-				time.Tuesday:   filter.DayIntervals{{Start: 0, End: schedEnd}},
-				time.Wednesday: filter.DayIntervals{{Start: 0, End: schedEnd}},
-				time.Thursday:  filter.DayIntervals{{Start: 0, End: schedEnd}},
-				time.Friday:    filter.DayIntervals{{Start: 0, End: schedEnd}},
+				time.Monday:    ivls,
+				time.Tuesday:   ivls,
+				time.Wednesday: ivls,
+				time.Thursday:  ivls,
+				time.Friday:    ivls,
 				time.Saturday:  nil,
 				time.Sunday:    nil,
 			},
@@ -163,6 +169,15 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 		Enabled: true,
 	}
 
+	accountIPs := &agd.AccountIPConfig{
+		Enabled: true,
+		IPs: []*agd.AccountIP{{
+			Address: netip.MustParseAddr("192.0.2.0"),
+			Enabled: true,
+			Domains: customDomains.Domains,
+		}},
+	}
+
 	customFltConf := &custom.Config{
 		Logger: Logger,
 		Rules:  []filter.RuleText{"|blocked-by-custom.example^"},
@@ -179,7 +194,8 @@ func NewProfile(tb testing.TB) (p *agd.Profile, d *agd.Device) {
 	dev := NewDevice(tb, DeviceID, "dev1")
 
 	return &agd.Profile{
-		CustomDomains: customDomains,
+		AccountIPConfig: accountIPs,
+		CustomDomains:   customDomains,
 		FilterConfig: &filter.ConfigClient{
 			CustomFilter: &filter.ConfigCustomFilter{
 				Filter:  custom.New(customFltConf),

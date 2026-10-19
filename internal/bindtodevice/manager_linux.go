@@ -3,6 +3,7 @@
 package bindtodevice
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -13,7 +14,7 @@ import (
 	"sync"
 
 	"github.com/AdguardTeam/AdGuardDNS/internal/agdnet"
-	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver/netext"
+	"github.com/AdguardTeam/AdGuardDNS/internal/connlimiter"
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/service"
@@ -29,10 +30,20 @@ type Manager struct {
 	interfaces     InterfaceStorage
 	closeOnce      *sync.Once
 	ifaceListeners map[ID]*interfaceListener
+	listenConfigs  map[lcKey]*ListenConfig
 	errColl        errcoll.Interface
 	metrics        Metrics
 	done           chan unit
 	chanBufSize    int
+}
+
+// lcKey is the unique key by which [*ListenConfig] instances are identified.
+type lcKey struct {
+	// ID is the interface-listener ID.
+	id ID
+
+	// subnet is the subnet being listened.
+	subnet netip.Prefix
 }
 
 // NewManager returns a new manager of interface listeners.
@@ -43,6 +54,7 @@ func NewManager(c *ManagerConfig) (m *Manager) {
 		interfaces:     c.InterfaceStorage,
 		closeOnce:      &sync.Once{},
 		ifaceListeners: map[ID]*interfaceListener{},
+		listenConfigs:  map[lcKey]*ListenConfig{},
 		errColl:        c.ErrColl,
 		metrics:        c.Metrics,
 		done:           make(chan unit),
@@ -61,7 +73,13 @@ var defaultCtrlConf = &ControlConfig{
 // configuration is used.
 //
 // Add must not be called after Start is called.
-func (m *Manager) Add(id ID, ifaceName string, port uint16, ctrlConf *ControlConfig) (err error) {
+func (m *Manager) Add(
+	id ID,
+	ifaceName string,
+	port uint16,
+	ctrlConf *ControlConfig,
+	limiter *connlimiter.Limiter,
+) (err error) {
 	defer func() { err = errors.Annotate(err, "adding interface listener with id %q: %w", id) }()
 
 	_, err = m.interfaces.InterfaceByName(ifaceName)
@@ -91,12 +109,17 @@ func (m *Manager) Add(id ID, ifaceName string, port uint16, ctrlConf *ControlCon
 		}
 	}
 
-	if ctrlConf == nil {
-		ctrlConf = defaultCtrlConf
-	}
+	ctrlConf = cmp.Or(ctrlConf, defaultCtrlConf)
 
 	// TODO(a.garipov): Consider customization of body sizes.
-	m.ifaceListeners[id] = m.newInterfaceListener(ctrlConf, ifaceName, dns.DefaultMsgSize, port)
+	m.ifaceListeners[id] = m.newInterfaceListener(
+		ctrlConf,
+		limiter,
+		id,
+		ifaceName,
+		dns.DefaultMsgSize,
+		port,
+	)
 
 	return nil
 }
@@ -105,32 +128,57 @@ func (m *Manager) Add(id ID, ifaceName string, port uint16, ctrlConf *ControlCon
 // for this manager.
 func (m *Manager) newInterfaceListener(
 	ctrlConf *ControlConfig,
+	limiter *connlimiter.Limiter,
+	id ID,
 	ifaceName string,
 	bodySize int,
 	port uint16,
 ) (l *interfaceListener) {
 	return &interfaceListener{
-		logger:        m.logger.With("iface", ifaceName, "port", port),
-		clock:         m.clock,
-		conns:         &connIndex{},
-		listenConf:    newListenConfig(ifaceName, ctrlConf),
+		logger:     m.logger.With("iface", ifaceName, "port", port),
+		clock:      m.clock,
+		conns:      &connIndex{},
+		limiter:    limiter,
+		listenConf: newListenConfig(ifaceName, ctrlConf),
+		reqPool: syncutil.NewPool(func() (v *packetConnWriteReq) {
+			return &packetConnWriteReq{}
+		}),
+		respPool: syncutil.NewPool(func() (v *packetConnWriteResp) {
+			return &packetConnWriteResp{}
+		}),
 		bodyPool:      syncutil.NewSlicePool[byte](bodySize),
-		oobPool:       syncutil.NewSlicePool[byte](netext.IPDstOOBSize),
+		oobPool:       syncutil.NewSlicePool[byte](IPDstOOBSize),
 		writeRequests: make(chan *packetConnWriteReq, m.chanBufSize),
 		done:          m.done,
 		errColl:       m.errColl,
 		metrics:       m.metrics,
+		id:            id,
 		ifaceName:     ifaceName,
 		port:          port,
 	}
 }
 
-// ListenConfig returns a new *ListenConfig that receives connections from the
+// ListenConfig returns a *ListenConfig that receives connections from the
 // interface listener with the given id and the destination addresses of which
 // fall within subnet.  subnet should be masked.
 //
 // ListenConfig must not be called after Start is called.
+//
+// TODO(a.garipov):  Add a distinction by network and remove the crutch with
+// returning the existing listen config on duplication.
 func (m *Manager) ListenConfig(id ID, subnet netip.Prefix) (c *ListenConfig, err error) {
+	k := lcKey{
+		id:     id,
+		subnet: subnet,
+	}
+	c, ok := m.listenConfigs[k]
+	if ok {
+		// TODO(a.garipov):  Add context ot the arguments.
+		m.logger.WarnContext(context.TODO(), "listen config exists", "id", id, "subnet", subnet)
+
+		return c, nil
+	}
+
 	defer func() {
 		err = errors.Annotate(
 			err,
@@ -146,10 +194,29 @@ func (m *Manager) ListenConfig(id ID, subnet netip.Prefix) (c *ListenConfig, err
 
 	err = m.validateIfaceSubnet(l.ifaceName, subnet)
 	if err != nil {
-		// Don't wrap the error, because it's informative enough as is.
+		// Don't wrap the error, because it's informative enough as is, and
+		// there is already errors.Annotate here.
 		return nil, err
 	}
 
+	c, err = m.newListenConfigForSubnet(l, subnet)
+	if err != nil {
+		// Don't wrap the error, because it's informative enough as is, and
+		// there is already errors.Annotate here.
+		return nil, err
+	}
+
+	m.listenConfigs[k] = c
+
+	return c, nil
+}
+
+// newListenConfigForSubnet returns a new *ListenConfig registered on the given
+// interface listener.  l must not be nil.
+func (m *Manager) newListenConfigForSubnet(
+	l *interfaceListener,
+	subnet netip.Prefix,
+) (c *ListenConfig, err error) {
 	lsnrCh := make(chan net.Conn, m.chanBufSize)
 	lsnr := newChanListener(m.metrics, lsnrCh, subnet, &agdnet.PrefixNetAddr{
 		Prefix: subnet,
@@ -166,9 +233,12 @@ func (m *Manager) ListenConfig(id ID, subnet netip.Prefix) (c *ListenConfig, err
 	pConn := newChanPacketConn(
 		m.metrics,
 		sessCh,
+		l.respPool,
+		l.reqPool,
+		l.bodyPool,
 		subnet,
 		l.writeRequests,
-		l.ifaceName,
+		l.id,
 		&agdnet.PrefixNetAddr{
 			Prefix: subnet,
 			Net:    "udp",
@@ -178,8 +248,8 @@ func (m *Manager) ListenConfig(id ID, subnet netip.Prefix) (c *ListenConfig, err
 
 	err = l.conns.addPacketConn(pConn)
 	if err != nil {
-		// Technically shouldn't happen, since [chanIndex.addListenerChannel]
-		// has already checked for duplicates.
+		l.conns.delListener(lsnr)
+
 		return nil, fmt.Errorf("adding udp conn: %w", err)
 	}
 

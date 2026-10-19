@@ -11,8 +11,13 @@ import (
 // testTimeout is the common timeout for tests.
 const testTimeout = 1 * time.Second
 
-// testLogger is the common logger for tests.
-var testLogger = slogutil.NewDiscardLogger()
+var (
+	// testDate is a common date for tests.
+	testDate = time.Date(2026, time.January, 1, 12, 0, 0, 0, time.FixedZone("test", 0))
+
+	// testLogger is the common logger for tests.
+	testLogger = slogutil.NewDiscardLogger()
+)
 
 // testTapper is a test implementation of the [messagetap.Tapper] interface.
 type testTapper struct {

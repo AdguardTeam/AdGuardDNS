@@ -15,7 +15,6 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/errcoll"
 	"github.com/AdguardTeam/AdGuardDNS/internal/filter"
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/requestid"
 	"github.com/AdguardTeam/golibs/service"
 )
@@ -67,7 +66,7 @@ type HTTPConfig struct {
 func NewHTTP(c *HTTPConfig) (s *HTTP) {
 	return &HTTP{
 		logger: c.Logger,
-		url:    netutil.CloneURL(c.URL),
+		url:    c.URL.Clone(),
 		http: agdhttp.NewClient(&agdhttp.ClientConfig{
 			// TODO(ameshkov): Consider making configurable.
 			Timeout: 30 * time.Second,

@@ -19,6 +19,7 @@ import (
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsmsg"
 	"github.com/AdguardTeam/AdGuardDNS/internal/dnsserver"
 	"github.com/AdguardTeam/AdGuardDNS/internal/remotekv"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil/urlutil"
 	"github.com/miekg/dns"
@@ -68,6 +69,20 @@ func TestConsul_ServeHTTP(t *testing.T) {
 		},
 	})
 
+	devID := agd.DeviceID(theOnlyVal["device_id"].(string))
+	profID := agd.ProfileID(theOnlyVal["profile_id"].(string))
+
+	prof := &agd.Profile{
+		AccountIPConfig:          &agd.AccountIPConfig{},
+		CustomDomains:            &agd.AccountCustomDomains{},
+		AdultBlockingMode:        &dnsmsg.BlockingModeNullIP{},
+		BlockingMode:             &dnsmsg.BlockingModeNullIP{},
+		SafeBrowsingBlockingMode: &dnsmsg.BlockingModeNullIP{},
+		ID:                       profID,
+		DeviceIDs:                container.NewMapSet(devID),
+		AutoDevicesEnabled:       true,
+	}
+
 	var resp *dns.Msg
 	resp, err := dnsCk.Check(
 		ctx,
@@ -78,8 +93,8 @@ func TestConsul_ServeHTTP(t *testing.T) {
 		},
 		&agd.RequestInfo{
 			DeviceResult: &agd.DeviceResultOK{
-				Device:  &agd.Device{ID: agd.DeviceID(theOnlyVal["device_id"].(string))},
-				Profile: &agd.Profile{ID: agd.ProfileID(theOnlyVal["profile_id"].(string))},
+				Device:  &agd.Device{ID: devID},
+				Profile: prof,
 			},
 			ServerInfo: &agd.RequestServerInfo{
 				GroupName:       agd.ServerGroupName(theOnlyVal["server_group_name"].(string)),
